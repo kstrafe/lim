@@ -20,19 +20,19 @@
       (#return second))
     (#return 5u64))))
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let first Work-poll-result (#call work-poll (: task (#call work (: choice choice)) : waker waker)))
-  (#let-else (work-pending after-condition) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task after-condition : waker waker)))
+  (#let first Work::Poll (#call Work::poll (: task (#call work (: choice choice)) : waker waker)))
+  (#let-else (Work::Pending after-condition) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task after-condition : waker waker)))
   (#return (#match second
-    (#case (work-ready value) value)
-    (#case (work-pending after-first)
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending after-first)
       (#block
-        (#let third Work-poll-result (#call work-poll (: task after-first : waker waker)))
-        (#let-else (work-pending after-second) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task after-second : waker waker)))
+        (#let third Work::Poll (#call Work::poll (: task after-first : waker waker)))
+        (#let-else (Work::Pending after-second) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task after-second : waker waker)))
         (#match fourth
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let chosen #u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))

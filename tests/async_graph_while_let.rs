@@ -28,7 +28,7 @@ fn run(source: &str, expected: i32) {
         let artifact = fs::read_dir(&output)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn work-poll "))
+            .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
         let invocation = lim::parse(source)
             .unwrap()

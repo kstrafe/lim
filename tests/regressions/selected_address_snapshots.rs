@@ -22,13 +22,13 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
           : function (#fn work (: seed #u64) #u64 {body})))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work (: seed 42u64)))
-          (#let first Work-poll-result
-            (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) Work-poll-result first (#unreachable))
-          (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-            (#case (work-ready result) result)
-            (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
+          (#let-mut task Work::Frame (#call work (: seed 42u64)))
+          (#let first Work::Poll
+            (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+          (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+            (#case (Work::Ready result) result)
+            (#case (Work::Pending pending) (#block (#forget pending) (#unreachable)))))
           (#forget task) (#return answer))
         "#
     );
@@ -37,7 +37,7 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
     } else {
         source
             .replace("@#async-fn-pinned", "@#async-fn")
-            .replace("(#let-mut task Work-frame", "(#let task Work-task")
+            .replace("(#let-mut task Work::Frame", "(#let task Work::Task")
             .replace("(#pin-borrow-mut task)", "task")
             .replace("(#forget task) (#return answer)", "(#return answer)")
     };

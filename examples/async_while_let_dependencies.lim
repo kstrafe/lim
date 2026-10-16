@@ -39,12 +39,12 @@
     (#return total))))
 
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let-mut task Work-task (#call work (: choice choice)))
+  (#let-mut task Work::Task (#call work (: choice choice)))
   (#for-range (attempt #u64) 0u64 8u64
-    (#let polled Work-poll-result (#call work-poll (: task task : waker waker)))
+    (#let polled Work::Poll (#call Work::poll (: task task : waker waker)))
     (#match polled
-      (#case (work-pending next) (#block (#set task next) ()))
-      (#case (work-ready result) (#block (#return result)))))
+      (#case (Work::Pending next) (#block (#set task next) ()))
+      (#case (Work::Ready result) (#block (#return result)))))
   (#forget task)
   (#return (#unreachable)))
 

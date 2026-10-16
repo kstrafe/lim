@@ -23,13 +23,13 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Work-task
+  (#let-mut task Work::Task
     (#call work (: values
       (#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (work-pending next) (#block (#set task next) ()))
-      (#case (work-ready value) (#block (#return value)))))
+      (#case (Work::Pending next) (#block (#set task next) ()))
+      (#case (Work::Ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))

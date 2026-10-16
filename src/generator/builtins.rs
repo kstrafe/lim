@@ -99,18 +99,22 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         } else {
             "task"
         };
-        let mut names = [frame_suffix, "poll-result", "pending", "ready", "poll"]
-            .iter()
-            .enumerate()
-            .map(|(index, suffix)| {
-                let name = format!("{start}-{suffix}");
-                Expr::Symbol(if index < 2 {
-                    capitalized_type_name(&name)
-                } else {
-                    name
-                })
-            })
-            .collect::<Vec<_>>();
+        let root = capitalized_type_name(start);
+        let storage_name = if frame_suffix == "task" {
+            "Task"
+        } else {
+            "Frame"
+        };
+        let mut names = [
+            format!("{root}::{storage_name}"),
+            format!("{root}::Poll"),
+            format!("{root}::Pending"),
+            format!("{root}::Ready"),
+            format!("{root}::poll"),
+        ]
+        .into_iter()
+        .map(Expr::Symbol)
+        .collect::<Vec<_>>();
         names.push(protocol);
         if let Some(access) = values.remove("access") {
             if kind != "#async-fn-pinned" {
@@ -163,8 +167,8 @@ mod tests {
     #[test]
     fn async_type_names_are_capitalized_without_renaming_functions_or_variants() {
         for (generator, storage) in [
-            ("#async-fn", "Work-task"),
-            ("#async-fn-pinned", "Work-frame"),
+            ("#async-fn", "Work::Task"),
+            ("#async-fn-pinned", "Work::Frame"),
         ] {
             let source = format!("(@{generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 0u64))))");
             let expression = crate::parse(&source).unwrap().remove(0).expr;
@@ -177,10 +181,10 @@ mod tests {
             };
             let expected = [
                 storage,
-                "Work-poll-result",
-                "work-pending",
-                "work-ready",
-                "work-poll",
+                "Work::Poll",
+                "Work::Pending",
+                "Work::Ready",
+                "Work::poll",
                 "WorkAwait",
             ];
             assert_eq!(names, &expected.map(|name| Expr::Symbol(name.into())));

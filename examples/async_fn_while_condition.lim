@@ -1,5 +1,5 @@
-; Await a boolean condition. work-pending resumes before the loop decides whether
-; the body runs; work-ready(false) skips it and work-ready(true) advances the capture.
+; Await a boolean condition. Work::Pending resumes before the loop decides whether
+; the body runs; Work::Ready(false) skips it and Work::Ready(true) advances the capture.
 (#enum ConditionTask () ((Waiting #u64)))
 (#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
@@ -20,13 +20,13 @@
     (#return iteration))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Work-poll-result
-    (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+  (#let first Work::Poll
+    (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#let result #u64 (#match second
-    (#case (work-ready value) value)
-    (#case (work-pending pending-again)
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending pending-again)
       (#block (#forget pending-again) 0u64))))
   (#forget waker)
   (#return (#if (#u64.== result 2u64) 42u64 0u64)))

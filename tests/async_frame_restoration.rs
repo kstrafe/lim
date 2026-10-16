@@ -16,13 +16,13 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let source = format!("{prefix}
       (#fn main () #u64 (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (: owner (#struct-literal Owner
+        (#let-mut frame Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 40u64 : right 5u64)))))))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let answer #u64 (#match second (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let answer #u64 (#match second (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))");
     let scratch = support::Scratch::new("async-finalized-frame-restoration");
     let path = scratch.path().join("input.lim");
@@ -40,7 +40,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     let artifact = fs::read_dir(&output)
         .unwrap()
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .find(|text| text.contains("(#fn work-poll "))
+        .find(|text| text.contains("(#fn Work::poll "))
         .unwrap();
     assert!(artifact.contains("(#fn work-owner-read "));
     assert!(artifact.contains("(#fn work-owner-replace "));
@@ -57,7 +57,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     let warm_artifact = fs::read_dir(&output)
         .unwrap()
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .find(|text| text.contains("(#fn work-poll "))
+        .find(|text| text.contains("(#fn Work::poll "))
         .unwrap();
     assert_eq!(warm_artifact, artifact);
     let invocation = lim::parse(&source)
@@ -103,16 +103,16 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
       (#let restored Owner (#call read-owner (: task (#pin-borrow frame))))
       (#assert (#u64.== (#get (#get restored payload) left) 41u64))
       (#forget frame)
-      (#let-mut cancelled Work-frame (#call work (: owner (#struct-literal Owner
+      (#let-mut cancelled Work::Frame (#call work (: owner (#struct-literal Owner
         (: payload (#struct-literal Payload (: left 10u64 : right 7u64)))))))
-      (#let first-cancel Work-poll-result (#call work-poll
+      (#let first-cancel Work::Poll (#call Work::poll
         (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-      (#let-else (work-pending cancel-pin) Work-poll-result first-cancel (#unreachable))
+      (#let-else (Work::Pending cancel-pin) Work::Poll first-cancel (#unreachable))
       (#block
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
         (#match (#get cleanup await-0)
-          (#case Work-frame-cleanup-await-0-empty ())
-          (#case (Work-frame-cleanup-await-0-full child) (#call cancel-child (: task child))))
+          (#case Work::Frame::Cleanup-await-0-empty ())
+          (#case (Work::Frame::Cleanup-await-0-full child) (#call cancel-child (: task child))))
         (#forget cleanup) ())
       (#call replace-owner (: task (#pin-borrow-mut cancelled) : value
         (#struct-literal Owner (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
@@ -151,11 +151,11 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     assert!(stdout.is_empty() && stderr.is_empty());
 
     let conflicting = standalone.replace(
-        "(#let second Work-poll-result",
+        "(#let second Work::Poll",
         "(#call replace-owner
       (: task pending : value (#struct-literal Owner
         (: payload (#struct-literal Payload (: left 99u64 : right 5u64))))))
-      (#let second Work-poll-result",
+      (#let second Work::Poll",
     );
     let invalid = format!("{helpers}\n{conflicting}");
     let assembly = lim::compile_source_to_assembly(
@@ -204,26 +204,26 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
     let source = format!("{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (: owner (#struct-literal Owner
+        (#let-mut frame Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 40u64 : right 5u64)))))))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let answer #u64 (#match second (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let answer #u64 (#match second (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#call work-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 41u64 : right 5u64))))))
         (#let completed-owner Owner (#call work-owner-read (: task (#pin-borrow frame))))
         (#assert (#u64.== (#get (#get completed-owner payload) left) 41u64))
         (#forget frame)
-        (#let-mut cancelled Work-frame (#call work (: owner (#struct-literal Owner
+        (#let-mut cancelled Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 10u64 : right 7u64)))))))
-        (#let cancel-first Work-poll-result (#call work-poll (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-        (#let-else (work-pending cancel-pin) Work-poll-result cancel-first (#unreachable))
+        (#let cancel-first Work::Poll (#call Work::poll (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-pin) Work::Poll cancel-first (#unreachable))
         (#block
-          (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
-          (#match (#get cleanup await-0) (#case Work-frame-cleanup-await-0-empty ())
-            (#case (Work-frame-cleanup-await-0-full child) (#call cancel-child (: task child))))
+          (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
+          (#match (#get cleanup await-0) (#case Work::Frame::Cleanup-await-0-empty ())
+            (#case (Work::Frame::Cleanup-await-0-full child) (#call cancel-child (: task child))))
           (#forget cleanup) ())
         (#call work-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
@@ -266,7 +266,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         let artifact = fs::read_dir(&output)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn work-poll "))
+            .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
         assert!(artifact.contains("(#fn work-owner-read "));
         assert!(artifact.contains("(#fn work-owner-replace "));
@@ -425,7 +425,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
 #[test]
 fn access_handles_unit_aliases_multiple_parameters_and_imports() {
     for (import, prefix, frame) in [
-        ("#import", "", "Work-frame"),
+        ("#import", "", "Work::Frame"),
         ("#import-external", "Ext-", "Ext-work-frame"),
     ] {
         let scratch = support::Scratch::new("async-access-import");
@@ -441,9 +441,9 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
             (#let waker #u64 0u64)
             (#let-mut frame {frame} (#call {prefix}work (: {prefix}empty () : {prefix}amount 40u64 : {prefix}other 5u64)))
             (#let poll-result #u64 (#match
-              (#call {prefix}work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
-              (#case ({prefix}work-ready answer) answer)
-              (#case ({prefix}work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+              (#call {prefix}Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
+              (#case ({prefix}Work::Ready answer) answer)
+              (#case ({prefix}Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
             (#assert (#u64.== poll-result 40u64))
             (#call {prefix}unit-access-replace (: task (#pin-borrow-mut frame) : value ()))
             (#let empty {prefix}Nothing (#call {prefix}unit-access-read (: task (#pin-borrow frame))))
@@ -492,9 +492,9 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
                 : function (#fn work (: amount #u64) #u64
                   (#return (#await Child ChildPending ChildReady child-poll (Waiting 0u64))))))";
             let suspend = if pending {
-                "(#let first Work-poll-result (#call work-poll
+                "(#let first Work::Poll (#call Work::poll
               (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-              (#let-else (work-pending handle) Work-poll-result first (#unreachable))
+              (#let-else (Work::Pending handle) Work::Poll first (#unreachable))
               (#forget handle)"
             } else {
                 ""
@@ -506,7 +506,7 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
             };
             let source = format!(
                 "{prefix} (#fn main () #u64 (#let waker #u64 0u64)
-              (#let-mut frame Work-frame (#call work (: amount 40u64)))
+              (#let-mut frame Work::Frame (#call work (: amount 40u64)))
               {suspend} {call} (#forget frame) (#return 0u64))"
             );
             let scratch = support::Scratch::new("async-access-before-terminal");

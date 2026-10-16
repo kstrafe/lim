@@ -28,3 +28,22 @@ fn colon_names_are_flat_identifiers_in_declarations_and_calls() {
     let program = lim::parse_program(source).unwrap();
     lim::check_types(&program).unwrap();
 }
+
+#[test]
+fn formatting_distinguishes_colon_names_from_grouping() {
+    let source = "(#fn :identity (: ::value #u64) #u64 (#return ::value))
+      (#fn main () #u64 (#return (#call :identity (: ::value 42u64))))";
+    let formatted = lim::format_source(source).unwrap();
+    let before = lim::parse(source)
+        .unwrap()
+        .into_iter()
+        .map(|form| form.expr)
+        .collect::<Vec<_>>();
+    let after = lim::parse(&formatted)
+        .unwrap()
+        .into_iter()
+        .map(|form| form.expr)
+        .collect::<Vec<_>>();
+    assert_eq!(before, after);
+    lim::check_types(&lim::parse_program(&formatted).unwrap()).unwrap();
+}

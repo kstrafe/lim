@@ -6443,7 +6443,7 @@ impl<'a> Emitter<'a> {
     fn cleanup_interface(&self, receiver: &str) -> Result<String, Error> {
         let occupied = self.cleanup_occupied();
         let names = self.cleanup_names(occupied)?;
-        let cleanup = format!("{}-cleanup", self.frame);
+        let cleanup = format!("{}::Cleanup", self.frame);
         let mut fields = Vec::new();
         let mut definitions = Vec::new();
         let mut transfers = Vec::new();
@@ -6467,9 +6467,9 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let field = names[&index].clone();
-            let cell = format!("{cleanup}-{field}");
-            let empty = format!("{cell}-empty");
-            let full = format!("{cell}-full");
+            let cell = format!("{cleanup}::{field}");
+            let empty = format!("{cell}::Empty");
+            let full = format!("{cell}::Full");
             for name in [&cell, &empty, &full] {
                 if !self.reserved.borrow_mut().insert(name.clone()) {
                     return Err(fail(self.function, format!("async generated cleanup name '{name}' conflicts with an existing declaration")));
@@ -6593,7 +6593,7 @@ impl<'a> Emitter<'a> {
         };
         let mut source = format!(
             "{}\n(#struct {cleanup} (#linear) ({}))\n\
-            (#fn {}-cleanup (: task {receiver}) {cleanup}\n\
+            (#fn {}::cleanup (: task {receiver}) {cleanup}\n\
               {extraction}\n{}\n\
               (#forget state) (#return (#struct-literal {cleanup} ({}))))",
             definitions.join("\n"),
@@ -6662,7 +6662,7 @@ impl<'a> Emitter<'a> {
                 // entry point too. An aggregate call summary does not encode
                 // that ordering, whereas ordinary statements do.
                 let destruction = calls.join("\n").replace("(#get task ", "(#get cleanup ");
-                source.push_str(&format!("\n(#fn {}-destroy (: task {receiver}) ()\n{extraction}\n{}\n(#forget state)\n(#let cleanup {cleanup} (#struct-literal {cleanup} ({})))\n{destruction}\n(#forget cleanup)\n(#return ()))", self.poll, transfers.join("\n"), captures.join(" ")));
+                source.push_str(&format!("\n(#fn {}::destroy (: task {receiver}) ()\n{extraction}\n{}\n(#forget state)\n(#let cleanup {cleanup} (#struct-literal {cleanup} ({})))\n{destruction}\n(#forget cleanup)\n(#return ()))", self.poll, transfers.join("\n"), captures.join(" ")));
             }
         }
         Ok(source)
@@ -6695,7 +6695,7 @@ impl<'a> Emitter<'a> {
             if !active.insert(handler.into()) {
                 return false;
             }
-            let result = handler.strip_suffix("-destroy")
+            let result = handler.strip_suffix("::destroy")
                 .and_then(|poll| emitter.planning.functions.iter().find(|function|
                     function.source.generated_poll.as_deref() == Some(poll)))
                 .and_then(|function| function.cancel.as_ref())
@@ -6725,7 +6725,7 @@ impl<'a> Emitter<'a> {
     /// and a valid dispatcher state. Source occupancy/ownership checking and
     /// ordinary checking of every typed handler input remain mandatory.
     fn word_cleanup(&self, source: &str) -> Result<String, Error> {
-        if !self.pinned || !self.word_cleanup_available(&format!("{}-destroy", self.poll)) {
+        if !self.pinned || !self.word_cleanup_available(&format!("{}::destroy", self.poll)) {
             return Ok(String::new());
         }
         use super::async_word_cleanup::Layout;

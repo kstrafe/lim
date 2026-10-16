@@ -1025,11 +1025,11 @@ explicit protocol name instead of listing all five generated names:
 (#await WorkAwait (#call work (($ offset))))
 ```
 
-For `work`, the generated names are `Work-task`, `Work-poll-result`,
-`work-pending`, `work-ready`, and `work-poll`. The exported declaration is
-`(#syntax WorkAwait (#u64 Work-task work-pending work-ready work-poll))`.
-`@#async-fn-pinned` instead generates `Work-frame` and exports
-`(#syntax WorkAwait (#u64 (#pin-ref-mut Work-frame) work-pending work-ready work-poll))`.
+For `work`, the generated names are `Work::Task`, `Work::Poll`,
+`Work::Pending`, `Work::Ready`, and `Work::poll`. The exported declaration is
+`(#syntax WorkAwait (#u64 Work::Task Work::Pending Work::Ready Work::poll))`.
+`@#async-fn-pinned` instead generates `Work::Frame` and exports
+`(#syntax WorkAwait (#u64 (#pin-ref-mut Work::Frame) Work::Pending Work::Ready Work::poll))`.
 Callers must pin a frame explicitly before awaiting that protocol.
 Both generated task and frame structs are `#opaque`: callers use their
 constructor, poll and cleanup functions, not their internal fields. This

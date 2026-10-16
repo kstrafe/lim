@@ -19,7 +19,7 @@
     (#return value))))
 
 (#enum AllocationResult () ((Allocated (#ptr-mut PinnedFrameRcAllocation)) (AllocationFailed ArenaError)))
-(@#pin-rc (: type Work-frame : allocator Arena : name PinnedFrameRc
+(@#pin-rc (: type Work::Frame : allocator Arena : name PinnedFrameRc
   : error ArenaError : alloc-result AllocationResult : alloc-ok Allocated
   : alloc-error AllocationFailed : alloc arena-allocate : dealloc arena-deallocate
   : destroy destroy-frame))
@@ -33,8 +33,8 @@
   : layout #usize : alignment #usize) ()
   (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
   (#return ()))
-(#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work-frame)) ()
-  (#call cancel-work (: task (#call work-poll-cleanup (: task pin))))
+(#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work::Frame)) ()
+  (#call cancel-work (: task (#call Work::poll::cleanup (: task pin))))
   (#forget pin) (#return ()))
 
 (#fn main () #u64
@@ -49,23 +49,23 @@
     (#case (PinnedFrameRc-unique unexpected) (#block (#forget unexpected) (#unreachable))))
   (#call PinnedFrameRc-destroy (: owner other))
   (#let waker #u64 0u64)
-  (#let first-pin (#pin-ref-mut Work-frame)
+  (#let first-pin (#pin-ref-mut Work::Frame)
     (#match (#call PinnedFrameRc-borrow-mut (: owner (#borrow-mut owner)))
       (#case (PinnedFrameRc-unique pin) pin)
       (#case PinnedFrameRc-shared (#unreachable))))
-  (#let first Work-poll-result (#call work-poll (: task first-pin : waker (#borrow waker))))
+  (#let first Work::Poll (#call Work::poll (: task first-pin : waker (#borrow waker))))
   (#forget first-pin)
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
   (#forget pending)
   (#let-mut moved PinnedFrameRc owner)
-  (#let second-pin (#pin-ref-mut Work-frame)
+  (#let second-pin (#pin-ref-mut Work::Frame)
     (#match (#call PinnedFrameRc-borrow-mut (: owner (#borrow-mut moved)))
       (#case (PinnedFrameRc-unique pin-next) pin-next)
       (#case PinnedFrameRc-shared (#unreachable))))
-  (#let second Work-poll-result (#call work-poll (: task second-pin : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll (: task second-pin : waker (#borrow waker))))
   (#forget second-pin)
   (#let answer #u64 (#match second
-    (#case (work-ready value) value)
-    (#case (work-pending unexpected-pending) (#block (#forget unexpected-pending) (#unreachable)))))
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending unexpected-pending) (#block (#forget unexpected-pending) (#unreachable)))))
   (#call PinnedFrameRc-destroy (: owner moved))
   (#forget arena) (#return answer))

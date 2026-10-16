@@ -56,18 +56,18 @@ fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
           (#drop view) (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work ()))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut task Work::Frame (#call work ()))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))
         (#let amount #u64 (#match (#get cleanup owner)
-          (#case Work-frame-cleanup-owner-empty (#unreachable))
-          (#case (Work-frame-cleanup-owner-full extracted)
+          (#case Work::Frame::Cleanup::owner::Empty (#unreachable))
+          (#case (Work::Frame::Cleanup::owner::Full extracted)
             (#block (#let answer #u64 (#get extracted amount)) (#forget extracted) answer))))
         (#forget cleanup)
-        (#let again Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
-        (#assert (#variant-is (#borrow (#get again owner)) Work-frame-cleanup-owner-empty))
+        (#let again Work::Frame::Cleanup (#call Work::poll::cleanup (: task (#pin-borrow-mut task))))
+        (#assert (#variant-is (#borrow (#get again owner)) Work::Frame::Cleanup::owner::Empty))
         (#forget again) (#forget task) (#return (#u64.+.wrap amount 2u64)))";
     let scratch = support::Scratch::new("async-self-borrow-cleanup");
     let cache = scratch.path().join("cache");

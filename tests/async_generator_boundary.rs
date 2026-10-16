@@ -83,19 +83,19 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
           (#let answer #u64 (#u64.+.wrap (#deref view) extra))
           (#drop view) (#return answer))))
       (#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut task Work-frame (#call work (: choose true)))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending bad) (#block (#drop bad) (#unreachable)))))
+        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work (: choose true)))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending bad) (#block (#drop bad) (#unreachable)))))
         (#forget task) (#return answer))";
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
     let (scratch, standalone) = generated_standalone_with_config(
         source,
         "(@#async-fn-pinned",
-        "work-poll",
+        "Work::poll",
         "async-generator-selected-graph",
         &config,
     );
@@ -111,7 +111,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
         let lim::Expr::List(items) = &node.expr else { return None; };
         matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#struct")
             .then_some(items)
-            .filter(|items| matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "Work-frame"))
+            .filter(|items| matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "Work::Frame"))
     }).unwrap();
     let lim::Expr::List(fields) = &frame[3] else {
         panic!("frame fields");
@@ -173,12 +173,12 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
       (#fn main () #u64
         (#let-mut external Outside (#struct-literal Outside (: other 90u64 : selected 50u64)))
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (: external (#borrow-mut (#get external selected)) : choose false)))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending bad) (#block (#drop bad) (#unreachable)))))
+        (#let-mut task Work::Frame (#call work (: external (#borrow-mut (#get external selected)) : choose false)))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending bad) (#block (#drop bad) (#unreachable)))))
         (#forget task) (#assert (#u64.== (#get external other) 90u64))
         (#assert (#u64.== (#get external selected) 42u64)) (#return answer))";
     for mutable in [false, true] {
@@ -199,7 +199,7 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
         let (scratch, standalone) = generated_standalone_with_config(
             &source,
             "(@#async-fn-pinned",
-            "work-poll",
+            "Work::poll",
             "async-generator-mixed-external",
             &config,
         );
@@ -258,15 +258,15 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
           (#return (#u64.+.wrap answer 2u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result Work-poll-result
-          (#call work-poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
+        (#let result Work::Poll
+          (#call Work::poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
         (#return (#match result
-          (#case (work-ready value) value)
-          (#case (work-pending pending) (#block (#forget pending) (#unreachable))))))";
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending) (#block (#forget pending) (#unreachable))))))";
     let (scratch, standalone) = generated_standalone(
         source,
         "(@#async-fn",
-        "work-poll",
+        "Work::poll",
         "async-generator-movable",
     );
     check_build_and_run(&scratch, &standalone, 42);

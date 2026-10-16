@@ -22,59 +22,59 @@
     (#let value #u64 (#await (#syntax-splice StepAwait) (Step-waiting 42u64 2u64)))
     (#return value))))
 
-(@#result (: ok (#ptr-mut Work-frame) : error ArenaError : name FrameAllocResult))
+(@#result (: ok (#ptr-mut Work::Frame) : error ArenaError : name FrameAllocResult))
 (#fn arena-allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) FrameAllocResult
-  (#let pointer (#ptr-mut Work-frame)
-    (#unsafe (#linux-syscall (#ptr-mut Work-frame) LINUX-SYS-MMAP
+  (#let pointer (#ptr-mut Work::Frame)
+    (#unsafe (#linux-syscall (#ptr-mut Work::Frame) LINUX-SYS-MMAP
       (0usize layout 3usize 34usize -1i64 0usize))))
   (#return (#if (#usize.>= (#ptr-address pointer) 18446744073709547520usize)
     (FrameAllocResult-err-value OutOfMemory)
     (FrameAllocResult-ok-value pointer))))
-(#fn arena-deallocate (: allocator (#ref Arena) : pointer (#ptr-mut Work-frame)
+(#fn arena-deallocate (: allocator (#ref Arena) : pointer (#ptr-mut Work::Frame)
   : layout #usize : alignment #usize) ()
   (#let status #i64 (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (pointer layout))))
   (#assert (#i64.== status 0i64)) (#return ()))
 
-(@#pin-box (: type Work-frame : allocator Arena : name PinnedFrameBox : error ArenaError
+(@#pin-box (: type Work::Frame : allocator Arena : name PinnedFrameBox : error ArenaError
   : alloc-result FrameAllocResult : alloc-ok FrameAllocResult-ok-value
   : alloc-error FrameAllocResult-err-value : alloc arena-allocate
   : dealloc arena-deallocate : destroy destroy-frame))
 
-(#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work-frame)) ()
-  (#call cancel-work (: task (#call work-poll-cleanup (: task pin))))
+(#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work::Frame)) ()
+  (#call cancel-work (: task (#call Work::poll::cleanup (: task pin))))
   (#forget pin)
   (#return ()))
 
 (#fn main () #u64
   (#let arena Arena (#struct-literal Arena ()))
-  (#let frame Work-frame (#call work (:)))
+  (#let frame Work::Frame (#call work (:)))
   (#let created PinnedFrameBoxCreateResult
     (#call PinnedFrameBox-create (: allocator (#borrow arena) : value frame)))
   (#let-mut owner PinnedFrameBox
     (#match created
       (#case (PinnedFrameBox-created box) box)
       (#case (PinnedFrameBox-allocation-failed failure)
-        (#block (#let (#tuple error failed-frame) (#tuple ArenaError Work-frame) failure)
+        (#block (#let (#tuple error failed-frame) (#tuple ArenaError Work::Frame) failure)
           (#forget error) (#forget failed-frame) (#return 0u64)))))
   (#let waker #u64 0u64)
-  (#let first Work-poll-result
-    (#call work-poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut owner)))
+  (#let first Work::Poll
+    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut owner)))
       : waker (#borrow waker))))
-  (#let-else (work-pending pending-frame) Work-poll-result first (#unreachable))
+  (#let-else (Work::Pending pending-frame) Work::Poll first (#unreachable))
   (#forget pending-frame)
   (#let-mut moved-once PinnedFrameBox owner)
-  (#let second Work-poll-result
-    (#call work-poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-once)))
+  (#let second Work::Poll
+    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-once)))
       : waker (#borrow waker))))
-  (#let-else (work-pending pending-frame-second) Work-poll-result second (#unreachable))
+  (#let-else (Work::Pending pending-frame-second) Work::Poll second (#unreachable))
   (#forget pending-frame-second)
   (#let-mut moved-twice PinnedFrameBox moved-once)
-  (#let third Work-poll-result
-    (#call work-poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-twice)))
+  (#let third Work::Poll
+    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-twice)))
       : waker (#borrow waker))))
   (#let answer #u64
     (#match third
-      (#case (work-ready value) value)
-      (#case (work-pending unexpected-frame) (#block (#forget unexpected-frame) 0u64))))
+      (#case (Work::Ready value) value)
+      (#case (Work::Pending unexpected-frame) (#block (#forget unexpected-frame) 0u64))))
   (#call PinnedFrameBox-destroy (: owner moved-twice))
   (#return answer))

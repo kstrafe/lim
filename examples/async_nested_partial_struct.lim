@@ -38,13 +38,13 @@
     (#return result))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (work-pending task) Work-poll-result first (#unreachable))
+  (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+  (#let-else (Work::Pending task) Work::Poll first (#unreachable))
   (#return
-    (#match (#call work-poll (: task task : waker (#borrow waker)))
-      (#case (work-ready result)
+    (#match (#call Work::poll (: task task : waker (#borrow waker)))
+      (#case (Work::Ready result)
         result)
-      (#case (work-pending unexpected)
+      (#case (Work::Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable))))))

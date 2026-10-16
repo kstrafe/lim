@@ -46,13 +46,13 @@
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#assert (#usize.< (#ptr-address pointer) 18446744073709547521usize))
   (#let waker #u64 0u64)
-  (#let first Work-poll-result (#call work-poll
+  (#let first Work::Poll (#call Work::poll
     (: task (#call work (: pointer pointer : source (#borrow source)))
      : waker (#borrow waker))))
-  (#let-else (work-pending next) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-  (#let-else (work-pending last) Work-poll-result second (#unreachable))
-  (#let third Work-poll-result (#call work-poll (: task last : waker (#borrow waker))))
+  (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task next : waker (#borrow waker))))
+  (#let-else (Work::Pending last) Work::Poll second (#unreachable))
+  (#let third Work::Poll (#call Work::poll (: task last : waker (#borrow waker))))
   (#return (#match third
-    (#case (work-ready answer) answer)
-    (#case (work-pending unfinished) (#block (#forget unfinished) (#unreachable))))))
+    (#case (Work::Ready answer) answer)
+    (#case (Work::Pending unfinished) (#block (#forget unfinished) (#unreachable))))))

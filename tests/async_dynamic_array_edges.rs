@@ -106,16 +106,16 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
         (#let-mut external (#array Empty 2)
           (#array-of (#array Empty 2) (#struct-literal Empty (:)) (#struct-literal Empty (:))))
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame
+        (#let-mut task Work::Frame
           (#call work (: choose choose : external (#borrow external))))
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match second
-          (#case (work-ready value) value)
-          (#case (work-pending again) (#block (#forget again) (#unreachable)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending again) (#block (#forget again) (#unreachable)))))
         (#forget task) (#forget external)
         (#return answer))
       (#fn main () #u64
@@ -255,16 +255,16 @@ fn nested_array_source() -> &'static str {
             (#struct-literal Record (: header 31u64 : tail (#struct-literal Empty (:))))
             (#struct-literal Record (: header 42u64 : tail (#struct-literal Empty (:))))))
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame
+        (#let-mut task Work::Frame
           (#call work (: choose choose : external (#borrow external))))
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match second
-          (#case (work-ready value) value)
-          (#case (work-pending again) (#block (#forget again) (#unreachable)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending again) (#block (#forget again) (#unreachable)))))
         (#forget task) (#forget external)
         (#return answer))
       (#fn main () #u64

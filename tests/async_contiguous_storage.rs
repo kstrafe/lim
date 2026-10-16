@@ -213,16 +213,16 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
         "{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (:)))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut frame Work::Frame (#call work (:)))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result second (#unreachable))
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
-        (#let-else (Work-frame-cleanup-owner.item-full original)
-          Work-frame-cleanup-owner.item (#get cleanup owner.item) (#unreachable))
+        (#let-else (Work::Pending next) Work::Poll second (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))
+        (#let-else (Work::Frame::Cleanup-owner.item-full original)
+          Work::Frame::Cleanup-owner.item (#get cleanup owner.item) (#unreachable))
         (#assert (#u64.== (#get original value) 2u64))
         (#forget original) (#forget cleanup)
         (#forget pending) (#forget next) (#forget frame)
@@ -352,15 +352,15 @@ fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
 #[test]
 fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration() {
     let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim")
-        .replace("(#let-mut frame Work-frame (#call work (: seed (#borrow seed))))",
-          "(#let pointer (#ptr-mut Work-frame) (#unsafe (#linux-syscall (#ptr-mut Work-frame)
-            9usize (0usize (#size-of Work-frame) 3usize 34usize -1i64 0usize))))
-           (#let initial Work-frame (#call work (: seed (#borrow seed))))
-           (#let-mut frame (#pin-own Work-frame) (#unsafe (#pin-own-of pointer initial)))")
+        .replace("(#let-mut frame Work::Frame (#call work (: seed (#borrow seed))))",
+          "(#let pointer (#ptr-mut Work::Frame) (#unsafe (#linux-syscall (#ptr-mut Work::Frame)
+            9usize (0usize (#size-of Work::Frame) 3usize 34usize -1i64 0usize))))
+           (#let initial Work::Frame (#call work (: seed (#borrow seed))))
+           (#let-mut frame (#pin-own Work::Frame) (#unsafe (#pin-own-of pointer initial)))")
         .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")
         .replace("(#forget frame)", "(#forget pending)
-          (#let released (#ptr-mut Work-frame) (#unsafe (#pin-release frame)))
-          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Work-frame)))) 0i64))");
+          (#let released (#ptr-mut Work::Frame) (#unsafe (#pin-release frame)))
+          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Work::Frame)))) 0i64))");
     run(&source);
 }
 
@@ -390,21 +390,21 @@ fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
 fn heap_owned_whole_borrow_preserves_the_same_contiguous_address() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
         .replace(
-            "(#let-mut frame Work-frame (#call work (:)))",
+            "(#let-mut frame Work::Frame (#call work (:)))",
             "
-          (#let pointer (#ptr-mut Work-frame) (#unsafe (#linux-syscall (#ptr-mut Work-frame)
-            9usize (0usize (#size-of Work-frame) 3usize 34usize -1i64 0usize))))
-          (#let initial Work-frame (#call work (:)))
-          (#let-mut frame (#pin-own Work-frame) (#unsafe (#pin-own-of pointer initial)))",
+          (#let pointer (#ptr-mut Work::Frame) (#unsafe (#linux-syscall (#ptr-mut Work::Frame)
+            9usize (0usize (#size-of Work::Frame) 3usize 34usize -1i64 0usize))))
+          (#let initial Work::Frame (#call work (:)))
+          (#let-mut frame (#pin-own Work::Frame) (#unsafe (#pin-own-of pointer initial)))",
         )
         .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")
         .replace(
             "(#forget frame)",
             "
           (#forget pending)
-          (#let raw (#ptr-mut Work-frame) (#unsafe (#pin-release frame)))
+          (#let raw (#ptr-mut Work::Frame) (#unsafe (#pin-release frame)))
           (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize
-            (raw (#size-of Work-frame)))) 0i64))",
+            (raw (#size-of Work::Frame)))) 0i64))",
         );
     run(&source);
 }

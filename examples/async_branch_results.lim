@@ -19,13 +19,13 @@
       (#struct-literal Token ((value 0u64))))))))
 
 (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let first Work-poll-result (#call work-poll (: task (#call work (: choose choose)) : waker waker)))
+  (#let first Work::Poll (#call Work::poll (: task (#call work (: choose choose)) : waker waker)))
   (#let token Token (#match first
-    (#case (work-ready value) value)
-    (#case (work-pending pending)
-      (#match (#call work-poll (: task pending : waker waker))
-        (#case (work-ready value) value)
-        (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending pending)
+      (#match (#call Work::poll (: task pending : waker waker))
+        (#case (Work::Ready value) value)
+        (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
   (#let value #u64 (#get token value))
   (#forget token)
   (#return value))

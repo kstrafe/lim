@@ -1,5 +1,5 @@
 ; Each condition awaits a factory, then awaits the task returned by it.
-; Task construction increments total once, never again on a work-pending retry.
+; Task construction increments total once, never again on a Work::Pending retry.
 (#enum ConditionTask (#linear) ((Check #u64) (Recheck #u64)))
 
 (#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
@@ -41,11 +41,11 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Work-task (#call work ()))
+  (#let-mut task Work::Task (#call work ()))
   (#for-range (attempt #u64) 0u64 10u64
-    (#let polled Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let polled Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match polled
-      (#case (work-pending next) (#block (#set task next) ()))
-      (#case (work-ready result) (#block (#return result)))))
+      (#case (Work::Pending next) (#block (#set task next) ()))
+      (#case (Work::Ready result) (#block (#return result)))))
   (#forget task)
   (#return 0u64))

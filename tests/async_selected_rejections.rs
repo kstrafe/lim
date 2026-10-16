@@ -30,12 +30,12 @@ fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {
     let main = if pinned {
         "(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut frame Work-frame (#call work (: choose true)))
-          (#let result Work-poll-result
-            (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+          (#let-mut frame Work::Frame (#call work (: choose true)))
+          (#let result Work::Poll
+            (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
           (#forget result) (#forget frame) (#forget waker) (#return 0u64))"
     } else {
-        "(#fn main () #u64 (#let task Work-task (#call work (: choose true)))
+        "(#fn main () #u64 (#let task Work::Task (#call work (: choose true)))
           (#forget task) (#return 0u64))"
     };
     format!(

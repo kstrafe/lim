@@ -1375,7 +1375,7 @@ mod async_migration_tests {
             let program = expand_prepared_program(&prepared).unwrap();
             let output = &program.source_files.last().unwrap().source;
             assert!(
-                output.contains("Work-frame-cleanup-source-expression-"),
+                output.contains("Work::Frame::Cleanup::source-expression-"),
                 "{output}"
             );
             bodies.push(output.split_once("\n\n").unwrap().1.to_owned());
@@ -1408,12 +1408,13 @@ mod async_migration_tests {
     #[test]
     fn graph_frame_protocol_collisions_reject_fresh_and_cached_output() {
         let scratch = Scratch::new();
-        let text = source("(#return seed)").replace(": protocol WorkAwait", ": protocol Work-task");
+        let text =
+            source("(#return seed)").replace(": protocol WorkAwait", ": protocol Work::Task");
         let prepared = syntax(&text, Some(&scratch.0));
         let error = expand_prepared_program(&prepared).unwrap_err();
         assert!(error
             .to_string()
-            .contains("declaration 'Work-task' conflicts with a syntax bundle"));
+            .contains("declaration 'Work::Task' conflicts with a syntax bundle"));
         assert!(error.diagnostic().span.is_some());
         assert!(!generator::generated_source_directory(&scratch.0).exists());
 
@@ -1452,7 +1453,7 @@ mod async_migration_tests {
         let error = expand_prepared_program(&prepared).unwrap_err();
         assert!(error
             .to_string()
-            .contains("declaration 'Work-task' conflicts with a syntax bundle"));
+            .contains("declaration 'Work::Task' conflicts with a syntax bundle"));
         assert_eq!(
             super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
             emissions
@@ -1530,10 +1531,10 @@ mod async_migration_tests {
         let program = expand_prepared_program(&prepared).unwrap();
         let output = &program.source_files.last().unwrap().source;
         assert!(
-            output.contains("(#fn work-cancel ((task Work-frame-cleanup)) ()"),
+            output.contains("(#fn work-cancel ((task Work::Frame::Cleanup)) ()"),
             "{output}"
         );
-        assert!(output.contains("Work-frame-cleanup-await-0-full"));
+        assert!(output.contains("Work::Frame::Cleanup::await-0::Full"));
         typecheck::CheckedProgram::validate_with_span(&program).unwrap();
     }
 
@@ -1554,12 +1555,12 @@ mod async_migration_tests {
             "{}
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let first Work-poll-result (#call work-poll
+            (#let first Work::Poll (#call Work::poll
               (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
-            (#let-else (work-pending next) Work-poll-result first (#unreachable))
-            (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
-              (#case (work-ready value) value)
-              (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))",
+            (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+            (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending bad) (#block (#forget bad) (#unreachable))))))",
             source(
                 "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
               (#return (#u64.+.wrap answer 2u64))"
@@ -1593,7 +1594,7 @@ mod async_migration_tests {
           (@produce)
           (@#async-fn (: protocol SecondAwait : waker #u64 : function
             (#fn second (: seed #u64) #u64
-              (#return (#await Work-task work-pending work-ready work-poll
+              (#return (#await Work::Task Work::Pending Work::Ready Work::poll
                 (#call work (: seed seed)))))))"
         );
         let scratch = Scratch::new();
@@ -1612,8 +1613,8 @@ mod async_migration_tests {
             fs::read_dir(generator::generated_source_directory(&scratch.0))
                 .unwrap()
                 .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-                .filter(|source| source.contains("(#fn work-poll ")
-                    || source.contains("(#fn second-poll "))
+                .filter(|source| source.contains("(#fn Work::poll ")
+                    || source.contains("(#fn Second::poll "))
                 .count(),
             2
         );

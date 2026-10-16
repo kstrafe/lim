@@ -30,8 +30,8 @@ Corrupt or incomplete existing graph entries fail closed without regeneration.
 
 ## Source-named cleanup
 
-For a task/frame named `Work-frame`, the public cleanup record is
-`Work-frame-cleanup`. `work-poll-cleanup` drains the current obligations into this
+For a task/frame named `Work::Frame`, the public cleanup record is
+`Work::Frame::Cleanup`. `Work::poll::cleanup` drains the current obligations into this
 record. A pinned frame remains stationary, with cleared cells and a terminal
 program counter; a movable frame is consumed.
 
@@ -46,8 +46,8 @@ change its public cleanup name. Source file/line changes do not. Inspect the
 generated declaration when defining a cleanup contract for computed operands.
 
 Each field is an ordinary linear tagged cell. For example, `owner` has type
-`Work-frame-cleanup-owner`, with variants `Work-frame-cleanup-owner-empty` and
-`(Work-frame-cleanup-owner-full Source)`. Cleanup can inspect and explicitly
+`Work::Frame::Cleanup-owner`, with variants `Work::Frame::Cleanup::owner::Empty` and
+`(Work::Frame::Cleanup::owner::Full Source)`. Cleanup can inspect and explicitly
 consume this record using ordinary Lim, independently of the generator.
 Non-owning reference handles, including scoped tokens, are cleared before
 owners are drained. Omitted owning temporaries have physical Empty proofs at
@@ -67,8 +67,8 @@ and return `()`, except for stationary dependent children described below.
 Every exposed owning slot requires a handler; duplicate,
 missing, unknown, unsafe, or incorrectly typed handlers are rejected. The
 dispatcher has the ordinary signature
-`(#fn work-cancel (: task Work-frame-cleanup) () ...)`. Call it on the result of
-`work-poll-cleanup`. Only Full cells invoke handlers. Repeated pinned cleanup
+`(#fn work-cancel (: task Work::Frame::Cleanup) () ...)`. Call it on the result of
+`Work::poll::cleanup`. Only Full cells invoke handlers. Repeated pinned cleanup
 returns empty cells and does not repeat destruction. Movable cleanup consumes
 the frame, so reusing that frame is rejected.
 
@@ -116,8 +116,8 @@ parameters after Ready or public cleanup:
 ```
 
 This emits ordinary `amount-access-read` and `amount-access-replace` functions.
-Read takes `(: task (#pin-ref Work-frame))` and returns `#u64`. Replace takes
-`(: task (#pin-ref-mut Work-frame) : value #u64)` and returns `()`. Accessor
+Read takes `(: task (#pin-ref Work::Frame))` and returns `#u64`. Replace takes
+`(: task (#pin-ref-mut Work::Frame) : value #u64)` and returns `()`. Accessor
 names are literal inputs, so external imports prefix them exactly once. No
 access functions are emitted unless requested. Unit parameters and aliases
 are supported; duplicate requests, unknown parameters, declaration collisions,
@@ -437,7 +437,7 @@ then invokes dependent handlers in dependency order while their referents remain
 Full and stationary. Independent owners are extracted only afterward. A movable
 dependent child can be consumed by its handler; a generated pinned child requires
 a safe handler taking `(#pin-ref-mut ChildFrame)` and returning `()`. A pinned
-graph task with cancellation configuration generates `work-poll-destroy` with
+graph task with cancellation configuration generates `Work::poll::destroy` with
 that signature, so a parent can use it directly as its child's handler. Both
 public cleanup and private cancellation perform this phase. Dependent cleanup
 record fields are Empty; they never export live pointers into the parent.
@@ -599,8 +599,8 @@ adding explicit reference drops to its source.
 ### Cancellation example migration
 
 `async_fn_cancel_dispatch.lim` now configures handlers for `token` and `await-0`
-and cancels the record returned by `work-poll-cleanup`, both at construction and
-after Pending. `async_fn_pinned.lim` similarly drains `Work-frame-cleanup` rather
+and cancels the record returned by `Work::poll::cleanup`, both at construction and
+after Pending. `async_fn_pinned.lim` similarly drains `Work::Frame::Cleanup` rather
 than matching a legacy frame-state enum. Their native outcomes remain 42 and 41.
 Public-API regressions independently check their emitted ordinary declarations
 and exercise cold/warm generation before executing them.
@@ -997,7 +997,7 @@ that all graph-default failures or cancellation-interface differences are gone.
 
 The cancellation regressions for a mutated linear while-loop capture and a
 let-else for-loop initializer followed by two body awaits now use the public
-`work-poll-cleanup` result and source-named cancellation handlers. They no longer
+`Work::poll::cleanup` result and source-named cancellation handlers. They no longer
 declare handlers against `Lim.async.work.choice-0-body-frame` or
 `Lim.async.work.choice-2-sequence-task` and their nested private staging enums.
 Normal completion and the while body's direct linear return remain native
@@ -1116,7 +1116,7 @@ the structural span matrix, formatting and whitespace checks.
 ### Public loop-poll interface regression migration
 
 Seven loop regressions now select graph lowering explicitly and assert the
-public single `work-poll` dispatcher rather than private `-wait`, `-outputs`,
+public single `Work::poll` dispatcher rather than private `-wait`, `-outputs`,
 `body-frame` or `body-poll.dispatch` spellings. Their Lim source programs and
 native expected results remain unchanged.
 
@@ -1306,7 +1306,7 @@ Three failures happened after successful native compilation and execution:
 the tests still required `expression-frame`, `body-frame`, or the private
 `body-poll.dispatch` name. The scrutinee sequencing, repeated body suspension
 and nested body-statement regressions now use explicit graph lowering and
-assert the single public `work-poll` interface instead. Both Copy and linear
+assert the single public `Work::poll` interface instead. Both Copy and linear
 matched enum variants remain covered. The native inputs, expected results,
 poll counts and timeout are unchanged.
 
@@ -1369,7 +1369,7 @@ ordinary source checker at the full original await expression, rather than a
 legacy-only keyword error. Protocol declaration errors use the complete graph
 compilation pipeline, not an assumption about which phase rejects them.
 
-That migration exposed a real missing check: graph accepted `Work-task` as
+That migration exposed a real missing check: graph accepted `Work::Task` as
 both the protocol bundle and generated public frame type. Graph and ordinary
 expansion now share the declaration-versus-syntax-bundle validator. It runs
 on the emitted program before semantic validation or fresh cache publication,
@@ -1392,7 +1392,7 @@ The loop-return regressions now explicitly run graph lowering for returning
 after an awaited condition and after an awaited body. Both decision branches,
 the explicitly typed condition, and the linear payload return are compiled
 and executed with their original expected results (7 or 18). Generated output
-must expose the single public `work-poll` dispatcher, without requiring
+must expose the single public `Work::poll` dispatcher, without requiring
 legacy-private choice or expression-ready helper names.
 
 An incorrect explicit condition result type is checked through the complete
@@ -1543,7 +1543,7 @@ Unit fixtures now inspect public cleanup cells by source binding/await identity.
 Their original destruction counts, entry/Pending/Ready cases, repeated cleanup,
 external-loan conflicts, and child-before-referent checks remain enabled. A new
 structural test checks the same cleanup contract for both generators and permits
-a user declaration using the removed `Work-frame-state` name. Negative tests
+a user declaration using the removed `Work::Frame-state` name. Negative tests
 reject the absent type/function through ordinary source diagnostics, without a
 migration mode or special compatibility diagnostic; errors precede publication.
 

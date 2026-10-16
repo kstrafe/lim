@@ -22,17 +22,17 @@ fn run_guard(guard_accepts: bool) {
     let expected_marker = if guard_accepts { "0u64" } else { "1u64" };
     let completion_polls = if guard_accepts {
         "(#let answer #u64 (#match
-          (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))"
+          (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))"
     } else {
-        "(#let second Work-poll-result
-          (#call work-poll (: task next : waker (#borrow waker))))
-        (#let-else (work-pending last) Work-poll-result second (#unreachable))
+        "(#let second Work::Poll
+          (#call Work::poll (: task next : waker (#borrow waker))))
+        (#let-else (Work::Pending last) Work::Poll second (#unreachable))
         (#let answer #u64 (#match
-          (#call work-poll (: task last : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))"
+          (#call Work::poll (: task last : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))"
     };
     let source = format!(
         "{CONTEXT}
@@ -55,11 +55,11 @@ fn run_guard(guard_accepts: bool) {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64) (#let owner #u64 42u64)
-        (#let-mut frame Work-frame
+        (#let-mut frame Work::Frame
           (#call work (: source (#borrow owner))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
         {completion_polls}
         (#forget frame) (#return answer))"
     );

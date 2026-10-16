@@ -680,10 +680,7 @@ impl<'a> Lexer<'a> {
         let column = self.column;
         while let Some(byte) = self.peek() {
             if byte.is_ascii_whitespace()
-                || matches!(
-                    byte,
-                    b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';'
-                )
+                || matches!(byte, b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';')
             {
                 break;
             }
@@ -1372,10 +1369,20 @@ fn pretty_spanned_expression(
 }
 
 fn is_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
-    matches!(expression.expr, Expr::List(_))
-        && source[expression.span.start + 1..expression.span.end - 1]
-            .trim_start()
-            .starts_with(':')
+    if !matches!(expression.expr, Expr::List(_)) {
+        return false;
+    }
+    let inner = source[expression.span.start + 1..expression.span.end - 1].trim_start();
+    inner.strip_prefix(':').is_some_and(|rest| {
+        rest.is_empty()
+            || rest.as_bytes().first().is_some_and(|next| {
+                next.is_ascii_whitespace()
+                    || matches!(
+                        *next,
+                        b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';'
+                    )
+            })
+    })
 }
 
 fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
@@ -12342,11 +12349,11 @@ mod tests {
             ),
             (
                 "(@#async-fn (: function (#fn work () #u64 (#return 1)) : protocol WorkAwait : waker Wake))",
-                "(@ #async-fn (Work-task Work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
+                "(@ #async-fn (Work::Task Work::Poll Work::Pending Work::Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
             (
                 "(@#async-fn-pinned (: protocol WorkAwait : waker Wake : function (#fn work () #u64 (#return 1))))",
-                "(@ #async-fn-pinned (Work-frame Work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
+                "(@ #async-fn-pinned (Work::Frame Work::Poll Work::Pending Work::Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
         ];
         for (source, expected) in cases {
@@ -12453,7 +12460,7 @@ mod tests {
             .find(|path| {
                 fs::read_to_string(path)
                     .unwrap()
-                    .contains("(#fn work-poll ")
+                    .contains("(#fn Work::poll ")
             })
             .unwrap();
         let original = fs::read(&artifact).unwrap();

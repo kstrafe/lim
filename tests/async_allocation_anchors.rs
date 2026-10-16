@@ -62,29 +62,29 @@ fn direct_source() -> String {
 (#fn run (: choice #u64 : cancel-at #u64) #u64
   (#unsafe (#atomic-store (#borrow Destroyed) 0u64 #memory-relaxed))
   (#let waker #u64 0u64)
-  (#let-mut frame Work-frame (#call work (($ choice))))
+  (#let-mut frame Work::Frame (#call work (($ choice))))
   (#if (#u64.== cancel-at 0u64) (#block
-    (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
-    (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+    (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
+    (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
     (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 0u64))
     (#forget frame) (#return 42u64)) ())
   (#let-mut polls #u64 0u64)
   (#let answer #u64 (#loop
-    (#let result Work-poll-result (#call work-poll
+    (#let result Work::Poll (#call Work::poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
     (#set polls (#u64.+.wrap polls 1u64))
     (#match result
-      (#case (work-pending pending) (#block
+      (#case (Work::Pending pending) (#block
         (#drop pending)
         (#if (#u64.== polls cancel-at) (#block
-          (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
-          (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+          (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
+          (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
           (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))
           (#forget frame) (#return 42u64)) ())
         (#continue)))
-      (#case (work-ready value) (#block (#break value))))))
-  (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
-  (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+      (#case (Work::Ready value) (#block (#break value))))))
+  (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
+  (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
   (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))
   (#assert (#u64.== answer (#u64.+.wrap 40u64 (#u64.*.wrap choice 10u64))))
   (#forget frame) (#return 42u64))
@@ -107,38 +107,38 @@ fn source() -> String {
         .replace("(#block (#let allocation (#pin-ref Data) (#pin-own-borrow heap))\n            (#pin-borrow (#get allocation value)))", "allocated")
         .replace("(#unsafe (#pin-borrow (#get Fallback value)))", "fallback")
         .replace("    (#call destroy-heap (: owner heap))\n", "")
-        .replace("  (#let-mut frame Work-frame (#call work (($ choice))))", "  (#let heap (#pin-own Data) (#call make-heap (:)))\n  (#let allocation (#pin-ref Data) (#pin-own-borrow heap))\n  (#let-mut frame Work-frame (#call work (: choice choice : allocated (#pin-borrow (#get allocation value)) : fallback (#unsafe (#pin-borrow (#get Fallback value))))))")
+        .replace("  (#let-mut frame Work::Frame (#call work (($ choice))))", "  (#let heap (#pin-own Data) (#call make-heap (:)))\n  (#let allocation (#pin-ref Data) (#pin-own-borrow heap))\n  (#let-mut frame Work::Frame (#call work (: choice choice : allocated (#pin-borrow (#get allocation value)) : fallback (#unsafe (#pin-borrow (#get Fallback value))))))")
         .replace("(#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))", "(#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 0u64))")
         .replace("(#forget frame)", "(#forget frame) (#drop allocation) (#call destroy-heap (: owner heap))\n    (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))");
     let start = source.find("  (#let-mut polls").unwrap();
     let end = source.find("  (#assert (#u64.== answer").unwrap();
     let driver = r#"
-  (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
   (#if (#u64.== cancel-at 1u64) (#block
-    (#call work-poll-destroy (: task pending))
+    (#call Work::poll::destroy (: task pending))
     (#drop pending)
-    (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+    (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
     (#forget frame) (#drop allocation) (#call destroy-heap (: owner heap))
     (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))
     (#return 42u64)) ())
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#drop pending)
-  (#let-else (work-pending last) Work-poll-result second (#unreachable))
+  (#let-else (Work::Pending last) Work::Poll second (#unreachable))
   (#if (#u64.== cancel-at 2u64) (#block
-    (#call work-poll-destroy (: task last))
+    (#call Work::poll::destroy (: task last))
     (#drop last)
-    (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+    (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
     (#forget frame) (#drop allocation) (#call destroy-heap (: owner heap))
     (#assert (#u64.== (#unsafe (#atomic-load (#borrow Destroyed) #memory-relaxed)) 1u64))
     (#return 42u64)) ())
-  (#let third Work-poll-result (#call work-poll (: task last : waker (#borrow waker))))
+  (#let third Work::Poll (#call Work::poll (: task last : waker (#borrow waker))))
   (#drop last)
   (#let answer #u64 (#match third
-    (#case (work-ready value) value)
-    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-  (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
-  (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+  (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
+  (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
 "#;
     let source = format!("{}{driver}{}", &source[..start], &source[end..])
         .replace("(#forget frame)", "(#forget frame) (#call verify-cancel (: phase cancel-at))")
@@ -319,15 +319,15 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
     (#drop view) (#return answer))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut frame Work-frame (#call work (:)))
-  (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-  (#let-else (work-pending last) Work-poll-result second (#unreachable))
-  (#let third Work-poll-result (#call work-poll (: task last : waker (#borrow waker))))
-  (#let answer #u64 (#match third (#case (work-ready value) value)
-    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-  (#call work-poll-destroy (: task (#pin-borrow-mut frame)))
+  (#let-mut frame Work::Frame (#call work (:)))
+  (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+  (#let-else (Work::Pending last) Work::Poll second (#unreachable))
+  (#let third Work::Poll (#call Work::poll (: task last : waker (#borrow waker))))
+  (#let answer #u64 (#match third (#case (Work::Ready value) value)
+    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+  (#call Work::poll::destroy (: task (#pin-borrow-mut frame)))
   (#forget frame) (#assert (#u64.== answer 60u64)) (#return 42u64))"#
     );
     run(&source);

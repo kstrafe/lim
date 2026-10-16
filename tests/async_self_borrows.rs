@@ -245,15 +245,15 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
             (#drop view) (#forget owner) (#return answer))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work ()))
-          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-          (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+          (#let-mut task Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
           (#let answer #u64 (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return (#if (#u64.== answer 42u64) 42u64 0u64)))"
     );
     run_native(&source, "async-self-borrows", 42);
@@ -273,15 +273,15 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
             (#drop alias) (#drop view) (#forget owner) (#return answer))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work ()))
-          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-          (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+          (#let-mut task Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
           (#let answer #u64 (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return (#if (#u64.== answer 82u64) 42u64 0u64)))"
     );
     run_native(&source, "async-self-borrow-shared-alias", 42);
@@ -301,15 +301,15 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
             (#drop view) (#forget owner) (#return answer))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work ()))
-          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-          (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+          (#let-mut task Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
           (#let answer #u64 (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return (#if (#u64.== answer 43u64) 42u64 0u64)))"
     );
     run_native(&source, "async-self-borrow-mutable", 42);
@@ -333,15 +333,15 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
             (#drop view) (#forget owner) (#return answer))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work ()))
-          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-          (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+          (#let-mut task Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
           (#let answer #u64 (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return (#if (#u64.== answer 42u64) 42u64 0u64)))"
     );
     run_native(&source, "async-self-borrow-nested-mutable", 42);
@@ -364,15 +364,15 @@ fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls
             (#drop view) (#forget owner) (#return answer))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-frame (#call work ()))
-          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-          (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+          (#let-mut task Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
           (#let answer #u64 (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return (#if (#u64.== answer 42u64) 42u64 0u64)))"
     );
     run_native(&source, "async-self-borrow-multifield-shared", 42);
@@ -435,19 +435,19 @@ fn selected_array_elements_source(mutable: bool) -> String {
             (#let-mut external (#array #u64 4)
               (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
             (#let waker #u64 0u64)
-            (#let-mut task Work-frame (#call work (: choose choose : external (#borrow{suffix} external))))
-            (#let first Work-poll-result
-              (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) Work-poll-result first (#unreachable))
+            (#let-mut task Work::Frame (#call work (: choose choose : external (#borrow{suffix} external))))
+            (#let first Work::Poll
+              (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Work::Pending next) Work::Poll first (#unreachable))
             (#drop next)
             (#if cancel (#block
-              (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
-              (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+              (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
+              (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
               (#set-index external 2usize 42u64) (#forget task) (#return 42u64)) ())
             (#let answer #u64 (#loop
-              (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-                (#case (work-pending later) (#block (#drop later) (#continue)))
-                (#case (work-ready value) (#block (#break value))))))
+              (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+                (#case (Work::Pending later) (#block (#drop later) (#continue)))
+                (#case (Work::Ready value) (#block (#break value))))))
             (#forget task)
             (#assert (#u64.== (#index external 0usize) 4u64))
             (#assert (#u64.== (#index external 3usize) 7u64))
@@ -560,11 +560,11 @@ fn dormant_out_of_bounds_array_anchor_is_not_probed() {
           (#let result #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#return (#u64.+.wrap (#deref view) result)))))
       (#fn main () #u64 (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (: choose false)))
+        (#let-mut task Work::Frame (#call work (: choose false)))
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending next) (#block (#drop next) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending next) (#block (#drop next) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
         (#forget task) (#return answer))"
     );
     run_native(&source, "async-dormant-array-anchor", 52);
@@ -599,15 +599,15 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
               (#drop view) {owner_check} (#forget left) (#forget right) (#return answer))))
           (#fn run (: choose #bool) #u64
             (#let waker #u64 0u64)
-            (#let-mut task Work-frame (#call work (($ choose))))
-            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) Work-poll-result first (#unreachable))
-            (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-            (#let-else (work-pending last) Work-poll-result second (#unreachable))
-            (#let answer #u64 (#match (#call work-poll (: task last : waker (#borrow waker)))
-              (#case (work-ready value) value)
-              (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
-            (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+            (#let-mut task Work::Frame (#call work (($ choose))))
+            (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+            (#let second Work::Poll (#call Work::poll (: task next : waker (#borrow waker))))
+            (#let-else (Work::Pending last) Work::Poll second (#unreachable))
+            (#let answer #u64 (#match (#call Work::poll (: task last : waker (#borrow waker)))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
             (#forget task) (#return answer))
           (#fn main () #u64
             (#assert (#u64.== (#call run (: choose true)) {left_result}u64))
@@ -645,12 +645,12 @@ fn mixed_internal_external_reference_retains_caller_storage() {
               (#drop view) (#forget owner) (#return answer))))
           (#fn run (: choose #bool) #u64
             (#let-mut external #u64 50u64) (#let waker #u64 0u64)
-            (#let-mut task Work-frame (#call work (: external (#borrow{suffix} external) : choose choose)))
+            (#let-mut task Work::Frame (#call work (: external (#borrow{suffix} external) : choose choose)))
             (#let answer #u64 (#loop
-              (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-                (#case (work-pending next) (#block (#drop next) (#continue)))
-                (#case (work-ready value) (#block (#break value))))))
-            (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+              (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+                (#case (Work::Pending next) (#block (#drop next) (#continue)))
+                (#case (Work::Ready value) (#block (#break value))))))
+            (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
             (#forget task) (#assert (#u64.== external {external_value})) (#return answer))
           (#fn main () #u64
             (#assert (#u64.== (#call run (: choose true)) {inside}u64))
@@ -675,21 +675,21 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
       (#fn run (: choose #bool : cancel #bool) #u64
         (#let-mut external Outside (#struct-literal Outside (: other 90u64 : selected 50u64)))
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (: external (#borrow-mut external) : choose choose)))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let-mut task Work::Frame (#call work (: external (#borrow-mut external) : choose choose)))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
         (#drop next)
         (#if cancel (#block
-          (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
-          (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
+          (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
           (#forget task)
           (#assert (#u64.== (#get external selected) 50u64))
           (#return 42u64)) ())
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending later) (#block (#drop later) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending later) (#block (#drop later) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task)
         (#assert (#u64.== (#get external other) 90u64))
         (#assert (#u64.== (#get external selected) (#if choose 50u64 42u64)))
@@ -718,13 +718,13 @@ fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
     let source = format!("{work}
       (#fn main () #u64
         (#let-mut external #u64 50u64) (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (: external (#borrow external) : choose true)))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-mut task Work::Frame (#call work (: external (#borrow external) : choose true)))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
         (#forget first) {conflict} (#forget task) (#return 0u64))");
     assert_borrow_error(&source, "async-mixed-caller-mutation", "#set", 0);
     let escaping = format!(
         "{work}
-      (#fn escape () Work-frame
+      (#fn escape () Work::Frame
         (#let local #u64 50u64)
         (#return (#call work (: external (#borrow local) : choose false))))"
     );
@@ -753,12 +753,12 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
         (#let-mut external Values (#struct-literal Values (: first 10u64 : second 20u64
           : third 30u64 : fourth 40u64 : fifth 50u64 : sixth 60u64 : seventh 70u64 : last 80u64)))
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (: external (#borrow-mut external) : choose choose)))
+        (#let-mut task Work::Frame (#call work (: external (#borrow-mut external) : choose choose)))
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending next) (#block (#drop next) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending next) (#block (#drop next) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task) (#assert (#u64.== (#get external first) 10u64))
         (#assert (#u64.== (#get external last) (#if choose 80u64 42u64))) (#return answer))
       (#fn main () #u64
@@ -796,20 +796,20 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
           (#forget left) (#forget right) (#return answer))))
       (#fn run (: choose #bool) #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (($ choose))))
+        (#let-mut task Work::Frame (#call work (($ choose))))
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending next) (#block (#drop next) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending next) (#block (#drop next) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task) (#return answer))
       (#fn cancel-run (: choose #bool) ()
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work (($ choose))))
-        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task next))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#let-mut task Work::Frame (#call work (($ choose))))
+        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task next))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task) (#return ()))
       (#fn main () #u64
         (#call cancel-run (: choose true)) (#call cancel-run (: choose false))
@@ -834,12 +834,12 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
             (#set iteration (#u64.+.wrap iteration 1u64)))
           (#forget left) (#forget right) (#return total))))
       (#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut task Work-frame (#call work ()))
+        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ()))
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending next) (#block (#drop next) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending next) (#block (#drop next) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task) (#assert (#u64.== answer 90u64)) (#return 42u64))"
     );
     run_native(&source, "async-selected-internal-loop", 42);
@@ -863,12 +863,12 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
           (#let answer #u64 (#u64.+.wrap (#deref view) ignored))
           (#drop view) (#if choose (#forget left) (#forget right)) (#return answer))))
       (#fn run (: choose #bool) #u64
-        (#let waker #u64 0u64) (#let-mut task Work-frame (#call work (($ choose))))
+        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work (($ choose))))
         (#let answer #u64 (#loop
-          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
-            (#case (work-pending next) (#block (#drop next) (#continue)))
-            (#case (work-ready value) (#block (#break value))))))
-        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#match (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (Work::Pending next) (#block (#drop next) (#continue)))
+            (#case (Work::Ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call Work::poll::cleanup (: task (#pin-borrow-mut task)))))
         (#forget task) (#return answer))
       (#fn main () #u64
         (#assert (#u64.== (#call run (: choose true)) 42u64))
@@ -894,11 +894,11 @@ fn forgetting_a_pending_handle_does_not_make_the_self_referential_frame_movable(
           (#drop view) (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work ()))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut task Work::Frame (#call work ()))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
         (#forget first)
-        (#let moved Work-frame task)
+        (#let moved Work::Frame task)
         (#forget moved) (#return 0u64))"
     );
     let error = compile_error(&source, "async-forgotten-pin-still-stationary");

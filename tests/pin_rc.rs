@@ -132,8 +132,8 @@ fn pinned_rc_async_resumes_after_moving_the_unique_owner() {
         &format!("{}/library/pin_rc.lim", env!("CARGO_MANIFEST_DIR")),
     );
     let generated = run(&source, "pin-rc-async");
-    assert!(generated.contains("(#pin-ref-mut Work-frame)"));
-    assert!(generated.contains("(#fn work-poll "));
+    assert!(generated.contains("(#pin-ref-mut Work::Frame)"));
+    assert!(generated.contains("(#fn Work::poll "));
     assert!(generated.contains("(#fn PinnedFrameRc-borrow-mut "));
 }
 

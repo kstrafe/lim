@@ -52,7 +52,7 @@ fn run_with_role(source: &str, expected_stdout: &[u8], role: &str) {
         let artifact = fs::read_dir(&output)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn work-poll "))
+            .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
         // Contiguous word-backed owners are projected inline rather than
         // through the older typed-cell helper. The checks and native execution
@@ -183,12 +183,12 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
                   : function (#fn work (: choose #bool) #u64 {body})))
                 (#fn main () #u64
                   (#let waker #u64 0u64)
-                  (#let first Work-poll-result (#call work-poll
+                  (#let first Work::Poll (#call Work::poll
                     (: task (#call work (: choose {choose})) : waker (#borrow waker))))
-                  (#let-else (work-pending task) Work-poll-result first (#unreachable))
-                  (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
-                    (#case (work-ready answer) answer)
-                    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+                  (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+                  (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
+                    (#case (Work::Ready answer) answer)
+                    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
             );
             run_with_role(&source, &[], "owner-project");
         }
@@ -230,12 +230,12 @@ fn whole_array_element_source() -> &'static str {
           (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work ()) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
-          (#case (work-ready answer) answer)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
+          (#case (Work::Ready answer) answer)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
 }
 
 #[test]
@@ -376,9 +376,9 @@ fn shared_array_slice_and_range_borrow_actual_local_storage() {
           (#return (#call sum (: items (#borrow-slice values 1usize 3usize)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#return (#match (#call work-poll (: task (#call work ()) : waker (#borrow waker)))
-          (#case (work-ready answer) answer)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
+          (#case (Work::Ready answer) answer)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     run(source);
     run(&source
@@ -411,9 +411,9 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
           (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#return (#match (#call work-poll (: task (#call work ()) : waker (#borrow waker)))
-          (#case (work-ready answer) answer)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
+          (#case (Work::Ready answer) answer)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#,
         b"xx",
     );
@@ -432,11 +432,11 @@ fn slices_of_reference_elements_preserve_the_elements_referents() {
           (#return (#call sum (: items (#borrow-slice values)))))))
       (#fn main () #u64
         (#let first #u64 40u64) (#let second #u64 2u64) (#let waker #u64 0u64)
-        (#return (#match (#call work-poll
+        (#return (#match (#call Work::poll
           (: task (#call work (: first (#borrow first) : second (#borrow second)))
            : waker (#borrow waker)))
-          (#case (work-ready answer) answer)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready answer) answer)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#);
 }
 
@@ -547,9 +547,9 @@ const PAIR_SOURCE: &str = "(#struct Pair () (: left #u64 : right #u64))
     (#call touch (: left (#borrow-mut (#get pair left)) : right (#borrow-mut (#get pair right))))
     (#return (#u64.+.wrap (#get pair left) (#get pair right))))))
   (#fn main () #u64 (#let waker #u64 0u64)
-    (#return (#match (#call work-poll (: task (#call work ()) : waker (#borrow waker)))
-      (#case (work-ready value) value)
-      (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+    (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
+      (#case (Work::Ready value) value)
+      (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
 
 #[test]
 fn one_synchronous_call_borrows_disjoint_struct_fields() {

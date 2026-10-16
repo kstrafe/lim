@@ -390,8 +390,8 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
     assert!(generated.starts_with("; Generated from:\n; "));
     assert!(!generated.contains("#await"), "{generated}");
     assert!(generated.contains("(#syntax WorkAwait"), "{generated}");
-    assert!(generated.contains("work-poll"), "{generated}");
-    assert!(generated.contains("Work-poll-result"), "{generated}");
+    assert!(generated.contains("Work::poll"), "{generated}");
+    assert!(generated.contains("Work::Poll"), "{generated}");
     assert_origins(
         &generated,
         &[absolute_origin(

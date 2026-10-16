@@ -1,7 +1,7 @@
 ; This source-slot cleanup example uses --cfg async-lowering=graph.
 ; @#async-fn-pinned returns a movable frame value that must be pinned before
-; polling. While a work-poll is work-pending, the returned PinRefMut keeps the frame at
-; its storage location and is passed into the next work-poll. One generated work-poll
+; polling. While a Work::poll is Work::Pending, the returned PinRefMut keeps the frame at
+; its storage location and is passed into the next Work::poll. One generated Work::poll
 ; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
 ; with privately owned stationary storage and async_fn_self_reference.lim for the
 ; supported internal-reference form.
@@ -24,25 +24,25 @@
     (#return (#u64.+.wrap value offset)))))
 
 (#fn main () #u64
-  (#let-mut frame Work-frame (#call work (: offset 40u64)))
+  (#let-mut frame Work::Frame (#call work (: offset 40u64)))
   (#let waker #u64 0u64)
-  (#let first Work-poll-result
-    (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (work-pending pinned-frame) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result
-    (#call work-poll (: task pinned-frame : waker (#borrow waker))))
+  (#let first Work::Poll
+    (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (Work::Pending pinned-frame) Work::Poll first (#unreachable))
+  (#let second Work::Poll
+    (#call Work::poll (: task pinned-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (work-ready value) value)
-      (#case (work-pending unexpected)
+      (#case (Work::Ready value) value)
+      (#case (Work::Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
 
-  (#let-mut cancelled-frame Work-frame (#call work (: offset 90u64)))
-  (#let first-cancel Work-poll-result
-    (#call work-poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
-  (#let-else (work-pending cancel-pin) Work-poll-result first-cancel (#unreachable))
-  (#let cleanup-to-cancel Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
+  (#let-mut cancelled-frame Work::Frame (#call work (: offset 90u64)))
+  (#let first-cancel Work::Poll
+    (#call Work::poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
+  (#let-else (Work::Pending cancel-pin) Work::Poll first-cancel (#unreachable))
+  (#let cleanup-to-cancel Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
   (#call cancel-frame (: task cleanup-to-cancel))
   (#forget cancelled-frame)
   (#forget waker)

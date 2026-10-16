@@ -26,13 +26,13 @@
 (#fn main () #u64
   (#let waker #u64 0u64)
   ; Cancel a task before its first poll.
-  (#call cancel-work (: task (#call work-poll-cleanup
+  (#call cancel-work (: task (#call Work::poll::cleanup
     (: task (#call work (: token (TokenValue 1u64)))))))
   ; Cancel another task after its child has returned Pending.
-  (#let task Work-task (#call work (: token (TokenValue 2u64))))
-  (#let outcome Work-poll-result
-    (#call work-poll (: task task : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
-  (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
+  (#let task Work::Task (#call work (: token (TokenValue 2u64))))
+  (#let outcome Work::Poll
+    (#call Work::poll (: task task : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
+  (#call cancel-work (: task (#call Work::poll::cleanup (: task pending))))
   (#forget waker)
   (#return 42u64))

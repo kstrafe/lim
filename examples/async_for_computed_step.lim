@@ -37,13 +37,13 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (work-pending condition-task) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task condition-task : waker (#borrow waker))))
-  (#let-else (work-pending step-task) Work-poll-result second (#unreachable))
-  (#let third Work-poll-result (#call work-poll (: task step-task : waker (#borrow waker))))
-  (#let-else (work-pending last-condition) Work-poll-result third (#unreachable))
-  (#let fourth Work-poll-result (#call work-poll (: task last-condition : waker (#borrow waker))))
+  (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (Work::Pending condition-task) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task condition-task : waker (#borrow waker))))
+  (#let-else (Work::Pending step-task) Work::Poll second (#unreachable))
+  (#let third Work::Poll (#call Work::poll (: task step-task : waker (#borrow waker))))
+  (#let-else (Work::Pending last-condition) Work::Poll third (#unreachable))
+  (#let fourth Work::Poll (#call Work::poll (: task last-condition : waker (#borrow waker))))
   (#return (#match fourth
-    (#case (work-ready value) value)
-    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

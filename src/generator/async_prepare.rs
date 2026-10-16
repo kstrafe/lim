@@ -389,7 +389,7 @@ mod tests {
             .iter()
             .any(|block| matches!(block.terminator, Terminator::Await { .. })));
         assert!(!planning.program.items.iter().any(|item|
-            matches!(item, Item::Struct { name, .. } | Item::Enum { name, .. } if name == "Work-task")));
+            matches!(item, Item::Struct { name, .. } | Item::Enum { name, .. } if name == "Work::Task")));
         assert!(!planning.declarations.bodies.contains_key("work"));
         assert!(!planning.declarations.bodies.contains_key("step-poll"));
         assert!(planning
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn rejects_generated_name_conflicting_with_non_async_builtin() {
         let text = format!(
-            "(@#optional (: type #u64 : name Work-task)) {}",
+            "(@#optional (: type #u64 : name Work::Task)) {}",
             work("(#return 1u64)")
         );
         let error = prepare(&syntax(&text)).err().unwrap();

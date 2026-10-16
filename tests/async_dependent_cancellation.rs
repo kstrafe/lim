@@ -27,14 +27,14 @@ fn source() -> &'static str {
           (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-frame (#call work ()))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut task Work::Frame (#call work ()))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))
-        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work-frame-cleanup-await-0-empty))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))
+        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work::Frame::Cleanup-await-0-empty))
         (#call work-cancel (: task cleanup))
-        (#call work-poll-destroy (: task (#pin-borrow-mut task)))
+        (#call Work::poll::destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return 42u64))"
 }
 
@@ -51,8 +51,8 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
             "(#assert (#u64.== count 1u64)) (#drop view) (#forget count)")
         .replace("(#forget owner) (#return answer)",
             "(#let second-answer #u64 (#await Child Pending Ready second-poll\n            (Holding (#borrow owner) 0u64)))\n          (#forget second-answer) (#forget owner) (#return answer)")
-        .replace("(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))",
-            "(#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))\n        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task second-pending)))")
+        .replace("(#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))",
+            "(#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))\n        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task second-pending)))")
         + "\n(#fn second-poll (: task Child : waker (#ref #u64)) ChildPoll
             (#return (#match task (#case (Holding second-view second-count)
               (#block (#forget second-count) (Pending (Holding second-view 5u64)))))))
@@ -150,18 +150,18 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
         "{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut unstarted Work-frame (#call work ()))
-        (#call work-poll-destroy (: task (#pin-borrow-mut unstarted)))
-        (#call work-poll-destroy (: task (#pin-borrow-mut unstarted)))
+        (#let-mut unstarted Work::Frame (#call work ()))
+        (#call Work::poll::destroy (: task (#pin-borrow-mut unstarted)))
+        (#call Work::poll::destroy (: task (#pin-borrow-mut unstarted)))
         (#forget unstarted)
-        (#let-mut task Work-frame (#call work ()))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut task Work::Frame (#call work ()))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-ready answer) Work-poll-result second (#unreachable))
-        (#call work-poll-destroy (: task (#pin-borrow-mut task)))
-        (#call work-poll-destroy (: task (#pin-borrow-mut task)))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Ready answer) Work::Poll second (#unreachable))
+        (#call Work::poll::destroy (: task (#pin-borrow-mut task)))
+        (#call Work::poll::destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return answer))"
     );
     run(&program, "async-dependent-terminal-cancellation");
@@ -366,8 +366,8 @@ fn pinned_child_rejects_a_by_value_cancellation_handler() {
 #[test]
 fn removed_work_poll_cancel_is_an_unknown_function() {
     let program = source().replace(
-        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))",
-        "(#let cleanup Work-frame-cleanup (#call work-poll-cancel (: task pending)))",
+        "(#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))",
+        "(#let cleanup Work::Frame::Cleanup (#call Work::poll-cancel (: task pending)))",
     );
     assert_ne!(program, source());
     let scratch = support::Scratch::new("async-dependent-removed-cancellation");
@@ -380,18 +380,18 @@ fn removed_work_poll_cancel_is_an_unknown_function() {
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
-    .expect_err("the removed work-poll-cancel function must not compile");
+    .expect_err("the removed Work::poll-cancel function must not compile");
     assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
         error
             .message
-            .contains("unknown function 'work-poll-cancel'"),
+            .contains("unknown function 'Work::poll-cancel'"),
         "{error:?}"
     );
     let span = error
         .span
         .expect("unknown function diagnostic should have a source span");
-    assert_eq!(&program[span.start..span.end], "work-poll-cancel");
+    assert_eq!(&program[span.start..span.end], "Work::poll-cancel");
     assert!(!scratch.path().join("generated").exists());
 }
 
@@ -447,7 +447,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
             }
             if !matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#fn")
                 || !matches!(parts.get(1), Some(lim::Expr::Symbol(name))
-                    if ["work-poll-cleanup", "work-poll-destroy", "parent-poll-cleanup", "parent-poll-destroy"].contains(&name.as_str()))
+                    if ["Work::poll::cleanup", "Work::poll::destroy", "parent-poll-cleanup", "parent-poll-destroy"].contains(&name.as_str()))
             {
                 continue;
             }

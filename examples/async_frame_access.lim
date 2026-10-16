@@ -9,14 +9,14 @@
     (#return amount))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut frame Work-frame (#call work (: amount 40u64)))
+  (#let-mut frame Work::Frame (#call work (: amount 40u64)))
   (#let
     result
     #u64
-    (#match (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
-      (#case (work-ready value)
+    (#match (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
+      (#case (Work::Ready value)
         value)
-      (#case (work-pending unexpected)
+      (#case (Work::Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable)))))

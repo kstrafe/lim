@@ -66,7 +66,7 @@
       (#forget remaining)))
   (#return ()))
 (#fn main () #u64
-  (#call cancel-work (: task (#call work-poll-cleanup (: task (#call work (: offset 99u64))))))
+  (#call cancel-work (: task (#call Work::poll::cleanup (: task (#call work (: offset 99u64))))))
   (#let
     executor
     Executor
@@ -79,19 +79,19 @@
       (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
   (#let
     first
-    Work-poll-result
-    (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+    Work::Poll
+    (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
   (#let pending-text (#array #char 16) "poll 1: pending\n")
   (#call print-text (: text (#borrow-slice pending-text)))
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#let
     result
     #u64
     (#match second
-      (#case (work-ready value)
+      (#case (Work::Ready value)
         value)
-      (#case (work-pending task)
+      (#case (Work::Pending task)
         (#block
           (#forget task)
           (#unreachable)))))

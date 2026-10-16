@@ -346,7 +346,7 @@ source file nor its cache metadata is rewritten; earlier records are retained.
 ```
 
 `(#call work (: offset 1u64))` creates a `Work` frame. It does not
-execute the body. With `@#async-fn`, `work-poll` takes `(task Work)` and
+execute the body. With `@#async-fn`, `Work::poll` takes `(task Work)` and
 `(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
 with a new frame or `WorkReady` with the result. With `@#async-fn-pinned`,
 poll instead takes `(task (#pin-ref-mut Work))`; Pending carries that same
@@ -371,12 +371,12 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 (#let value #u64 (#await WorkAwait (#call work (($ offset)))))
 ```
 
-The generated names come from the source function name: `Work-task`,
-`Work-poll-result`, `work-pending`, `work-ready`, and `work-poll`.
+The generated names come from the source function name: `Work::Task`,
+`Work::Poll`, `Work::Pending`, `Work::Ready`, and `Work::poll`.
 Generated type names capitalize the first letter of the function name;
 function and public variant names retain their original spelling. A pinned
-function uses `Work-frame` instead of `Work-task`, and its bundle requires
-`(#pin-ref-mut Work-frame)`; pinning remains explicit. Supply `: protocol`
+function uses `Work::Frame` instead of `Work::Task`, and its bundle requires
+`(#pin-ref-mut Work::Frame)`; pinning remains explicit. Supply `: protocol`
 to name the exported bundle. Generated protocols are available across internal
 and external imports, including forward references, and are inspectable in
 the function's cached `.lim/generated/` file. Cancellation handlers remain
@@ -489,9 +489,9 @@ to concrete handlers, not private program-counter states:
 Every exposed owning slot requires a handler. Missing, duplicate, unknown,
 unsafe, or incorrectly typed handlers are rejected. Independent handlers consume
 one concrete owned value and return `()`. Only Full cells invoke them, so
-repeated pinned cleanup does not repeat destruction. `work-poll-cleanup` returns
-`Work-frame-cleanup`; pass that aggregate to `cancel-work`, or use the generated
-pinned `work-poll-destroy` entry point to perform both operations in place.
+repeated pinned cleanup does not repeat destruction. `Work::poll::cleanup` returns
+`Work::Frame::Cleanup`; pass that aggregate to `cancel-work`, or use the generated
+pinned `Work::poll::destroy` entry point to perform both operations in place.
 Dependent children are retired before their lenders, rather than returned beside
 their borrowed parent storage. A pinned dependent handler takes a pinned mutable
 reference and returns `()`.

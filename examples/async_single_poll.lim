@@ -1,5 +1,5 @@
 ;; Construction is lazy and movable. @#pin-scope owns stationary storage;
-;; every resume calls the same work-poll function. The state enum tag is its index.
+;; every resume calls the same Work::poll function. The state enum tag is its index.
 (#import "../library/pin.lim")
 
 (#enum Step (#linear) (: Step-waiting #u64 #u64))
@@ -21,36 +21,36 @@
   : cancel (cancel-work ((await-0 cancel-step) (await-1 cancel-step)))
   : function
   (#fn work () #u64
-    ;; The first child is immediately work-ready: work-poll advances to await-1 without
+    ;; The first child is immediately Work::Ready: Work::poll advances to await-1 without
     ;; returning to the caller or calling a generated resume function.
     (#let first #u64 (#await (#syntax-splice StepAwait) (Step-waiting 40u64 0u64)))
     (#let second #u64 (#await (#syntax-splice StepAwait) (Step-waiting 2u64 2u64)))
     (#return (#u64.+.wrap first second)))))
 
-(@#pin (: type Work-frame : name PinnedFrame))
-(@#pin-scope (: type Work-frame : pin PinnedFrame : name with-pinned-frame
+(@#pin (: type Work::Frame : name PinnedFrame))
+(@#pin-scope (: type Work::Frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))
 
 (#fn drive-frame (: pin PinnedFrame) #u64
   ;; The adapter is unsafe because it exposes a low-level pin view. The
   ;; generated scope still owns the storage until cleanup has completed.
-  (#let view (#pin-ref-mut Work-frame)
+  (#let view (#pin-ref-mut Work::Frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
   (#let waker #u64 0u64)
-  (#let first Work-poll-result (#call work-poll (: task view : waker (#borrow waker))))
-  (#let-else (work-pending after-first) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task after-first : waker (#borrow waker))))
-  (#let-else (work-pending after-second) Work-poll-result second (#unreachable))
-  (#let third Work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
-  (#let-else (work-ready answer) Work-poll-result third (#unreachable))
+  (#let first Work::Poll (#call Work::poll (: task view : waker (#borrow waker))))
+  (#let-else (Work::Pending after-first) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task after-first : waker (#borrow waker))))
+  (#let-else (Work::Pending after-second) Work::Poll second (#unreachable))
+  (#let third Work::Poll (#call Work::poll (: task after-second : waker (#borrow waker))))
+  (#let-else (Work::Ready answer) Work::Poll third (#unreachable))
   (#return answer))
 
 (#fn destroy-frame (: pin PinnedFrame) ()
-  (#let view (#pin-ref-mut Work-frame)
+  (#let view (#pin-ref-mut Work::Frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
   ;; Source-named cleanup handles entry, Pending and completed frames without
   ;; exposing private program counters or generated state variants.
-  (#call cancel-work (: task (#call work-poll-cleanup (: task view))))
+  (#call cancel-work (: task (#call Work::poll::cleanup (: task view))))
   (#return ()))
 
 (#fn main () #u64

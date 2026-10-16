@@ -22,10 +22,10 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut frame Ext-work-frame (#call Ext-work (: Ext-amount 42u64)))
-        (#let result #u64 (#match (#call Ext-work-poll
+        (#let result #u64 (#match (#call Ext-Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
-          (#case (Ext-work-ready value) value)
-          (#case (Ext-work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#case (Ext-Work::Ready value) value)
+          (#case (Ext-Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return result))";
     let assembly = lim::compile_source_to_assembly(
         source,

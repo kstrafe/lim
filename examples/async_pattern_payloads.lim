@@ -18,12 +18,12 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Work-task
+  (#let-mut task Work::Task
     (#call work (: choice (Chosen (#tuple (#tuple #u64 #u64) 20u64 22u64)))))
   (#for-range (attempt #u64) 0u64 3u64
-    (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (work-pending next) (#block (#set task next) ()))
-      (#case (work-ready value) (#block (#return value)))))
+      (#case (Work::Pending next) (#block (#set task next) ()))
+      (#case (Work::Ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))

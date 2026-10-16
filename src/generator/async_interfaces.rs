@@ -34,10 +34,12 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
         Expr::Symbol(name) if !name.starts_with('#') && !name.starts_with('@') => name,
         _ => return Err("@#async-fn function name must be a plain symbol".into()),
     };
-    let protocol = names
-        .get(5)
-        .cloned()
-        .unwrap_or_else(|| Expr::Symbol(format!("{start}-await")));
+    let protocol = names.get(5).cloned().unwrap_or_else(|| {
+        Expr::Symbol(format!(
+            "{}::Await",
+            crate::generator::builtins::capitalized_type_name(start)
+        ))
+    });
     let result = function
         .get(3)
         .ok_or("async function requires a result type")?
@@ -73,7 +75,7 @@ mod protocol_tests {
     fn protocols_preserve_declared_types_and_borrow_only_pinned_frames() {
         for pinned in [false, true] {
             for (suffix, protocol) in [
-                ("", "work-await"),
+                ("", "Work::Await"),
                 (" WorkAwait", "WorkAwait"),
                 (" WorkAwait ((owner read-owner))", "WorkAwait"),
             ] {
@@ -210,7 +212,7 @@ impl Registry {
                     ("read", false, parameter.ty.clone()),
                     ("replace", true, Type::Unit),
                 ] {
-                    let name = format!("{accessor}-{suffix}");
+                    let name = format!("{accessor}::{suffix}");
                     if self.reserved.contains_key(&name) {
                         return Err(fail(format!(
                             "async generated name '{name}' conflicts with an existing declaration"
@@ -270,8 +272,8 @@ impl Registry {
                 Type::Named(frame) => frame.clone(),
                 _ => continue,
             };
-            let cleanup = format!("{frame}-cleanup");
-            let name = format!("{}-cleanup", poll.name);
+            let cleanup = format!("{frame}::Cleanup");
+            let name = format!("{}::cleanup", poll.name);
             for generated in [&cleanup, &name] {
                 if self.reserved.contains_key(generated) {
                     return Err(Error { message: format!("async generated name '{generated}' conflicts with an existing declaration"), span });
@@ -311,7 +313,7 @@ impl Registry {
                         && interface.declaration.parameters[0].ty == Type::Named(cleanup.clone())
                 })
             {
-                let name = format!("{}-destroy", poll.name);
+                let name = format!("{}::destroy", poll.name);
                 if self.reserved.contains_key(&name) {
                     return Err(Error {
                         message: format!(
@@ -559,7 +561,7 @@ impl Registry {
         }
         let waker =
             crate::parse_type(Some(&crate::normalize_keywords(parts[3].clone()))).map_err(fail)?;
-        let cleanup = format!("{frame}-cleanup");
+        let cleanup = format!("{frame}::Cleanup");
         let mut declarations = vec![Function {
             name: original.name.clone(),
             parameters: original.parameters.clone(),

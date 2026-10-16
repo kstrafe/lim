@@ -29,7 +29,7 @@ pub(crate) fn emission_order(planning: &Planning) -> Result<Vec<usize>, String> 
             return Err("async start interface has no physical frame identity".into());
         };
         owners.insert(frame.clone(), index);
-        owners.insert(format!("{frame}-cleanup"), index);
+        owners.insert(format!("{frame}::Cleanup"), index);
     }
     fn collect(
         ty: &Type,

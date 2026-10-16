@@ -364,7 +364,7 @@ fn async_protocols_are_exported_by_generator_produced_functions() {
 fn async_task_named_capture_survives_pending_without_shadowing_the_poll_parameter() {
     let source = example_without_cancel_work().replace("offset", "task");
     let generated = build_and_run(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(generated.contains("(#fn work ((task #u64))"), "{generated}");
     assert!(
         generated.contains("(: task ") || generated.contains("((task "),
@@ -378,12 +378,12 @@ fn async_task_named_capture_without_await_keeps_explicit_public_argument_key() {
         (#fn work (: task #u64) #u64 (#return task))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result Work-poll-result (#call work-poll (: task (#call work (: task 42u64)) : waker (#borrow waker))))
+        (#let result Work::Poll (#call Work::poll (: task (#call work (: task 42u64)) : waker (#borrow waker))))
         (#return (#match result
-          (#case (work-ready value) value)
-          (#case (work-pending waiting) (#block (#forget waiting) (#unreachable))))))";
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending waiting) (#block (#forget waiting) (#unreachable))))))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -406,15 +406,15 @@ fn async_task_named_reference_capture_retains_its_referent_across_pending() {
               (#return (#u64.+.wrap (#deref task) step-result)))))
           (#fn main () #u64
             (#let-mut value #u64 42u64) (#let waker #u64 0u64)
-            (#let result Work-poll-result (#call work-poll (: task (#call work (: task ({borrow} value))) : waker (#borrow waker))))
-            (#let-else (work-pending waiting) Work-poll-result result (#unreachable))
-            (#let completed Work-poll-result (#call work-poll (: task waiting : waker (#borrow waker))))
-            (#return (#match completed (#case (work-ready answer) answer)
-              (#case (work-pending unfinished) (#block (#forget unfinished) (#unreachable))))))");
+            (#let result Work::Poll (#call Work::poll (: task (#call work (: task ({borrow} value))) : waker (#borrow waker))))
+            (#let-else (Work::Pending waiting) Work::Poll result (#unreachable))
+            (#let completed Work::Poll (#call Work::poll (: task waiting : waker (#borrow waker))))
+            (#return (#match completed (#case (Work::Ready answer) answer)
+              (#case (Work::Pending unfinished) (#block (#forget unfinished) (#unreachable))))))");
         build_and_run(&source, 42);
         let forbidden = source.replace(
-            "(#let completed Work-poll-result",
-            "(#set value 99u64)\n (#let completed Work-poll-result",
+            "(#let completed Work::Poll",
+            "(#set value 99u64)\n (#let completed Work::Poll",
         );
         let scratch = support::Scratch::new("async-task-reference");
         let error = lim::compile_source_to_assembly(
@@ -441,12 +441,12 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
         &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
     );
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(
-        generated.contains("Work-frame-cleanup-await-1")
+        generated.contains("Work::Frame::Cleanup-await-1")
             || generated.contains("work-frame-await-1")
     );
-    assert!(generated.contains("(#fn work-poll-cleanup"));
+    assert!(generated.contains("(#fn Work::poll::cleanup"));
 
     // Cached inspectable output is precisely the executable dispatcher, not
     // the private helper-shaped capture-analysis witness.
@@ -507,11 +507,11 @@ fn many_ready_awaits_advance_within_one_poll_without_stage_calls() {
       (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64 {awaits} (#return value-15))))
       (#fn main () #u64 (#let waker #u64 0u64)
-        (#let outcome Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#return (#match outcome
-          (#case (work-ready value) value) (#case (work-pending task) (#block (#forget task) (#unreachable))))))");
+          (#case (Work::Ready value) value) (#case (Work::Pending task) (#block (#forget task) (#unreachable))))))");
     let generated = build_and_run(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     // Each source await has its own child poll edge, but no separate resume
     // function. Do not require legacy physical state-constructor names.
     fn count_child_polls(expr: &lim::Expr) -> usize {
@@ -539,7 +539,7 @@ fn pinned_dispatcher_preserves_user_task_bindings() {
         "(#return (#u64.+.wrap value offset))",
         "(#let task #u64 offset) (#return (#u64.+.wrap value task))",
     );
-    assert_single_poll(&build_and_run_graph(&source, 41), "work-poll");
+    assert_single_poll(&build_and_run_graph(&source, 41), "Work::poll");
 }
 
 #[test]
@@ -556,9 +556,9 @@ fn generator_produced_async_declaration_keeps_its_checked_source_body() {
       (@produce)
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#return (#match (#call work-poll (: task (#call work (: seed 42u64)) : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending task) (#block (#forget task) (#unreachable))))))";
+        (#return (#match (#call Work::poll (: task (#call work (: seed 42u64)) : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending task) (#block (#forget task) (#unreachable))))))";
     build_and_run(source, 42);
     let invalid = source.replace("(Waiting seed)", "(Waiting true)");
     let scratch = support::Scratch::new("generated-async-source-types");
@@ -596,7 +596,7 @@ fn async_while_let_returns_after_multiple_body_awaits() {
         "(#let second #u64 (#await #u64 Step StepPending StepReady step-poll (Start first)))\n      (#return second)",
         "(#return first)",
     ).replace(
-        "(#let-else (work-pending after-second) Work-poll-result third (#unreachable))\n        (#let fourth Work-poll-result (#call work-poll (: task after-second : waker waker)))\n        (#match fourth",
+        "(#let-else (Work::Pending after-second) Work::Poll third (#unreachable))\n        (#let fourth Work::Poll (#call Work::poll (: task after-second : waker waker)))\n        (#match fourth",
         "(#match third",
     );
     assert_ne!(one_await, source);
@@ -682,9 +682,9 @@ fn async_while_let_returned_references_keep_their_source_loan() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut storage #u64 37u64)
-        (#let frame Work-task (#call work (: choice (Chosen 37u64) : counter (#borrow storage))))
-        (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#let frame Work::Task (#call work (: choice (Chosen 37u64) : counter (#borrow storage))))
+        (#let first Work::Poll (#call Work::poll (: task frame : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
         (#set storage 42u64)
         (#forget task)
         (#return storage))"
@@ -740,7 +740,7 @@ fn example_source() -> String {
 fn example_without_cancel_work() -> String {
     let original = example_source();
     let declaration = ": cancel (cancel-work ((await-0 cancel-step)))";
-    let invocation = "  (#call cancel-work (: task (#call work-poll-cleanup (: task (#call work (: offset 99u64))))))\n";
+    let invocation = "  (#call cancel-work (: task (#call Work::poll::cleanup (: task (#call work (: offset 99u64))))))\n";
     assert_eq!(original.matches(declaration).count(), 1);
     assert_eq!(original.matches(invocation).count(), 1);
     original.replace(declaration, "").replace(invocation, "")
@@ -799,7 +799,7 @@ fn build_and_run_partial_storage(source: &str, expected: i32) -> String {
         let artifact = fs::read_dir(&output)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn work-poll "))
+            .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
         if let Some(previous) = &previous {
             assert_eq!(&assembly, previous);
@@ -969,23 +969,23 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
           (#let value #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
           (#return value))))
-      (#fn work-poll-work ((finish-early #bool) (range-early #bool) (for-early #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task
+      (#fn Work::poll-work ((finish-early #bool) (range-early #bool) (for-early #bool) (waker (#ref #u64))) #u64
+        (#let task Work::Task
           (#call work (: finish-early finish-early : range-early range-early : for-early for-early)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match result
-          (#case (work-ready value) value)
-          (#case (work-pending pending) (#block (#forget pending) 0u64)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending) (#block (#forget pending) 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let early #u64
-          (#call work-poll-work (: finish-early true : range-early false : for-early false : waker (#borrow waker))))
+          (#call Work::poll-work (: finish-early true : range-early false : for-early false : waker (#borrow waker))))
         (#let range #u64
-          (#call work-poll-work (: finish-early false : range-early true : for-early false : waker (#borrow waker))))
+          (#call Work::poll-work (: finish-early false : range-early true : for-early false : waker (#borrow waker))))
         (#let for #u64
-          (#call work-poll-work (: finish-early false : range-early false : for-early true : waker (#borrow waker))))
+          (#call Work::poll-work (: finish-early false : range-early false : for-early true : waker (#borrow waker))))
         (#let resumed #u64
-          (#call work-poll-work (: finish-early false : range-early false : for-early false : waker (#borrow waker))))
+          (#call Work::poll-work (: finish-early false : range-early false : for-early false : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap early (#u64.+.wrap range (#u64.+.wrap for resumed)))))";
     build_and_run(source, 162);
@@ -1051,9 +1051,9 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut counter #u64 0u64)
-        (#let frame Work-task (#call work (: early true : counter (#borrow-mut counter))))
-        (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#let frame Work::Task (#call work (: early true : counter (#borrow-mut counter))))
+        (#let first Work::Poll (#call Work::poll (: task frame : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
         (#set counter 42u64)
         (#forget task)
         (#return counter))"
@@ -1152,14 +1152,14 @@ fn async_function_returns_ready_from_an_ordinary_if_branch() {
             (#await #u64 Child ChildPending ChildReady child-poll Waiting))
           (#return result))))
       (#fn run ((early #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: early early)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work (: early early)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -1189,14 +1189,14 @@ fn async_function_returns_ready_from_an_ordinary_match_branch() {
             (#await #u64 Child ChildPending ChildReady child-poll Waiting))
           (#return result))))
       (#fn run ((action Action) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: action action)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work (: action action)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -1222,11 +1222,11 @@ fn async_function_early_return_from_synchronous_loop_produces_ready() {
           (#return value))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready ready) ready)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     build_and_run(source, 41);
@@ -1252,12 +1252,12 @@ fn async_nested_awaits_use_protocol_types_and_highlight_the_later_mismatch() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#return (#match
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending pending) (#block (#forget pending) (#unreachable))))))"
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending) (#block (#forget pending) (#unreachable))))))"
     );
     let generated = build_and_run_graph(&runnable, 2);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let invalid = source.replace("(Waiting (#await Step", "(Waiting (#await #u32 Step");
     assert_ne!(invalid, source);
     let diagnostic = graph_compile_error(&invalid, "async-nested-await-contract-span");
@@ -1280,8 +1280,8 @@ fn async_nested_awaits_use_protocol_types_and_highlight_the_later_mismatch() {
 #[test]
 fn async_function_suspends_resumes_and_is_inspectable() {
     let generated = build_and_run_graph(&example_source(), 42);
-    assert_frame_has_program_counter(&generated, "Work-task");
-    assert_single_poll(&generated, "work-poll");
+    assert_frame_has_program_counter(&generated, "Work::Task");
+    assert_single_poll(&generated, "Work::poll");
     assert!(!generated.contains("#await"));
 }
 
@@ -1304,24 +1304,24 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
           )
           (#return (#u64.+.wrap value offset)))))
       (#fn main () #u64
-        (#let-mut frame Work-frame (#call work (: offset 40u64)))
+        (#let-mut frame Work::Frame (#call work (: offset 40u64)))
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pinned-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pinned-frame : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending pinned-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pinned-frame : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) (#unreachable)))))
         (#forget frame)
-        (#let-mut cancelled-frame Work-frame (#call work (: offset 90u64)))
-        (#let first-cancel Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
-        (#let-else (work-pending cancel-pin) Work-poll-result first-cancel (#unreachable))
-        (#let state-to-cancel Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
+        (#let-mut cancelled-frame Work::Frame (#call work (: offset 90u64)))
+        (#let first-cancel Work::Poll
+          (#call Work::poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-pin) Work::Poll first-cancel (#unreachable))
+        (#let state-to-cancel Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
         (#call cancel-frame (: task state-to-cancel))
         (#forget cancelled-frame)
         (#forget waker)
@@ -1333,8 +1333,8 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
     let moved = source.replace(
-        "(#let second Work-poll-result",
-        "(#let moved Work-frame frame)\n        (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#let moved Work::Frame frame)\n        (#let second Work::Poll",
     );
     let scratch = support::Scratch::new("pinned-frame-move-span");
     let diagnostic = lim::compile_source_to_assembly(
@@ -1364,10 +1364,10 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
 
     let escaping = source.replace(
         "(#fn main () #u64",
-        "(#fn escape-frame () Work-poll-result
-          (#let-mut frame Work-frame (#call work (: offset 40u64)))
+        "(#fn escape-frame () Work::Poll
+          (#let-mut frame Work::Frame (#call work (: offset 40u64)))
           (#let waker #u64 0u64)
-          (#return (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))))
+          (#return (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))))
         (#fn main () #u64",
     );
     let error = lim::compile_source_to_assembly(
@@ -1390,18 +1390,21 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
 
     let generated = build_and_run_graph(&source, 41);
     assert!(
-        generated.contains("(#pin-ref-mut Work-frame)"),
-        "work-poll must borrow the pinned frame: {generated}"
+        generated.contains("(#pin-ref-mut Work::Frame)"),
+        "Work::poll must borrow the pinned frame: {generated}"
     );
-    assert_frame_has_program_counter(&generated, "Work-frame");
-    assert_single_poll(&generated, "work-poll");
+    assert_frame_has_program_counter(&generated, "Work::Frame");
+    assert_single_poll(&generated, "Work::poll");
     assert!(!generated.contains("(#pin-read task)"), "{generated}");
     assert!(!generated.contains("(#pin-write task"), "{generated}");
     assert_generated_signature(
         &generated,
-        "(#fn work-poll-cleanup ((task (#pin-ref-mut Work-frame))) Work-frame-cleanup)",
+        "(#fn Work::poll::cleanup ((task (#pin-ref-mut Work::Frame))) Work::Frame::Cleanup)",
     );
-    assert!(generated.contains("(#fn work-poll-cleanup"), "{generated}");
+    assert!(
+        generated.contains("(#fn Work::poll::cleanup"),
+        "{generated}"
+    );
 }
 
 #[test]
@@ -1422,15 +1425,15 @@ fn pinned_async_frames_keep_local_pins_stationary_across_suspension() {
           (#return (#u64.+.wrap (#deref view) result)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work ()))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let outcome Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let-mut frame Work::Frame (#call work ()))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match outcome
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))";
     build_and_run_graph(source, 41);
 }
@@ -1629,12 +1632,12 @@ fn async_function_can_complete_without_suspension() {
                (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
              (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
-           (#let result Work-poll-result
-             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
+           (#let result Work::Poll
+             (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
            (#let value #u64
              (#match result
-               (#case (work-ready value) value)
-               (#case (work-pending task)
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending task)
                  (#block (#forget task) (#unreachable)))))
            (#call local-waker-destroy (: waker waker))
            (#forget executor)
@@ -1658,14 +1661,14 @@ fn async_function_without_await_runs_its_body_on_first_poll() {
              (#return (#u64.+.wrap (#call CellU64-get (: cell cell)) 41u64)))))
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
-           (#let task Work-task (#call work (: cell (#borrow cell))))
+           (#let task Work::Task (#call work (: cell (#borrow cell))))
            (#let before #u64 (#call CellU64-get (: cell (#borrow cell))))
            (#let waker #u64 0u64)
-           (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+           (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
            (#let result #u64
              (#match outcome
-               (#case (work-ready value) value)
-               (#case (work-pending pending) (#block (#forget pending) 0u64))))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
            (#let after #u64 (#call CellU64-get (: cell (#borrow cell))))
            (#forget waker)
            (#forget cell)
@@ -1676,8 +1679,8 @@ fn async_function_without_await_runs_its_body_on_first_poll() {
         env!("CARGO_MANIFEST_DIR")
     );
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
-    assert!(generated.contains("(work-ready"), "{generated}");
+    assert_single_poll(&generated, "Work::poll");
+    assert!(generated.contains("(Work::Ready"), "{generated}");
 }
 
 #[test]
@@ -1691,15 +1694,15 @@ fn pinned_async_function_without_await_runs_on_first_poll() {
              (#return (#u64.+.wrap (#call CellU64-get (: cell cell)) 41u64)))))
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
-           (#let-mut frame Work-frame (#call work (: cell (#borrow cell))))
+           (#let-mut frame Work::Frame (#call work (: cell (#borrow cell))))
            (#let before #u64 (#call CellU64-get (: cell (#borrow cell))))
            (#let waker #u64 0u64)
-           (#let outcome Work-poll-result
-             (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+           (#let outcome Work::Poll
+             (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
            (#let result #u64
              (#match outcome
-               (#case (work-ready value) value)
-               (#case (work-pending pending) (#block (#forget pending) 0u64))))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
            (#let after #u64 (#call CellU64-get (: cell (#borrow cell))))
            (#forget frame)
            (#forget waker)
@@ -1711,12 +1714,15 @@ fn pinned_async_function_without_await_runs_on_first_poll() {
         env!("CARGO_MANIFEST_DIR")
     );
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(
-        generated.contains("(#pin-ref-mut Work-frame)"),
+        generated.contains("(#pin-ref-mut Work::Frame)"),
         "{generated}"
     );
-    assert!(generated.contains("(#fn work-poll-cleanup"), "{generated}");
+    assert!(
+        generated.contains("(#fn Work::poll::cleanup"),
+        "{generated}"
+    );
 }
 
 #[test]
@@ -1740,18 +1746,18 @@ fn async_function_keeps_live_values_distinct_across_suspension() {
             (#u64.+.wrap first (#get box value)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (: first 2u64)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (: first 2u64)) : waker (#borrow waker))))
         (#return (#match outcome
-          (#case (work-ready result) result)
-          (#case (work-pending task) (#block (#forget task) (#unreachable))))))";
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending task) (#block (#forget task) (#unreachable))))))";
     let source = source.replace(
         "(#block (#forget value) (ChildReady 1u64))",
         "(#if (#u64.== value 0u64) (ChildPending (Waiting 1u64)) (ChildReady 1u64))"
     ).replace("(#return (#match outcome",
-        "(#let-else (work-pending pending) Work-poll-result outcome (#unreachable))\n        (#let resumed Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))\n        (#return (#match resumed");
+        "(#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))\n        (#let resumed Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#return (#match resumed");
     let generated = build_and_run_graph(&source, 17);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -1816,12 +1822,12 @@ fn async_function_accepts_no_arguments_or_captures() {
           (#return value))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     build_and_run_graph(source, 7);
@@ -1844,7 +1850,7 @@ fn async_function_supports_multiple_awaits() {
         )
         .replace("((offset #u64)) #u64", "((#mut offset #u64)) #u64");
     let generated = build_and_run_graph(&source, 48);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -1866,19 +1872,19 @@ fn async_function_has_no_fixed_suspension_count_limit() {
            (#fn work () #u64 {body})))
          (#fn main () #u64
            (#let waker #u64 0u64)
-           (#let outcome Work-poll-result
-             (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+           (#let outcome Work::Poll
+             (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
            (#let result #u64
              (#match outcome
-               (#case (work-ready value) value)
-               (#case (work-pending task) (#block (#forget task) 0u64))))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending task) (#block (#forget task) 0u64))))
            (#forget waker)
            (#return result))"
     );
     let generated = build_and_run_graph(&source, 32);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(
-        generated.contains("Work-task-cleanup-await-32"),
+        generated.contains("Work::Task-cleanup-await-32"),
         "{generated}"
     );
 }
@@ -1905,20 +1911,20 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // The same task dependency must work when the outer await is an operand,
@@ -1929,7 +1935,7 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
     );
     assert_ne!(nested_operand, source);
     let generated = build_and_run_graph(&nested_operand, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // Both dependencies may return Pending. Completing the inner await must
@@ -1941,8 +1947,8 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
             "(#case MakeOuter (InnerPending ResumeOuter))\n          (#case ResumeOuter (InnerReady (Waiting 42u64)))",
         )
         .replace(
-            "(#let second Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))",
-            "(#let middle Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending outer-pending) Work-poll-result middle (#unreachable))\n        (#let second Work-poll-result\n          (#call work-poll (: task outer-pending : waker (#borrow waker))))",
+            "(#let second Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))",
+            "(#let middle Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let-else (Work::Pending outer-pending) Work::Poll middle (#unreachable))\n        (#let second Work::Poll\n          (#call Work::poll (: task outer-pending : waker (#borrow waker))))",
         );
     assert_ne!(both_pending, nested_operand);
     build_and_run_graph(&both_pending, 42);
@@ -1966,19 +1972,19 @@ fn async_function_awaits_directly_in_explicit_return() {
           (#return (#await Step StepPending StepReady step-poll (Waiting initial))))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: initial 0u64)) : waker (#borrow waker))))
-        (#let-else (work-pending first-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-task : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: initial 0u64)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 1);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -1999,16 +2005,16 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
           (#return result))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 30);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2034,9 +2040,9 @@ fn async_call_arguments_are_evaluated_in_declaration_order_before_suspension() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: counter (#borrow-mut counter))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
+        (#let task Work::Task (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
         (#forget pending)
         (#forget waker)
         (#return counter))";
@@ -2068,9 +2074,9 @@ fn async_numeric_operands_are_evaluated_in_source_order_before_suspension() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: counter (#borrow-mut counter))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
+        (#let task Work::Task (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
         (#forget pending)
         (#forget waker)
         (#return counter))";
@@ -2099,9 +2105,9 @@ fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: counter (#borrow-mut counter))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
+        (#let task Work::Task (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
         (#forget pending)
         (#forget waker)
         (#return counter))";
@@ -2133,14 +2139,14 @@ fn async_nested_block_bindings_survive_suspension_inside_an_initializer() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: counter (#borrow-mut counter))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
-        (#let resumed Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
+        (#let resumed Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match resumed
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return (#u64.+.wrap counter result)))";
     build_and_run_graph(source, 46);
@@ -2167,14 +2173,14 @@ fn async_nested_block_assignments_resume_after_awaited_rhs_values() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     build_and_run_graph(source, 45);
@@ -2198,14 +2204,14 @@ fn async_nested_block_effect_statements_can_await() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     build_and_run(source, 42);
@@ -2233,9 +2239,9 @@ fn async_struct_fields_are_evaluated_in_source_order_before_suspension() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: counter (#borrow-mut counter))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
+        (#let task Work::Task (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll outcome (#unreachable))
         (#forget pending)
         (#forget waker)
         (#return counter))";
@@ -2306,16 +2312,16 @@ fn async_function_extracts_typed_await_from_another_await_task() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let inferred_source = source.replacen(
         "#await #u64 ChildTask ChildPending ChildReady child-poll\n              (Waiting",
@@ -2324,14 +2330,14 @@ fn async_function_extracts_typed_await_from_another_await_task() {
     );
     assert_ne!(inferred_source, source);
     let generated = build_and_run_graph(&inferred_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let return_source = source
         .replace("(#let result #u64\n            ", "(#return ")
         .replace("          (#return result)", "");
     assert_ne!(return_source, source);
     let generated = build_and_run_graph(&return_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2354,20 +2360,20 @@ fn async_function_suspends_in_a_value_block_with_conditional_await() {
           (#return (#u64.+.wrap value 13u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: choose true)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: choose true)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match first
-            (#case (work-ready first-value) first-value)
-            (#case (work-pending pending)
-              (#match (#call work-poll (: task pending : waker (#borrow waker)))
-                (#case (work-ready second-value) second-value)
-                (#case (work-pending unexpected)
+            (#case (Work::Ready first-value) first-value)
+            (#case (Work::Pending pending)
+              (#match (#call Work::poll (: task pending : waker (#borrow waker)))
+                (#case (Work::Ready second-value) second-value)
+                (#case (Work::Pending unexpected)
                   (#block (#forget unexpected) 0u64))))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 26);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let immediate = source.replace("(: choose true)", "(: choose false)");
     assert_ne!(immediate, source);
     build_and_run_graph(&immediate, 13);
@@ -2393,17 +2399,17 @@ fn async_function_suspends_inside_mutable_assignment_rhs() {
           (#return total))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2425,15 +2431,15 @@ fn async_loop_expression_can_be_suspended_as_a_nested_value() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-ready result) Work-poll-result second (#unreachable))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Ready result) Work::Poll second (#unreachable))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2457,15 +2463,15 @@ fn async_while_expression_can_be_suspended_as_a_nested_value() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-ready result) Work-poll-result second (#unreachable))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Ready result) Work::Poll second (#unreachable))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2488,14 +2494,14 @@ fn async_loop_expression_can_be_suspended_in_a_selected_branch() {
               ()))
           (#return 42u64))))
       (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: choose choose)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work (: choose choose)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2504,7 +2510,7 @@ fn async_loop_expression_can_be_suspended_in_a_selected_branch() {
         (#forget waker)
         (#return (#u64.+.wrap awaited immediate)))";
     let generated = build_and_run_graph(source, 84);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2527,14 +2533,14 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
                 value))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2542,7 +2548,7 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 41);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2657,14 +2663,14 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
                 (#break awaited)))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2672,7 +2678,7 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 41);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let early_break = source.replace(
         "(#break awaited)",
@@ -2766,14 +2772,14 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
                 (#break token)))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2812,19 +2818,19 @@ fn async_value_loop_statement_can_discard_a_copy_break_result() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2871,14 +2877,14 @@ fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
                 (#break)))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2886,7 +2892,7 @@ fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2909,14 +2915,14 @@ fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
                 (#break)))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2924,7 +2930,7 @@ fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 43);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2947,14 +2953,14 @@ fn async_for_range_expression_can_be_suspended_in_a_call_argument() {
                     (Waiting iteration)))))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -2962,7 +2968,7 @@ fn async_for_range_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 44);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -2987,14 +2993,14 @@ fn async_for_expression_can_be_suspended_in_a_call_argument() {
                     (Waiting iteration)))))))
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -3002,7 +3008,7 @@ fn async_for_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 45);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3024,14 +3030,14 @@ fn async_while_let_expression_can_be_suspended_in_a_call_argument() {
                 ()))) )
           (#return result))))
       (#fn run ((waker (#ref #u64))) #u64
-        (#let task Work-task (#call work ()))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work ()))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -3039,7 +3045,7 @@ fn async_while_let_expression_can_be_suspended_in_a_call_argument() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 46);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3061,17 +3067,17 @@ fn async_function_suspends_inside_projected_assignment_rhs() {
           (#return (#index values 0usize)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3094,17 +3100,17 @@ fn async_function_awaits_before_selecting_an_if_branch() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let false_branch = source.replace("(ChildReady true)", "(ChildReady false)");
     assert_ne!(false_branch, source);
     build_and_run_graph(&false_branch, 0);
@@ -3129,17 +3135,17 @@ fn async_function_awaits_before_selecting_a_match_arm() {
             (#case Stop 0u64))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let stopped = source.replace("(ChildReady (Continue 42u64))", "(ChildReady Stop)");
     assert_ne!(stopped, source);
     build_and_run_graph(&stopped, 0);
@@ -3174,17 +3180,17 @@ fn async_function_resumes_inside_a_value_producing_block() {
           (#return (#get result value)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3209,13 +3215,13 @@ fn async_function_assigns_conditional_await_result_inside_a_block() {
             result)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: choose true)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     build_and_run_graph(source, 42);
@@ -3244,22 +3250,22 @@ fn async_function_resumes_multiple_awaits_inside_one_block() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending after-first) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task after-first : waker (#borrow waker))))
-        (#let-else (work-pending after-second) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
-        (#let-else (work-pending after-third) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task after-third : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending after-first) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task after-first : waker (#borrow waker))))
+        (#let-else (Work::Pending after-second) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task after-second : waker (#borrow waker))))
+        (#let-else (Work::Pending after-third) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task after-third : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3285,17 +3291,17 @@ fn async_function_assigns_a_block_local_after_await_resumes() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3320,17 +3326,17 @@ fn async_function_preserves_mutability_of_block_await_bindings() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3356,13 +3362,13 @@ fn async_function_runs_block_prefix_side_effect_once_before_await() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending running-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task running-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending running-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task running-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     build_and_run(source, 43);
@@ -3387,19 +3393,19 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3481,24 +3487,24 @@ fn async_function_let_else_returns_ready_before_and_after_suspension() {
             (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
           (#let-else (Some ignored) Maybe after (#return 9u64))
           (#return value))))
-      (#fn work-poll-work ((input Maybe) (after Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input : after after)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker waker)))
+      (#fn Work::poll-work ((input Maybe) (after Maybe) (waker (#ref #u64))) #u64
+        (#let task Work::Task (#call work (: input input : after after)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match result
-          (#case (work-ready value) value)
-          (#case (work-pending pending) (#block (#forget pending) 0u64)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending) (#block (#forget pending) 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let early #u64
-          (#call work-poll-work (: input None : after (Some 1u64) : waker (#borrow waker))))
+          (#call Work::poll-work (: input None : after (Some 1u64) : waker (#borrow waker))))
         (#let post-await #u64
-          (#call work-poll-work (: input (Some 1u64) : after None : waker (#borrow waker))))
+          (#call Work::poll-work (: input (Some 1u64) : after None : waker (#borrow waker))))
         (#let awaited #u64
-          (#call work-poll-work (: input (Some 1u64) : after (Some 1u64) : waker (#borrow waker))))
+          (#call Work::poll-work (: input (Some 1u64) : after (Some 1u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap (#u64.+.wrap early post-await) awaited)))";
     let generated = build_and_run(source, 58);
-    assert!(generated.contains("(work-ready"), "{generated}");
+    assert!(generated.contains("(Work::Ready"), "{generated}");
 }
 
 #[test]
@@ -3516,18 +3522,18 @@ fn async_function_can_await_let_else_scrutinee() {
             (#await Child ChildPending ChildReady child-poll (Waiting input))
             (#return 7u64))
           (#return value))))
-      (#fn work-poll-work ((input Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker waker)))
+      (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
+        (#let task Work::Task (#call work (: input input)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match result
-          (#case (work-ready value) value)
-          (#case (work-pending pending) (#block (#forget pending) 0u64)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending) (#block (#forget pending) 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let unmatched #u64
-          (#call work-poll-work (: input None : waker (#borrow waker))))
+          (#call Work::poll-work (: input None : waker (#borrow waker))))
         (#let matched #u64
-          (#call work-poll-work (: input (Some 42u64) : waker (#borrow waker))))
+          (#call Work::poll-work (: input (Some 42u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap unmatched matched)))";
     build_and_run(source, 49);
@@ -3553,22 +3559,22 @@ fn async_function_awaits_inside_let_else_return_expression() {
           (#return value))))";
     let source = format!(
         "{source}
-         (#fn work-poll-work ((input Maybe) (waker (#ref #u64))) #u64
-           (#let task Work-task (#call work (: input input)))
-           (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+         (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
+           (#let task Work::Task (#call work (: input input)))
+           (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
            (#let result #u64
              (#match first
-               (#case (work-ready value) value)
-               (#case (work-pending pending) (#block
-                 (#let second Work-poll-result (#call work-poll (: task pending : waker waker)))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending pending) (#block
+                 (#let second Work::Poll (#call Work::poll (: task pending : waker waker)))
                  (#match second
-                   (#case (work-ready value) value)
-                   (#case (work-pending unexpected) (#block (#forget unexpected) 0u64)))))))
+                   (#case (Work::Ready value) value)
+                   (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64)))))))
            (#return result))
          (#fn main () #u64
            (#let waker #u64 0u64)
-           (#let mismatch #u64 (#call work-poll-work (: input None : waker (#borrow waker))))
-           (#let matched #u64 (#call work-poll-work (: input (Some 41u64) : waker (#borrow waker))))
+           (#let mismatch #u64 (#call Work::poll-work (: input None : waker (#borrow waker))))
+           (#let matched #u64 (#call Work::poll-work (: input (Some 41u64) : waker (#borrow waker))))
            (#forget waker)
            (#return (#u64.+.wrap mismatch matched)))"
     );
@@ -3595,16 +3601,16 @@ fn async_let_else_can_await_before_an_unreachable_failure() {
           (#return payload))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: input (Some 42u64))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: input (Some 42u64))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let value #u64
           (#match outcome
-            (#case (work-ready ready) ready)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3627,16 +3633,16 @@ fn async_let_else_can_await_before_a_diverging_panic() {
           (#return payload))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: input (Some 42u64))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: input (Some 42u64))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3661,16 +3667,16 @@ fn async_let_else_can_suspend_in_one_panic_only_branch() {
           (#return payload))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: input (Some 42u64) : wait true)))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: input (Some 42u64) : wait true)))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3696,16 +3702,16 @@ fn async_let_else_can_suspend_in_one_panic_only_match_arm() {
           (#return payload))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: input (Some 42u64) : wait true)))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: input (Some 42u64) : wait true)))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3728,16 +3734,16 @@ fn async_let_else_awaits_inside_an_assertion_before_unreachable() {
           (#return value))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: input (Some 42u64))))
-        (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: input (Some 42u64))))
+        (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -3761,14 +3767,14 @@ fn async_let_else_accepts_conditional_awaited_return_arms() {
                 (#return (#u64.+.wrap base 4u64)))))
           (#return payload))))
       (#fn drive ((input Maybe) (choose #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input : choose choose)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work (: input input : choose choose)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready first-value) first-value)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready second-value) second-value)
-              (#case (work-pending unexpected)
+          (#case (Work::Ready first-value) first-value)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready second-value) second-value)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -3805,17 +3811,17 @@ fn async_let_else_diverging_branch_can_return_after_multiple_awaits() {
               (#return (#u64.+.wrap first second))))
           (#return matched))))
       (#fn run ((input Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+        (#let task Work::Task (#call work (: input input)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready result) result)
-          (#case (work-pending after-first)
-            (#match (#call work-poll (: task after-first : waker waker))
-              (#case (work-ready result) result)
-              (#case (work-pending after-second)
-                (#match (#call work-poll (: task after-second : waker waker))
-                  (#case (work-ready result) result)
-                  (#case (work-pending unexpected)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending after-first)
+            (#match (#call Work::poll (: task after-first : waker waker))
+              (#case (Work::Ready result) result)
+              (#case (Work::Pending after-second)
+                (#match (#call Work::poll (: task after-second : waker waker))
+                  (#case (Work::Ready result) result)
+                  (#case (Work::Pending unexpected)
                     (#block (#forget unexpected) 0u64)))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -3844,32 +3850,32 @@ fn async_graph_nested_let_else_await_uses_the_child_result_contract() {
         "{source}
         (#fn run (: input Maybe) #u64
           (#let waker #u64 0u64)
-          (#let result Work-poll-result
-            (#call work-poll (: task (#call work (: input input)) : waker (#borrow waker))))
+          (#let result Work::Poll
+            (#call Work::poll (: task (#call work (: input input)) : waker (#borrow waker))))
           (#return (#match result
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
         (#fn main () #u64
           (#return (#u64.+.wrap
             (#call run (: input (Some 42u64)))
             (#call run (: input None)))))"
     );
     let generated = build_and_run_graph(&source, 50);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let suspended = source
         .replace(
             "(ChildReady value)))))",
             "(#if (#u64.== value 7u64) (ChildPending (Waiting 8u64)) (ChildReady 7u64))))))",
         )
         .replace(
-            "(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
-            "(#case (work-pending pending-task)
+            "(#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (Work::Pending pending-task)
               (#block
-                (#let second Work-poll-result
-                  (#call work-poll (: task pending-task : waker (#borrow waker))))
+                (#let second Work::Poll
+                  (#call Work::poll (: task pending-task : waker (#borrow waker))))
                 (#match second
-                  (#case (work-ready resumed) resumed)
-                  (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+                  (#case (Work::Ready resumed) resumed)
+                  (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
         );
     assert_ne!(suspended, source);
     build_and_run_graph(&suspended, 50);
@@ -3901,23 +3907,23 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
               (#return (#u64.+.wrap first second))))
           (#let adjusted #u64 (#u64.+.wrap value 1u64))
           (#return adjusted))))
-      (#fn work-poll-work ((input Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+      (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
+        (#let task Work::Task (#call work (: input input)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending running-task)
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending running-task)
             (#block
-              (#let second Work-poll-result (#call work-poll (: task running-task : waker waker)))
+              (#let second Work::Poll (#call Work::poll (: task running-task : waker waker)))
               (#match second
-                (#case (work-ready value) value)
-                (#case (work-pending pending) (#block (#forget pending) 0u64))))))))
+                (#case (Work::Ready value) value)
+                (#case (Work::Pending pending) (#block (#forget pending) 0u64))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let mismatch #u64
-          (#call work-poll-work (: input None : waker (#borrow waker))))
+          (#call Work::poll-work (: input None : waker (#borrow waker))))
         (#let matched #u64
-          (#call work-poll-work (: input (Some 42u64) : waker (#borrow waker))))
+          (#call Work::poll-work (: input (Some 42u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
     build_and_run(source, 57);
@@ -3950,23 +3956,23 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
             (#await Child ChildPending ChildReady child-poll
               (SuccessWaiting 1u64 (#u64.+.wrap value base))))
           (#return result))))
-      (#fn work-poll-work ((input Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+      (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
+        (#let task Work::Task (#call work (: input input)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending running-task)
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending running-task)
             (#block
-              (#let second Work-poll-result (#call work-poll (: task running-task : waker waker)))
+              (#let second Work::Poll (#call Work::poll (: task running-task : waker waker)))
               (#match second
-                (#case (work-ready value) value)
-                (#case (work-pending pending) (#block (#forget pending) 0u64))))))))
+                (#case (Work::Ready value) value)
+                (#case (Work::Pending pending) (#block (#forget pending) 0u64))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let mismatch #u64
-          (#call work-poll-work (: input None : waker (#borrow waker))))
+          (#call Work::poll-work (: input None : waker (#borrow waker))))
         (#let matched #u64
-          (#call work-poll-work (: input (Some 42u64) : waker (#borrow waker))))
+          (#call Work::poll-work (: input (Some 42u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
     build_and_run(source, 50);
@@ -3998,15 +4004,15 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
       (#fn main () #u64
         (#let-mut owner #u64 1u64)
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work
+        (#let task Work::Task (#call work
           (: input (Some 10u64) : owner (#borrow-mut owner))))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         MUTATE_WHILE_PENDING
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64 (#match second
-          (#case (work-ready value) value)
-          (#case (work-pending unfinished) (#block (#forget unfinished) 0u64))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unfinished) (#block (#forget unfinished) 0u64))))
         (#set owner 3u64)
         (#forget waker)
         (#return (#u64.+.wrap result owner)))";
@@ -4019,11 +4025,11 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
         "{}\n(#fn main () #u64
           (#let-mut owner #u64 1u64)
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work
+          (#let task Work::Task (#call work
             (: input None : owner (#borrow-mut owner))))
-          (#let outcome Work-poll-result
-            (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-ready result) Work-poll-result outcome (#unreachable))
+          (#let outcome Work::Poll
+            (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Ready result) Work::Poll outcome (#unreachable))
           (#set owner 3u64)
           (#forget waker)
           (#return (#u64.+.wrap result owner)))",
@@ -4055,14 +4061,14 @@ fn async_graph_nested_await_uses_the_child_result_contract() {
         "{source}
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let result Work-poll-result
-            (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+          (#let result Work::Poll
+            (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
           (#return (#match result
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
     );
     let generated = build_and_run_graph(&source, 2);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let suspended = source
         .replace(
             "(#return (ChildReady 1u64))",
@@ -4070,14 +4076,14 @@ fn async_graph_nested_await_uses_the_child_result_contract() {
               (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady count)))))",
         )
         .replace(
-            "(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
-            "(#case (work-pending pending-task)
+            "(#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (Work::Pending pending-task)
               (#block
-                (#let second Work-poll-result
-                  (#call work-poll (: task pending-task : waker (#borrow waker))))
+                (#let second Work::Poll
+                  (#call Work::poll (: task pending-task : waker (#borrow waker))))
                 (#match second
-                  (#case (work-ready resumed) resumed)
-                  (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+                  (#case (Work::Ready resumed) resumed)
+                  (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
         );
     assert_ne!(suspended, source);
     build_and_run_graph(&suspended, 2);
@@ -4110,13 +4116,13 @@ fn async_function_extracts_awaits_from_keyed_struct_literals() {
           (#return result))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready pair)
+            (#case (Work::Ready pair)
               (#u64.+.wrap (#get pair left) (#u64.*.wrap 2u64 (#get pair right))))
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     build_and_run(source, 50);
@@ -4211,24 +4217,24 @@ fn async_conditional_await_joins_with_an_immediate_value() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let awaited Work-poll-result
-          (#call work-poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let awaited Work::Poll
+          (#call Work::poll (: task (#call work (: choose true)) : waker (#borrow waker))))
         (#let awaited-value #u64
           (#match awaited
-            (#case (work-ready value) value)
-            (#case (work-pending awaited-child)
-              (#match (#call work-poll (: task awaited-child : waker (#borrow waker)))
-                (#case (work-ready awaited-ready) awaited-ready)
-                (#case (work-pending awaited-again)
-                  (#match (#call work-poll (: task awaited-again : waker (#borrow waker)))
-                    (#case (work-ready awaited-third-ready) awaited-third-ready)
-                    (#case (work-pending awaited-third) (#block (#forget awaited-third) (#unreachable)))))))))
-        (#let immediate Work-poll-result
-          (#call work-poll (: task (#call work (: choose false)) : waker (#borrow waker))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending awaited-child)
+              (#match (#call Work::poll (: task awaited-child : waker (#borrow waker)))
+                (#case (Work::Ready awaited-ready) awaited-ready)
+                (#case (Work::Pending awaited-again)
+                  (#match (#call Work::poll (: task awaited-again : waker (#borrow waker)))
+                    (#case (Work::Ready awaited-third-ready) awaited-third-ready)
+                    (#case (Work::Pending awaited-third) (#block (#forget awaited-third) (#unreachable)))))))))
+        (#let immediate Work::Poll
+          (#call Work::poll (: task (#call work (: choose false)) : waker (#borrow waker))))
         (#let immediate-value #u64
           (#match immediate
-            (#case (work-ready immediate-ready) immediate-ready)
-            (#case (work-pending immediate-task) (#block (#forget immediate-task) (#unreachable)))))
+            (#case (Work::Ready immediate-ready) immediate-ready)
+            (#case (Work::Pending immediate-task) (#block (#forget immediate-task) (#unreachable)))))
         (#let match-awaited Work-match-poll-result
           (#call work-match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
         (#let match-awaited-value #u64
@@ -4252,7 +4258,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
           (#u64.+.wrap awaited-value immediate-value)
           (#u64.+.wrap match-awaited-value match-immediate-value))))";
     let generated = build_and_run_graph(source, 86);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert_single_poll(&generated, "work-match-poll");
 }
 
@@ -4290,21 +4296,21 @@ fn async_conditional_branch_value_expressions_can_suspend() {
               (#case Immediate 0u64))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let if-first Work-poll-result
-          (#call work-poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let if-first Work::Poll
+          (#call Work::poll (: task (#call work (: choose true)) : waker (#borrow waker))))
         (#let if-value #u64
           (#match if-first
-            (#case (work-pending if-child)
-              (#match (#call work-poll (: task if-child : waker (#borrow waker)))
-                (#case (work-ready value) value)
-                (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
-            (#case (work-ready value) value)))
-        (#let if-immediate Work-poll-result
-          (#call work-poll (: task (#call work (: choose false)) : waker (#borrow waker))))
+            (#case (Work::Pending if-child)
+              (#match (#call Work::poll (: task if-child : waker (#borrow waker)))
+                (#case (Work::Ready value) value)
+                (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)))
+        (#let if-immediate Work::Poll
+          (#call Work::poll (: task (#call work (: choose false)) : waker (#borrow waker))))
         (#let if-immediate-value #u64
           (#match if-immediate
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#let match-first Work-match-poll-result
           (#call work-match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
         (#let match-value #u64
@@ -4325,14 +4331,14 @@ fn async_conditional_branch_value_expressions_can_suspend() {
           (#u64.+.wrap if-value if-immediate-value)
           (#u64.+.wrap match-value match-immediate-value))))";
     let generated = build_and_run_graph(source, 88);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert_single_poll(&generated, "work-match-poll");
 }
 
 fn check_graph_conditional_capture(source: &str) {
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
-    assert_frame_has_program_counter(&generated, "Work-task");
+    assert_single_poll(&generated, "Work::poll");
+    assert_frame_has_program_counter(&generated, "Work::Task");
 
     // The original immediate child alone cannot establish retention across
     // Pending. Force a suspension and consume its returned task on the retry.
@@ -4342,7 +4348,7 @@ fn check_graph_conditional_capture(source: &str) {
             "(#enum Child (#linear) ((Waiting #u64) (Resuming #u64)))",
         )
         .replace("(#case (Waiting value) (ChildReady value))", "(#case (Waiting value) (ChildPending (Resuming value)))\n          (#case (Resuming value) (ChildReady value))")
-        .replace("(#case (work-pending pending) (#block (#forget pending) 0u64))", "(#case (work-pending pending)\n              (#match (#call work-poll (: task pending : waker (#borrow waker)))\n                (#case (work-ready resumed) resumed)\n                (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))");
+        .replace("(#case (Work::Pending pending) (#block (#forget pending) 0u64))", "(#case (Work::Pending pending)\n              (#match (#call Work::poll (: task pending : waker (#borrow waker)))\n                (#case (Work::Ready resumed) resumed)\n                (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))");
     assert_ne!(suspended, source);
     build_and_run_graph(&suspended, 42);
     let unselected = suspended.replace("(#if true", "(#if false");
@@ -4381,12 +4387,12 @@ fn async_conditional_value_await_captures_typed_function_parameters() {
             0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: offset 40u64)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: offset 40u64)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     check_graph_conditional_capture(source);
@@ -4410,12 +4416,12 @@ fn async_conditional_value_await_captures_typed_local_bindings() {
             0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     check_graph_conditional_capture(source);
@@ -4438,13 +4444,13 @@ fn async_conditional_continuations_can_change_result_type() {
               (#u64.== awaited 41u64))
             false)))))
       (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: choose choose)) : waker waker)))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: choose choose)) : waker waker)))
         (#let result #bool (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending pending)
-            (#match (#call work-poll (: task pending : waker waker))
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending)
+            (#match (#call Work::poll (: task pending : waker waker))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
         (#return (#if result 42u64 0u64)))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -4538,8 +4544,8 @@ fn async_conditional_continuations_can_change_result_type() {
       (#fn main () #u64
         (#let-mut storage #u64 42u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: choose true : view (#borrow storage))) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: choose true : view (#borrow storage))) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         MUTATE_HERE
         (#forget pending)
         (#set storage 42u64)
@@ -4586,12 +4592,12 @@ fn async_conditional_block_continuation_captures_typed_locals() {
             0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (: offset 40u64)))
-        (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let task Work::Task (#call work (: offset 40u64)))
+        (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready value) value)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     let generated = build_and_run(source, 42);
@@ -4621,20 +4627,20 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
       (#fn main () #u64
         (#let-mut owner #u64 1u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: choose true : view (#borrow owner)))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: choose true : view (#borrow owner)))
             : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         CHECK_HERE
-        (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
+        (#call cancel-work (: task (#call Work::poll::cleanup (: task pending))))
         (#set owner 42u64)
-        (#let immediate Work-poll-result
-          (#call work-poll (: task (#call work (: choose false : view (#borrow owner)))
+        (#let immediate Work::Poll
+          (#call Work::poll (: task (#call work (: choose false : view (#borrow owner)))
             : waker (#borrow waker))))
         (#let answer #u64
           (#match immediate
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return answer))";
 
@@ -4649,7 +4655,7 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
 
     let accepted = source.replace("CHECK_HERE", "");
     let generated = build_and_run_graph(&accepted, 83);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -4712,23 +4718,23 @@ fn async_conditional_awaits_support_distinct_child_poll_protocols() {
               (#await #u64 RightChild RightPending RightReady right-poll (RightWaiting 2u64))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let left-first Work-poll-result
-          (#call work-poll (: task (#call work (: choose-left true)) : waker (#borrow waker))))
-        (#let left Work-poll-result
+        (#let left-first Work::Poll
+          (#call Work::poll (: task (#call work (: choose-left true)) : waker (#borrow waker))))
+        (#let left Work::Poll
           (#match left-first
-            (#case (work-pending task)
-              (#call work-poll (: task task : waker (#borrow waker))))
-            (#case (work-ready value) (work-ready value))))
+            (#case (Work::Pending task)
+              (#call Work::poll (: task task : waker (#borrow waker))))
+            (#case (Work::Ready value) (Work::Ready value))))
         (#let left-value #u64
           (#match left
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
-        (#let right Work-poll-result
-          (#call work-poll (: task (#call work (: choose-left false)) : waker (#borrow waker))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
+        (#let right Work::Poll
+          (#call Work::poll (: task (#call work (: choose-left false)) : waker (#borrow waker))))
         (#let right-value #u64
           (#match right
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#let matched Work-match-poll-result
           (#call work-match-poll (: task (#call work-match (: choice Right)) : waker (#borrow waker))))
         (#let matched-value #u64
@@ -4927,12 +4933,12 @@ fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
       (#fn main () #u64
         (#let-mut owner #u64 37u64)
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: view (#borrow-mut owner)))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: view (#borrow-mut owner)))
             : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         WHILE_PENDING
-        (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
+        (#call cancel-work (: task (#call Work::poll::cleanup (: task pending))))
         (#set owner 42u64)
         (#return owner))";
     let accepted = source.replace("WHILE_PENDING", "");
@@ -4985,21 +4991,21 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
           (#return total))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: initial 2u64)) : waker (#borrow waker))))
-        (#let-else (work-pending first-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-task : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: initial 2u64)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 4);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     // Mutability belongs to the source body, not its capture-only constructor.
-    assert_generated_signature(&generated, "(#fn work ((initial #u64)) Work-task)");
+    assert_generated_signature(&generated, "(#fn work ((initial #u64)) Work::Task)");
 }
 
 #[test]
@@ -5043,18 +5049,18 @@ fn async_function_lowers_await_in_terminal_binding_block() {
             0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let value #u64
           (#match outcome
-            (#case (work-ready ready) ready)
-            (#case (work-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return value))";
     let generated = build_and_run_graph(source, 17);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     // A source input consumed before poll must not become a cancellation slot.
     assert!(
-        !generated.contains("Work-task-cleanup-task-input"),
+        !generated.contains("Work::Task-cleanup-task-input"),
         "{generated}"
     );
 }
@@ -5080,18 +5086,18 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(&source, 2);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -5119,15 +5125,15 @@ fn async_while_body_suspends_inside_a_call_argument() {
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
            (#let waker #u64 0u64)
-           (#let task Work-task (#call work (: cell (#borrow cell))))
-           (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-           (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+           (#let task Work::Task (#call work (: cell (#borrow cell))))
+           (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+           (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
            (#let before #u64 (#call CellU64-get (: cell (#borrow cell))))
-           (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+           (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
            (#let result #u64
              (#match second
-               (#case (work-ready value) value)
-               (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
            (#forget waker)
            (#forget cell)
            (#return (#if (#bool.&& (#u64.== before 0u64)
@@ -5136,7 +5142,7 @@ fn async_while_body_suspends_inside_a_call_argument() {
         env!("CARGO_MANIFEST_DIR")
     );
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -5164,15 +5170,15 @@ fn async_for_body_suspends_inside_a_call_argument() {
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
            (#let waker #u64 0u64)
-           (#let task Work-task (#call work (: cell (#borrow cell))))
-           (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-           (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+           (#let task Work::Task (#call work (: cell (#borrow cell))))
+           (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+           (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
            (#let before #u64 (#call CellU64-get (: cell (#borrow cell))))
-           (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+           (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
            (#let result #u64
              (#match second
-               (#case (work-ready value) value)
-               (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+               (#case (Work::Ready value) value)
+               (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
            (#forget waker)
            (#forget cell)
            (#return (#if (#bool.&& (#u64.== before 0u64)
@@ -5181,14 +5187,14 @@ fn async_for_body_suspends_inside_a_call_argument() {
         env!("CARGO_MANIFEST_DIR")
     );
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
 fn async_function_resumes_a_child_await_in_a_while_condition() {
     let source = include_str!("../examples/async_fn_while_condition.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -5282,16 +5288,16 @@ fn async_labeled_while_continues_to_its_label_after_body_await() {
           (#return index))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending first-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-frame : waker (#borrow waker))))
-        (#let-else (work-pending second-frame) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending first-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Work::Pending second-frame) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-frame : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     build_and_run(source, 2);
@@ -5317,19 +5323,19 @@ fn async_while_condition_sequences_short_circuit_awaits() {
           (#return iterations))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending after-first) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task after-first : waker (#borrow waker))))
-        (#let-else (work-pending after-second) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending after-first) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task after-first : waker (#borrow waker))))
+        (#let-else (Work::Pending after-second) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task after-second : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 1);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -5353,15 +5359,15 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-frame : waker (#borrow waker))))
-        (#let-else (work-pending second-frame) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Work::Pending second-frame) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-frame : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
@@ -5380,12 +5386,12 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
     let fallback = source
         .replace("(ChildReady true)", "(ChildReady false)")
         .replace(
-            "(#let-else (work-pending second-frame) Work-poll-result second (#unreachable))",
+            "(#let-else (Work::Pending second-frame) Work::Poll second (#unreachable))",
             "",
         )
         .replace(
-            "(#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))",
-            "(#let third Work-poll-result second)",
+            "(#let third Work::Poll (#call Work::poll (: task second-frame : waker (#borrow waker))))",
+            "(#let third Work::Poll second)",
         );
     build_and_run_graph(&fallback, 42);
     let static_fallback = fallback
@@ -5442,12 +5448,12 @@ fn awaited_while_condition_preserves_terminal_break_and_continue() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let result Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let result Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let value #u64 (#match result
-          (#case (work-ready ready) ready)
-          (#case (work-pending pending-again) (#block (#forget pending-again) 0u64))))
+          (#case (Work::Ready ready) ready)
+          (#case (Work::Pending pending-again) (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
     build_and_run(source, 42);
@@ -5480,27 +5486,27 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
           (#return input))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: input 42u64)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending body-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task body-pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: input 42u64)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending body-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task body-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let conditional_source = source.replace(
         "(#await #u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))",
         "(#if true\n                (#await #u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))\n                42u64)",
     );
     let generated = build_and_run_graph(&conditional_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let for_source = source
         .replace(
@@ -5512,7 +5518,7 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
             "condition-poll ConditionWaiting) ()\n            (#let value",
         );
     let generated = build_and_run_graph(&for_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -5535,11 +5541,11 @@ fn awaited_false_while_condition_does_not_poll_the_body_task() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready ready) ready)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return value))";
@@ -5607,20 +5613,20 @@ fn async_while_body_can_return_after_awaited_condition() {
           (#return 0u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-second (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-second (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run_graph(source, 7);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let explicitly_typed = source.replace("#while (#await Child", "#while (#await #bool Child");
     assert_ne!(explicitly_typed, source);
@@ -5668,16 +5674,16 @@ fn async_while_body_returns_after_a_composed_awaited_condition() {
           (#return fallback))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-second (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-second (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);
@@ -5705,16 +5711,16 @@ fn async_while_conditional_return_can_fall_through_to_another_iteration() {
           (#return fallback))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-pending true-pending-again) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result (#call work-poll (: task true-pending-again : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-third (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-first (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending-again) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll (#call Work::poll (: task true-pending-again : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-third (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-first (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);
@@ -5749,18 +5755,18 @@ fn async_while_conditional_return_can_skip_a_direct_awaited_tail() {
             (TailWaiting 3u64))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-pending true-pending-again) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result (#call work-poll (: task true-pending-again : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-third (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending-again) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll (#call Work::poll (: task true-pending-again : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-third (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);
@@ -5796,18 +5802,18 @@ fn async_while_conditional_return_can_suspend_post_loop_continuation() {
           (#return fallback))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-pending true-pending-again) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result (#call work-poll (: task true-pending-again : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-third (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending-again) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll (#call Work::poll (: task true-pending-again : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-third (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);
@@ -5839,18 +5845,18 @@ fn async_while_early_return_can_skip_a_nested_awaited_tail() {
             2u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-second (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-pending false-tail-pending) Work-poll-result false-second (#unreachable))
-        (#let false-third Work-poll-result (#call work-poll (: task false-tail-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-third (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-second (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending false-tail-pending) Work::Poll false-second (#unreachable))
+        (#let false-third Work::Poll (#call Work::poll (: task false-tail-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-third (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 12);
@@ -5881,18 +5887,18 @@ fn async_while_early_return_can_skip_a_direct_awaited_tail() {
             (TailWaiting 3u64))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-pending) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result (#call work-poll (: task true-pending : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-second (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-pending false-tail-pending) Work-poll-result false-second (#unreachable))
-        (#let false-third Work-poll-result (#call work-poll (: task false-tail-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-third (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-pending) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll (#call Work::poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-second (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending false-tail-pending) Work::Poll false-second (#unreachable))
+        (#let false-third Work::Poll (#call Work::poll (: task false-tail-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-third (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);
@@ -5900,7 +5906,8 @@ fn async_while_early_return_can_skip_a_direct_awaited_tail() {
 
 #[test]
 fn async_while_body_can_return_after_body_await() {
-    let source = "(#enum ConditionTask (#linear) ((ConditionWaiting #bool) (ConditionResuming #bool)))
+    let source =
+        "(#enum ConditionTask (#linear) ((ConditionWaiting #bool) (ConditionResuming #bool)))
 
       (#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
@@ -5925,25 +5932,25 @@ fn async_while_body_can_return_after_body_await() {
           (#return 5u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-after-condition) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result
-          (#call work-poll (: task true-after-condition : waker (#borrow waker))))
-        (#let-else (work-pending true-after-body-start) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result
-          (#call work-poll (: task true-after-body-start : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-third (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-after-condition) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result
-          (#call work-poll (: task false-after-condition : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-condition) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll
+          (#call Work::poll (: task true-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-body-start) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll
+          (#call Work::poll (: task true-after-body-start : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-third (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-after-condition) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll
+          (#call Work::poll (: task false-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run_graph(source, 18);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let linear_source = source
         .replace(
@@ -5971,7 +5978,7 @@ fn async_while_body_can_return_after_body_await() {
              (#return (#u64.+.wrap true-value false-value))",
         );
     let generated = build_and_run_graph(&linear_source, 18);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -6016,25 +6023,25 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         (#forget value) (#return ()))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: decision true)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending first-body-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task first-body-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-body-pending) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task second-body-pending : waker (#borrow waker))))
-        (#let-else (work-pending final-condition-pending) Work-poll-result fourth (#unreachable))
-        (#let fifth Work-poll-result (#call work-poll (: task final-condition-pending : waker (#borrow waker))))
-        (#let-else (work-ready payload) Work-poll-result fifth (#unreachable))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: decision true)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending first-body-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task first-body-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-body-pending) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task second-body-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending final-condition-pending) Work::Poll fourth (#unreachable))
+        (#let fifth Work::Poll (#call Work::poll (: task final-condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready payload) Work::Poll fifth (#unreachable))
         (#let result #u64 (#get payload value))
         (#forget payload)
-        (#let cancel-first Work-poll-result
-          (#call work-poll (: task (#call work (: decision true)) : waker (#borrow waker))))
-        (#let-else (work-pending cancel-pending-first) Work-poll-result cancel-first (#unreachable))
-        (#let cancel-second Work-poll-result
-          (#call work-poll (: task cancel-pending-first : waker (#borrow waker))))
-        (#let-else (work-pending cancel-pending-second) Work-poll-result cancel-second (#unreachable))
-        (#call cancel-frame (: task (#call work-poll-cleanup (: task cancel-pending-second))))
+        (#let cancel-first Work::Poll
+          (#call Work::poll (: task (#call work (: decision true)) : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-pending-first) Work::Poll cancel-first (#unreachable))
+        (#let cancel-second Work::Poll
+          (#call Work::poll (: task cancel-pending-first : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-pending-second) Work::Poll cancel-second (#unreachable))
+        (#call cancel-frame (: task (#call Work::poll::cleanup (: task cancel-pending-second))))
         (#forget waker)
         (#return result))"
         .replace("{}", env!("CARGO_MANIFEST_DIR"));
@@ -6048,15 +6055,15 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
     let returning_source = format!(
         "{prefix}(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work (: decision true)))
-          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending after-condition) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task after-condition : waker (#borrow waker))))
-          (#let-else (work-pending after-first) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task after-first : waker (#borrow waker))))
-          (#let-else (work-pending after-second) Work-poll-result third (#unreachable))
-          (#let fourth Work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
-          (#let-else (work-ready payload) Work-poll-result fourth (#unreachable))
+          (#let task Work::Task (#call work (: decision true)))
+          (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Pending after-condition) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task after-condition : waker (#borrow waker))))
+          (#let-else (Work::Pending after-first) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task after-first : waker (#borrow waker))))
+          (#let-else (Work::Pending after-second) Work::Poll third (#unreachable))
+          (#let fourth Work::Poll (#call Work::poll (: task after-second : waker (#borrow waker))))
+          (#let-else (Work::Ready payload) Work::Poll fourth (#unreachable))
           (#let result #u64 (#get payload value))
           (#forget payload)
           (#forget waker)
@@ -6081,20 +6088,20 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
             "{prefix}
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let state-0 Work-task (#call work (: decision true)))"
+            (#let state-0 Work::Task (#call work (: decision true)))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
                 "
-              (#let outcome-{index} Work-poll-result
-                (#call work-poll (: task state-{index} : waker (#borrow waker))))
-              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+              (#let outcome-{index} Work::Poll
+                (#call Work::poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (Work::Pending state-{}) Work::Poll outcome-{index} (#unreachable))",
                 index + 1
             ));
         }
         canceled.push_str(&format!(
             "
-            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#call cancel-frame (: task (#call Work::poll::cleanup (: task state-{polls}))))
             (#forget waker) (#return 42u64))"
         ));
         build_and_run_graph(&canceled, 42);
@@ -6127,25 +6134,25 @@ fn async_suspending_while_body_can_return_after_setup() {
           (#return 5u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-after-condition) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result
-          (#call work-poll (: task true-after-condition : waker (#borrow waker))))
-        (#let-else (work-pending true-after-body) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result
-          (#call work-poll (: task true-after-body : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-third (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-after-condition) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result
-          (#call work-poll (: task false-after-condition : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-condition) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll
+          (#call Work::poll (: task true-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-body) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll
+          (#call Work::poll (: task true-after-body : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-third (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-after-condition) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll
+          (#call Work::poll (: task false-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run_graph(source, 18);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -6177,28 +6184,28 @@ fn async_suspending_while_body_can_return_after_multiple_awaits() {
           (#return 5u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let true-task Work-task (#call work (: decision true)))
-        (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-        (#let-else (work-pending true-after-condition) Work-poll-result true-first (#unreachable))
-        (#let true-second Work-poll-result
-          (#call work-poll (: task true-after-condition : waker (#borrow waker))))
-        (#let-else (work-pending true-after-first) Work-poll-result true-second (#unreachable))
-        (#let true-third Work-poll-result
-          (#call work-poll (: task true-after-first : waker (#borrow waker))))
-        (#let-else (work-pending true-after-second) Work-poll-result true-third (#unreachable))
-        (#let true-fourth Work-poll-result
-          (#call work-poll (: task true-after-second : waker (#borrow waker))))
-        (#let-else (work-ready true-result) Work-poll-result true-fourth (#unreachable))
-        (#let false-task Work-task (#call work (: decision false)))
-        (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-after-condition) Work-poll-result false-first (#unreachable))
-        (#let false-second Work-poll-result
-          (#call work-poll (: task false-after-condition : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
+        (#let true-task Work::Task (#call work (: decision true)))
+        (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-condition) Work::Poll true-first (#unreachable))
+        (#let true-second Work::Poll
+          (#call Work::poll (: task true-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-first) Work::Poll true-second (#unreachable))
+        (#let true-third Work::Poll
+          (#call Work::poll (: task true-after-first : waker (#borrow waker))))
+        (#let-else (Work::Pending true-after-second) Work::Poll true-third (#unreachable))
+        (#let true-fourth Work::Poll
+          (#call Work::poll (: task true-after-second : waker (#borrow waker))))
+        (#let-else (Work::Ready true-result) Work::Poll true-fourth (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false)))
+        (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-after-condition) Work::Poll false-first (#unreachable))
+        (#let false-second Work::Poll
+          (#call Work::poll (: task false-after-condition : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run_graph(source, 32);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -6228,21 +6235,21 @@ fn async_suspending_while_body_return_reaches_enclosing_function() {
             (#return (#u64.+.wrap first second)))
           (#return 5u64))))
       (#fn run ((decision #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: decision decision)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
-        (#let-else (work-pending after-condition) Work-poll-result first (#unreachable))
+        (#let task Work::Task (#call work (: decision decision)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
+        (#let-else (Work::Pending after-condition) Work::Poll first (#unreachable))
         (#return (#if decision
           (#block
-            (#let second Work-poll-result (#call work-poll (: task after-condition : waker waker)))
-            (#let-else (work-pending after-first-body) Work-poll-result second (#unreachable))
-            (#let third Work-poll-result (#call work-poll (: task after-first-body : waker waker)))
-            (#let-else (work-pending after-second-body) Work-poll-result third (#unreachable))
-            (#let fourth Work-poll-result (#call work-poll (: task after-second-body : waker waker)))
-            (#let-else (work-ready result) Work-poll-result fourth (#unreachable))
+            (#let second Work::Poll (#call Work::poll (: task after-condition : waker waker)))
+            (#let-else (Work::Pending after-first-body) Work::Poll second (#unreachable))
+            (#let third Work::Poll (#call Work::poll (: task after-first-body : waker waker)))
+            (#let-else (Work::Pending after-second-body) Work::Poll third (#unreachable))
+            (#let fourth Work::Poll (#call Work::poll (: task after-second-body : waker waker)))
+            (#let-else (Work::Ready result) Work::Poll fourth (#unreachable))
             result)
           (#block
-            (#let second Work-poll-result (#call work-poll (: task after-condition : waker waker)))
-            (#let-else (work-ready result) Work-poll-result second (#unreachable))
+            (#let second Work::Poll (#call Work::poll (: task after-condition : waker waker)))
+            (#let-else (Work::Ready result) Work::Poll second (#unreachable))
             result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -6270,21 +6277,21 @@ fn async_awaited_while_body_returns_from_both_if_branches() {
           (#return 5u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first-task Work-task (#call work (: decision true : pick true)))
-        (#let first-poll Work-poll-result (#call work-poll (: task first-task : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first-poll (#unreachable))
-        (#let first-ready Work-poll-result (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-ready first-result) Work-poll-result first-ready (#unreachable))
-        (#let second-task Work-task (#call work (: decision true : pick false)))
-        (#let second-poll Work-poll-result (#call work-poll (: task second-task : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second-poll (#unreachable))
-        (#let second-ready Work-poll-result (#call work-poll (: task second-pending : waker (#borrow waker))))
-        (#let-else (work-ready second-result) Work-poll-result second-ready (#unreachable))
-        (#let false-task Work-task (#call work (: decision false : pick true)))
-        (#let false-poll Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-        (#let-else (work-pending false-pending) Work-poll-result false-poll (#unreachable))
-        (#let false-ready Work-poll-result (#call work-poll (: task false-pending : waker (#borrow waker))))
-        (#let-else (work-ready false-result) Work-poll-result false-ready (#unreachable))
+        (#let first-task Work::Task (#call work (: decision true : pick true)))
+        (#let first-poll Work::Poll (#call Work::poll (: task first-task : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first-poll (#unreachable))
+        (#let first-ready Work::Poll (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready first-result) Work::Poll first-ready (#unreachable))
+        (#let second-task Work::Task (#call work (: decision true : pick false)))
+        (#let second-poll Work::Poll (#call Work::poll (: task second-task : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second-poll (#unreachable))
+        (#let second-ready Work::Poll (#call Work::poll (: task second-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready second-result) Work::Poll second-ready (#unreachable))
+        (#let false-task Work::Task (#call work (: decision false : pick true)))
+        (#let false-poll Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+        (#let-else (Work::Pending false-pending) Work::Poll false-poll (#unreachable))
+        (#let false-ready Work::Poll (#call Work::poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (Work::Ready false-result) Work::Poll false-ready (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap
           (#u64.+.wrap first-result second-result) false-result)))";
@@ -6311,13 +6318,13 @@ fn async_awaited_while_body_returns_from_match_arms() {
                 (#case false (#return (#u64.+.wrap 16u64 offset))))))
           (#return 5u64))))
       (#fn drive ((decision #bool) (pick #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: decision decision : pick pick)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker waker)))
+        (#let task Work::Task (#call work (: decision decision : pick pick)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker waker)))
         (#return (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending still-pending)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending still-pending)
             (#block (#forget still-pending) 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -6351,13 +6358,13 @@ fn async_awaited_while_return_branch_and_break_branch_diverge_correctly() {
               (#if leave-body (#return return-value) (#break))))
           (#return 5u64))))
       (#fn drive ((decision #bool) (leave-body #bool) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: decision decision : leave-body leave-body)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker waker)))
+        (#let task Work::Task (#call work (: decision decision : leave-body leave-body)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker waker)))
         (#return (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending still-pending)
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending still-pending)
             (#block (#forget still-pending) 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -6394,22 +6401,22 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
           (#return 5u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let return-task Work-task (#call work (: should-return true)))
-        (#let first Work-poll-result (#call work-poll (: task return-task : waker (#borrow waker))))
-        (#let-else (work-pending after-return-first) Work-poll-result first (#unreachable))
-        (#let return-ready Work-poll-result
-          (#call work-poll (: task after-return-first : waker (#borrow waker))))
-        (#let-else (work-ready returned) Work-poll-result return-ready (#unreachable))
-        (#let continue-task Work-task (#call work (: should-return false)))
-        (#let continue-first Work-poll-result
-          (#call work-poll (: task continue-task : waker (#borrow waker))))
-        (#let-else (work-pending after-continue-first) Work-poll-result continue-first (#unreachable))
-        (#let continue-second Work-poll-result
-          (#call work-poll (: task after-continue-first : waker (#borrow waker))))
-        (#let-else (work-pending after-continue-second) Work-poll-result continue-second (#unreachable))
-        (#let continue-ready Work-poll-result
-          (#call work-poll (: task after-continue-second : waker (#borrow waker))))
-        (#let-else (work-ready continued) Work-poll-result continue-ready (#unreachable))
+        (#let return-task Work::Task (#call work (: should-return true)))
+        (#let first Work::Poll (#call Work::poll (: task return-task : waker (#borrow waker))))
+        (#let-else (Work::Pending after-return-first) Work::Poll first (#unreachable))
+        (#let return-ready Work::Poll
+          (#call Work::poll (: task after-return-first : waker (#borrow waker))))
+        (#let-else (Work::Ready returned) Work::Poll return-ready (#unreachable))
+        (#let continue-task Work::Task (#call work (: should-return false)))
+        (#let continue-first Work::Poll
+          (#call Work::poll (: task continue-task : waker (#borrow waker))))
+        (#let-else (Work::Pending after-continue-first) Work::Poll continue-first (#unreachable))
+        (#let continue-second Work::Poll
+          (#call Work::poll (: task after-continue-first : waker (#borrow waker))))
+        (#let-else (Work::Pending after-continue-second) Work::Poll continue-second (#unreachable))
+        (#let continue-ready Work::Poll
+          (#call Work::poll (: task after-continue-second : waker (#borrow waker))))
+        (#let-else (Work::Ready continued) Work::Poll continue-ready (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap returned continued)))";
     build_and_run_graph(source, 18);
@@ -6473,12 +6480,12 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-frame : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-frame : waker (#borrow waker))))
         (#let value #u64 (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending pending-frame) (#block (#forget pending-frame) 0u64))))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending-frame) (#block (#forget pending-frame) 0u64))))
         (#forget waker)
         (#return (#if (#u64.== value 10u64) 42u64 0u64)))";
     build_and_run(source, 42);
@@ -6523,14 +6530,14 @@ fn async_while_let_can_suspend_only_in_its_body() {
           (#return total))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-        (#let-else (work-pending first-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-task : waker (#borrow waker))))
-        (#let-else (work-pending second-task) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-task : waker (#borrow waker))))
+        (#let-else (Work::Pending second-task) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-task : waker (#borrow waker))))
         (#return (#match third
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     build_and_run(source, 42);
     build_and_run(include_str!("../examples/async_while_let_body.lim"), 42);
@@ -6539,10 +6546,10 @@ fn async_while_let_can_suspend_only_in_its_body() {
         r#"{}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
         (#let value #u64 (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#assert (#u64.== value 0u64))
         (#return 42u64))
     "#,
@@ -6577,17 +6584,17 @@ fn async_while_let_synchronous_reference_payload_survives_body_suspension() {
       (#fn main () #u64
         (#let-mut owner #u64 42u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#return (#match second
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     build_and_run(source, 42);
     let invalid = source.replace(
-        "(#let second Work-poll-result",
-        "(#set owner 43u64) (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#set owner 43u64) (#let second Work::Poll",
     );
     let scratch = support::Scratch::new("async-sync-while-let-borrow");
     let error = lim::compile_source_to_assembly(
@@ -6612,8 +6619,8 @@ fn async_while_let_synchronous_reference_payload_survives_body_suspension() {
       (#fn main () #u64
         (#let-mut owner #u64 42u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
         (#forget task)
         (#set owner 43u64)
         (#return owner))
@@ -6641,19 +6648,19 @@ fn async_while_let_sequences_awaits_in_its_scrutinee_expression() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-frame : waker (#borrow waker))))
-        (#let-else (work-pending second-frame) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Work::Pending second-frame) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-frame : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -6677,19 +6684,19 @@ fn async_for_condition_sequences_awaits_in_a_value_expression() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-frame : waker (#borrow waker))))
-        (#let-else (work-pending second-frame) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Work::Pending second-frame) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-frame : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -6720,15 +6727,15 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     let generated = build_and_run_partial_storage(source, 44);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let explicit = source.replace(
         "(#struct Pair () (: left Resource : right Resource))",
         "(#struct Pair (#linear) (: left Resource : right Resource)) ",
@@ -6747,13 +6754,13 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         r#"{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let (Work-task-cleanup moved right waiting) Work-task-cleanup
-          (#call work-poll-cleanup (: task pending)))
-        (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
-        (#let-else (Work-task-cleanup-pair.right-full sibling) Work-task-cleanup-pair.right right (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let (Work::Task-cleanup moved right waiting) Work::Task-cleanup
+          (#call Work::poll::cleanup (: task pending)))
+        (#let-else (Work::Task-cleanup-moved-full original) Work::Task-cleanup-moved moved (#unreachable))
+        (#let-else (Work::Task-cleanup-pair.right-full sibling) Work::Task-cleanup-pair.right right (#unreachable))
         (#forget waiting)
         (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
         (#forget original) (#forget sibling)
@@ -6761,14 +6768,14 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     );
     let cleanup_source = build_and_run_partial_storage(&cancelled, 42);
     assert!(
-        !cleanup_source.contains("Work-task-cleanup-pair.left"),
+        !cleanup_source.contains("Work::Task-cleanup-pair.left"),
         "a field always moved before Pending is not a cancellation obligation"
     );
 
     let explicit_cancel = cancelled
         .replace("(#struct Pair () (: left Resource : right Resource))", "(#struct Pair (#linear) (: left Resource : right Resource)) ")
-        .replace("Work-task-cleanup moved right waiting", "Work-task-cleanup moved right shell waiting")
-        .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-pair.shell-full)) (#forget shell) (#forget waiting)");
+        .replace("Work::Task-cleanup moved right waiting", "Work::Task-cleanup moved right shell waiting")
+        .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work::Task-cleanup-pair.shell-full)) (#forget shell) (#forget waiting)");
     build_and_run_partial_storage(&explicit_cancel, 42);
 
     let pinned = prefix
@@ -6783,13 +6790,13 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         r#"{pinned}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (:)))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut frame Work::Frame (#call work (:)))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let result #u64 (#match (#call work-poll (: task pending : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let result #u64 (#match (#call Work::poll (: task pending : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame)
         (#return result))"#
     );
@@ -6859,15 +6866,15 @@ fn async_rebuilds_nested_partially_moved_structs() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     let generated = build_and_run_partial_storage(source, 44);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let explicit = source.replace(
         "(#struct Outer () (: inner Pair : spare Resource))",
         "(#struct Outer (#linear) (: inner Pair : spare Resource)) ",
@@ -6883,13 +6890,13 @@ fn async_rebuilds_nested_partially_moved_structs() {
         r#"{pinned}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (:)))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut frame Work::Frame (#call work (:)))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let result #u64 (#match (#call work-poll (: task pending : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let result #u64 (#match (#call Work::poll (: task pending : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame)
         (#return result))"#
     );
@@ -6899,13 +6906,13 @@ fn async_rebuilds_nested_partially_moved_structs() {
         r#"{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let (Work-task-cleanup moved right spare waiting) Work-task-cleanup
-          (#call work-poll-cleanup (: task pending)))
-        (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
-        (#let-else (Work-task-cleanup-owner.inner.right-full sibling) Work-task-cleanup-owner.inner.right right (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let (Work::Task-cleanup moved right spare waiting) Work::Task-cleanup
+          (#call Work::poll::cleanup (: task pending)))
+        (#let-else (Work::Task-cleanup-moved-full original) Work::Task-cleanup-moved moved (#unreachable))
+        (#let-else (Work::Task-cleanup-owner.inner.right-full sibling) Work::Task-cleanup-owner.inner.right right (#unreachable))
         (#forget spare) (#forget waiting)
         (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
         (#forget original) (#forget sibling)
@@ -6918,8 +6925,8 @@ fn async_rebuilds_nested_partially_moved_structs() {
         "(#struct Pair (#linear) (: left Resource : right Resource)) ",
     );
     let nominal_main = cancelled.split_once("(#fn main () #u64").unwrap().1
-        .replace("Work-task-cleanup moved right spare waiting", "Work-task-cleanup moved right spare shell waiting")
-        .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-owner.inner.shell-full)) (#forget shell) (#forget spare)");
+        .replace("Work::Task-cleanup moved right spare waiting", "Work::Task-cleanup moved right spare shell waiting")
+        .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work::Task-cleanup-owner.inner.shell-full)) (#forget shell) (#forget spare)");
     let nominal_cancel =
         format!("{nominal_prefix}(#return (#unreachable)))))\n(#fn main () #u64{nominal_main}");
     build_and_run_partial_storage(&nominal_cancel, 42);
@@ -6981,37 +6988,37 @@ fn async_clones_indexed_computed_reference_owners() {
       (#fn main () #u64
         (#let-mut owner #u64 42u64) (#let-mut index #usize 1usize)
         (#let-mut calls #usize 0usize) (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (: owner (#borrow owner) : index index
             : calls (#unsafe (#addr-of-mut calls)))) : waker (#borrow waker))))
         (#assert (#usize.== calls 1usize))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         (#set index 0usize)
-        (#let second Work-poll-result (#call work-poll
+        (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
         (#assert (#usize.== calls 1usize))
         (#return (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     build_and_run_partial_storage(source, 43);
     let pinned = format!(
         "{} (#fn main () #u64
           (#let owner #u64 42u64) (#let-mut calls #usize 0usize)
           (#let waker #u64 0u64)
-          (#let-mut frame Work-frame (#call work
+          (#let-mut frame Work::Frame (#call work
             (: owner (#borrow owner) : index 1usize
               : calls (#unsafe (#addr-of-mut calls)))))
-          (#let first Work-poll-result (#call work-poll
+          (#let first Work::Poll (#call Work::poll
             (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
           (#assert (#usize.== calls 1usize))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll
             (: task pending : waker (#borrow waker))))
           (#assert (#usize.== calls 1usize))
           (#let result #u64 (#match second
-            (#case (work-ready ready) ready)
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
           (#forget frame) (#return result))",
         source
             .split_once("(#fn main")
@@ -7039,8 +7046,8 @@ fn async_clones_indexed_computed_reference_owners() {
         )
         .replace(
             "(#return (#match second",
-            "(#let-else (work-pending again) Work-poll-result second (#unreachable))
-             (#let third Work-poll-result (#call work-poll
+            "(#let-else (Work::Pending again) Work::Poll second (#unreachable))
+             (#let third Work::Poll (#call Work::poll
                (: task again : waker (#borrow waker))))
              (#assert (#usize.== calls 1usize))
              (#return (#match third",
@@ -7099,8 +7106,8 @@ fn async_clones_indexed_computed_reference_owners() {
             "(#return holder)",
         )
         .replace(
-            "(#case (work-ready result) result)",
-            "(#case (work-ready result) (#block
+            "(#case (Work::Ready result) result)",
+            "(#case (Work::Ready result) (#block
               (#let data #u64 (#u64.+.wrap
                 (#deref (#get result reference)) (#get result offset)))
               (#forget result) data))",
@@ -7207,14 +7214,14 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                       (#forget pair) (#return result))))
                   (#fn main () #u64
                     (#let waker #u64 0u64)
-                    (#let-mut frame Work-frame (#call work (:)))
-                    (#let first Work-poll-result (#call work-poll
+                    (#let-mut frame Work::Frame (#call work (:)))
+                    (#let first Work::Poll (#call Work::poll
                       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-                    (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-                    (#let result #u64 (#match (#call work-poll
+                    (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+                    (#let result #u64 (#match (#call Work::poll
                       (: task pending : waker (#borrow waker)))
-                      (#case (work-ready value) value)
-                      (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+                      (#case (Work::Ready value) value)
+                      (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
                     (#forget frame) (#return result))
                 "#
                 );
@@ -7226,14 +7233,14 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                     let cancelled = format!(
                         "{} (#fn main () #u64
                           (#let waker #u64 0u64)
-                          (#let-mut frame Work-frame (#call work (:)))
-                          (#let first Work-poll-result (#call work-poll
+                          (#let-mut frame Work::Frame (#call work (:)))
+                          (#let first Work::Poll (#call Work::poll
                             (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-                          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-                          (#let (Work-frame-cleanup moved right shell waiting) Work-frame-cleanup
-                            (#call work-poll-cleanup (: task pending)))
+                          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+                          (#let (Work::Frame::Cleanup moved right shell waiting) Work::Frame::Cleanup
+                            (#call Work::poll::cleanup (: task pending)))
                           (#forget frame)
-                          (#let-else (Work-frame-cleanup-pair.right-full retained) Work-frame-cleanup-pair.right right (#unreachable))
+                          (#let-else (Work::Frame::Cleanup-pair.right-full retained) Work::Frame::Cleanup-pair.right right (#unreachable))
                           (#let result #u64 {retained})
                           (#forget moved) (#forget retained) (#forget shell) (#forget waiting)
                           (#return result))",
@@ -7257,13 +7264,13 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                     let movable = format!(
                         "{} (#fn main () #u64
                           (#let waker #u64 0u64)
-                          (#let first Work-poll-result (#call work-poll
+                          (#let first Work::Poll (#call Work::poll
                             (: task (#call work (:)) : waker (#borrow waker))))
-                          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-                          (#return (#match (#call work-poll
+                          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+                          (#return (#match (#call Work::poll
                             (: task pending : waker (#borrow waker)))
-                            (#case (work-ready value) value)
-                            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+                            (#case (Work::Ready value) value)
+                            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
                         continuation.split_once("(#fn main").unwrap().0
                     );
                     let expected = if mutable {
@@ -7336,18 +7343,18 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
           (#drop view) (#forget pair) (#return duplicate))))
       (#fn main () #u64
         (#let-mut owner #u64 42u64) (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (: owner (#borrow owner))))
-        (#let first Work-poll-result (#call work-poll
+        (#let-mut frame Work::Frame (#call work (: owner (#borrow owner))))
+        (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64 (#match second
-          (#case (work-ready duplicate) (#block
+          (#case (Work::Ready duplicate) (#block
             (#let answer #u64 (#u64.+.wrap
               (#deref (#get duplicate reference))
               (#u64.+.wrap (#get (#get duplicate left) value) (#get (#get duplicate right) value))))
             (#forget duplicate) answer))
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return result))
     "#;
     build_and_run_partial_storage(source, 46);
@@ -7383,28 +7390,28 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
         .replace("(#assert (#u64.== (#get view value) 1u64))", "")
         .replace("(#drop view) ", "")
         .replace("(#deref (#get duplicate reference))", "(#deref (#get (#get duplicate right) reference))")
-        .replace("(#case (work-ready duplicate) (#block",
-            "(#case (work-ready duplicate) (#block (#forget frame)")
-        .replace("(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
-            "(#case (work-pending unexpected) (#block (#forget unexpected) (#forget frame) (#unreachable)))")
+        .replace("(#case (Work::Ready duplicate) (#block",
+            "(#case (Work::Ready duplicate) (#block (#forget frame)")
+        .replace("(#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (Work::Pending unexpected) (#block (#forget unexpected) (#forget frame) (#unreachable)))")
         .replace("(#forget frame) (#return result)", "(#return result)");
     assert!(reference_leaf.contains(": right Holder"));
     let generated = build_and_run_partial_storage(&reference_leaf, 46);
     let movable = format!(
         "{} (#fn main () #u64
           (#let-mut owner #u64 42u64) (#let waker #u64 0u64)
-          (#let first Work-poll-result (#call work-poll
+          (#let first Work::Poll (#call Work::poll
             (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll
             (: task pending : waker (#borrow waker))))
           (#return (#match second
-            (#case (work-ready duplicate) (#block
+            (#case (Work::Ready duplicate) (#block
               (#let result #u64 (#u64.+.wrap
                 (#deref (#get (#get duplicate right) reference))
                 (#u64.+.wrap (#get (#get duplicate left) value) (#get (#get duplicate right) value))))
               (#forget duplicate) result))
-            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
         reference_leaf.split_once("(#fn main").unwrap().0
             .replace("@#async-fn-pinned", "@#async-fn")
     );
@@ -7468,20 +7475,20 @@ fn async_clones_computed_reference_bearing_owners() {
       (#fn main () #u64
         (#let-mut owner #u64 42u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task task : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task task : waker (#borrow waker))))
         (#return (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let invalid = source.replace(
-        "(#let second Work-poll-result",
-        "(#set owner 43u64) (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#set owner 43u64) (#let second Work::Poll",
     );
     let projected = source
         .replace(
@@ -7499,8 +7506,8 @@ fn async_clones_computed_reference_bearing_owners() {
     assert!(projected.contains("(#clone (#get (#call make-envelope"));
     build_and_run_partial_storage(&projected, 42);
     let projected_invalid = projected.replace(
-        "(#let second Work-poll-result",
-        "(#set owner 43u64) (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#set owner 43u64) (#let second Work::Poll",
     );
     let error = graph_compile_error(&projected_invalid, "projected-clone-retains-origin");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
@@ -7532,8 +7539,8 @@ fn async_clones_computed_reference_bearing_owners() {
             "(#return holder)",
         )
         .replace(
-            "(#case (work-ready result) result)",
-            "(#case (work-ready result) (#block
+            "(#case (Work::Ready result) result)",
+            "(#case (Work::Ready result) (#block
               (#let data #u64 (#deref (#get result reference))) (#forget result) data))",
         );
     assert!(returned_projection.contains("(#return holder)"));
@@ -7565,8 +7572,8 @@ fn async_clones_computed_reference_bearing_owners() {
     assert_ne!(reused, source);
     build_and_run_graph(&reused, 84);
     let conflicting = reused.replace(
-        "(#let second Work-poll-result",
-        "(#set owner 43u64) (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#set owner 43u64) (#let second Work::Poll",
     );
     let error = graph_compile_error(&conflicting, "reused-clone-retains-origin");
     assert!(error.message.contains("borrow"), "{error:?}");
@@ -7614,33 +7621,33 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending body-first-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task body-first-pending : waker (#borrow waker))))
-        (#let-else (work-pending body-second-pending) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result
-          (#call work-poll (: task body-second-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending body-first-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task body-first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending body-second-pending) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll
+          (#call Work::poll (: task body-second-pending : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let linear_source = source.replace(
         "(#enum Maybe () ((Some #u64) None))",
         "(#enum Maybe (#linear) ((Some #u64) None))\n      ",
     );
     let generated = build_and_run_graph(&linear_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let hooked = format!(
         "(#fn Maybe-clone (: value Maybe) Maybe\n\
@@ -7654,18 +7661,18 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
     );
     assert!(hooked.contains("(#assert (#u64.== payload 43u64))"));
     let generated = build_and_run_graph(&hooked, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let repeated = format!(
         "{}\n(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work-task (#call work (:)))
+          (#let-mut task Work::Task (#call work (:)))
           (#for-range (attempt #u64) 0u64 8u64
-            (#let outcome Work-poll-result
-              (#call work-poll (: task task : waker (#borrow waker))))
+            (#let outcome Work::Poll
+              (#call Work::poll (: task task : waker (#borrow waker))))
             (#match outcome
-              (#case (work-pending next) (#block (#set task next) ()))
-              (#case (work-ready result) (#block (#return result)))))
+              (#case (Work::Pending next) (#block (#set task next) ()))
+              (#case (Work::Ready result) (#block (#return result)))))
           (#forget task)
           (#return (#unreachable)))",
         hooked
@@ -7682,7 +7689,7 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
             ),
     );
     let generated = build_and_run_graph(&repeated, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -7711,17 +7718,17 @@ fn async_while_let_suspends_in_a_nested_body_statement() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending-frame) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending-frame : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-frame) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending-frame : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -7744,17 +7751,17 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-ready value) 42u64)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) 42u64)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let pending_source = source
         .replace(
@@ -7763,8 +7770,8 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
         )
         .replace("(#if false", "(#if true")
         .replace(
-            "        (#let outcome Work-poll-result\n          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))",
-            "        (#let first Work-poll-result\n          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))\n        (#let-else (work-pending pending) Work-poll-result first (#unreachable))\n        (#let outcome Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))",
+            "        (#let outcome Work::Poll\n          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))",
+            "        (#let first Work::Poll\n          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))\n        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))\n        (#let outcome Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))",
         );
     build_and_run_graph(&pending_source, 42);
 }
@@ -7792,11 +7799,11 @@ fn async_await_preserves_boolean_short_circuiting() {
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
            (#let waker #u64 0u64)
-           (#let result Work-poll-result
-             (#call work-poll (: task (#call work (: cell (#borrow cell))) : waker (#borrow waker))))
+           (#let result Work::Poll
+             (#call Work::poll (: task (#call work (: cell (#borrow cell))) : waker (#borrow waker))))
            (#let value #u64 (#match result
-             (#case (work-ready ready) ready)
-             (#case (work-pending pending) (#block (#forget pending) 1u64))))
+             (#case (Work::Ready ready) ready)
+             (#case (Work::Pending pending) (#block (#forget pending) 1u64))))
            (#forget waker)
            (#forget cell)
            (#return (#if (#u64.== value 0u64) 42u64 0u64)))",
@@ -7832,11 +7839,11 @@ fn async_await_preserves_match_guard_selection() {
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
            (#let waker #u64 0u64)
-           (#let result Work-poll-result
-             (#call work-poll (: task (#call work (: cell (#borrow cell))) : waker (#borrow waker))))
+           (#let result Work::Poll
+             (#call Work::poll (: task (#call work (: cell (#borrow cell))) : waker (#borrow waker))))
            (#let value #u64 (#match result
-             (#case (work-ready ready) ready)
-             (#case (work-pending pending) (#block (#forget pending) 1u64))))
+             (#case (Work::Ready ready) ready)
+             (#case (Work::Pending pending) (#block (#forget pending) 1u64))))
            (#forget waker)
            (#forget cell)
            (#return (#if (#u64.== value 0u64) 42u64 0u64)))",
@@ -7872,11 +7879,11 @@ fn async_await_preserves_if_let_branch_selection() {
          (#fn main () #u64
            (#let cell CellU64 (#call CellU64-create (: value 0u64)))
            (#let waker #u64 0u64)
-           (#let result Work-poll-result
-             (#call work-poll (: task (#call work (: maybe None : cell (#borrow cell))) : waker (#borrow waker))))
+           (#let result Work::Poll
+             (#call Work::poll (: task (#call work (: maybe None : cell (#borrow cell))) : waker (#borrow waker))))
            (#let value #u64 (#match result
-             (#case (work-ready ready) ready)
-             (#case (work-pending pending) (#block (#forget pending) 1u64))))
+             (#case (Work::Ready ready) ready)
+             (#case (Work::Pending pending) (#block (#forget pending) 1u64))))
            (#forget waker)
            (#forget cell)
            (#return (#if (#u64.== value 0u64) 42u64 0u64)))",
@@ -7916,22 +7923,22 @@ fn async_function_returns_linear_state_after_a_loop() {
             value)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let cancel-frame Work-task (#call work (:)))
-        (#let cancel-first Work-poll-result (#call work-poll (: task cancel-frame : waker (#borrow waker))))
-        (#let-else (work-pending cancelled-task) Work-poll-result cancel-first (#unreachable))
+        (#let cancel-frame Work::Task (#call work (:)))
+        (#let cancel-first Work::Poll (#call Work::poll (: task cancel-frame : waker (#borrow waker))))
+        (#let-else (Work::Pending cancelled-task) Work::Poll cancel-first (#unreachable))
         (#forget cancelled-task)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 3);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -7952,18 +7959,18 @@ fn async_function_resumes_child_await_inside_a_for_range_loop() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -7985,19 +7992,19 @@ fn async_for_range_suspends_in_a_non_binding_body_statement() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -8018,18 +8025,18 @@ fn async_for_range_awaits_bounds_in_source_order_before_iterating() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task second-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task second-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -8073,18 +8080,18 @@ fn async_for_range_composes_awaited_bounds_with_awaited_body() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task second-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task second-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -8114,18 +8121,18 @@ fn async_function_resumes_child_await_inside_for_with_existing_counter() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -8148,16 +8155,16 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let value #u64 (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending pending-again) (#block (#forget pending-again) 0u64))))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending-again) (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -8201,21 +8208,21 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending step-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task step-pending : waker (#borrow waker))))
-        (#let-else (work-pending resumed-condition) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task resumed-condition : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending step-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task step-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending resumed-condition) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task resumed-condition : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let three_phase_source = source
         .replace(
@@ -8234,24 +8241,24 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let three_phase_source = format!(
         "{prefix}(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-          (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-          (#let-else (work-pending body-pending) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task body-pending : waker (#borrow waker))))
-          (#let-else (work-pending step-pending) Work-poll-result third (#unreachable))
-          (#let fourth Work-poll-result (#call work-poll (: task step-pending : waker (#borrow waker))))
-          (#let-else (work-pending resumed-condition) Work-poll-result fourth (#unreachable))
-          (#let fifth Work-poll-result (#call work-poll (: task resumed-condition : waker (#borrow waker))))
+          (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+          (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending body-pending) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task body-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending step-pending) Work::Poll third (#unreachable))
+          (#let fourth Work::Poll (#call Work::poll (: task step-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending resumed-condition) Work::Poll fourth (#unreachable))
+          (#let fifth Work::Poll (#call Work::poll (: task resumed-condition : waker (#borrow waker))))
           (#let result #u64
             (#match fifth
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
           (#forget waker)
           (#return result))"
     );
     let generated = build_and_run_graph(&three_phase_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let shared_reference_source = three_phase_source
         .replace(
@@ -8273,31 +8280,31 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         "{prefix}(#fn main () #u64
           (#let-mut owner #u64 41u64)
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work (: view (#borrow owner))))
-          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-          (#let-else (work-pending body-pending) Work-poll-result second (#unreachable))
-          (#let third Work-poll-result (#call work-poll (: task body-pending : waker (#borrow waker))))
-          (#let-else (work-pending step-pending) Work-poll-result third (#unreachable))
-          (#let fourth Work-poll-result (#call work-poll (: task step-pending : waker (#borrow waker))))
-          (#let-else (work-pending resumed-condition) Work-poll-result fourth (#unreachable))
-          (#let fifth Work-poll-result (#call work-poll (: task resumed-condition : waker (#borrow waker))))
+          (#let task Work::Task (#call work (: view (#borrow owner))))
+          (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending body-pending) Work::Poll second (#unreachable))
+          (#let third Work::Poll (#call Work::poll (: task body-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending step-pending) Work::Poll third (#unreachable))
+          (#let fourth Work::Poll (#call Work::poll (: task step-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending resumed-condition) Work::Poll fourth (#unreachable))
+          (#let fifth Work::Poll (#call Work::poll (: task resumed-condition : waker (#borrow waker))))
           (#let result #u64
             (#match fifth
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
           (#set owner 43u64)
           (#forget waker)
           (#return (#if (#u64.== result 42u64)
             (#if (#u64.== owner 43u64) 42u64 0u64) 0u64)))"
     );
     let generated = build_and_run_graph(&shared_reference_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let mutation_before_poll = shared_reference_source.replace(
-        "(#let task Work-task (#call work (: view (#borrow owner))))",
-        "(#let task Work-task (#call work (: view (#borrow owner))))\n          (#set owner 42u64)",
+        "(#let task Work::Task (#call work (: view (#borrow owner))))",
+        "(#let task Work::Task (#call work (: view (#borrow owner))))\n          (#set owner 42u64)",
     );
     let error = graph_compile_error(
         &mutation_before_poll,
@@ -8311,8 +8318,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     );
 
     let mutation_while_pending = shared_reference_source.replace(
-        "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))",
-        "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))\n          (#set owner 42u64)",
+        "(#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))",
+        "(#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))\n          (#set owner 42u64)",
     );
     let error = graph_compile_error(
         &mutation_while_pending,
@@ -8322,7 +8329,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
-        "the external shared loan must remain live while the composed task is work-pending: {error}"
+        "the external shared loan must remain live while the composed task is Work::Pending: {error}"
     );
 
     let mutable_reference_source = shared_reference_source
@@ -8340,7 +8347,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         )
         .replace("(#borrow owner)", "(#borrow-mut owner)");
     let generated = build_and_run_graph(&mutable_reference_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let multi_await_source = mutable_reference_source.replace(
         "(#let body-ran #bool\n              (#await #bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64.+.wrap total 1u64))",
@@ -8356,9 +8363,9 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         };
         let next = index + 1;
         poll_chain = format!(
-            "(#match (#call work-poll (: task {task} : waker (#borrow waker)))\n\
-               (#case (work-pending pending-{next}) {poll_chain})\n\
-               (#case (work-ready ready-{index}) ready-{index}))"
+            "(#match (#call Work::poll (: task {task} : waker (#borrow waker)))\n\
+               (#case (Work::Pending pending-{next}) {poll_chain})\n\
+               (#case (Work::Ready ready-{index}) ready-{index}))"
         );
     }
     let multi_await_source = format!(
@@ -8371,18 +8378,18 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#return (#if (#u64.== owner 43u64) result 0u64)))"
     );
     let generated = build_and_run_graph(&multi_await_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let (prefix, _) = multi_await_source.split_once("(#fn main () #u64").unwrap();
     let cancel_source = format!(
         "{prefix}(#fn main () #u64
           (#let-mut owner #u64 41u64)
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work (: view (#borrow-mut owner))))
-          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result
-            (#call work-poll (: task condition-pending : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result second (#unreachable))
+          (#let task Work::Task (#call work (: view (#borrow-mut owner))))
+          (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll
+            (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll second (#unreachable))
           (#forget pending)
           (#set owner 43u64)
           (#forget waker)
@@ -8401,7 +8408,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
-        "the multi-await body must retain the transferred exclusive loan while work-pending: {error}"
+        "the multi-await body must retain the transferred exclusive loan while Work::Pending: {error}"
     );
 
     let (prefix, _) = mutable_reference_source
@@ -8411,23 +8418,23 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         "{prefix}(#fn main () #u64
           (#let-mut owner #u64 41u64)
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work (: view (#borrow-mut owner))))
-          (#let first Work-poll-result
-            (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+          (#let task Work::Task (#call work (: view (#borrow-mut owner))))
+          (#let first Work::Poll
+            (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
           (#forget pending)
           (#set owner 42u64)
           (#forget waker)
           (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
     );
     let generated = build_and_run_graph(&cancelled_mutable_reference, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let pinned_reference_source = shared_reference_source
         .replace("(view (#ref #u64))", "(view (#pin-ref-mut #u64))")
         .replace("(#borrow owner)", "(#pin-borrow-mut owner)");
     let generated = build_and_run_graph(&pinned_reference_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let (prefix, _) = pinned_reference_source
         .split_once("(#fn main () #u64")
         .unwrap();
@@ -8436,21 +8443,21 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#let-mut owner #u64 41u64)
           (#let view (#pin-ref-mut #u64) (#pin-borrow-mut owner))
           (#let waker #u64 0u64)
-          (#let task Work-task (#call work (: view view)))
-          (#let first Work-poll-result
-            (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+          (#let task Work::Task (#call work (: view view)))
+          (#let first Work::Poll
+            (#call Work::poll (: task task : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
           (#forget pending)
           (#set owner 42u64)
           (#forget waker)
           (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
     );
     let generated = build_and_run_graph(&cancelled_pinned_reference, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let mutation_while_pending = mutable_reference_source.replace(
-        "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))",
-        "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))\n          (#set owner 42u64)",
+        "(#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))",
+        "(#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))\n          (#set owner 42u64)",
     );
     let error = graph_compile_error(
         &mutation_while_pending,
@@ -8460,7 +8467,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
-        "the external exclusive loan must remain live while the composed task is work-pending: {error}"
+        "the external exclusive loan must remain live while the composed task is Work::Pending: {error}"
     );
 }
 
@@ -8508,32 +8515,32 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task second-pending : waker (#borrow waker))))
-        (#let-else (work-pending third-pending) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task third-pending : waker (#borrow waker))))
-        (#let-else (work-pending fourth-pending) Work-poll-result fourth (#unreachable))
-        (#let fifth Work-poll-result (#call work-poll (: task fourth-pending : waker (#borrow waker))))
-        (#let-else (work-pending fifth-pending) Work-poll-result fifth (#unreachable))
-        (#let sixth Work-poll-result (#call work-poll (: task fifth-pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task second-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending third-pending) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task third-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending fourth-pending) Work::Poll fourth (#unreachable))
+        (#let fifth Work::Poll (#call Work::poll (: task fourth-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending fifth-pending) Work::Poll fifth (#unreachable))
+        (#let sixth Work::Poll (#call Work::poll (: task fifth-pending : waker (#borrow waker))))
         (#let result #u64
           (#match sixth
-            (#case (work-ready value) value)
-            (#case (work-pending sixth-pending)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending sixth-pending)
               (#block
-                (#let seventh Work-poll-result
-                  (#call work-poll (: task sixth-pending : waker (#borrow waker))))
+                (#let seventh Work::Poll
+                  (#call Work::poll (: task sixth-pending : waker (#borrow waker))))
                 (#match seventh
-                  (#case (work-ready value) value)
-                  (#case (work-pending unexpected)
+                  (#case (Work::Ready value) value)
+                  (#case (Work::Pending unexpected)
                     (#block (#forget unexpected) 77u64)))))))
         (#forget waker)
         (#return (#if (#u64.== result 1u64) 42u64 0u64)))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let return_source = source
         .replace(
@@ -8554,9 +8561,9 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
             format!("pending-{index}")
         };
         poll_chain = format!(
-            "(#match (#call work-poll (: task {task} : waker (#borrow waker)))
-              (#case (work-pending pending-{next}) {poll_chain})
-              (#case (work-ready ready-{index}) ready-{index}))",
+            "(#match (#call Work::poll (: task {task} : waker (#borrow waker)))
+              (#case (Work::Pending pending-{next}) {poll_chain})
+              (#case (Work::Ready ready-{index}) ready-{index}))",
             next = index + 1,
         );
     }
@@ -8568,7 +8575,7 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#return result))"
     );
     let generated = build_and_run_graph(&return_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let linear_prefix = prefix
         .replace(
@@ -8592,9 +8599,9 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
             format!("pending-{index}")
         };
         linear_poll_chain = format!(
-            "(#match (#call work-poll (: task {task} : waker (#borrow waker)))
-              (#case (work-pending pending-{next}) {linear_poll_chain})
-              (#case (work-ready ready-{index})
+            "(#match (#call Work::poll (: task {task} : waker (#borrow waker)))
+              (#case (Work::Pending pending-{next}) {linear_poll_chain})
+              (#case (Work::Ready ready-{index})
                 (#block
                   (#let result #u64 (#get ready-{index} value))
                   (#forget ready-{index})
@@ -8610,7 +8617,7 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#return result))"
     );
     let generated = build_and_run_graph(&linear_return_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     assert_generated_type_names_are_capitalized(&generated);
 }
 
@@ -8635,20 +8642,20 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -8675,12 +8682,12 @@ fn async_loop_short_circuit_conditions_do_not_poll_unselected_awaits() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let value #u64
           (#match result
-            (#case (work-ready ready) ready)
-            (#case (work-pending pending) (#block (#forget pending) 0u64))))
+            (#case (Work::Ready ready) ready)
+            (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
     build_and_run(source, 42);
@@ -8717,27 +8724,27 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending body-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task body-pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending body-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task body-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let conditional_source = source.replace(
         "(#await #u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)",
         "(#if true\n                (#await #u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)\n                7u64)",
     );
     let generated = build_and_run_graph(&conditional_source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let (prefix, _) = source.split_once("      (#fn main () #u64").unwrap();
     let unmatched_source = format!(
@@ -8750,13 +8757,13 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
             ),
         "      (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task condition-pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task condition-pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))"
@@ -8798,21 +8805,21 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
         (#let waker #u64 0u64)
         (#let captures Captures
           (#struct-literal Captures ((left 20u64) (right 22u64))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: captures captures)) : waker (#borrow waker))))
-        (#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: captures captures)) : waker (#borrow waker))))
+        (#let-else (Work::Pending condition-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll
           (: task condition-pending : waker (#borrow waker))))
-        (#let-else (work-pending body-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task body-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending body-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task body-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 43);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let linear_source = source.replace(
         "(#struct Captures () ((left #u64) (right #u64)))",
@@ -8882,24 +8889,24 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
           (#struct-literal Captures ((left 20u64) (right 22u64))))
         (#let-mut view-owner #u64 1u64)
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work
             (: counter (#borrow counter) : captures captures : view (#borrow view-owner) : total 0u64))
             : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-pending pending-again) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task pending-again : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-again) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task pending-again : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending task) (#block (#forget task) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending task) (#block (#forget task) 0u64))))
         (#forget counter)
         (#set view-owner 0u64)
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 87);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let linear_capture_source = source.replace(
         "(#struct Captures () ((left #u64) (right #u64)))",
@@ -8914,8 +8921,8 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
     );
 
     let pending_mutation = source.replace(
-        "(#let-else (work-pending pending) Work-poll-result first (#unreachable))",
-        "(#let-else (work-pending pending) Work-poll-result first (#unreachable))\n        (#set view-owner 9u64)",
+        "(#let-else (Work::Pending pending) Work::Poll first (#unreachable))",
+        "(#let-else (Work::Pending pending) Work::Poll first (#unreachable))\n        (#set view-owner 9u64)",
     );
     let error = graph_compile_error(&pending_mutation, "async-loop-pending-mutation");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
@@ -8984,20 +8991,20 @@ fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(&source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9022,20 +9029,20 @@ fn async_while_body_binding_awaits_only_the_selected_branch() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9068,23 +9075,23 @@ fn async_loop_sequences_two_awaits_in_one_iteration() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task second-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task second-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9125,26 +9132,26 @@ fn async_loop_sequences_three_adjacent_awaits_in_one_iteration() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-pending : waker (#borrow waker))))
-        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task second-pending : waker (#borrow waker))))
-        (#let-else (work-pending third-pending) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result
-          (#call work-poll (: task third-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task second-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending third-pending) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll
+          (#call Work::poll (: task third-pending : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9169,15 +9176,15 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
           (#return (#if (#u64.== total 2u64) 42u64 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -9190,12 +9197,12 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let-mut iteration #u64\n                  (#if false\n                    (#await #u64 InitTask InitPending InitReady init-poll (Waiting 0u64))\n                    2u64))",
         )
         .replace(
-            "(#let-else (work-pending pending) Work-poll-result first (#unreachable))\n        (#let second Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match second\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
-            "(#let result #u64\n          (#match first\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let-else (Work::Pending pending) Work::Poll first (#unreachable))\n        (#let second Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match second\n            (#case (Work::Ready value) value)\n            (#case (Work::Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let result #u64\n          (#match first\n            (#case (Work::Ready value) value)\n            (#case (Work::Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
     );
     assert_ne!(conditional_initializer, source);
     let generated = build_and_run_graph(&conditional_initializer, 42);
-    assert!(generated.contains("(#fn work-poll"), "{generated}");
+    assert!(generated.contains("(#fn Work::poll"), "{generated}");
 
     let nested_initializer = source.replace(
         "(#let-mut iteration #u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
@@ -9212,8 +9219,8 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let-mut iteration #u64\n                  (#u64.+.wrap\n                    (#await #u64 InitTask InitPending InitReady init-poll (Waiting 0u64))\n                    (#await #u64 InitTask InitPending InitReady init-poll (Waiting 0u64))))",
         )
         .replace(
-            "(#let result #u64\n          (#match second\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
-            "(#let-else (work-pending second-pending) Work-poll-result second (#unreachable))\n        (#let third Work-poll-result\n          (#call work-poll (: task second-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match third\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let result #u64\n          (#match second\n            (#case (Work::Ready value) value)\n            (#case (Work::Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))\n        (#let third Work::Poll\n          (#call Work::poll (: task second-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match third\n            (#case (Work::Ready value) value)\n            (#case (Work::Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
         );
     assert_ne!(multiple_nested_initializers, source);
     let generated = build_and_run_graph(&multiple_nested_initializers, 42);
@@ -9247,8 +9254,8 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#return 42u64)",
         )
         .replace(
-            "(#let second Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match second",
-            "(#let second Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending condition-pending) Work-poll-result second (#unreachable))\n        (#let third Work-poll-result\n          (#call work-poll (: task condition-pending : waker (#borrow waker))))\n        (#let-else (work-pending resumed-condition-pending) Work-poll-result third (#unreachable))\n        (#let fourth Work-poll-result\n          (#call work-poll (: task resumed-condition-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match fourth",
+            "(#let second Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match second",
+            "(#let second Work::Poll\n          (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let-else (Work::Pending condition-pending) Work::Poll second (#unreachable))\n        (#let third Work::Poll\n          (#call Work::poll (: task condition-pending : waker (#borrow waker))))\n        (#let-else (Work::Pending resumed-condition-pending) Work::Poll third (#unreachable))\n        (#let fourth Work::Poll\n          (#call Work::poll (: task resumed-condition-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match fourth",
         );
     assert_ne!(initializer_then_condition_await, source);
     let generated = build_and_run_graph(&initializer_then_condition_await, 42);
@@ -9261,7 +9268,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
     // The child protocol supplies #u64 even inside the addition. Starting
     // at 1 + 2 means the loop is empty and total remains zero.
     let generated = build_and_run_graph(&protocol_typed_initializer, 0);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     build_and_run_graph(
         &protocol_typed_initializer
             .replace("(#set total (#u64.+.wrap total iteration))", "(#panic)"),
@@ -9291,15 +9298,15 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -9329,13 +9336,13 @@ fn async_for_let_else_initializer_suspends_before_entering_the_loop() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
@@ -9409,28 +9416,28 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#return ()))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending after-init) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task after-init : waker (#borrow waker))))
-        (#let-else (work-pending after-body) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task after-body : waker (#borrow waker))))
-        (#let-else (work-pending after-second-body) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task after-second-body : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending after-init) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task after-init : waker (#borrow waker))))
+        (#let-else (Work::Pending after-body) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task after-body : waker (#borrow waker))))
+        (#let-else (Work::Pending after-second-body) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task after-second-body : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
-        (#let cancel-task Work-task (#call work (:)))
-        (#let cancel-first Work-poll-result (#call work-poll (: task cancel-task : waker (#borrow waker))))
-        (#let-else (work-pending cancel-after-init) Work-poll-result cancel-first (#unreachable))
-        (#let cancel-second Work-poll-result
-          (#call work-poll (: task cancel-after-init : waker (#borrow waker))))
-        (#let-else (work-pending cancel-after-body) Work-poll-result cancel-second (#unreachable))
-        (#let cancel-third Work-poll-result
-          (#call work-poll (: task cancel-after-body : waker (#borrow waker))))
-        (#let-else (work-pending cancel-after-second-body) Work-poll-result cancel-third (#unreachable))
-        (#call cancel-frame (: task (#call work-poll-cleanup (: task cancel-after-second-body))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#let cancel-task Work::Task (#call work (:)))
+        (#let cancel-first Work::Poll (#call Work::poll (: task cancel-task : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-after-init) Work::Poll cancel-first (#unreachable))
+        (#let cancel-second Work::Poll
+          (#call Work::poll (: task cancel-after-init : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-after-body) Work::Poll cancel-second (#unreachable))
+        (#let cancel-third Work::Poll
+          (#call Work::poll (: task cancel-after-body : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-after-second-body) Work::Poll cancel-third (#unreachable))
+        (#call cancel-frame (: task (#call Work::poll::cleanup (: task cancel-after-second-body))))
         (#forget waker)
         (#return result))";
     let source = format!(
@@ -9450,20 +9457,20 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             "{prefix}
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let state-0 Work-task (#call work ()))"
+            (#let state-0 Work::Task (#call work ()))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
                 "
-              (#let outcome-{index} Work-poll-result
-                (#call work-poll (: task state-{index} : waker (#borrow waker))))
-              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+              (#let outcome-{index} Work::Poll
+                (#call Work::poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (Work::Pending state-{}) Work::Poll outcome-{index} (#unreachable))",
                 index + 1
             ));
         }
         canceled.push_str(&format!(
             "
-            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#call cancel-frame (: task (#call Work::poll::cleanup (: task state-{polls}))))
             (#forget waker) (#return 42u64))"
         ));
         build_and_run_graph(&canceled, 42);
@@ -9490,21 +9497,21 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             "{counted}
           (#fn main () #u64
             (#let waker (#atomic #u64) (#atomic-init #u64 0u64))
-            (#let state-0 Work-task (#call work ()))"
+            (#let state-0 Work::Task (#call work ()))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
                 "
-              (#let outcome-{index} Work-poll-result
-                (#call work-poll (: task state-{index} : waker (#borrow waker))))
-              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+              (#let outcome-{index} Work::Poll
+                (#call Work::poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (Work::Pending state-{}) Work::Poll outcome-{index} (#unreachable))",
                 index + 1
             ));
         }
         let expected = u64::from(polls == 3);
         canceled.push_str(&format!(
             "
-            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#call cancel-frame (: task (#call Work::poll::cleanup (: task state-{polls}))))
             (#assert (#u64.== (#atomic-load (#borrow waker) #memory-relaxed) {expected}u64))
             (#forget waker) (#return 42u64))"
         ));
@@ -9556,16 +9563,16 @@ fn async_for_let_else_initializer_composes_with_an_awaited_step() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let task Work-task (#call work (:)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-        (#let-else (work-pending after-init) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task after-init : waker (#borrow waker))))
-        (#let-else (work-pending after-step) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task after-step : waker (#borrow waker))))
+        (#let task Work::Task (#call work (:)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+        (#let-else (Work::Pending after-init) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task after-init : waker (#borrow waker))))
+        (#let-else (Work::Pending after-step) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task after-step : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
@@ -9591,24 +9598,24 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
                 ()
             ())
           (#return 35u64))))
-      (#fn work-poll-work ((input Maybe) (waker (#ref #u64))) #u64
-        (#let task Work-task (#call work (: input input)))
-        (#let first Work-poll-result (#call work-poll (: task task : waker waker)))
+      (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
+        (#let task Work::Task (#call work (: input input)))
+        (#let first Work::Poll (#call Work::poll (: task task : waker waker)))
         (#return (#match first
-          (#case (work-ready value) value)
-          (#case (work-pending pending) (#block
-            (#let second Work-poll-result (#call work-poll (: task pending : waker waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending pending) (#block
+            (#let second Work::Poll (#call Work::poll (: task pending : waker waker)))
             (#match second
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))))))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let mismatch #u64 (#call work-poll-work (: input None : waker (#borrow waker))))
-        (#let matched #u64 (#call work-poll-work (: input (Some 7u64) : waker (#borrow waker))))
+        (#let mismatch #u64 (#call Work::poll-work (: input None : waker (#borrow waker))))
+        (#let matched #u64 (#call Work::poll-work (: input (Some 7u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9644,30 +9651,30 @@ fn async_for_let_else_initializer_can_suspend_in_condition() {
         "{source}
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let mismatch-task Work-task (#call work (: input None : condition false)))
-          (#let mismatch-first Work-poll-result (#call work-poll (: task mismatch-task : waker (#borrow waker))))
-          (#let-else (work-pending mismatch-after-init) Work-poll-result mismatch-first (#unreachable))
-          (#let mismatch-second Work-poll-result
-            (#call work-poll (: task mismatch-after-init : waker (#borrow waker))))
-          (#let-else (work-ready mismatch) Work-poll-result mismatch-second (#unreachable))
-          (#let false-task Work-task (#call work (: input (Some 7u64) : condition false)))
-          (#let false-first Work-poll-result (#call work-poll (: task false-task : waker (#borrow waker))))
-          (#let-else (work-pending false-after-init) Work-poll-result false-first (#unreachable))
-          (#let false-second Work-poll-result
-            (#call work-poll (: task false-after-init : waker (#borrow waker))))
-          (#let-else (work-pending false-after-condition-start) Work-poll-result false-second (#unreachable))
-          (#let false-third Work-poll-result
-            (#call work-poll (: task false-after-condition-start : waker (#borrow waker))))
-          (#let-else (work-ready matched-false) Work-poll-result false-third (#unreachable))
-          (#let true-task Work-task (#call work (: input (Some 7u64) : condition true)))
-          (#let true-first Work-poll-result (#call work-poll (: task true-task : waker (#borrow waker))))
-          (#let-else (work-pending true-after-init) Work-poll-result true-first (#unreachable))
-          (#let true-second Work-poll-result
-            (#call work-poll (: task true-after-init : waker (#borrow waker))))
-          (#let-else (work-pending true-after-condition-start) Work-poll-result true-second (#unreachable))
-          (#let true-third Work-poll-result
-            (#call work-poll (: task true-after-condition-start : waker (#borrow waker))))
-          (#let-else (work-ready matched-true) Work-poll-result true-third (#unreachable))
+          (#let mismatch-task Work::Task (#call work (: input None : condition false)))
+          (#let mismatch-first Work::Poll (#call Work::poll (: task mismatch-task : waker (#borrow waker))))
+          (#let-else (Work::Pending mismatch-after-init) Work::Poll mismatch-first (#unreachable))
+          (#let mismatch-second Work::Poll
+            (#call Work::poll (: task mismatch-after-init : waker (#borrow waker))))
+          (#let-else (Work::Ready mismatch) Work::Poll mismatch-second (#unreachable))
+          (#let false-task Work::Task (#call work (: input (Some 7u64) : condition false)))
+          (#let false-first Work::Poll (#call Work::poll (: task false-task : waker (#borrow waker))))
+          (#let-else (Work::Pending false-after-init) Work::Poll false-first (#unreachable))
+          (#let false-second Work::Poll
+            (#call Work::poll (: task false-after-init : waker (#borrow waker))))
+          (#let-else (Work::Pending false-after-condition-start) Work::Poll false-second (#unreachable))
+          (#let false-third Work::Poll
+            (#call Work::poll (: task false-after-condition-start : waker (#borrow waker))))
+          (#let-else (Work::Ready matched-false) Work::Poll false-third (#unreachable))
+          (#let true-task Work::Task (#call work (: input (Some 7u64) : condition true)))
+          (#let true-first Work::Poll (#call Work::poll (: task true-task : waker (#borrow waker))))
+          (#let-else (Work::Pending true-after-init) Work::Poll true-first (#unreachable))
+          (#let true-second Work::Poll
+            (#call Work::poll (: task true-after-init : waker (#borrow waker))))
+          (#let-else (Work::Pending true-after-condition-start) Work::Poll true-second (#unreachable))
+          (#let true-third Work::Poll
+            (#call Work::poll (: task true-after-condition-start : waker (#borrow waker))))
+          (#let-else (Work::Ready matched-true) Work::Poll true-third (#unreachable))
           (#forget waker)
           (#return (#u64.+.wrap mismatch
             (#u64.+.wrap matched-false matched-true))))"
@@ -9678,7 +9685,8 @@ fn async_for_let_else_initializer_can_suspend_in_condition() {
 
 #[test]
 fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
-    let source = "(#enum ConditionTask (#linear) ((ConditionWaiting #u64) (ConditionResuming #u64)))
+    let source =
+        "(#enum ConditionTask (#linear) ((ConditionWaiting #u64) (ConditionResuming #u64)))
 
       (#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
@@ -9708,21 +9716,21 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending-1) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending-1 : waker (#borrow waker))))
-        (#let-else (work-pending pending-2) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task pending-2 : waker (#borrow waker))))
-        (#let-else (work-pending pending-3) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result (#call work-poll (: task pending-3 : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-1) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending-1 : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-2) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task pending-2 : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-3) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll (#call Work::poll (: task pending-3 : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 1);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 
     let (prefix, _) = source
         .split_once("(#fn main () #u64")
@@ -9735,21 +9743,21 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
         "{return_prefix}
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let first Work-poll-result
-            (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-          (#let second Work-poll-result
-            (#call work-poll (: task pending : waker (#borrow waker))))
+          (#let first Work::Poll
+            (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+          (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll
+            (#call Work::poll (: task pending : waker (#borrow waker))))
           (#let result #u64
             (#match second
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected)
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected)
                 (#block (#forget unexpected) 0u64))))
           (#forget waker)
           (#return result))"
     );
     let returned = build_and_run_graph(&return_source, 42);
-    assert_single_poll(&returned, "work-poll");
+    assert_single_poll(&returned, "Work::poll");
 }
 
 #[test]
@@ -9781,15 +9789,15 @@ fn async_for_step_can_suspend_after_the_loop_body() {
           (#return (#if (#u64.== iteration 6u64) 42u64 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -9826,22 +9834,22 @@ fn async_for_step_can_suspend_after_a_suspending_body() {
           (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending body-pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task body-pending : waker (#borrow waker))))
-        (#let-else (work-pending step-pending) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task step-pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending body-pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task body-pending : waker (#borrow waker))))
+        (#let-else (Work::Pending step-pending) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task step-pending : waker (#borrow waker))))
         (#let result #u64
           (#match third
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -9865,15 +9873,15 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
           (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
@@ -10057,8 +10065,8 @@ fn async_scoped_blocks_keep_nested_pattern_captures() {
         .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref #u64))")
         .replace("(#as right #u64)", "(#deref right)")
         .replace(
-            "(#let-mut task Work-task",
-            "(#let-mut owner #u64 11u64) (#let-mut task Work-task",
+            "(#let-mut task Work::Task",
+            "(#let-mut owner #u64 11u64) (#let-mut task Work::Task",
         )
         .replace("9u16 11u16", "9u16 (#borrow owner)");
     build_and_run(&referenced, 47);
@@ -10118,7 +10126,7 @@ fn async_scoped_blocks_keep_nested_pattern_captures() {
 fn async_awaited_aggregate_can_be_destructured_directly() {
     let source = include_str!("../examples/async_await_destructure.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let immediate = source.replace("(InputPending (InputResume values))", "(InputReady values)");
     build_and_run_graph(&immediate, 42);
     let without_result_type = source.replace("(#await Values InputTask", "(#await InputTask");
@@ -10248,8 +10256,8 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
         .replace("(#borrow owner)", "(#borrow-mut owner)");
     build_and_run_graph(&exclusive, 42);
     let released = exclusive.replace(
-        "(#case (work-ready value) (#block (#return value)))",
-        "(#case (work-ready value) (#block (#set owner 99u64) (#return value)))",
+        "(#case (Work::Ready value) (#block (#return value)))",
+        "(#case (Work::Ready value) (#block (#set owner 99u64) (#return value)))",
     );
     assert_ne!(released, exclusive);
     build_and_run_graph(&released, 42);
@@ -10339,7 +10347,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
 fn async_nested_local_destructuring_retains_all_declared_bindings() {
     let source = include_str!("../examples/async_destructure.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     let aliased = format!(
         "(#type ValuesAlias Values)\n{}",
         source
@@ -10446,11 +10454,11 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut owner #u64 11u64)
-        (#let frame Work-task (#call work (: values
+        (#let frame Work::Task (#call work (: values
           (#struct-literal Values (: a 22u64 : z
             (#tuple (#tuple #u16 (#ref #u64)) 9u16 (#borrow owner)))))))
-        (#let-else (work-pending pending) Work-poll-result
-          (#call work-poll (: task frame : waker (#borrow waker))) (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll
+          (#call Work::poll (: task frame : waker (#borrow waker))) (#unreachable))
         (#forget pending)
         (#set owner 42u64)
         (#return owner))"
@@ -10596,11 +10604,11 @@ fn graph_nested_destructuring_preserves_projection_types_and_retained_loans() {
         (#fn main () #u64
           (#let waker #u64 0u64)
           (#let-mut owner #u64 11u64)
-          (#let frame Work-task (#call work (: values
+          (#let frame Work::Task (#call work (: values
             (#struct-literal Values (: a 22u64 : z
               (#tuple (#tuple #u16 (#ref #u64)) 9u16 (#borrow owner)))))))
-          (#let-else (work-pending pending) Work-poll-result
-            (#call work-poll (: task frame : waker (#borrow waker))) (#unreachable))
+          (#let-else (Work::Pending pending) Work::Poll
+            (#call Work::poll (: task frame : waker (#borrow waker))) (#unreachable))
           (#forget pending)
           (#set owner 42u64)
           (#return owner))"
@@ -10681,7 +10689,7 @@ fn async_struct_payload_patterns_preserve_declared_field_order() {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .err()
-    .expect("a struct pattern's shared field must stay borrowed through work-pending");
+    .expect("a struct pattern's shared field must stay borrowed through Work::Pending");
     assert!(
         error.message.contains("owner") && error.message.contains("borrow"),
         "{error:?}"
@@ -10794,12 +10802,12 @@ fn async_while_let_can_await_its_scrutinee_task_inputs() {
           (#case (ResumeChoice choice) (FactoryReady (ChoiceStart choice))))))";
     let source = format!("{factory}\n{}\n
       (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-        (#let-mut task Work-task (#call work (: choice choice)))
+        (#let-mut task Work::Task (#call work (: choice choice)))
         (#for-range (attempt #u64) 0u64 8u64
-          (#let polled Work-poll-result (#call work-poll (: task task : waker waker)))
+          (#let polled Work::Poll (#call Work::poll (: task task : waker waker)))
           (#match polled
-            (#case (work-pending next) (#block (#set task next) ()))
-            (#case (work-ready result) (#block (#return result)))))
+            (#case (Work::Pending next) (#block (#set task next) ()))
+            (#case (Work::Ready result) (#block (#return result)))))
         (#forget task)
         (#return (#unreachable)))
       (#fn main () #u64
@@ -10858,9 +10866,9 @@ fn async_while_let_can_await_its_scrutinee_task_inputs() {
         "{prefix}
       (#fn main () #u64
         (#let-mut owner #u64 37u64) (#let waker #u64 0u64)
-        (#let frame Work-task (#call work (: choice (Chosen (#borrow owner)))))
-        (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let frame Work::Task (#call work (: choice (Chosen (#borrow owner)))))
+        (#let first Work::Poll (#call Work::poll (: task frame : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         (#forget pending)
         (#set owner 42u64)
         (#return owner))"
@@ -10932,12 +10940,12 @@ fn async_loop_conditions_can_await_their_task_inputs() {
     let source = format!("{factory}\n{}\n
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-task (#call work ()))
+        (#let-mut task Work::Task (#call work ()))
         (#for-range (attempt #u64) 0u64 10u64
-          (#let polled Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let polled Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
           (#match polled
-            (#case (work-pending next) (#block (#set task next) ()))
-            (#case (work-ready result) (#block (#return result)))))
+            (#case (Work::Pending next) (#block (#set task next) ()))
+            (#case (Work::Ready result) (#block (#return result)))))
         (#forget task)
         (#forget waker)
         (#return 0u64))", definitions.replace(
@@ -10991,12 +10999,12 @@ fn async_mutating_branches_restore_their_outputs() {
           (#return (#u64.+.wrap total value)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-task (#call work (: selected true)))
+        (#let-mut task Work::Task (#call work (: selected true)))
         (#for-range (attempt #u64) 0u64 5u64
-          (#let polled Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let polled Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
           (#match polled
-            (#case (work-pending next) (#block (#set task next) ()))
-            (#case (work-ready result) (#block (#return result)))))
+            (#case (Work::Pending next) (#block (#set task next) ()))
+            (#case (Work::Ready result) (#block (#return result)))))
         (#forget task)
         (#return 0u64))";
     build_and_run_graph(source, 42);
@@ -11070,12 +11078,12 @@ fn async_restoring_a_local_does_not_destroy_its_previous_owner() {
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task next : waker (#borrow waker))))
         (#return (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
     build_and_run(source, 42);
     let invalid = source.replacen("(#forget total)", "()", 1);
     let scratch = support::Scratch::new("async-overwritten-owner");
@@ -11112,12 +11120,12 @@ fn async_task_construction_precedes_capture_snapshots() {
           (#return (#u64.+.wrap (#u64.+.wrap left right) total)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work-task (#call work ()))
+        (#let-mut task Work::Task (#call work ()))
         (#for-range (attempt #u64) 0u64 5u64
-          (#let polled Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let polled Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
           (#match polled
-            (#case (work-pending next) (#block (#set task next) ()))
-            (#case (work-ready result) (#block (#return result)))))
+            (#case (Work::Pending next) (#block (#set task next) ()))
+            (#case (Work::Ready result) (#block (#return result)))))
         (#forget task)
         (#return 0u64))";
     build_and_run(source, 42);
@@ -11170,12 +11178,12 @@ fn async_early_continue_skips_the_rest_of_the_iteration() {
     build_and_run(&nested, 42);
     let short_main = "(#fn main () #u64
       (#let waker #u64 0u64)
-      (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-      (#let-else (work-pending task) Work-poll-result first (#unreachable))
-      (#let second Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+      (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+      (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+      (#let second Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
       (#return (#match second
-        (#case (work-ready value) value)
-        (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+        (#case (Work::Ready value) value)
+        (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
     let work = source.split_once("(#fn main").unwrap().0;
     let broken = format!(
         "{}{}",
@@ -11332,7 +11340,7 @@ fn async_for_effect_step_consumes_linear_operands_and_results() {
     build_and_run(&source, 42);
 
     // Cancel after the child owns a Resource; explicitly consume that state.
-    let continuation = source.find("(#let second Work-poll-result").unwrap();
+    let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
         "{} (#forget first-task) (#return 42u64))",
         &source[..continuation]
@@ -11385,26 +11393,26 @@ fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut owner #u64 0u64)
-        (#let first Work-poll-result (#call work-poll
+        (#let first Work::Poll (#call Work::poll
           (: task (#call work (: counter (#borrow-mut owner))) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-pending last-task) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result (#call work-poll (: task last-task : waker (#borrow waker))))
-        (#let-else (work-ready result) Work-poll-result third (#unreachable))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+        (#let-else (Work::Pending last-task) Work::Poll second (#unreachable))
+        (#let third Work::Poll (#call Work::poll (: task last-task : waker (#borrow waker))))
+        (#let-else (Work::Ready result) Work::Poll third (#unreachable))
         (#assert (#u64.== owner 2u64))
         (#return result))"#
     );
     build_and_run(&source, 42);
-    let continuation = source.find("(#let second Work-poll-result").unwrap();
+    let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
         "{} (#forget pending) (#set owner 42u64) (#return owner))",
         &source[..continuation]
     );
     build_and_run(&cancelled, 42);
     let invalid = source.replace(
-        "(#let second Work-poll-result",
-        "(#set owner 9u64) (#let second Work-poll-result",
+        "(#let second Work::Poll",
+        "(#set owner 9u64) (#let second Work::Poll",
     );
     let scratch = support::Scratch::new("async-effect-step-live-loan");
     let error = lim::compile_source_to_assembly(
@@ -11501,12 +11509,12 @@ fn async_loop_body_restores_values_mutated_through_borrowed_places() {
               (#return (#u64.+.wrap {place} 41u64)))))
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-            (#let-else (work-pending task) Work-poll-result first (#unreachable))
-            (#let second Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+            (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+            (#let second Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
             (#return (#match second
-              (#case (work-ready value) value)
-              (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+              (#case (Work::Ready value) value)
+              (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
         "#
         );
         build_and_run_graph(&source, 42);
@@ -11588,12 +11596,12 @@ fn external_mutable_slice_source() -> &'static str {
       (#fn main () #u64
         (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 41u64))
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#assert (#u64.== (#index values 0usize) 42u64))
         (#return answer))
     "#
@@ -11727,12 +11735,12 @@ fn graph_slice_element_anchors_preserve_wide_shared_and_zero_sized_layouts() {
         (#let-mut values (#array Empty 3) (#array-of (#array Empty 3)
           (#struct-literal Empty ()) (#struct-literal Empty ()) (#struct-literal Empty ())))
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"#
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"#
     );
     build_and_run_graph(&source, 42);
 }
@@ -11855,12 +11863,12 @@ fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
           (#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 3u64 4u64)))
           (#struct-literal Row (: padding 7u128 : cells (#array-of (#array #u64 2) 17u64 41u64)))))
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#assert (#u64.== (#index (#get (#index values 1usize) cells) 1usize) 42u64))
         (#assert (#u64.== (#index (#get (#index values 0usize) cells) 1usize) 4u64))
         (#return answer))"#
@@ -12038,7 +12046,7 @@ fn graph_selected_reference_mixes_slice_and_external_reference_targets() {
         assert_eq!(&conflicting[span.start..span.end], expected);
     }
     let escaping = format!(
-        "{source}\n(#fn escape (: items (#slice-mut #u64)) Work-task
+        "{source}\n(#fn escape (: items (#slice-mut #u64)) Work::Task
       (#let-mut local #u64 41u64)
       (#return (#call work (: items items : fallback (#borrow-mut local) : choose false))))"
     );
@@ -12076,13 +12084,13 @@ fn graph_pinned_reference_selects_local_or_external_storage() {
           (#forget view) (#forget other) (#forget local) (#return answer))))
       (#fn main () #u64
         (#let-mut other #u64 42u64) (#let waker #u64 0u64)
-        (#let-mut frame Work-frame (#call work (: other (#pin other) : choose true)))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let-mut frame Work::Frame (#call work (: other (#pin other) : choose true)))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#forget other) (#return answer))"#
     );
     build_and_run_graph(&source, 42);
@@ -12120,12 +12128,13 @@ fn graph_pinned_reference_selects_local_or_external_storage() {
     assert_ne!(projected, source);
     build_and_run_graph(&projected, 42);
     build_and_run_graph(&projected.replace(": choose true", ": choose false"), 42);
-    let second = "(#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))";
+    let second =
+        "(#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))";
     let canceled = source.replace(
         second,
-        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        "(#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))
          (#call cancel-frame (: task cleanup)) (#let answer #u64 42u64)",
     );
     assert_ne!(canceled, source);
@@ -12163,12 +12172,12 @@ fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
           (#forget second) (#forget parent) (#return answer))))
       (#fn main () #u64
         (#let-mut value #u64 42u64) (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (: parent (#pin value))) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (: parent (#pin value))) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget value) (#return answer))"#
     );
     build_and_run_graph(&source, 42);
@@ -12202,13 +12211,13 @@ fn graph_pinned_parent_retains_a_local_mutable_slice_across_pending() {
           (#let answer #u64 (#deref (#slice-mut-idx container 0usize)))
           (#forget container) (#forget counter) (#return answer))))
       (#fn main () #u64
-        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let-mut frame Work::Frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))"#
     );
     build_and_run_graph(&source, 42);
@@ -12249,21 +12258,21 @@ fn graph_parent_cancels_a_slice_borrowing_child_before_its_lender() {
           (#let answer #u64 (#deref (#slice-mut-idx container 0usize)))
           (#forget container) (#forget counter) (#return answer))))
       (#fn main () #u64
-        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        (#let-mut frame Work::Frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))
         (#call cancel-frame (: task cleanup))
         (#forget frame) (#return 42u64))"#;
     build_and_run_graph(source, 42);
     // The same child must also release its loan on normal completion before
     // its parent reads and consumes the original lending slice.
     let resumed = source.replace(
-        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))\n        (#call cancel-frame (: task cleanup))\n        (#forget frame) (#return 42u64))",
-        "(#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        "(#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))\n        (#call cancel-frame (: task cleanup))\n        (#forget frame) (#return 42u64))",
+        "(#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))",
     );
     assert_ne!(resumed, source);
@@ -12306,11 +12315,11 @@ fn graph_child_cancellation_retains_a_shared_slice_descriptor() {
           (#let answer #u64 (#deref (#slice-idx container 0usize)))
           (#forget container) (#forget backing) (#return answer))))
       (#fn main () #u64
-        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        (#let-mut frame Work::Frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work::Poll
+          (#call Work::poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))
         (#call cancel-frame (: task cleanup))
         (#forget frame) (#return 42u64))"#;
     let generated = build_and_run_graph(source, 42);
@@ -12319,7 +12328,7 @@ fn graph_child_cancellation_retains_a_shared_slice_descriptor() {
         .into_iter()
         .find(|node| {
             matches!(&node.expr, lim::Expr::List(items)
-            if matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "work-poll-cleanup"))
+            if matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "Work::poll::cleanup"))
         })
         .unwrap();
     let cleanup = &generated[cleanup.span.start..cleanup.span.end];
@@ -12393,20 +12402,20 @@ fn async_for_void_await_step_respects_continue_break_and_false_condition() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (: run true : stop false)) : waker (#borrow waker))))
-        (#let-else (work-pending task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (: run true : stop false)) : waker (#borrow waker))))
+        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
         (#match second
-          (#case (work-ready value) (#assert (#u64.== value 42u64)))
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))
-        (#let broken Work-poll-result (#call work-poll (: task (#call work (: run true : stop true)) : waker (#borrow waker))))
+          (#case (Work::Ready value) (#assert (#u64.== value 42u64)))
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let broken Work::Poll (#call Work::poll (: task (#call work (: run true : stop true)) : waker (#borrow waker))))
         (#match broken
-          (#case (work-ready value) (#assert (#u64.== value 42u64)))
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))
-        (#let skipped Work-poll-result (#call work-poll (: task (#call work (: run false : stop false)) : waker (#borrow waker))))
+          (#case (Work::Ready value) (#assert (#u64.== value 42u64)))
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let skipped Work::Poll (#call Work::poll (: task (#call work (: run false : stop false)) : waker (#borrow waker))))
         (#return (#match skipped
-          (#case (work-ready value) value)
-          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Ready value) value)
+          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     build_and_run(source, 42);
     let synchronous_condition = source.replace(
@@ -12441,12 +12450,12 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let value #u64 (#match second
-          (#case (work-ready result) result)
-          (#case (work-pending pending-again) (#block (#forget pending-again) 0u64))))
+          (#case (Work::Ready result) result)
+          (#case (Work::Pending pending-again) (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
     build_and_run(source, 42);
@@ -12510,7 +12519,7 @@ fn explicit_await_contracts_are_checked_before_loop_lowering() {
 fn async_for_initializers_register_every_declared_pattern_leaf() {
     let source = include_str!("../examples/async_for_patterns.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
     build_and_run_graph(
         &source.replace("(StepPending (Resume value))", "(StepReady value)"),
         42,
@@ -12692,18 +12701,18 @@ fn async_function_resumes_child_await_inside_for_with_local_initializer() {
           (#return iteration))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -12761,18 +12770,18 @@ fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let first Work::Poll (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (work-ready value) value)
-            (#case (work-pending pending-again)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending pending-again)
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -12791,16 +12800,16 @@ fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result #u64
           (#match outcome
-            (#case (work-pending pending) (#block (#forget pending) 42u64))
-            (#case (work-ready value) value)))
+            (#case (Work::Pending pending) (#block (#forget pending) 42u64))
+            (#case (Work::Ready value) value)))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -12830,26 +12839,26 @@ fn async_loop_body_supports_more_than_two_suspensions() {
           (#return 42u64))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Work-poll-result
-          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-        (#let-else (work-pending first-task) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task first-task : waker (#borrow waker))))
-        (#let-else (work-pending second-task) Work-poll-result second (#unreachable))
-        (#let third Work-poll-result
-          (#call work-poll (: task second-task : waker (#borrow waker))))
-        (#let-else (work-pending third-task) Work-poll-result third (#unreachable))
-        (#let fourth Work-poll-result
-          (#call work-poll (: task third-task : waker (#borrow waker))))
+        (#let first Work::Poll
+          (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+        (#let second Work::Poll
+          (#call Work::poll (: task first-task : waker (#borrow waker))))
+        (#let-else (Work::Pending second-task) Work::Poll second (#unreachable))
+        (#let third Work::Poll
+          (#call Work::poll (: task second-task : waker (#borrow waker))))
+        (#let-else (Work::Pending third-task) Work::Poll third (#unreachable))
+        (#let fourth Work::Poll
+          (#call Work::poll (: task third-task : waker (#borrow waker))))
         (#let result #u64
           (#match fourth
-            (#case (work-ready value) value)
-            (#case (work-pending unexpected)
+            (#case (Work::Ready value) value)
+            (#case (Work::Pending unexpected)
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "Work::poll");
 }
 
 #[test]
@@ -12869,12 +12878,12 @@ fn async_function_preserves_loop_locals_used_after_suspension() {
             (#set iteration (#u64.+.wrap iteration 1u64)))
           (#return 42u64))))";
     let driver = "(#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut task Work-task (#call work (:)))
+        (#let waker #u64 0u64) (#let-mut task Work::Task (#call work (:)))
         (#for-range (attempt #u64) 0u64 4u64
-          (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
           (#match outcome
-            (#case (work-pending next) (#block (#set task next) ()))
-            (#case (work-ready value) (#block (#return value)))))
+            (#case (Work::Pending next) (#block (#set task next) ()))
+            (#case (Work::Ready value) (#block (#return value)))))
         (#forget task) (#return (#unreachable)))";
     build_and_run(&format!("{source}\n{driver}"), 42);
     let pending = source.replace(
@@ -12902,18 +12911,18 @@ fn async_function_can_suspend_at_each_await() {
                (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
              (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
-           (#let first Work-poll-result
-             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-           (#let-else (work-pending first-task) Work-poll-result first (#unreachable))
-           (#let second Work-poll-result
-             (#call work-poll (: task first-task : waker (#borrow waker))))
-           (#let-else (work-pending second-task) Work-poll-result second (#unreachable))
-           (#let third Work-poll-result
-             (#call work-poll (: task second-task : waker (#borrow waker))))
+           (#let first Work::Poll
+             (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
+           (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+           (#let second Work::Poll
+             (#call Work::poll (: task first-task : waker (#borrow waker))))
+           (#let-else (Work::Pending second-task) Work::Poll second (#unreachable))
+           (#let third Work::Poll
+             (#call Work::poll (: task second-task : waker (#borrow waker))))
            (#let value #u64
              (#match third
-               (#case (work-ready result) result)
-               (#case (work-pending task)
+               (#case (Work::Ready result) result)
+               (#case (Work::Pending task)
                  (#block (#forget task) (#unreachable)))))
            (#call local-waker-destroy (: waker waker))
            (#let executor-ref (#ref Executor) (#borrow executor))
@@ -12936,10 +12945,10 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
                (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
              (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
-           (#let first Work-poll-result
-             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-           (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-           (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
+           (#let first Work::Poll
+             (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
+           (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+           (#call cancel-work (: task (#call Work::poll::cleanup (: task pending))))
            (#call local-waker-destroy (: waker waker))
            (#let executor-ref (#ref Executor) (#borrow executor))
            (#let notifications #u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
@@ -12969,10 +12978,10 @@ fn generated_async_frames_support_source_named_task_cancellation() {
           (#return (#u64.+.wrap value offset)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let frame Work-task (#call work (: offset 40u64)))
-        (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
-        (#let-else (work-pending pending-frame) Work-poll-result first (#unreachable))
-        (#call cancel-frame (: task (#call work-poll-cleanup (: task pending-frame))))
+        (#let frame Work::Task (#call work (: offset 40u64)))
+        (#let first Work::Poll (#call Work::poll (: task frame : waker (#borrow waker))))
+        (#let-else (Work::Pending pending-frame) Work::Poll first (#unreachable))
+        (#call cancel-frame (: task (#call Work::poll::cleanup (: task pending-frame))))
         (#forget waker)
         (#return 42u64))";
     let source = source.replace(
@@ -12986,9 +12995,9 @@ fn generated_async_frames_support_source_named_task_cancellation() {
 fn async_fn_generates_source_specific_cancel_dispatch() {
     let source = include_str!("../examples/async_fn_cancel_dispatch.lim");
     let generated = build_and_run_graph(source, 42);
-    assert!(generated.contains("(#fn cancel-work ((task Work-task-cleanup)) ()"));
-    assert!(generated.contains("Work-task-cleanup-token-full"));
-    assert!(generated.contains("Work-task-cleanup-await-0-full"));
+    assert!(generated.contains("(#fn cancel-work ((task Work::Task-cleanup)) ()"));
+    assert!(generated.contains("Work::Task-cleanup-token-full"));
+    assert!(generated.contains("Work::Task-cleanup-await-0-full"));
     assert!(generated.contains("child-cancel"));
 }
 
@@ -13049,12 +13058,12 @@ fn pinned_async_fn_dispatches_cleanup_after_source_slot_extraction() {
           (#call destroy-token (: task token))
           (#return 42u64))))
       (#fn main () #u64
-        (#let-mut frame Work-frame (#call work (: token (TokenValue 1u64))))
+        (#let-mut frame Work::Frame (#call work (: token (TokenValue 1u64))))
         (#let waker #u64 0u64)
-        (#let outcome Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending cancel-pin) Work-poll-result outcome (#unreachable))
-        (#let state Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
+        (#let outcome Work::Poll
+          (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Work::Pending cancel-pin) Work::Poll outcome (#unreachable))
+        (#let state Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
         (#call cancel-frame (: task state))
         (#forget frame)
         (#forget waker)

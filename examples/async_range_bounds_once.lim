@@ -30,15 +30,15 @@
 (#fn main () #u64
   (#let-mut order #u64 0u64)
   (#let waker #u64 0u64)
-  (#let-mut task Work-task (#call work (: order (#borrow-mut order))))
+  (#let-mut task Work::Task (#call work (: order (#borrow-mut order))))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (work-pending next)
+      (#case (Work::Pending next)
         (#block
           (#set task next)
           ()))
-      (#case (work-ready value)
+      (#case (Work::Ready value)
         (#block
           (#assert (#u64.== order 2u64))
           (#return value)))))

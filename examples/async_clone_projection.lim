@@ -30,15 +30,15 @@
   (#let waker #u64 0u64)
   (#let
     first
-    Work-poll-result
-    (#call work-poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+    Work::Poll
+    (#call Work::poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#return
     (#match second
-      (#case (work-ready result)
+      (#case (Work::Ready result)
         result)
-      (#case (work-pending unexpected)
+      (#case (Work::Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable))))))

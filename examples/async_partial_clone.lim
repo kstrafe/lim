@@ -36,18 +36,18 @@
     (#drop view) (#forget original) (#return duplicate))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut frame Work-frame (#call work (:)))
+  (#let-mut frame Work::Frame (#call work (:)))
   (#let
     first
-    Work-poll-result
-    (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+    Work::Poll
+    (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#let
     result
     #u64
     (#match second
-      (#case (work-ready duplicate)
+      (#case (Work::Ready duplicate)
         (#block
           (#let
             value
@@ -55,7 +55,7 @@
             (#u64.+.wrap (#get (#get duplicate first) value) (#get (#get duplicate second) value)))
           (#forget duplicate)
           value))
-      (#case (work-pending unexpected)
+      (#case (Work::Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable)))))
