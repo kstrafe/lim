@@ -313,7 +313,7 @@ fn async_protocols_reject_invalid_declarations_and_name_collisions() {
         ("(#struct WorkAwait () ())
           (@#async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "conflicts with a syntax bundle"),
-        ("(@#async-fn (: protocol Work-task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+        ("(@#async-fn (: protocol Work::Task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "conflicts with a syntax bundle"),
     ] {
         let error = graph_compile_error(source, "async-protocol-declaration-conflicts");
@@ -442,10 +442,7 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
     );
     let generated = build_and_run_graph(&source, 42);
     assert_single_poll(&generated, "Work::poll");
-    assert!(
-        generated.contains("Work::Frame::Cleanup-await-1")
-            || generated.contains("work-frame-await-1")
-    );
+    assert!(generated.contains("Work::Frame::Cleanup::await-1"));
     assert!(generated.contains("(#fn Work::poll::cleanup"));
 
     // Cached inspectable output is precisely the executable dispatcher, not
@@ -7240,7 +7237,7 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                           (#let (Work::Frame::Cleanup moved right shell waiting) Work::Frame::Cleanup
                             (#call Work::poll::cleanup (: task pending)))
                           (#forget frame)
-                          (#let-else (Work::Frame::Cleanup-pair.right-full retained) Work::Frame::Cleanup-pair.right right (#unreachable))
+                          (#let-else (Work::Frame::Cleanup::pair.right::Full retained) Work::Frame::Cleanup::pair.right right (#unreachable))
                           (#let result #u64 {retained})
                           (#forget moved) (#forget retained) (#forget shell) (#forget waiting)
                           (#return result))",
@@ -7373,7 +7370,7 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
     build_and_run_partial_storage(&structural, 45);
 
     let reference_leaf = source
-        .replace("(#struct Pair () (: left Resource : right Resource : reference (#ref #u64)))",
+        .replace("(#struct Pair (#linear) (: left Resource : right Resource : reference (#ref #u64)))",
             "(#struct Holder (#linear) (: reference (#ref #u64) : value #u64))
 
              (#fn Holder-clone (: original Holder) Holder
@@ -7381,7 +7378,7 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
                (#let value #u64 (#u64.+.wrap (#get original value) 200u64))
                (#forget original)
                (#return (#struct-literal Holder (: reference reference : value value))))
-             (#struct Pair () (: left Resource : right Holder))")
+             (#struct Pair (#linear) (: left Resource : right Holder))")
         .replace("(Pair left right reference)", "(Pair left right)")
         .replace(": right right : reference reference", ": right right")
         .replace(": right (#struct-literal Resource (: value 1u64)) : reference owner",
