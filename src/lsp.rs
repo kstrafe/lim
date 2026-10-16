@@ -815,6 +815,19 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
         let index = match head {
             Some("#let" | "#let-mut" | "#const" | "#static" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
+            Some("#enum-contribute") => {
+                if let Some(name) = expr.children.get(1).and_then(|target| in_type(target, byte)) {
+                    return Some(name);
+                }
+                if let Some(variant) = expr.children.get(2) {
+                    for ty in variant.children.iter().skip(1) {
+                        if let Some(name) = in_type(ty, byte) {
+                            return Some(name);
+                        }
+                    }
+                }
+                None
+            }
             Some("#struct" | "#enum") => {
                 let fields_index = 3;
                 if let Some(fields) = expr.children.get(fields_index) {
@@ -865,7 +878,7 @@ fn declarations(source: &str) -> Vec<Declaration> {
             let kind = match head.as_str() {
                 "#fn" | "#unsafe-fn" | "#extern-fn" => 12,
                 "#struct" => 23,
-                "#enum" => 10,
+                "#enum" | "#distributed-enum" => 10,
                 "#let" | "#let-mut" => 13,
                 _ => return None,
             };
@@ -1024,6 +1037,20 @@ pub fn path_to_uri(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn distributed_enum_declarations_and_payloads_are_indexed() {
+        let source = "(#distributed-enum Error ()) (#enum-contribute Error (Failure Payload))";
+        let definitions = super::declarations(source);
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].name, "Error");
+        assert_eq!(definitions[0].kind, 10);
+        let forms = crate::parse(source).unwrap();
+        for name in ["Error", "Payload"] {
+            assert_eq!(super::type_reference(&forms, source.rfind(name).unwrap()).as_deref(), Some(name));
+        }
+        assert_eq!(super::type_reference(&forms, source.find("Failure").unwrap()), None);
+    }
+
     use super::*;
     #[test]
     fn generated_diagnostic_uses_file_invocation_and_related_provenance() {

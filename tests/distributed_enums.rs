@@ -169,3 +169,37 @@ fn general_distributed_syntax_is_no_longer_supported() {
         assert!(lim::parse_program(source).is_err(), "accepted {source}");
     }
 }
+
+#[test]
+fn unprefixed_imported_payloads_point_to_the_contributing_file() {
+    let scratch = support::Scratch::new("distributed-enum-payload-span");
+    fs::write(
+        scratch.path().join("enum.lim"),
+        "(#distributed-enum Error ())",
+    )
+    .unwrap();
+    let contribution = "(#enum-contribute Error (Failure u64))";
+    fs::write(scratch.path().join("contribution.lim"), contribution).unwrap();
+    let error = lim::compile_source_to_assembly(
+        "(#import \"enum.lim\") (#import \"contribution.lim\")",
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("must use its '#' prefix"),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .source_name
+            .as_deref()
+            .unwrap()
+            .ends_with("contribution.lim"),
+        "{error:?}"
+    );
+    let span = error.span.unwrap();
+    assert_eq!(&contribution[span.start..span.end], "u64");
+}
