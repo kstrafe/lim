@@ -2,6 +2,7 @@
 # Paths are relative to examples for source, repository root for fixtures.
 # A dash means empty output. Signals use Linux signal numbers (4 = SIGILL).
 # graph-exit selects --cfg async-lowering=graph during the route migration.
+# For module fragments, expected may name a complete entry importing the module.
 exit 42 aarch64_scalar.lim - -
 exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
@@ -74,7 +75,7 @@ exit 42 wake_executor.lim - -
 exit 42 threaded_tasks.lim - -
 exit 42 kernel_threads.lim tests/fixtures/kernel_threads.stdout -
 exit 42 task_cancellation.lim - -
-module - modules/error_collection.lim - -
+module distributed_errors.lim modules/error_collection.lim - -
 module - modules/file_errors.lim - -
 module - echo_input.lim - -
 module - modules/parse_errors.lim - -

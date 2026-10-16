@@ -30,6 +30,9 @@ definitions deduplicate; conflicting definitions are errors with both source
 locations. Variants are sorted lexicographically by name, independently of
 import order. A contribution may precede the central declaration. Unknown
 targets and duplicate central declarations are errors.
+The completed enum requires at least one variant, like an ordinary enum.
+Declaration-only modules must be checked through an entry that imports their
+contributors; the example manifest records that context explicitly.
 
 The central declaration owns the property list, including optional `#linear`
 and `#repr-c`. Owned linear payloads propagate linearity normally. Payloads are

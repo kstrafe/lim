@@ -157,18 +157,33 @@ fn every_native_example_has_its_declared_outcome() {
             unreachable!()
         };
         let output = scratch.0.join(format!("program-{index}"));
+        let entry = if *kind == "module" && *expected != "-" {
+            assert!(
+                declared.contains(*expected),
+                "{source}: undeclared module context {expected}"
+            );
+            let entry = examples.join(expected);
+            let program =
+                lim::parse_program_from_path(&fs::read_to_string(&entry).unwrap(), &entry)
+                    .unwrap_or_else(|error| panic!("{source}: invalid module context: {error}"));
+            let module = examples.join(source).canonicalize().unwrap();
+            assert!(
+                program.source_paths().any(|path| path == module),
+                "{source}: context {expected} does not import the declared module"
+            );
+            entry
+        } else {
+            examples.join(source)
+        };
         let mut compiler = Command::new(env!("CARGO_BIN_EXE_lim"));
         compiler.stdin(Stdio::null());
         if *kind == "graph-exit" {
             compiler.arg("--cfg").arg("async-lowering=graph");
         }
         if matches!(*kind, "module" | "error") {
-            compiler
-                .arg("--emit-asm")
-                .arg(examples.join(source))
-                .arg(&output);
+            compiler.arg("--emit-asm").arg(&entry).arg(&output);
         } else {
-            compiler.arg(examples.join(source)).arg("-o").arg(&output);
+            compiler.arg(&entry).arg("-o").arg(&output);
         }
         // The compiler must build every example, including libc callers,
         // without invoking an external assembler or linker.

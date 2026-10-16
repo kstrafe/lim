@@ -10846,26 +10846,26 @@ mod generation_planning_tests {
     #[test]
     fn selected_deferred_pointer_and_slice_operations_require_layout() {
         for (parameters, operation) in [
-            ("(ptr (#ptr Start-task))", "(#unsafe (#ptr-read ptr))"),
+            ("(ptr (#ptr Start::Task))", "(#unsafe (#ptr-read ptr))"),
             (
-                "(ptr (#ptr Start-task))",
+                "(ptr (#ptr Start::Task))",
                 "(#unsafe (#ptr-offset ptr 1usize))",
             ),
             (
-                "(ptr (#ptr-mut Start-task)) (value Start-task)",
+                "(ptr (#ptr-mut Start::Task)) (value Start::Task)",
                 "(#unsafe (#ptr-write ptr value))",
             ),
-            ("(items (#slice Start-task))", "(#slice-idx items 0usize)"),
+            ("(items (#slice Start::Task))", "(#slice-idx items 0usize)"),
             (
-                "(items (#slice Start-task))",
+                "(items (#slice Start::Task))",
                 "(#slice-range items 0usize 1usize)",
             ),
             (
-                "(items (#slice-mut Start-task))",
+                "(items (#slice-mut Start::Task))",
                 "(#slice-mut-idx items 0usize)",
             ),
             (
-                "(items (#slice-mut Start-task))",
+                "(items (#slice-mut Start::Task))",
                 "(#slice-mut-split items 0usize)",
             ),
         ] {
@@ -10880,12 +10880,12 @@ mod generation_planning_tests {
     #[test]
     fn deferred_handle_operations_and_poll_matching_need_no_frame_layout() {
         plan(
-            "(#fn main ((ptr (#ptr Start-task)) (items (#slice Start-task)) (result Start-poll-result)) #u64
+            "(#fn main ((ptr (#ptr Start::Task)) (items (#slice Start::Task)) (result Start::Poll)) #u64
                 (#let address #usize (#ptr-address ptr))
                 (#let length #usize (#slice-len items))
                 (#return (#match result
-                    (#case (start-pending child) 0u64)
-                    (#case (start-ready value) value))))",
+                    (#case (Start::Pending child) 0u64)
+                    (#case (Start::Ready value) value))))",
         )
         .unwrap();
     }
@@ -10939,7 +10939,7 @@ mod generation_planning_tests {
         let mut declarations =
             resolve_generation_planning(&program, &interfaces, &selected).unwrap();
         assert!(declarations.planning_only);
-        assert!(declarations.deferred_layouts.contains_key("Start-task"));
+        assert!(declarations.deferred_layouts.contains_key("Start::Task"));
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         assert!(matches!(
             declarations.check_referent_entry_contracts(&types),
@@ -21146,7 +21146,12 @@ mod typed_ownership_tests {
                         continue;
                     }
                     let name = fields[2];
-                    let path = root.join("examples").join(name);
+                    let audit_name = if fields[0] == "module" && fields[1] != "-" {
+                        fields[1]
+                    } else {
+                        name
+                    };
+                    let path = root.join("examples").join(audit_name);
                     let source = std::fs::read_to_string(&path).unwrap();
                     let mut config = crate::CompileConfig::default();
                     if fields[0] == "graph-exit" {
@@ -21155,6 +21160,13 @@ mod typed_ownership_tests {
                     let program =
                         crate::parse_program_from_path_with_config(&source, &path, &config)
                             .unwrap();
+                    if fields[0] == "module" && fields[1] != "-" {
+                        let target_module = root.join("examples").join(name).canonicalize().unwrap();
+                        assert!(
+                            program.source_files.iter().any(|file| file.path == target_module),
+                            "{name}: manifest context {audit_name} does not import the target module"
+                        );
+                    }
                     crate::check_types(&program).unwrap_or_else(|error| panic!("{name}: {error}"));
                     let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
                     let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -23760,9 +23772,9 @@ mod typed_ownership_tests {
     fn staged_graph_self_reference_poll_and_cleanup_contracts_are_complete() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for (name, poll) in [
-            ("async_fn_local_self_reference", "local-self-ref-poll"),
-            ("async_fn_self_reference", "read-after-await-poll"),
-            ("async_fn_enum_self_reference", "read-after-await-poll"),
+            ("async_fn_local_self_reference", "Local-self-ref::poll"),
+            ("async_fn_self_reference", "Read-after-await::poll"),
+            ("async_fn_enum_self_reference", "Read-after-await::poll"),
         ] {
             let program = graph_reference_program(root, name);
             let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -23771,7 +23783,7 @@ mod typed_ownership_tests {
             let summaries = declarations
                 .staged_referent_entry_contracts(&types)
                 .unwrap_or_else(|error| panic!("{name}: {error:?}"));
-            for function in [poll.to_owned(), format!("{poll}-cleanup")] {
+            for function in [poll.to_owned(), format!("{poll}::cleanup")] {
                 let id = declarations.function_id(&function).unwrap();
                 assert!(
                     matches!(

@@ -1745,6 +1745,14 @@ pub struct Program {
         Option<Result<std::sync::Arc<Program>, typecheck::AnalysisError>>,
 }
 
+impl Program {
+    /// Sources included in this compilation, including virtual generated sources.
+    /// Useful for checking an imported fragment through its complete entry graph.
+    pub fn source_paths(&self) -> impl Iterator<Item = &Path> {
+        self.source_files.iter().map(|source| source.path.as_path())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceFile {
     pub path: PathBuf,

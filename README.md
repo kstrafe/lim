@@ -84,7 +84,10 @@ fully inspectable even when its unused functions are omitted from the binary.
 Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
 every example against `examples/outcomes.txt`. Each entry declares an exact
 exit code, intentional signal, or compile-only module, plus stdout/stderr
-fixtures. `graph-exit` selects `--cfg async-lowering=graph` for explicit
+fixtures. A module's expected column may name its complete importing entry
+instead of `-`, so distributed-enum declaration fragments are checked with
+their contributors. The harness verifies that the entry imports the module.
+`graph-exit` selects `--cfg async-lowering=graph` for explicit
 graph-route coverage; graph lowering is also the default.
 `-` means empty output. Missing entries, unexpected signals, wrong output,
 compiler/linker failures, and timeouts fail the suite. Exit codes above 128
