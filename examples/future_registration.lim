@@ -22,9 +22,11 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Work::Frame (#call work (:)))
+  (#let-mut task ExecutorTask (Work::Queued (#call work (:))))
+  (#let frame (#pin-ref-mut Work::Frame)
+    (#pin-get-payload-mut (#pin-borrow-mut task) Work::Queued 0))
   (#let result Work::Poll
-    (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+    (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result
     (#case (Work::Ready value) value)
     (#case (Work::Pending pending) (#block (#forget pending) (#unreachable)))))
