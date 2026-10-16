@@ -291,7 +291,7 @@ fn pinned_local_self_reference_artifact_is_checked_and_run_as_ordinary_lim() {
     let (scratch, standalone) = generated_standalone(
         source,
         "(@#async-fn-pinned",
-        "local-self-ref-poll",
+        "Local-self-ref::poll",
         "async-generator-pinned",
     );
     check_build_and_run(&scratch, &standalone, 42);
@@ -330,7 +330,7 @@ fn mutable_self_reference_artifact_uses_ordinary_loan_identities_and_local_pins(
     let (scratch, standalone) = generated_standalone(
         &source,
         "(@#async-fn-pinned",
-        "local-self-ref-poll",
+        "Local-self-ref::poll",
         "async-generator-mutable-pin",
     );
     check_build_and_run(&scratch, &standalone, 43);

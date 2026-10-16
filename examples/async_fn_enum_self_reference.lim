@@ -26,21 +26,21 @@
     (#return (#u64.+.wrap (#deref view) result)))))
 
 (#fn main () #u64
-  (#let-mut frame Read-after-await-frame
+  (#let-mut frame Read-after-await::Frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((choice (Number (#struct-literal NumberPayload ((value 40u64))))))))))
   (#let waker #u64 0u64)
-  (#let first Read-after-await-poll-result
-    (#call read-after-await-poll
+  (#let first Read-after-await::Poll
+    (#call Read-after-await::poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending pending-frame) Read-after-await-poll-result first (#unreachable))
-  (#let second Read-after-await-poll-result
-    (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
+  (#let-else (Read-after-await::Pending pending-frame) Read-after-await::Poll first (#unreachable))
+  (#let second Read-after-await::Poll
+    (#call Read-after-await::poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (read-after-await-ready value) value)
-      (#case (read-after-await-pending unexpected)
+      (#case (Read-after-await::Ready value) value)
+      (#case (Read-after-await::Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
   (#forget waker)

@@ -111,8 +111,8 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
       (#block
         (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
         (#match (#get cleanup await-0)
-          (#case Work::Frame::Cleanup-await-0-empty ())
-          (#case (Work::Frame::Cleanup-await-0-full child) (#call cancel-child (: task child))))
+          (#case Work::Frame::Cleanup::await-0::Empty ())
+          (#case (Work::Frame::Cleanup::await-0::Full child) (#call cancel-child (: task child))))
         (#forget cleanup) ())
       (#call replace-owner (: task (#pin-borrow-mut cancelled) : value
         (#struct-literal Owner (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
@@ -222,8 +222,8 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         (#let-else (Work::Pending cancel-pin) Work::Poll cancel-first (#unreachable))
         (#block
           (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
-          (#match (#get cleanup await-0) (#case Work::Frame::Cleanup-await-0-empty ())
-            (#case (Work::Frame::Cleanup-await-0-full child) (#call cancel-child (: task child))))
+          (#match (#get cleanup await-0) (#case Work::Frame::Cleanup::await-0::Empty ())
+            (#case (Work::Frame::Cleanup::await-0::Full child) (#call cancel-child (: task child))))
           (#forget cleanup) ())
         (#call work-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
@@ -426,7 +426,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
 fn access_handles_unit_aliases_multiple_parameters_and_imports() {
     for (import, prefix, frame) in [
         ("#import", "", "Work::Frame"),
-        ("#import-external", "Ext-", "Ext-work-frame"),
+        ("#import-external", "Ext-", "Ext-Work::Frame"),
     ] {
         let scratch = support::Scratch::new("async-access-import");
         let library = "(#type Amount #u64) (#type Nothing ())

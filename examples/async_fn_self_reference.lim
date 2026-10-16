@@ -26,21 +26,21 @@
     (#return (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)))))
 
 (#fn main () #u64
-  (#let-mut frame Read-after-await-frame
+  (#let-mut frame Read-after-await::Frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 40u64) (right 5u64)))))))))
   (#let waker #u64 0u64)
-  (#let first Read-after-await-poll-result
-    (#call read-after-await-poll
+  (#let first Read-after-await::Poll
+    (#call Read-after-await::poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending pending-frame) Read-after-await-poll-result first (#unreachable))
-  (#let second Read-after-await-poll-result
-    (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
+  (#let-else (Read-after-await::Pending pending-frame) Read-after-await::Poll first (#unreachable))
+  (#let second Read-after-await::Poll
+    (#call Read-after-await::poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (read-after-await-ready value) value)
-      (#case (read-after-await-pending unexpected)
+      (#case (Read-after-await::Ready value) value)
+      (#case (Read-after-await::Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#call read-after-await-owner-replace
     (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
@@ -50,20 +50,20 @@
   (#assert (#u64.== (#get (#get completed-owner payload) left) 41u64))
   (#forget frame)
 
-  (#let-mut cancelled Read-after-await-frame
+  (#let-mut cancelled Read-after-await::Frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 10u64) (right 7u64)))))))))
-  (#let first-cancel Read-after-await-poll-result
-    (#call read-after-await-poll
+  (#let first-cancel Read-after-await::Poll
+    (#call Read-after-await::poll
       (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending cancel-pin) Read-after-await-poll-result first-cancel (#unreachable))
+  (#let-else (Read-after-await::Pending cancel-pin) Read-after-await::Poll first-cancel (#unreachable))
   (#block
-    (#let cleanup Read-after-await-frame-cleanup
-      (#call read-after-await-poll-cleanup (: task cancel-pin)))
+    (#let cleanup Read-after-await::Frame::Cleanup
+      (#call Read-after-await::poll::cleanup (: task cancel-pin)))
     (#match (#get cleanup await-0)
-      (#case Read-after-await-frame-cleanup-await-0-empty ())
-      (#case (Read-after-await-frame-cleanup-await-0-full child)
+      (#case Read-after-await::Frame::Cleanup::await-0::Empty ())
+      (#case (Read-after-await::Frame::Cleanup::await-0::Full child)
         (#call cancel-child (: task child))))
     (#forget cleanup))
   (#call read-after-await-owner-replace

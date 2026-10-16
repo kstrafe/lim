@@ -99,25 +99,25 @@ fn async_protocols_compose_with_forward_references_and_derived_names() {
           (#return (#await TickAwait (TickStart amount))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let first Parent-poll-result
-          (#call parent-poll (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
-        (#let-else (parent-pending pending-task) Parent-poll-result first (#unreachable))
-        (#let second Parent-poll-result
-          (#call parent-poll (: task pending-task : waker (#borrow waker))))
+        (#let first Parent::Poll
+          (#call Parent::poll (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
+        (#let-else (Parent::Pending pending-task) Parent::Poll first (#unreachable))
+        (#let second Parent::Poll
+          (#call Parent::poll (: task pending-task : waker (#borrow waker))))
         (#return (#match second
-          (#case (parent-ready value) value)
-          (#case (parent-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+          (#case (Parent::Ready value) value)
+          (#case (Parent::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
     let generated = build_and_run(source, 42);
     assert_generated_type_names_are_capitalized(&generated);
     for declaration in [
-        "(#syntax ParentAwait (#u64 Parent-task parent-pending parent-ready parent-poll))",
-        "(#syntax ChildAwait (#u64 Child-task child-pending child-ready child-poll))",
+        "(#syntax ParentAwait (#u64 Parent::Task Parent::Pending Parent::Ready Parent::poll))",
+        "(#syntax ChildAwait (#u64 Child::Task Child::Pending Child::Ready Child::poll))",
     ] {
         assert!(generated.contains(declaration), "{generated}");
         assert_eq!(generated.matches(declaration).count(), 1);
     }
-    assert_single_poll(&generated, "parent-poll");
-    assert_single_poll(&generated, "child-poll");
+    assert_single_poll(&generated, "Parent::poll");
+    assert_single_poll(&generated, "Child::poll");
 }
 
 fn assert_frame_has_program_counter(generated: &str, name: &str) {
@@ -185,23 +185,23 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
           (#let ignored #u64 (#await TickAwait (Waiting 0u64)))
           (#forget ignored) (#return amount))))
       (@#async-fn (: protocol ParentAwait : waker #u64 : function
-        (#fn parent (: task (#pin-ref-mut Child-frame)) #u64
+        (#fn parent (: task (#pin-ref-mut Child::Frame)) #u64
           (#return (#await ChildAwait task)))))
       (#fn main () #u64
-        (#let-mut frame Child-frame (#call child (: amount 42u64)))
+        (#let-mut frame Child::Frame (#call child (: amount 42u64)))
         (#let waker #u64 0u64)
-        (#let first Parent-poll-result
-          (#call parent-poll (: task (#call parent (: task (#pin-borrow-mut frame))) : waker (#borrow waker))))
-        (#let-else (parent-pending pending-task) Parent-poll-result first (#unreachable))
-        (#let result Parent-poll-result
-          (#call parent-poll (: task pending-task : waker (#borrow waker))))
+        (#let first Parent::Poll
+          (#call Parent::poll (: task (#call parent (: task (#pin-borrow-mut frame))) : waker (#borrow waker))))
+        (#let-else (Parent::Pending pending-task) Parent::Poll first (#unreachable))
+        (#let result Parent::Poll
+          (#call Parent::poll (: task pending-task : waker (#borrow waker))))
         (#let answer #u64 (#match result
-          (#case (parent-ready value) value)
-          (#case (parent-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#case (Parent::Ready value) value)
+          (#case (Parent::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))";
     let generated = build_and_run_graph(source, 42);
-    assert!(generated.contains("(#syntax ChildAwait (#u64 (#pin-ref-mut Child-frame) child-pending child-ready child-poll))"), "{generated}");
-    assert_single_poll(&generated, "parent-poll");
+    assert!(generated.contains("(#syntax ChildAwait (#u64 (#pin-ref-mut Child::Frame) Child::Pending Child::Ready Child::poll))"), "{generated}");
+    assert_single_poll(&generated, "Parent::poll");
     let repeated = source
         .replace("(#u64.== count 0u64)", "(#u64.< count 2u64)")
         .replace(
@@ -210,21 +210,21 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
         )
         .replace(
             "(#let answer #u64 (#match result",
-            "(#let-else (parent-pending again) Parent-poll-result result (#unreachable))
-          (#let third Parent-poll-result
-            (#call parent-poll (: task again : waker (#borrow waker))))
+            "(#let-else (Parent::Pending again) Parent::Poll result (#unreachable))
+          (#let third Parent::Poll
+            (#call Parent::poll (: task again : waker (#borrow waker))))
           (#let answer #u64 (#match third",
         );
     build_and_run_graph(&repeated, 42);
 
     let cancellation = source
-        .replace("(#let result Parent-poll-result\n          (#call parent-poll (: task pending-task : waker (#borrow waker))))",
-          "(#let cleanup Parent-task-cleanup (#call parent-poll-cleanup (: task pending-task)))
+        .replace("(#let result Parent::Poll\n          (#call Parent::poll (: task pending-task : waker (#borrow waker))))",
+          "(#let cleanup Parent::Task::Cleanup (#call Parent::poll::cleanup (: task pending-task)))
           (#forget cleanup)
-          (#let result Child-poll-result
-            (#call child-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))")
-        .replace("(#case (parent-ready value)", "(#case (child-ready value)")
-        .replace("(#case (parent-pending unexpected)", "(#case (child-pending unexpected)");
+          (#let result Child::Poll
+            (#call Child::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))")
+        .replace("(#case (Parent::Ready value)", "(#case (Child::Ready value)")
+        .replace("(#case (Parent::Pending unexpected)", "(#case (Child::Pending unexpected)");
     assert_ne!(cancellation, source);
     build_and_run_graph(&cancellation, 42);
 
@@ -234,8 +234,8 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
             "        (#return answer)",
         )
         .replace(
-            "        (#let result Parent-poll-result",
-            "        (#forget frame)\n        (#let result Parent-poll-result",
+            "        (#let result Parent::Poll",
+            "        (#forget frame)\n        (#let result Parent::Poll",
         );
     let error = graph_compile_error(&premature, "async-child-frame-retained-pin");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
@@ -261,9 +261,9 @@ fn async_protocols_cross_internal_and_external_imports() {
               (#return (#await {prefix}ChildAwait (#call {prefix}child (: {prefix}amount 42u64)))))))
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#return (#match (#call parent-poll (: task (#call parent (:)) : waker (#borrow waker)))
-              (#case (parent-ready value) value)
-              (#case (parent-pending task) (#block (#forget task) (#unreachable))))))");
+            (#return (#match (#call Parent::poll (: task (#call parent (:)) : waker (#borrow waker)))
+              (#case (Parent::Ready value) value)
+              (#case (Parent::Pending task) (#block (#forget task) (#unreachable))))))");
         let program =
             lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
         lim::check_types(&program).unwrap();
@@ -348,13 +348,13 @@ fn async_protocols_are_exported_by_generator_produced_functions() {
         (#fn parent () #u64 (#return (#await ChildAwait (#call child (:)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#return (#match (#call parent-poll (: task (#call parent (:)) : waker (#borrow waker)))
-          (#case (parent-ready value) value)
-          (#case (parent-pending task) (#block (#forget task) (#unreachable))))))";
+        (#return (#match (#call Parent::poll (: task (#call parent (:)) : waker (#borrow waker)))
+          (#case (Parent::Ready value) value)
+          (#case (Parent::Pending task) (#block (#forget task) (#unreachable))))))";
     let generated = build_and_run(source, 42);
     assert!(
         generated.contains(
-            "(#syntax ChildAwait (#u64 Child-task child-pending child-ready child-poll))"
+            "(#syntax ChildAwait (#u64 Child::Task Child::Pending Child::Ready Child::poll))"
         ),
         "{generated}"
     );
@@ -1442,12 +1442,12 @@ fn pinned_async_frames_keep_local_pins_stationary_across_suspension() {
 fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
     let source = include_str!("../examples/async_fn_self_reference.lim");
     let generated = build_and_run_graph(source, 58);
-    assert_single_poll(&generated, "read-after-await-poll");
-    assert_frame_has_program_counter(&generated, "Read-after-await-frame");
+    assert_single_poll(&generated, "Read-after-await::poll");
+    assert_frame_has_program_counter(&generated, "Read-after-await::Frame");
 
     let pending_mutation = source.replace(
-        "  (#let second Read-after-await-poll-result",
-        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 99u64) (right 5u64))))))))\n  (#let second Read-after-await-poll-result",
+        "  (#let second Read-after-await::Poll",
+        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 99u64) (right 5u64))))))))\n  (#let second Read-after-await::Poll",
     );
     assert_ne!(pending_mutation, source);
     let error = graph_compile_error(&pending_mutation, "async-pending-owner-replace");
@@ -1466,8 +1466,8 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
     }
 
     let cancelled_mutation = source.replace(
-        "  (#block\n    (#let cleanup Read-after-await-frame-cleanup",
-        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64))))))))\n  (#block\n    (#let cleanup Read-after-await-frame-cleanup",
+        "  (#block\n    (#let cleanup Read-after-await::Frame::Cleanup",
+        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64))))))))\n  (#block\n    (#let cleanup Read-after-await::Frame::Cleanup",
     );
     assert_ne!(cancelled_mutation, source);
     let error = graph_compile_error(&cancelled_mutation, "async-before-cleanup-owner-replace");
@@ -1486,7 +1486,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "read-after-await-poll");
+    assert_single_poll(&generated, "Read-after-await::poll");
 
     let pending_mutation = source.replace(
         "    (#let result #u64",
@@ -1506,7 +1506,7 @@ fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
 fn pinned_async_frame_initializes_a_local_owner_before_self_borrowing_it() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
     let generated = build_and_run_graph(source, 42);
-    assert_single_poll(&generated, "local-self-ref-poll");
+    assert_single_poll(&generated, "Local-self-ref::poll");
 
     let late_owner = source.replace(
         "    (#let owner LocalOwner",
@@ -1532,7 +1532,7 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
             "    (#unsafe (#pin-write view 41u64))\n    (#return (#u64.+.wrap (#deref view) result))",
         );
     let generated = build_and_run_graph(&source, 43);
-    assert_single_poll(&generated, "local-self-ref-poll");
+    assert_single_poll(&generated, "Local-self-ref::poll");
 
     let overlapping_owner_read = source.replace(
         "    (#unsafe (#pin-write view 41u64))",
@@ -1569,28 +1569,28 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
         .replace("(#return (#u64.+.wrap (#deref view) result))",
             "(#let answer #u64 (#u64.+.wrap (#deref view) result))\n    (#drop view)\n    (#forget owner)\n    (#return answer)");
     let (prefix, after_second_poll) = linear
-        .split_once("  (#let second Local-self-ref-poll-result")
+        .split_once("  (#let second Local-self-ref::Poll")
         .unwrap();
     let (_, suffix) = after_second_poll.split_once("  (#forget frame)").unwrap();
     let cancelled = format!(
         "{prefix}\
-          (#let cleanup Local-self-ref-frame-cleanup\n\
-            (#call local-self-ref-poll-cleanup (: task pending-frame)))\n\
+          (#let cleanup Local-self-ref::Frame::Cleanup\n\
+            (#call Local-self-ref::poll::cleanup (: task pending-frame)))\n\
           (#let result #u64 (#match (#get cleanup owner)\n\
-            (#case Local-self-ref-frame-cleanup-owner-empty (#unreachable))\n\
-            (#case (Local-self-ref-frame-cleanup-owner-full extracted) (#block\n\
+            (#case Local-self-ref::Frame::Cleanup::owner::Empty (#unreachable))\n\
+            (#case (Local-self-ref::Frame::Cleanup::owner::Full extracted) (#block\n\
               (#let-mut owned LocalOwner extracted)\n\
               (#set-field owned payload (#struct-literal LocalPayload ((left 41u64) (right 5u64))))\n\
               (#let value #u64 (#get (#get owned payload) left))\n\
               (#forget owned) value))))\n\
           (#match (#get cleanup await-0)\n\
-            (#case Local-self-ref-frame-cleanup-await-0-empty ())\n\
-            (#case (Local-self-ref-frame-cleanup-await-0-full child) (#forget child)))\n\
+            (#case Local-self-ref::Frame::Cleanup::await-0::Empty ())\n\
+            (#case (Local-self-ref::Frame::Cleanup::await-0::Full child) (#forget child)))\n\
           (#forget cleanup)\n\
           (#forget frame){suffix}"
     );
     let generated = build_and_run_graph(&cancelled, 41);
-    assert_single_poll(&generated, "local-self-ref-poll");
+    assert_single_poll(&generated, "Local-self-ref::poll");
 }
 
 #[test]
@@ -1884,7 +1884,7 @@ fn async_function_has_no_fixed_suspension_count_limit() {
     let generated = build_and_run_graph(&source, 32);
     assert_single_poll(&generated, "Work::poll");
     assert!(
-        generated.contains("Work::Task-cleanup-await-32"),
+        generated.contains("Work::Task::Cleanup::await-32"),
         "{generated}"
     );
 }
@@ -2278,17 +2278,17 @@ fn async_tuple_and_array_elements_are_evaluated_before_later_awaits() {
         (#let-mut tuple-counter #u64 0u64)
         (#let-mut array-counter #u64 0u64)
         (#let waker #u64 0u64)
-        (#let tuple-task Work-tuple-task
+        (#let tuple-task Work-tuple::Task
           (#call work-tuple (: counter (#borrow-mut tuple-counter))))
-        (#let tuple-outcome Work-tuple-poll-result
-          (#call work-tuple-poll (: task tuple-task : waker (#borrow waker))))
-        (#let-else (work-tuple-pending tuple-pending) Work-tuple-poll-result tuple-outcome (#unreachable))
+        (#let tuple-outcome Work-tuple::Poll
+          (#call Work-tuple::poll (: task tuple-task : waker (#borrow waker))))
+        (#let-else (Work-tuple::Pending tuple-pending) Work-tuple::Poll tuple-outcome (#unreachable))
         (#forget tuple-pending)
-        (#let array-task Work-array-task
+        (#let array-task Work-array::Task
           (#call work-array (: counter (#borrow-mut array-counter))))
-        (#let array-outcome Work-array-poll-result
-          (#call work-array-poll (: task array-task : waker (#borrow waker))))
-        (#let-else (work-array-pending array-pending) Work-array-poll-result array-outcome (#unreachable))
+        (#let array-outcome Work-array::Poll
+          (#call Work-array::poll (: task array-task : waker (#borrow waker))))
+        (#let-else (Work-array::Pending array-pending) Work-array::Poll array-outcome (#unreachable))
         (#forget array-pending)
         (#forget waker)
         (#return (#u64.+.wrap tuple-counter array-counter)))";
@@ -4150,23 +4150,23 @@ fn async_function_awaits_after_conditional_task_selection() {
             (#case Large (#await #u64 Child ChildPending ChildReady child-poll (Waiting 20u64))))))))
       (#fn main () #u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let if-result Choose-if-poll-result
-          (#call choose-if-poll (: task (#call choose-if (: large true)) : waker (#borrow waker))))
-        (#let match-result Choose-match-poll-result
-          (#call choose-match-poll (: task (#call choose-match (: choice Large)) : waker (#borrow waker))))
+        (#let if-result Choose-if::Poll
+          (#call Choose-if::poll (: task (#call choose-if (: large true)) : waker (#borrow waker))))
+        (#let match-result Choose-match::Poll
+          (#call Choose-match::poll (: task (#call choose-match (: choice Large)) : waker (#borrow waker))))
         (#let total #u64
           (#u64.+.wrap
             (#match if-result
-              (#case (choose-if-ready value) value)
-              (#case (choose-if-pending task) (#block (#forget task) (#unreachable))))
+              (#case (Choose-if::Ready value) value)
+              (#case (Choose-if::Pending task) (#block (#forget task) (#unreachable))))
             (#match match-result
-              (#case (choose-match-ready value) value)
-              (#case (choose-match-pending task) (#block (#forget task) (#unreachable))))))
+              (#case (Choose-match::Ready value) value)
+              (#case (Choose-match::Pending task) (#block (#forget task) (#unreachable))))))
         (#forget waker)
         (#return total))";
     let generated = build_and_run_graph(source, 40);
-    assert_single_poll(&generated, "choose-if-poll");
-    assert_single_poll(&generated, "choose-match-poll");
+    assert_single_poll(&generated, "Choose-if::poll");
+    assert_single_poll(&generated, "Choose-match::poll");
     let small = source
         .replace("(: large true)", "(: large false)")
         .replace("(: choice Large)", "(: choice Small)");
@@ -4235,31 +4235,31 @@ fn async_conditional_await_joins_with_an_immediate_value() {
           (#match immediate
             (#case (Work::Ready immediate-ready) immediate-ready)
             (#case (Work::Pending immediate-task) (#block (#forget immediate-task) (#unreachable)))))
-        (#let match-awaited Work-match-poll-result
-          (#call work-match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
+        (#let match-awaited Work-match::Poll
+          (#call Work-match::poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
         (#let match-awaited-value #u64
           (#match match-awaited
-            (#case (work-match-ready value) value)
-            (#case (work-match-pending match-child)
-              (#match (#call work-match-poll (: task match-child : waker (#borrow waker)))
-                (#case (work-match-ready match-ready) match-ready)
-                (#case (work-match-pending match-again)
-                  (#match (#call work-match-poll (: task match-again : waker (#borrow waker)))
-                    (#case (work-match-ready match-third-ready) match-third-ready)
-                    (#case (work-match-pending match-third) (#block (#forget match-third) (#unreachable)))))))))
-        (#let match-immediate Work-match-poll-result
-          (#call work-match-poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
+            (#case (Work-match::Ready value) value)
+            (#case (Work-match::Pending match-child)
+              (#match (#call Work-match::poll (: task match-child : waker (#borrow waker)))
+                (#case (Work-match::Ready match-ready) match-ready)
+                (#case (Work-match::Pending match-again)
+                  (#match (#call Work-match::poll (: task match-again : waker (#borrow waker)))
+                    (#case (Work-match::Ready match-third-ready) match-third-ready)
+                    (#case (Work-match::Pending match-third) (#block (#forget match-third) (#unreachable)))))))))
+        (#let match-immediate Work-match::Poll
+          (#call Work-match::poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
         (#let match-immediate-value #u64
           (#match match-immediate
-            (#case (work-match-ready match-immediate-ready) match-immediate-ready)
-            (#case (work-match-pending match-immediate-task)
+            (#case (Work-match::Ready match-immediate-ready) match-immediate-ready)
+            (#case (Work-match::Pending match-immediate-task)
               (#block (#forget match-immediate-task) (#unreachable)))))
         (#return (#u64.+.wrap
           (#u64.+.wrap awaited-value immediate-value)
           (#u64.+.wrap match-awaited-value match-immediate-value))))";
     let generated = build_and_run_graph(source, 86);
     assert_single_poll(&generated, "Work::poll");
-    assert_single_poll(&generated, "work-match-poll");
+    assert_single_poll(&generated, "Work-match::poll");
 }
 
 #[test]
@@ -4311,28 +4311,28 @@ fn async_conditional_branch_value_expressions_can_suspend() {
           (#match if-immediate
             (#case (Work::Ready value) value)
             (#case (Work::Pending unexpected) (#block (#forget unexpected) 0u64))))
-        (#let match-first Work-match-poll-result
-          (#call work-match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
+        (#let match-first Work-match::Poll
+          (#call Work-match::poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
         (#let match-value #u64
           (#match match-first
-            (#case (work-match-pending match-child)
-              (#match (#call work-match-poll (: task match-child : waker (#borrow waker)))
-                (#case (work-match-ready value) value)
-                (#case (work-match-pending unexpected) (#block (#forget unexpected) 0u64))))
-            (#case (work-match-ready value) value)))
-        (#let match-immediate Work-match-poll-result
-          (#call work-match-poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
+            (#case (Work-match::Pending match-child)
+              (#match (#call Work-match::poll (: task match-child : waker (#borrow waker)))
+                (#case (Work-match::Ready value) value)
+                (#case (Work-match::Pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work-match::Ready value) value)))
+        (#let match-immediate Work-match::Poll
+          (#call Work-match::poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
         (#let match-immediate-value #u64
           (#match match-immediate
-            (#case (work-match-ready value) value)
-            (#case (work-match-pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Work-match::Ready value) value)
+            (#case (Work-match::Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return (#u64.+.wrap
           (#u64.+.wrap if-value if-immediate-value)
           (#u64.+.wrap match-value match-immediate-value))))";
     let generated = build_and_run_graph(source, 88);
     assert_single_poll(&generated, "Work::poll");
-    assert_single_poll(&generated, "work-match-poll");
+    assert_single_poll(&generated, "Work-match::poll");
 }
 
 fn check_graph_conditional_capture(source: &str) {
@@ -4735,12 +4735,12 @@ fn async_conditional_awaits_support_distinct_child_poll_protocols() {
           (#match right
             (#case (Work::Ready value) value)
             (#case (Work::Pending task) (#block (#forget task) (#unreachable)))))
-        (#let matched Work-match-poll-result
-          (#call work-match-poll (: task (#call work-match (: choice Right)) : waker (#borrow waker))))
+        (#let matched Work-match::Poll
+          (#call Work-match::poll (: task (#call work-match (: choice Right)) : waker (#borrow waker))))
         (#let matched-value #u64
           (#match matched
-            (#case (work-match-ready value) value)
-            (#case (work-match-pending task) (#block (#forget task) (#unreachable)))))
+            (#case (Work-match::Ready value) value)
+            (#case (Work-match::Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return (#u64.+.wrap (#u64.+.wrap left-value right-value) matched-value)))";
     let generated = build_and_run(source, 7);
@@ -4770,17 +4770,17 @@ fn async_function_retains_external_borrows_across_pending() {
       (#fn main () #u64
         (#let-mut owner #u64 37u64)
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Read-after-await-poll-result
-          (#call read-after-await-poll (: task (#call read-after-await (: view (#borrow owner)))
+        (#let first Read-after-await::Poll
+          (#call Read-after-await::poll (: task (#call read-after-await (: view (#borrow owner)))
             : waker (#borrow waker))))
-        (#let-else (read-after-await-pending task) Read-after-await-poll-result first (#unreachable))
+        (#let-else (Read-after-await::Pending task) Read-after-await::Poll first (#unreachable))
         MUTATE_WHILE_PENDING
-        (#let second Read-after-await-poll-result
-          (#call read-after-await-poll (: task task : waker (#borrow waker))))
+        (#let second Read-after-await::Poll
+          (#call Read-after-await::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (read-after-await-ready value) value)
-            (#case (read-after-await-pending extra-task) (#block (#forget extra-task) (#unreachable)))))
+            (#case (Read-after-await::Ready value) value)
+            (#case (Read-after-await::Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
         (#set owner 39u64)
         (#forget waker)
         (#return (#u64.+.wrap owner result)))";
@@ -4801,7 +4801,7 @@ fn async_function_retains_external_borrows_across_pending() {
 
     let escaping = accepted.replace(
         "(#fn main () #u64",
-        "(#fn escape () Read-after-await-task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await (: view (#borrow owner)))))\n      (#fn main () #u64",
+        "(#fn escape () Read-after-await::Task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await (: view (#borrow owner)))))\n      (#fn main () #u64",
     );
     let error = graph_compile_error(&escaping, "async-shared-external-escape");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow);
@@ -4833,17 +4833,17 @@ fn async_function_retains_mutable_external_borrows_across_pending() {
       (#fn main () #u64
         (#let-mut owner #u64 37u64)
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
-        (#let first Write-after-await-poll-result
-          (#call write-after-await-poll (: task (#call write-after-await (: view (#borrow-mut owner)))
+        (#let first Write-after-await::Poll
+          (#call Write-after-await::poll (: task (#call write-after-await (: view (#borrow-mut owner)))
             : waker (#borrow waker))))
-        (#let-else (write-after-await-pending task) Write-after-await-poll-result first (#unreachable))
+        (#let-else (Write-after-await::Pending task) Write-after-await::Poll first (#unreachable))
         READ_WHILE_PENDING
-        (#let second Write-after-await-poll-result
-          (#call write-after-await-poll (: task task : waker (#borrow waker))))
+        (#let second Write-after-await::Poll
+          (#call Write-after-await::poll (: task task : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (write-after-await-ready value) value)
-            (#case (write-after-await-pending extra-task) (#block (#forget extra-task) (#unreachable)))))
+            (#case (Write-after-await::Ready value) value)
+            (#case (Write-after-await::Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
         (#set owner 39u64)
         (#return (#u64.+.wrap result owner)))";
     let accepted = source.replace("READ_WHILE_PENDING", "");
@@ -4877,18 +4877,18 @@ fn pinned_async_frame_retains_an_external_pinned_borrow_across_pending() {
       (#fn main () #u64
         (#let-mut owner #u64 40u64)
         (#let view (#pin-ref #u64) (#pin-borrow owner))
-        (#let-mut frame Read-after-await-frame (#call read-after-await (: view view)))
+        (#let-mut frame Read-after-await::Frame (#call read-after-await (: view view)))
         (#forget view)
         (#let waker #u64 0u64)
-        (#let first Read-after-await-poll-result
-          (#call read-after-await-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (read-after-await-pending pinned-frame) Read-after-await-poll-result first (#unreachable))
-        (#let second Read-after-await-poll-result
-          (#call read-after-await-poll (: task pinned-frame : waker (#borrow waker))))
+        (#let first Read-after-await::Poll
+          (#call Read-after-await::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Read-after-await::Pending pinned-frame) Read-after-await::Poll first (#unreachable))
+        (#let second Read-after-await::Poll
+          (#call Read-after-await::poll (: task pinned-frame : waker (#borrow waker))))
         (#let result #u64
           (#match second
-            (#case (read-after-await-ready value) value)
-            (#case (read-after-await-pending unexpected)
+            (#case (Read-after-await::Ready value) value)
+            (#case (Read-after-await::Pending unexpected)
               (#block (#forget unexpected) (#unreachable)))))
         (#forget frame)
         (#set owner 41u64)
@@ -4896,8 +4896,8 @@ fn pinned_async_frame_retains_an_external_pinned_borrow_across_pending() {
         (#return (#if (#u64.== result 41u64) owner 0u64)))";
 
     let mutation_while_pending = source.replace(
-        "        (#let second Read-after-await-poll-result",
-        "        (#set owner 99u64)\n        (#let second Read-after-await-poll-result",
+        "        (#let second Read-after-await::Poll",
+        "        (#set owner 99u64)\n        (#let second Read-after-await::Poll",
     );
     let error = graph_compile_error(
         &mutation_while_pending,
@@ -5060,7 +5060,7 @@ fn async_function_lowers_await_in_terminal_binding_block() {
     assert_single_poll(&generated, "Work::poll");
     // A source input consumed before poll must not become a cancellation slot.
     assert!(
-        !generated.contains("Work::Task-cleanup-task-input"),
+        !generated.contains("Work::Task::Cleanup::task-input"),
         "{generated}"
     );
 }
@@ -6757,10 +6757,10 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
         (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
-        (#let (Work::Task-cleanup moved right waiting) Work::Task-cleanup
+        (#let (Work::Task::Cleanup moved right waiting) Work::Task::Cleanup
           (#call Work::poll::cleanup (: task pending)))
-        (#let-else (Work::Task-cleanup-moved-full original) Work::Task-cleanup-moved moved (#unreachable))
-        (#let-else (Work::Task-cleanup-pair.right-full sibling) Work::Task-cleanup-pair.right right (#unreachable))
+        (#let-else (Work::Task::Cleanup::moved::Full original) Work::Task::Cleanup::moved moved (#unreachable))
+        (#let-else (Work::Task::Cleanup::pair.right::Full sibling) Work::Task::Cleanup::pair.right right (#unreachable))
         (#forget waiting)
         (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
         (#forget original) (#forget sibling)
@@ -6768,14 +6768,14 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     );
     let cleanup_source = build_and_run_partial_storage(&cancelled, 42);
     assert!(
-        !cleanup_source.contains("Work::Task-cleanup-pair.left"),
+        !cleanup_source.contains("Work::Task::Cleanup::pair.left"),
         "a field always moved before Pending is not a cancellation obligation"
     );
 
     let explicit_cancel = cancelled
         .replace("(#struct Pair () (: left Resource : right Resource))", "(#struct Pair (#linear) (: left Resource : right Resource)) ")
-        .replace("Work::Task-cleanup moved right waiting", "Work::Task-cleanup moved right shell waiting")
-        .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work::Task-cleanup-pair.shell-full)) (#forget shell) (#forget waiting)");
+        .replace("Work::Task::Cleanup moved right waiting", "Work::Task::Cleanup moved right shell waiting")
+        .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work::Task::Cleanup::pair.shell::Full)) (#forget shell) (#forget waiting)");
     build_and_run_partial_storage(&explicit_cancel, 42);
 
     let pinned = prefix
@@ -6909,10 +6909,10 @@ fn async_rebuilds_nested_partially_moved_structs() {
         (#let first Work::Poll (#call Work::poll
           (: task (#call work (:)) : waker (#borrow waker))))
         (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
-        (#let (Work::Task-cleanup moved right spare waiting) Work::Task-cleanup
+        (#let (Work::Task::Cleanup moved right spare waiting) Work::Task::Cleanup
           (#call Work::poll::cleanup (: task pending)))
-        (#let-else (Work::Task-cleanup-moved-full original) Work::Task-cleanup-moved moved (#unreachable))
-        (#let-else (Work::Task-cleanup-owner.inner.right-full sibling) Work::Task-cleanup-owner.inner.right right (#unreachable))
+        (#let-else (Work::Task::Cleanup::moved::Full original) Work::Task::Cleanup::moved moved (#unreachable))
+        (#let-else (Work::Task::Cleanup::owner.inner.right::Full sibling) Work::Task::Cleanup::owner.inner.right right (#unreachable))
         (#forget spare) (#forget waiting)
         (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
         (#forget original) (#forget sibling)
@@ -6925,8 +6925,8 @@ fn async_rebuilds_nested_partially_moved_structs() {
         "(#struct Pair (#linear) (: left Resource : right Resource)) ",
     );
     let nominal_main = cancelled.split_once("(#fn main () #u64").unwrap().1
-        .replace("Work::Task-cleanup moved right spare waiting", "Work::Task-cleanup moved right spare shell waiting")
-        .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work::Task-cleanup-owner.inner.shell-full)) (#forget shell) (#forget spare)");
+        .replace("Work::Task::Cleanup moved right spare waiting", "Work::Task::Cleanup moved right spare shell waiting")
+        .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work::Task::Cleanup::owner.inner.shell::Full)) (#forget shell) (#forget spare)");
     let nominal_cancel =
         format!("{nominal_prefix}(#return (#unreachable)))))\n(#fn main () #u64{nominal_main}");
     build_and_run_partial_storage(&nominal_cancel, 42);
@@ -12995,9 +12995,9 @@ fn generated_async_frames_support_source_named_task_cancellation() {
 fn async_fn_generates_source_specific_cancel_dispatch() {
     let source = include_str!("../examples/async_fn_cancel_dispatch.lim");
     let generated = build_and_run_graph(source, 42);
-    assert!(generated.contains("(#fn cancel-work ((task Work::Task-cleanup)) ()"));
-    assert!(generated.contains("Work::Task-cleanup-token-full"));
-    assert!(generated.contains("Work::Task-cleanup-await-0-full"));
+    assert!(generated.contains("(#fn cancel-work ((task Work::Task::Cleanup)) ()"));
+    assert!(generated.contains("Work::Task::Cleanup::token::Full"));
+    assert!(generated.contains("Work::Task::Cleanup::await-0::Full"));
     assert!(generated.contains("child-cancel"));
 }
 

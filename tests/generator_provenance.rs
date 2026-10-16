@@ -103,6 +103,13 @@ fn async_companions_can_be_registered_in_a_distributed_enum() {
     for _ in 0..2 {
         compile(source, &scratch).unwrap();
     }
+    // Variant identifiers are global. Registering one future in two executor
+    // enums must qualify the variants by their respective executor roots.
+    let two_executors = format!(
+        "{source}\n(#distributed-enum OtherExecutor ())
+        (@register-future OtherExecutor Work)"
+    );
+    compile(&two_executors, &scratch).unwrap();
     let wrong_producer = source.replacen("#async-fn-pinned", "#optional", 1);
     assert_ne!(wrong_producer, source);
     let error = compile(&wrong_producer, &scratch).unwrap_err();

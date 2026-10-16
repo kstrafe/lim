@@ -22,14 +22,14 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Parent-poll-result
-    (#call parent-poll
+  (#let first Parent::Poll
+    (#call Parent::poll
       (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
-  (#let-else (parent-pending pending-task) Parent-poll-result first
+  (#let-else (Parent::Pending pending-task) Parent::Poll first
     (#unreachable))
-  (#let second Parent-poll-result
-    (#call parent-poll (: task pending-task : waker (#borrow waker))))
+  (#let second Parent::Poll
+    (#call Parent::poll (: task pending-task : waker (#borrow waker))))
   (#return (#match second
-    (#case (parent-ready value) value)
-    (#case (parent-pending unexpected)
+    (#case (Parent::Ready value) value)
+    (#case (Parent::Pending unexpected)
       (#block (#forget unexpected) (#unreachable))))))

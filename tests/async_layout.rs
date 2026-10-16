@@ -42,10 +42,10 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
         .collect::<Vec<_>>();
     let parent = generated
         .iter()
-        .find(|source| source.contains("(#fn parent-poll "))
+        .find(|source| source.contains("(#fn Parent::poll "))
         .unwrap();
     assert!(
-        parent.contains("(#array Child-task 0)"),
+        parent.contains("(#array Child::Task 0)"),
         "child must have untagged owning storage"
     );
     // Both inspectable artifacts must also work without generator metadata.
@@ -67,7 +67,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
         .items
         .iter()
         .find_map(|item| match item {
-            lim::Item::Struct { name, fields, .. } if name == "Parent-task" => Some(fields),
+            lim::Item::Struct { name, fields, .. } if name == "Parent::Task" => Some(fields),
             _ => None,
         })
         .unwrap();
@@ -75,7 +75,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
         if let lim::Type::Named(name) = &field.ty {
             let tagged_child = program.items.iter().any(|item| matches!(item,
                 lim::Item::Enum {name: cell, variants, ..} if cell == name
-                    && variants.iter().any(|variant| variant.fields == [lim::Type::Named("Child-task".into())])
+                    && variants.iter().any(|variant| variant.fields == [lim::Type::Named("Child::Task".into())])
             ));
             assert!(
                 !tagged_child,

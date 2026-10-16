@@ -23,18 +23,18 @@
     (#return (#u64.+.wrap (#deref view) result)))))
 
 (#fn main () #u64
-  (#let-mut frame Local-self-ref-frame (#call local-self-ref (: seed 40u64)))
+  (#let-mut frame Local-self-ref::Frame (#call local-self-ref (: seed 40u64)))
   (#let waker #u64 0u64)
-  (#let first Local-self-ref-poll-result
-    (#call local-self-ref-poll
+  (#let first Local-self-ref::Poll
+    (#call Local-self-ref::poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (local-self-ref-pending pending-frame) Local-self-ref-poll-result first (#unreachable))
-  (#let second Local-self-ref-poll-result
-    (#call local-self-ref-poll (: task pending-frame : waker (#borrow waker))))
+  (#let-else (Local-self-ref::Pending pending-frame) Local-self-ref::Poll first (#unreachable))
+  (#let second Local-self-ref::Poll
+    (#call Local-self-ref::poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (local-self-ref-ready value) value)
-      (#case (local-self-ref-pending unexpected)
+      (#case (Local-self-ref::Ready value) value)
+      (#case (Local-self-ref::Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
   (#forget waker)

@@ -138,10 +138,10 @@ mod tests {
         let tick = Type::Named("Tick".into());
         let id = planning.declarations.aggregate_id(&tick).unwrap();
         let count = planning.program.items.len();
-        let child = Type::Named("Child-task".into());
+        let child = Type::Named("Child::Task".into());
         assert!(!planning.linear_types().contains_reference(&child));
         planning
-            .install_generated_layouts("(#struct Child-task (#linear) (: view (#ref #u64))) ")
+            .install_generated_layouts("(#struct Child::Task (#linear) (: view (#ref #u64))) ")
             .unwrap();
         assert_eq!(planning.declarations.aggregate_id(&tick), Some(id));
         assert_eq!(planning.program.items.len(), count);
@@ -149,11 +149,11 @@ mod tests {
         assert!(!planning
             .declarations
             .deferred_layouts
-            .contains_key("Child-task"));
+            .contains_key("Child::Task"));
         assert!(planning
             .declarations
             .deferred_layouts
-            .contains_key("Parent-task"));
+            .contains_key("Parent::Task"));
         assert_eq!(
             crate::codegen::storage_word_count(
                 &child,
@@ -199,7 +199,7 @@ mod tests {
             }
         }
         planning.functions[0].graph.bindings[0].ty =
-            Type::PinOwned(Box::new(Type::Named("Child-task".into())));
+            Type::PinOwned(Box::new(Type::Named("Child::Task".into())));
         assert_eq!(emission_order(&planning).unwrap(), [1, 0]);
     }
     #[test]

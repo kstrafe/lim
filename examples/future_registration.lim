@@ -10,7 +10,7 @@
         ,(#gn-symbol-append future "::Ready")
         ,(#gn-symbol-append future "::poll")))
     (#enum-contribute ,executor
-      (,(#gn-symbol-append future "::Queued")
+      (,(#gn-symbol-append (#gn-symbol-append executor "::") future)
        ,(#gn-symbol-append future "::Frame")))))
 
 ; Forward references are checked after expansion; they do not schedule it.
@@ -22,9 +22,9 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task ExecutorTask (Work::Queued (#call work (:))))
+  (#let-mut task ExecutorTask (ExecutorTask::Work (#call work (:))))
   (#let frame (#pin-ref-mut Work::Frame)
-    (#pin-get-payload-mut (#pin-borrow-mut task) Work::Queued 0))
+    (#pin-get-payload-mut (#pin-borrow-mut task) ExecutorTask::Work 0))
   (#let result Work::Poll
     (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result

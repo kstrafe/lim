@@ -32,7 +32,7 @@ fn source() -> &'static str {
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
         (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
         (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))
-        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work::Frame::Cleanup-await-0-empty))
+        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work::Frame::Cleanup::await-0::Empty))
         (#call work-cancel (: task cleanup))
         (#call Work::poll::destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return 42u64))"
@@ -133,8 +133,8 @@ fn pinned_child_cancellation_preserves_selected_internal_and_external_owners() {
     for choose in ["true", "false"] {
         let program = pinned_source()
             .replace("(#fn parent () #u64", "(#fn parent (: external (#ref Owner) : choose #bool) #u64")
-            .replace("(#let-mut nested Child-frame (#call child (: view (#borrow owner))))",
-                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let-mut nested Child-frame (#call child (: view view)))\n          (#drop view)")
+            .replace("(#let-mut nested Child::Frame (#call child (: view (#borrow owner))))",
+                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let-mut nested Child::Frame (#call child (: view view)))\n          (#drop view)")
             .replace("(#let waker #u64 0u64)", "(#let outside Owner (#struct-literal Owner (: amount 40u64)))\n        (#let waker #u64 0u64)")
             .replace("(#call parent ())", &format!("(#call parent (: external (#borrow outside) : choose {choose}))"))
             .replace("(#forget task) (#return 42u64)", "(#forget task) (#forget outside) (#return 42u64)");
@@ -183,20 +183,20 @@ fn pinned_source() -> &'static str {
           (#let result #u64 (#await Step StepPending StepReady step-poll (Start 0u64)))
           (#return (#u64.+.wrap (#get view amount) result)))))
       (@#async-fn-pinned (: protocol ParentAwait : waker #u64
-        : cancel (parent-cancel ((owner destroy-owner) (nested child-poll-destroy)))
+        : cancel (parent-cancel ((owner destroy-owner) (nested Child::poll::destroy)))
         : function (#fn parent () #u64
           (#let owner Owner (#struct-literal Owner (: amount 40u64)))
-          (#let-mut nested Child-frame (#call child (: view (#borrow owner))))
+          (#let-mut nested Child::Frame (#call child (: view (#borrow owner))))
           (#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))
           (#forget nested) (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Parent-frame (#call parent ()))
-        (#let first Parent-poll-result (#call parent-poll
+        (#let-mut task Parent::Frame (#call parent ()))
+        (#let first Parent::Poll (#call Parent::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (parent-pending pending) Parent-poll-result first (#unreachable))
-        (#call parent-poll-destroy (: task pending))
-        (#call parent-poll-destroy (: task (#pin-borrow-mut task)))
+        (#let-else (Parent::Pending pending) Parent::Poll first (#unreachable))
+        (#call Parent::poll::destroy (: task pending))
+        (#call Parent::poll::destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return 42u64))"
 }
 
@@ -208,7 +208,7 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 #[test]
 fn generated_word_destroy_names_cannot_collide_with_source_functions() {
     let program = format!(
-        "{}\n(#fn child-poll-destroy-words () () (#return ()))",
+        "{}\n(#fn Child::poll::destroy-words () () (#return ()))",
         pinned_source()
     );
     let scratch = support::Scratch::new("async-word-destroy-name-collision");
@@ -221,7 +221,7 @@ fn generated_word_destroy_names_cannot_collide_with_source_functions() {
     )
     .unwrap_err();
     assert!(
-        error.message.contains("child-poll-destroy-words") && error.message.contains("conflicts"),
+        error.message.contains("Child::poll::destroy-words") && error.message.contains("conflicts"),
         "{error:?}"
     );
     assert!(!scratch.path().join("generated").exists());
@@ -277,8 +277,8 @@ fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
             "#call child (: view (#borrow owner))",
             "#call child (: amount (#get owner amount))",
         )
-        .replace("(nested child-poll-destroy)", "(nested discard-child)")
-        + "\n(#fn discard-child (: value Child-frame) () (#forget value) (#return ()))";
+        .replace("(nested Child::poll::destroy)", "(nested discard-child)")
+        + "\n(#fn discard-child (: value Child::Frame) () (#forget value) (#return ()))";
     let scratch = support::Scratch::new("async-word-child-moving-cancel");
     let error = lim::compile_source_to_assembly(
         &program,
@@ -300,13 +300,13 @@ fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
 
 fn heap_pinned_source(source: &str) -> String {
     source
-        .replace("(#call parent-poll-destroy (: task pending))",
-            "(#call parent-poll-destroy (: task pending)) (#forget pending)")
-        .replace("(#let-mut task Parent-frame (#call parent ()))",
-            "(#let pointer (#ptr-mut Parent-frame) (#unsafe (#linux-syscall (#ptr-mut Parent-frame)\n          9usize (0usize (#size-of Parent-frame) 3usize 34usize -1i64 0usize))))\n        (#let initial Parent-frame (#call parent ()))\n        (#let-mut task (#pin-own Parent-frame) (#unsafe (#pin-own-of pointer initial)))")
+        .replace("(#call Parent::poll::destroy (: task pending))",
+            "(#call Parent::poll::destroy (: task pending)) (#forget pending)")
+        .replace("(#let-mut task Parent::Frame (#call parent ()))",
+            "(#let pointer (#ptr-mut Parent::Frame) (#unsafe (#linux-syscall (#ptr-mut Parent::Frame)\n          9usize (0usize (#size-of Parent::Frame) 3usize 34usize -1i64 0usize))))\n        (#let initial Parent::Frame (#call parent ()))\n        (#let-mut task (#pin-own Parent::Frame) (#unsafe (#pin-own-of pointer initial)))")
         .replace("(#pin-borrow-mut task)", "(#pin-own-borrow-mut task)")
         .replace("(#forget task)",
-            "(#let raw (#ptr-mut Parent-frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent-frame)))) 0i64))")
+            "(#let raw (#ptr-mut Parent::Frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent::Frame)))) 0i64))")
 }
 
 #[test]
@@ -340,8 +340,8 @@ fn pinned_child_cancellation_preserves_heap_frame_layout() {
 
 #[test]
 fn pinned_child_rejects_a_by_value_cancellation_handler() {
-    let program = pinned_source().replace("(nested child-poll-destroy)", "(nested forget-child)")
-        + "\n(#fn forget-child (: value Child-frame) () (#forget value) (#return ()))";
+    let program = pinned_source().replace("(nested Child::poll::destroy)", "(nested forget-child)")
+        + "\n(#fn forget-child (: value Child::Frame) () (#forget value) (#return ()))";
     let scratch = support::Scratch::new("async-dependent-pinned-handler-error");
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
@@ -432,7 +432,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
                 continue;
             };
             if matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#unsafe-fn")
-                && matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name == "child-poll-destroy-words")
+                && matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name == "Child::poll::destroy-words")
             {
                 let source = format!("{parts:?}");
                 assert!(
@@ -447,7 +447,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
             }
             if !matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#fn")
                 || !matches!(parts.get(1), Some(lim::Expr::Symbol(name))
-                    if ["Work::poll::cleanup", "Work::poll::destroy", "parent-poll-cleanup", "parent-poll-destroy"].contains(&name.as_str()))
+                    if ["Work::poll::cleanup", "Work::poll::destroy", "Parent::poll::cleanup", "Parent::poll::destroy"].contains(&name.as_str()))
             {
                 continue;
             }
@@ -480,7 +480,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
                         .iter()
                         .any(|part| contains(part, "#pin-get-payload-unchecked-mut")
                             || contains(part, "#word-view")
-                            || contains(part, "child-poll-destroy-words")),
+                            || contains(part, "Child::poll::destroy-words")),
                     "{generated}"
                 );
                 assert!(

@@ -173,15 +173,15 @@ fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame
 fn self_reference_graph_pending_handle_blocks_frame_destruction() {
     let original = include_str!("../examples/async_fn_self_reference.lim");
     let prefix = original
-        .split("  (#let second Read-after-await-poll-result")
+        .split("  (#let second Read-after-await::Poll")
         .next()
         .unwrap();
     let source = format!("{prefix}
       (#forget frame)
-      (#let second Read-after-await-poll-result
-        (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
-      (#return (#match second (#case (read-after-await-ready value) value)
-        (#case (read-after-await-pending unexpected) (#block (#forget unexpected) (#unreachable))))))");
+      (#let second Read-after-await::Poll
+        (#call Read-after-await::poll (: task pending-frame : waker (#borrow waker))))
+      (#return (#match second (#case (Read-after-await::Ready value) value)
+        (#case (Read-after-await::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))");
     let scratch = support::Scratch::new("async-graph-self-reference-pending");
     let error = lim::compile_source_to_assembly(
         &source,
@@ -225,8 +225,8 @@ fn enum_self_reference_graph_pending_handle_blocks_frame_destruction() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim")
         .replace("  (#forget frame)\n  (#forget waker)", "  (#forget waker)")
         .replace(
-            "  (#let second Read-after-await-poll-result",
-            "  (#forget frame)\n  (#let second Read-after-await-poll-result",
+            "  (#let second Read-after-await::Poll",
+            "  (#forget frame)\n  (#let second Read-after-await::Poll",
         );
     let scratch = support::Scratch::new("async-enum-self-reference-pending-conflict");
     let error = lim::compile_source_to_assembly(
@@ -329,7 +329,7 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
         );
         let artifact = run(&source, "async-graph-cancel");
         assert!(artifact.contains(
-            "(#struct Work::Frame::Cleanup (#linear) ((await-0 Work::Frame::Cleanup-await-0)))"
+            "(#struct Work::Frame::Cleanup (#linear) ((await-0 Work::Frame::Cleanup::await-0)))"
         ));
     }
 }

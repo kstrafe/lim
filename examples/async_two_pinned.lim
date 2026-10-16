@@ -7,30 +7,30 @@
    : function (#fn write-value () #u64 (#return 7u64))))
 
 (#fn select (: choose-reader #bool) #u64
-  (#let-mut reader Read-value-frame (#call read-value ()))
-  (#let-mut writer Write-value-frame (#call write-value ()))
-  (#let reader-pin (#pin-ref-mut Read-value-frame) (#pin reader))
-  (#let writer-pin (#pin-ref-mut Write-value-frame) (#pin writer))
+  (#let-mut reader Read-value::Frame (#call read-value ()))
+  (#let-mut writer Write-value::Frame (#call write-value ()))
+  (#let reader-pin (#pin-ref-mut Read-value::Frame) (#pin reader))
+  (#let writer-pin (#pin-ref-mut Write-value::Frame) (#pin writer))
   (#let waker #u64 0u64)
   (#let answer #u64
     (#if choose-reader
       (#block
         (#forget writer-pin)
-        (#match (#call read-value-poll (: task reader-pin : waker (#borrow waker)))
-          (#case (read-value-ready read-result) read-result)
-          (#case (read-value-pending read-pending)
+        (#match (#call Read-value::poll (: task reader-pin : waker (#borrow waker)))
+          (#case (Read-value::Ready read-result) read-result)
+          (#case (Read-value::Pending read-pending)
             (#block (#forget read-pending) (#unreachable)))))
       (#block
         (#forget reader-pin)
-        (#match (#call write-value-poll (: task writer-pin : waker (#borrow waker)))
-          (#case (write-value-ready write-result) write-result)
-          (#case (write-value-pending write-pending)
+        (#match (#call Write-value::poll (: task writer-pin : waker (#borrow waker)))
+          (#case (Write-value::Ready write-result) write-result)
+          (#case (Write-value::Pending write-pending)
             (#block (#forget write-pending) (#unreachable)))))))
   ; Cancellation consumes each remaining state, including the unpolled future.
-  (#let reader-cleanup Read-value-frame-cleanup
-    (#call read-value-poll-cleanup (: task (#pin reader))))
-  (#let writer-cleanup Write-value-frame-cleanup
-    (#call write-value-poll-cleanup (: task (#pin writer))))
+  (#let reader-cleanup Read-value::Frame::Cleanup
+    (#call Read-value::poll::cleanup (: task (#pin reader))))
+  (#let writer-cleanup Write-value::Frame::Cleanup
+    (#call Write-value::poll::cleanup (: task (#pin writer))))
   (#forget reader-cleanup)
   (#forget writer-cleanup)
   (#forget reader)

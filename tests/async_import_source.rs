@@ -21,7 +21,7 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
     let source = "(#import-external \"module.lim\" Ext-)
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Ext-work-frame (#call Ext-work (: Ext-amount 42u64)))
+        (#let-mut frame Ext-Work::Frame (#call Ext-work (: Ext-amount 42u64)))
         (#let result #u64 (#match (#call Ext-Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
           (#case (Ext-Work::Ready value) value)
