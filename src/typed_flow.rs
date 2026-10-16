@@ -888,6 +888,7 @@ pub(crate) struct StorageFacts {
 impl StorageFacts {
     /// Entry capture planning precedes every body effect. It need not stage
     /// callee ownership contracts, but cannot authorize any later snapshot.
+    #[cfg(test)]
     pub fn for_entry(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
         let origins = flow.loan_origins(body);
         let pins = flow.local_pin_accesses_with_origins(body, types, Some(&origins));

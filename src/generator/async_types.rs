@@ -1,8 +1,11 @@
 //! Shared declaration shapes and pattern bindings for generator analysis.
 //! No body rewriting, storage layout, or legacy lowering lives here.
 
+#[cfg(test)]
 use crate::{normalize_keywords, parse_type, Expr, Type};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct AsyncTypeEnvironment {
@@ -17,6 +20,7 @@ pub(crate) struct AsyncTypeEnvironment {
     pub struct_field_order: HashMap<String, Vec<String>>,
 }
 
+#[cfg(test)]
 fn resolve_async_enum_name<'a>(
     type_name: &'a str,
     environment: &'a AsyncTypeEnvironment,
@@ -31,6 +35,7 @@ fn resolve_async_enum_name<'a>(
     None
 }
 
+#[cfg(test)]
 pub(crate) fn collect_enum_pattern_bindings(
     pattern: &Expr,
     type_name: &str,

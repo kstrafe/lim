@@ -10,9 +10,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, NodeId, PlaceRoot};
+#[cfg(test)]
+use crate::typed_flow::linear_obligation_place;
 use crate::typed_flow::{
-    linear_obligation_place, place_covers, FlowAction, FlowConsumptions, FlowGraph, FlowLiveness,
-    FlowLoanOrigins, FlowNodeId, LoanOrigin, StorageFacts,
+    place_covers, FlowAction, FlowConsumptions, FlowGraph, FlowLiveness, FlowLoanOrigins,
+    FlowNodeId, LoanOrigin, StorageFacts,
 };
 use crate::typed_ir::{Declarations, VariantId};
 use crate::typed_place::{Place, Segment};
@@ -26,6 +28,9 @@ pub(crate) enum Availability {
     Conditional,
 }
 
+// Regression probes inspect cleanup obligations and data liveness; production
+// frame planning consumes the loan/address facts instead.
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct Obligation {
     pub place: Place,
@@ -35,13 +40,16 @@ pub(crate) struct Obligation {
 #[derive(Debug)]
 pub(crate) struct Slot {
     pub binding: BindingId,
+    #[cfg(test)]
     pub data_needed: bool,
     pub address_needed: bool,
     pub lifetime_needed: bool,
+    #[cfg(test)]
     pub obligations: Vec<Obligation>,
     pub loans: Vec<LoanOrigin>,
 }
 
+#[cfg(test)]
 impl Slot {
     pub(crate) fn cleanup_needed(&self) -> bool {
         self.obligations.iter().any(|obligation| {
@@ -86,6 +94,7 @@ pub(crate) struct Snapshot {
     #[cfg_attr(not(test), allow(dead_code))]
     pub scoped_loans: Vec<ScopedLoan>,
     /// Unresolved effects are never a proof that storage is initialized.
+    #[cfg(test)]
     pub unresolved_effects: bool,
 }
 
@@ -100,6 +109,7 @@ pub(crate) struct Analysis<'a> {
     unread: Vec<Vec<u64>>,
     active: Vec<Option<HashSet<BindingId>>>,
     definite_active: Vec<Option<HashSet<BindingId>>>,
+    #[cfg(test)]
     obligations: Vec<Vec<Place>>,
     unresolved_before: Vec<bool>,
     entry_only: bool,
@@ -112,11 +122,12 @@ impl<'a> Analysis<'a> {
         body: &'a Body,
         facts: &'a StorageFacts,
         types: &LinearTypes,
-        declarations: &Declarations,
+        _declarations: &Declarations,
     ) -> Self {
         let flow = &facts.flow;
         let origins = &facts.origins;
         let unread = crate::typed_borrow::unread_loan_bindings(body, flow, types, origins);
+        #[cfg(test)]
         let obligations = body
             .bindings
             .iter()
@@ -126,7 +137,7 @@ impl<'a> Analysis<'a> {
                     .linear_obligation_paths(&binding.ty)
                     .iter()
                     .map(|path| {
-                        linear_obligation_place(declarations, BindingId(index), &binding.ty, path)
+                        linear_obligation_place(_declarations, BindingId(index), &binding.ty, path)
                             .expect("checked linear obligation has a resolved place")
                     })
                     .collect()
@@ -179,6 +190,7 @@ impl<'a> Analysis<'a> {
             flow,
             origins,
             unread,
+            #[cfg(test)]
             obligations,
             moves: &facts.moves,
             live: flow.liveness(body),
@@ -191,6 +203,7 @@ impl<'a> Analysis<'a> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn before(&self, event: FlowNodeId) -> Option<Snapshot> {
         self.before_with_values(event, &[])
     }
@@ -219,6 +232,7 @@ impl<'a> Analysis<'a> {
         )
         .into_iter()
         .collect::<HashSet<_>>();
+        #[cfg(test)]
         let data = self.live.before(event).into_iter().collect::<HashSet<_>>();
         let mut slots = Vec::new();
         // Dense binding order is stable; never let hash order affect frames.
@@ -245,6 +259,7 @@ impl<'a> Analysis<'a> {
                     Availability::Full
                 }
             };
+            #[cfg(test)]
             let obligations = self.obligations[index]
                 .iter()
                 .map(|place| Obligation {
@@ -270,9 +285,11 @@ impl<'a> Analysis<'a> {
             };
             slots.push(Slot {
                 binding,
+                #[cfg(test)]
                 data_needed: data.contains(&binding),
                 address_needed: false,
                 lifetime_needed: false,
+                #[cfg(test)]
                 obligations,
                 loans,
             });
@@ -344,6 +361,7 @@ impl<'a> Analysis<'a> {
             slots,
             values: captured,
             scoped_loans,
+            #[cfg(test)]
             unresolved_effects,
         })
     }

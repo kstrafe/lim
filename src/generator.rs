@@ -1656,6 +1656,7 @@ fn load_generated_expansion(
     Ok(Some((source, forms)))
 }
 
+#[cfg(test)]
 fn read_generated_expansion(directory: &Path, key: &str, origins: &[String]) -> Option<Vec<Expr>> {
     let (source, forms) = load_generated_expansion(directory, key).ok()??;
     let recorded = recorded_generated_origins(&source);
@@ -1682,6 +1683,7 @@ fn publish_generated_expansion(directory: &Path, key: &str, source: &str) -> Res
     Ok(())
 }
 
+#[cfg(test)]
 fn write_generated_expansion(
     directory: &Path,
     key: &str,
@@ -1718,6 +1720,7 @@ fn write_generated_expansion(
     })()
 }
 
+#[cfg(test)]
 pub(crate) fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     if key.starts_with("lim-generator-cache-") {
         return read_generated_expansion(directory, key, &[]);
@@ -1771,6 +1774,7 @@ fn read_bounded_cache_text(path: &Path) -> Option<String> {
     String::from_utf8(read_bounded_cache_file(path)?).ok()
 }
 
+#[cfg(test)]
 fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     let end = cursor.checked_add(8)?;
     let length = u64::from_le_bytes(bytes.get(*cursor..end)?.try_into().ok()?);
@@ -1778,6 +1782,7 @@ fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     usize::try_from(length).ok()
 }
 
+#[cfg(test)]
 pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     if key.starts_with("lim-generator-cache-") {
         let _ = write_generated_expansion(directory, key, expressions, &[]);
@@ -1816,6 +1821,7 @@ pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &
     let _ = publish_cache_file(&path, &contents, "generator syntax cache");
 }
 
+#[cfg(test)]
 fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
     if bytes.get(..8)? != b"LIMGEN2\0" {
         return None;

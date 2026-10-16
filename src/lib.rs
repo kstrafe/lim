@@ -2916,6 +2916,7 @@ fn normalize_function_calls(
 /// Find a value use, excluding declarations, types, field names, and argument
 /// labels. Async branch-scope diagnostics must underline the escaped use,
 /// not its earlier declaration or an unrelated same-spelled field.
+#[cfg(test)]
 fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
     if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
         return Some(expression.span);
@@ -3027,31 +3028,6 @@ fn source_form_head_span(expression: &SpannedExpr, names: &[&str]) -> Option<Spa
         .children
         .iter()
         .find_map(|child| source_form_head_span(child, names))
-}
-
-fn source_form_head_span_nth(
-    expression: &SpannedExpr,
-    names: &[&str],
-    index: usize,
-) -> Option<Span> {
-    fn collect(expression: &SpannedExpr, names: &[&str], spans: &mut Vec<Span>) {
-        if matches!(
-            &expression.expr,
-            Expr::List(items)
-                if matches!(items.first(), Some(Expr::Symbol(name)) if names.contains(&name.as_str()))
-        ) {
-            if let Some(head) = expression.children.first() {
-                spans.push(head.span);
-            }
-        }
-        for child in &expression.children {
-            collect(child, names, spans);
-        }
-    }
-
-    let mut spans = Vec::new();
-    collect(expression, names, &mut spans);
-    spans.get(index).copied()
 }
 
 fn source_form_child_span(
@@ -3715,16 +3691,6 @@ fn rename_function_locals(
         .map(|(index, name)| (name.to_owned(), (index >= 0).then_some(index as usize)))
 }
 
-/// Validate a literal source function before a generator transforms its body.
-pub(crate) fn validate_function_shadowing(expression: &Expr) -> Result<(), String> {
-    if let Some((name, _)) = function_shadowing(expression)? {
-        return Err(format!(
-            "binding '{name}' shadows an existing binding; shadowing is not allowed"
-        ));
-    }
-    Ok(())
-}
-
 /// Locate an already diagnosed shadowing declaration in original syntax.
 /// This refines a diagnostic only; `function_shadowing` decides validity.
 pub(crate) fn function_shadowing_span(
@@ -3862,6 +3828,7 @@ pub(crate) fn function_shadowing_span(
     sequence(source.children.get(4..)?, name, &mut bound)
 }
 
+#[cfg(test)]
 pub(crate) fn function_shadowing(
     expression: &Expr,
 ) -> Result<Option<(String, Option<usize>)>, String> {

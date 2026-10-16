@@ -8,7 +8,6 @@ use crate::{EnumVariant, Function, Span};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LayoutKind {
-    Enum,
     Struct,
 }
 

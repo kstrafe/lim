@@ -930,6 +930,7 @@ pub(crate) fn typed_live_parameters(
 /// Generated-code capture discovery also retains owned cleanup obligations
 /// and held loans. Restrict analysis to actual generated helpers: solving storage for
 /// unrelated imported functions would be needless whole-program work.
+#[cfg(test)]
 pub(crate) fn typed_capture_requirements(
     program: &Program,
     prefixes: &[String],
