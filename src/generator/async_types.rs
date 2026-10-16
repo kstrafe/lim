@@ -164,7 +164,7 @@ mod tests {
                 ("Empty".into(), vec![]),
                 (
                     "Data".into(),
-                    vec!["PairAlias".into(), "(#array #u8 2)".into()],
+                    vec!["(#tuple PairAlias (#array #u8 2))".into()],
                 ),
             ]),
         );
@@ -201,7 +201,7 @@ mod tests {
         let environment = environment();
         assert_eq!(
             bindings(
-                "(Data (Pair first second) (#array a b))",
+                "(Data (#tuple (Pair first second) (#array a b)))",
                 "ChoiceAlias",
                 &environment
             )
@@ -214,7 +214,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            bindings("(Data pair (#array _ b))", "ChoiceAlias", &environment).unwrap(),
+            bindings(
+                "(Data (#tuple pair (#array _ b)))",
+                "ChoiceAlias",
+                &environment
+            )
+            .unwrap(),
             vec![
                 ("pair".into(), "PairAlias".into()),
                 ("b".into(), "#u8".into())
@@ -241,9 +246,11 @@ mod tests {
     #[test]
     fn malformed_shape_metadata_fails_without_choosing_a_guessed_layout() {
         let mut environment = environment();
-        assert!(bindings("(Data pair (#array a))", "Choice", &environment)
-            .unwrap_err()
-            .contains("expects 2 elements"));
+        assert!(
+            bindings("(Data (#tuple pair (#array a)))", "Choice", &environment)
+                .unwrap_err()
+                .contains("expects 2 elements")
+        );
         assert!(bindings("(Missing value)", "Choice", &environment)
             .unwrap_err()
             .contains("cannot resolve pattern variant"));

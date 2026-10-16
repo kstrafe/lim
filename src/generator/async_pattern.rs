@@ -125,11 +125,8 @@ impl Inspector<'_> {
                 }
                 let fields = variant.fields.clone();
                 let mut result = form("#variant-is", [handle.clone(), symbol(name)]);
-                for (index, (nested, field)) in payload.iter().zip(&fields).enumerate() {
-                    let projection = form(
-                        "#pin-get-payload",
-                        [handle.clone(), symbol(name), Expr::Integer(index as i128)],
-                    );
+                for (nested, field) in payload.iter().zip(&fields) {
+                    let projection = form("#pin-get-payload", [handle.clone(), symbol(name)]);
                     // The short-circuit tag test must dominate every payload
                     // projection. A nonselected arm never touches that payload.
                     result = and(result, self.test(nested, field, projection)?);
@@ -314,11 +311,7 @@ pub(crate) fn preview_with_aliases(
                             } else {
                                 "#pin-get-payload"
                             },
-                            [
-                                reference.clone(),
-                                symbol(constructor),
-                                Expr::Integer(index as i128),
-                            ],
+                            [reference.clone(), symbol(constructor)],
                         ),
                     )
                 })

@@ -3091,8 +3091,20 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
             Some((base, path))
         }
         Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut" | "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut")) =>
+        {
+            let (base, mut path) = projection_path(&items[1])?;
+            let Expr::Symbol(variant) = &items[2] else {
+                return None;
+            };
+            path.push(variant.clone());
+            path.push("0".into());
+            Some((base, path))
+        }
+        Expr::List(items)
             if items.len() == 4
-                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut")) =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload") =>
         {
             let (base, mut path) = projection_path(&items[1])?;
             let Expr::Symbol(variant) = &items[2] else {

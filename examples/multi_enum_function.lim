@@ -1,8 +1,10 @@
+(#struct PairValues () (: left #u64 : right #u64))
+
 (
   #enum
   Pair ()
   (
-    (Pair #u64 #u64)
+    (Pair PairValues)
     Empty
   )
 )
@@ -16,7 +18,7 @@
     #let
     value
     Pair
-    (Pair 20 22)
+    (Pair (#struct-literal PairValues (: left 20 : right 22)))
   )
   (#return value)
 )
@@ -34,7 +36,7 @@
       #match
       value
       (#case
-        (Pair left right)
+        (Pair (PairValues left right))
         (#u64.+.wrap  left right)
       )
       (#case Empty 0)

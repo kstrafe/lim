@@ -7104,8 +7104,10 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#enum {name}-ReserveError ()
   (({name}-ReserveAllocationError {allocation_error})
    {name}-ReserveCapacityOverflow))
+(#struct {name}-PushReserveFailure ()
+  ((error {name}-ReserveError) (value {element})))
 (#enum {name}-PushError ()
-  (({name}-PushReserveError {name}-ReserveError {element})
+  (({name}-PushReserveError {name}-PushReserveFailure)
    ({name}-PushCapacityOverflow {element})))
 (#enum {name}-SetError () (({name}-SetOutOfBounds {element})))
 (#enum {name}-ReserveResult ()
@@ -7197,7 +7199,9 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
             ({name}-PushResult-ok-value ())))
         (#case ({name}-ReserveResult-err-value error)
           ({name}-PushResult-err-value
-            ({name}-PushReserveError error element)))))))
+            ({name}-PushReserveError
+              (#struct-literal {name}-PushReserveFailure
+                ((error error) (value element))))))))))
 (#fn {name}-get
   ((vector (#ref {name})) (index #usize))
   {name}-GetResult
@@ -7643,6 +7647,11 @@ fn parse_enum_variants_at(
                             .map(|ty| replace_generic_types(&ty, type_parameters))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                if fields.len() > 1 {
+                    return Err(format!(
+                        "enum variant '{name}' may have at most one payload type"
+                    ));
+                }
                 (
                     name,
                     fields,
@@ -7651,7 +7660,9 @@ fn parse_enum_variants_at(
                         .ok_or_else(|| "enum discriminant overflowed".to_owned())?,
                 )
             }
-            _ => return Err("enum variant must be a symbol or (name Type ...)".into()),
+            _ => {
+                return Err("enum variant must be a symbol or (name [discriminant] [Type])".into())
+            }
         };
         if result
             .iter()
@@ -10772,7 +10783,7 @@ mod tests {
         );
 
         let enum_payload_borrow = parse_program(
-            "(#enum Message () ((Move #u64 #u64) Empty)) (#fn main () #u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 1))))",
+            "(#enum Message () ((Move (#tuple #u64 #u64)) Empty)) (#fn main () #u64 (#let-mut message Message (Move (#tuple (#tuple #u64 #u64) 1 2))) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get (#get-payload message-ref Move 0) 0) (#get (#get-payload message-ref Move 0) 1))))",
         )
         .unwrap();
         assert!(
@@ -10783,12 +10794,12 @@ mod tests {
         assert!(generate_assembly(&enum_payload_borrow).is_ok());
 
         let overlapping_enum_payload = parse_program(
-            "(#enum Message () ((Move #u64 #u64) Empty)) (#fn main () #u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 0))))",
+            "(#enum Message () ((Move (#tuple #u64 #u64)) Empty)) (#fn main () #u64 (#let-mut message Message (Move (#tuple (#tuple #u64 #u64) 1 2))) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get (#get-payload message-ref Move 0) 0) (#get (#get-payload message-ref Move 0) 0))))",
         )
         .unwrap();
         assert!(check_types(&overlapping_enum_payload)
             .unwrap_err()
-            .contains("cannot access 'message.Move.0' while it is mutably borrowed"));
+            .contains("cannot access 'message.Move.0.0' while it is mutably borrowed"));
 
         let nested_reference_aggregate = parse_program(
             "(#struct Inner () ((data (#ref-mut #u64)))) (#struct Outer () ((inner (#ref-mut Inner)))) (#fn main () #u64 (#let-mut value #u64 40) (#let-mut inner Inner (#struct-literal Inner ((data (#borrow-mut value))))) (#let outer Outer (#struct-literal Outer ((inner (#borrow-mut inner))))) (#deref-set (#get (#get outer inner) data) 42) (#return (#deref (#get (#get outer inner) data))))",
@@ -10923,7 +10934,7 @@ mod tests {
             .contains("overlapping borrows"));
 
         let destructured_enum_payload_references = parse_program(
-            "(#enum PairOrEmpty () ((Pair (#ref-mut #u64) (#ref-mut #u64)) Empty)) (#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let choice PairOrEmpty (Pair (#borrow-mut left-value) (#borrow-mut right-value))) (#let-else (Pair left right) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+            "(#enum PairOrEmpty () ((Pair (#tuple (#ref-mut #u64) (#ref-mut #u64))) Empty)) (#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let choice PairOrEmpty (Pair (#tuple (#tuple (#ref-mut #u64) (#ref-mut #u64)) (#borrow-mut left-value) (#borrow-mut right-value)))) (#let-else (Pair (#tuple left right)) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
         )
         .unwrap();
         assert!(
@@ -13144,7 +13155,7 @@ mod tests {
     #[test]
     fn mutates_enum_payload_fields() {
         let program = parse_program(
-            "(#enum Pair () ((Pair #u64 #u64) Empty)) (#fn main () #u64 (#let-mut value Pair (Pair 20 22)) (#set-payload value Pair 1 30) (#return (#match value (#case (Pair left right) (#u64.+.wrap left right)) (#case Empty 0))))",
+            "(#enum Pair () ((Pair (#tuple #u64 #u64)) Empty)) (#fn main () #u64 (#let-mut value Pair (Pair (#tuple (#tuple #u64 #u64) 20 22))) (#set-payload value Pair 0 (#tuple (#tuple #u64 #u64) 20 30)) (#return (#match value (#case (Pair (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13806,9 +13817,33 @@ mod tests {
     }
 
     #[test]
-    fn checks_and_lowers_multi_payload_enums() {
+    fn enum_variants_accept_at_most_one_payload_type() {
+        for source in [
+            "(#enum Bad () ((Pair #u64 #u32)))",
+            "(#enum Bad () ((Pair 7 #u64 #u32)))",
+            "(#enum Bad () ((Pair (#tuple #u64 #u32) #bool)))",
+        ] {
+            assert!(
+                parse_program(source)
+                    .unwrap_err()
+                    .contains("at most one payload type"),
+                "{source}"
+            );
+        }
+        for source in [
+            "(#enum Good () (Empty))",
+            "(#enum Good () ((Value #u64)))",
+            "(#enum Good () ((Value 7 (#tuple #u64 #u32))))",
+            "(#struct Fields () (: left #u64 : right #u32)) (#enum Good () ((Value Fields)))",
+        ] {
+            parse_program(source).unwrap();
+        }
+    }
+
+    #[test]
+    fn checks_and_lowers_aggregate_payload_enums() {
         let program = parse_program(
-            "(#enum Pair () ((Pair #u64 #u64) Empty)) (#fn main () #u64 (#let value Pair (Pair 20 22)) (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0))))",
+            "(#enum Pair () ((Pair (#tuple #u64 #u64)) Empty)) (#fn main () #u64 (#let value Pair (Pair (#tuple (#tuple #u64 #u64) 20 22))) (#return (#match value (#case (Pair (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13828,9 +13863,9 @@ mod tests {
     }
 
     #[test]
-    fn passes_multi_payload_enums_through_functions() {
+    fn passes_aggregate_payload_enums_through_functions() {
         let program = parse_program(
-            "(#enum Pair () ((Pair #u64 #u64) Empty)) (#fn make () Pair (#let value Pair (Pair 20 22)) (#return value)) (#fn sum ((value Pair)) #u64 (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0)))) (#fn main () #u64 (#return (#call sum (: value (#call make (:))))))",
+            "(#enum Pair () ((Pair (#tuple #u64 #u64)) Empty)) (#fn make () Pair (#let value Pair (Pair (#tuple (#tuple #u64 #u64) 20 22))) (#return value)) (#fn sum ((value Pair)) #u64 (#return (#match value (#case (Pair (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0)))) (#fn main () #u64 (#return (#call sum (: value (#call make (:))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14624,7 +14659,7 @@ mod tests {
     #[test]
     fn supports_large_enum_payloads_in_locals() {
         let program = parse_program(
-            "(#enum BigPayload () ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty)) (#fn main () #u64 (#let-mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
+            "(#enum BigPayload () ((Big (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)) Empty)) (#fn main () #u64 (#let-mut value BigPayload (Big (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 7u64))) (#set-payload value Big 0 (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#return 42u64))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14669,7 +14704,7 @@ mod tests {
     #[test]
     fn passes_constructed_large_enum_arguments() {
         let program = parse_program(
-            "(#enum Wide () ((Values #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty)) (#fn last ((value Wide)) #u64 (#return (#match value (#case (Values first second third fourth fifth sixth last) last) (#case _ 0u64)))) (#fn main () #u64 (#return (#call last (: value (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64)))))",
+            "(#enum Wide () ((Values (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)) Empty)) (#fn last ((value Wide)) #u64 (#return (#match value (#case (Values (#tuple first second third fourth fifth sixth last)) last) (#case _ 0u64)))) (#fn main () #u64 (#return (#call last (: value (Values (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());

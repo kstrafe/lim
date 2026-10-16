@@ -2082,7 +2082,7 @@ fn async_numeric_operands_are_evaluated_in_source_order_before_suspension() {
 
 #[test]
 fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
-    let source = "(#enum Data () ((Pair #u64 #u64)))
+    let source = "(#enum Data () ((Pair (#tuple #u64 #u64))))
       (#enum Child (#linear) (Waiting))
 
       (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
@@ -2095,9 +2095,9 @@ fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
       (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#let value Data
-            (Pair
+            (Pair (#tuple
               (#call mark (: counter counter))
-              (#await #u64 Child ChildPending ChildReady child-poll Waiting)))
+              (#await #u64 Child ChildPending ChildReady child-poll Waiting))))
           (#return 0u64))))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
@@ -3929,7 +3929,7 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
 #[test]
 fn async_function_resumes_suspension_after_awaited_let_else_success() {
     let source = "(#enum Maybe () ((Some #u64) None))
-      (#enum Child (#linear) ((Waiting #u64) (SuccessWaiting #u64 #u64)))
+      (#enum Child (#linear) ((Waiting #u64) (SuccessWaiting (#tuple #u64 #u64))))
       (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
 
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
@@ -3938,11 +3938,11 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 7u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64)))))
-          (#case (SuccessWaiting remaining value)
+          (#case (SuccessWaiting (#tuple remaining value))
             (#if (#u64.== remaining 0u64)
               (ChildReady value)
               (ChildPending
-                (SuccessWaiting (#u64.-.wrap remaining 1u64) value)))))))
+                (SuccessWaiting (#tuple (#tuple #u64 #u64) (#u64.-.wrap remaining 1u64) value))))))))
       (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let base #u64 1u64)
@@ -3951,7 +3951,7 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
               (Waiting 1u64))))
           (#let result #u64
             (#await Child ChildPending ChildReady child-poll
-              (SuccessWaiting 1u64 (#u64.+.wrap value base))))
+              (SuccessWaiting (#tuple (#tuple #u64 #u64) 1u64 (#u64.+.wrap value base)))))
           (#return result))))
       (#fn Work::poll-work ((input Maybe) (waker (#ref #u64))) #u64
         (#let task Work::Task (#call work (: input input)))
@@ -3978,17 +3978,17 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
 #[test]
 fn async_function_releases_let_else_success_borrow_after_ready() {
     let source = "(#enum Maybe () ((Some #u64) None))
-      (#enum Child (#linear) ((Waiting #u64) (WriteAfterResume (#ref-mut #u64) #u64)))
+      (#enum Child (#linear) ((Waiting #u64) (WriteAfterResume (#tuple (#ref-mut #u64) #u64))))
       (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
 
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value))
-          (#case (WriteAfterResume owner remaining)
+          (#case (WriteAfterResume (#tuple owner remaining))
             (#if (#u64.== remaining 0u64)
               (#block (#deref-set owner 42u64) (ChildReady 42u64))
               (ChildPending
-                (WriteAfterResume owner (#u64.-.wrap remaining 1u64))))))))
+                (WriteAfterResume (#tuple (#tuple (#ref-mut #u64) #u64) owner (#u64.-.wrap remaining 1u64)))))))))
       (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (owner (#ref-mut #u64))) #u64
           (#let-else (Some value) Maybe input
@@ -3996,7 +3996,7 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
               (Waiting 7u64))))
           (#let result #u64
             (#await Child ChildPending ChildReady child-poll
-              (WriteAfterResume owner 1u64)))
+              (WriteAfterResume (#tuple (#tuple (#ref-mut #u64) #u64) owner 1u64))))
           (#return result))))
       (#fn main () #u64
         (#let-mut owner #u64 1u64)
@@ -8181,15 +8181,15 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         (#return (#match task
           (#case (BodyWaiting iteration) (BodyPending (BodyResuming iteration)))
           (#case (BodyResuming iteration) (BodyReady true)))))
-      (#enum StepTask (#linear) ((StepWaiting #u64 #bool) (StepResuming #u64 #bool)))
+      (#enum StepTask (#linear) ((StepWaiting (#tuple #u64 #bool)) (StepResuming (#tuple #u64 #bool))))
 
       (#enum StepPoll () ((StepPending StepTask) (StepReady #u64)))
       (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
         (#return (#match task
-          (#case (StepWaiting iteration body-ran)
+          (#case (StepWaiting (#tuple iteration body-ran))
             (#block (#assert body-ran)
-              (StepPending (StepResuming iteration body-ran))))
-          (#case (StepResuming iteration body-ran)
+              (StepPending (StepResuming (#tuple (#tuple #u64 #bool) iteration body-ran)))))
+          (#case (StepResuming (#tuple iteration body-ran))
             (#block (#assert body-ran)
               (StepReady (#u64.+.wrap iteration 1u64)))))))
       (@#async-fn (: protocol work-await : waker #u64 : function
@@ -8200,7 +8200,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
                   condition-poll (Waiting iteration))
                 (#set iteration
                   (#await #u64 StepTask StepPending StepReady step-poll
-                    (StepWaiting iteration body-ran)))
+                    (StepWaiting (#tuple (#tuple #u64 #bool) iteration body-ran))))
             (#let body-ran #bool true))
           (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
       (#fn main () #u64
@@ -10165,11 +10165,11 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     let single_variant = source
         .replace(
             "(#struct Values () ((z (#tuple #u16 #u16)) (a #u64)))",
-            "(#enum Values () ((Only (#tuple #u16 #u16) #u64)))",
+            "(#enum Values () ((Only (#tuple (#tuple #u16 #u16) #u64))))",
         )
         .replace(
             "(Values (#tuple left right) bias)",
-            "(Only (#tuple left right) bias)",
+            "(Only (#tuple (#tuple left right) bias))",
         )
         .replace("(#let (Only", "(#let-else (Only")
         .replace(
@@ -10178,13 +10178,13 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
         )
         .replace(
             "(#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16)))",
-            "(Only (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64)",
+            "(Only (#tuple (#tuple (#tuple #u16 #u16) #u64) (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64))",
         );
     build_and_run_graph(&single_variant, 42);
     let enum_options = single_variant
         .replace(
-            "(#enum Values () ((Only (#tuple #u16 #u16) #u64)))",
-            "(#enum Values () ((Only (#tuple #u16 #u16) #u64) Missing))",
+            "(#enum Values () ((Only (#tuple (#tuple #u16 #u16) #u64))))",
+            "(#enum Values () ((Only (#tuple (#tuple #u16 #u16) #u64)) Missing))",
         )
         .replace(
             "input-poll (InputStart values)) (#unreachable))",
@@ -10193,7 +10193,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     build_and_run_graph(&enum_options, 42);
     let mismatched = enum_options
         .replace(
-            "(Only (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64)",
+            "(Only (#tuple (#tuple (#tuple #u16 #u16) #u64) (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64))",
             "Missing",
         )
         .replace("(StepPending (Resume value))", "(#panic)");

@@ -7,15 +7,16 @@
     (#case (Check index) (ConditionPending (Recheck index)))
     (#case (Recheck index) (ConditionReady (#u64.< index 2u64))))))
 
-(#enum StepTask (#linear) ((Start #u64 #bool) (Resume #u64 #bool)))
+(#struct StepState () (: position #u64 : body-ran #bool))
+(#enum StepTask (#linear) ((Start StepState) (Resume StepState)))
 
 (#enum StepPoll () ((StepPending StepTask) (StepReady #u64)))
 (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start index body-ran)
-      (#block (#assert body-ran) (StepPending (Resume index body-ran))))
-    (#case (Resume index body-ran)
-      (#block (#assert body-ran) (StepReady (#u64.+.wrap index 1u64)))))))
+    (#case (Start state)
+      (#block (#assert (#get state body-ran)) (StepPending (Resume state))))
+    (#case (Resume state)
+      (#block (#assert (#get state body-ran)) (StepReady (#u64.+.wrap (#get state position) 1u64)))))))
 
 (#fn touch ((counter (#ref-mut #u64))) #u64
   (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
@@ -29,7 +30,8 @@
       (#await #bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))
       (#set index (#u64.+.wrap
         (#call touch (: counter (#borrow-mut touches)))
-        (#await #u64 StepTask StepPending StepReady step-poll (Start index body-ran))))
+        (#await #u64 StepTask StepPending StepReady step-poll
+          (Start (#struct-literal StepState (: position index : body-ran body-ran))))))
       (#let body-ran #bool true))
     (#assert (#u64.== index 2u64))
     (#assert (#u64.== touches 1u64))

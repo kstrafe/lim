@@ -24,7 +24,7 @@
   (#let waker #u64 0u64)
   (#let-mut task ExecutorTask (ExecutorTask::Work (#call work (:))))
   (#let frame (#pin-ref-mut Work::Frame)
-    (#pin-get-payload-mut (#pin-borrow-mut task) ExecutorTask::Work 0))
+    (#pin-get-payload-mut (#pin-borrow-mut task) ExecutorTask::Work))
   (#let result Work::Poll
     (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result

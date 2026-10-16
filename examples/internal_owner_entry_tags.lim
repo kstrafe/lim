@@ -3,7 +3,7 @@
 
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
   (#let view (#pin-ref #u64)
-    (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
+    (#pin-get-payload (#pin-borrow (#get target value)) Full))
   (#pin-set-field target view view) (#return target))
 
 (#fn initialize-or-touch (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
@@ -12,7 +12,7 @@
     (#block
       (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
       (#let payload (#pin-ref-mut #u64)
-        (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
+        (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full))
       (#unsafe (#pin-write payload 42u64))) ())
   (#return target))
 

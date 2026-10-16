@@ -9,7 +9,7 @@ const SOURCE: &str = "
   (#let-mut slot Slot (Full (#struct-literal Pair (: left 39u64 : right 2u64))))
   (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
   (#let payload (#pin-ref-mut Pair)
-    (#unsafe (#pin-get-payload-unchecked-mut pinned Full 0)))
+    (#unsafe (#pin-get-payload-unchecked-mut pinned Full)))
   (#pin-set-field payload left 40u64)
   (#let answer #u64 (#u64.+.wrap (#get payload left) (#get payload right)))
   (#forget payload)
@@ -79,8 +79,8 @@ fn unchecked_projection_preserves_heap_layout_without_a_tag_guard() {
 #[test]
 fn unchecked_projection_requires_unsafe_and_preserves_alias_rules() {
     let unsafe_missing = SOURCE.replace(
-        "(#unsafe (#pin-get-payload-unchecked-mut pinned Full 0))",
-        "(#pin-get-payload-unchecked-mut pinned Full 0)",
+        "(#unsafe (#pin-get-payload-unchecked-mut pinned Full))",
+        "(#pin-get-payload-unchecked-mut pinned Full)",
     );
     let diagnostic = compile(&unsafe_missing).unwrap_err();
     assert_eq!(diagnostic.code, DiagnosticCode::Unsafe);
@@ -90,25 +90,34 @@ fn unchecked_projection_requires_unsafe_and_preserves_alias_rules() {
         "#pin-get-payload-unchecked-mut"
     );
 
-    let conflict = SOURCE.replace("(#pin-set-field payload left 40u64)",
-        "(#let duplicate (#pin-ref Pair) (#unsafe (#pin-get-payload-unchecked pinned Full 0))) (#forget duplicate) (#pin-set-field payload left 40u64)");
+    let conflict = SOURCE.replace(
+        "(#pin-set-field payload left 40u64)",
+        "(#let duplicate (#pin-ref Pair) (#unsafe (#pin-get-payload-unchecked pinned Full))) (#forget duplicate) (#pin-set-field payload left 40u64)",
+    );
     assert_eq!(compile(&conflict).unwrap_err().code, DiagnosticCode::Borrow);
 
     let checked = SOURCE.replace(
-        "(#unsafe (#pin-get-payload-unchecked-mut pinned Full 0))",
-        "(#pin-get-payload-mut pinned Full 0)",
+        "(#unsafe (#pin-get-payload-unchecked-mut pinned Full))",
+        "(#pin-get-payload-mut pinned Full)",
     );
     assert!(compile(&checked)
         .unwrap()
         .contains("inactive_pinned_enum_payload_borrow"));
+
+    let indexed = SOURCE.replace(
+        "(#pin-get-payload-unchecked-mut pinned Full)",
+        "(#pin-get-payload-unchecked-mut pinned Full 0)",
+    );
+    assert!(
+        compile(&indexed).is_err(),
+        "indexed pin payload syntax must be rejected"
+    );
 }
 
 #[test]
 fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
     for (from, to, message) in [
-        ("pinned Full 0", "pinned Missing 0", "variant 'Missing'"),
-        ("pinned Full 0", "pinned Full 1", "index 1"),
-        ("pinned Full 0", "pinned Full -1", "non-negative integer"),
+        ("pinned Full", "pinned Missing", "variant 'Missing'"),
         (
             "(#pin-ref-mut Slot) (#pin-borrow-mut slot)",
             "(#pin-ref Slot) (#pin-borrow slot)",
@@ -124,7 +133,7 @@ fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
       (#fn bad () (#pin-ref Pair)
         (#let-mut slot Slot (Full (#struct-literal Pair (: left 1u64 : right 2u64))))
         (#let pinned (#pin-ref Slot) (#pin-borrow slot))
-        (#return (#unsafe (#pin-get-payload-unchecked pinned Full 0))))";
+        (#return (#unsafe (#pin-get-payload-unchecked pinned Full))))";
     let diagnostic = compile(source).unwrap_err();
     assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
     assert!(diagnostic.span.is_some());

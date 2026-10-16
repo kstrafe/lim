@@ -1,5 +1,6 @@
 ; Destructured tuple fields are typed from Choice, then retained as needed.
-(#enum Choice () ((Chosen (#tuple #u64 #u64)) Empty))
+(#struct ChosenValues () (: first #u64 : second #u64))
+(#enum Choice () ((Chosen ChosenValues) Empty))
 (#enum Step () ((Start #u64) (Resume #u64)))
 (#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
@@ -10,16 +11,17 @@
 (@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
     (#return (#match choice
-      (#case (Chosen (#tuple value bias))
+      (#case (Chosen values)
         (#u64.+.wrap
-          (#await #u64 Step StepPending StepReady step-poll (Start value))
-          bias))
+          (#await #u64 Step StepPending StepReady step-poll (Start (#get values first)))
+          (#get values second)))
       (#case Empty 0u64))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task Work::Task
-    (#call work (: choice (Chosen (#tuple (#tuple #u64 #u64) 20u64 22u64)))))
+    (#call work (: choice (Chosen
+      (#struct-literal ChosenValues (: first 20u64 : second 22u64))))))
   (#for-range (attempt #u64) 0u64 3u64
     (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result

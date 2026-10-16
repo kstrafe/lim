@@ -180,10 +180,10 @@ fn scoped_owned_array_borrow_evaluates_index_before_its_body() {
 fn owned_enum_payload_and_nested_field_borrows_address_the_same_slot() {
     native(
         "(#struct Pair () ((left #u64) (right #u64)))
-         (#enum Choice () (Empty (Full #u64 Pair)))
+         (#enum Choice () (Empty (Full (#tuple #u64 Pair))))
          (#fn main () #u64
-           (#let-mut owner Choice (Full 9u64 (#struct-literal Pair (: left 1u64 : right 2u64))))
-           (#let view (#ref-mut #u64) (#borrow-mut (#get (#get-payload owner Full 1) right)))
+           (#let-mut owner Choice (Full (#tuple 9u64 (#struct-literal Pair (: left 1u64 : right 2u64)))))
+           (#let view (#ref-mut #u64) (#borrow-mut (#get (#get (#get-payload owner Full 0) 1) right)))
            (#deref-set view 42u64)
            (#let result #u64 (#deref view))
            (#drop view) (#forget owner) (#return result))",

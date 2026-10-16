@@ -268,13 +268,13 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace(": waker #u64", ": waker #u64 : cancel (work-cancel ((await-0 cancel-child)))")
         .replace(
             "(#enum Child (#linear) ((Waiting #u64)))",
-            "(#enum Child (#linear) ((Waiting (#ref Counter) #u64)))",
+            "(#enum Child (#linear) ((Waiting (#tuple (#ref Counter) #u64))))",
         )
-        .replace("(Waiting count)", "(Waiting counter count)")
-        .replace("(Waiting 1u64)", "(Waiting counter 1u64)")
-        .replace("(Waiting 0u64)", "(Waiting counter 0u64)")
+        .replace("(Waiting count)", "(Waiting (#tuple counter count))")
+        .replace("(Waiting 1u64)", "(Waiting (#tuple counter 1u64))")
+        .replace("(Waiting 0u64)", "(Waiting (#tuple counter 0u64))")
         .replace("(#fn work ((owner Owner))", "(#fn work ((owner Owner) (counter (#ref Counter)))")
-        .replace("(#forget task) (#return ()))", "(#match task (#case (Waiting counter count) (#block (#call bump-counter (: count counter)) (#drop counter) ()))) (#return ()))");
+        .replace("(#forget task) (#return ()))", "(#match task (#case (Waiting (#tuple counter count)) (#block (#call bump-counter (: count counter)) (#drop counter) ()))) (#return ()))");
     let first = "(#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
       (#let-else (Work::Pending pending) Work::Poll first (#unreachable))";
     let second =

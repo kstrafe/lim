@@ -279,8 +279,9 @@ field))` or `#borrow-mut` for an exclusive field reference. The derived
 reference retains the original referent's borrow: it cannot escape when that
 referent is local, and a mutable parent reference is suspended while its
 derived field reference remains live. Tuple and array projections use `#get`
-and `#index`; enum payloads use
-`(#get-payload reference Variant index)`.
+and `#index`; enum payload fields use `(#get-payload reference Variant index)`. Each
+variant has zero or one payload. Use a named struct as the payload when a
+variant needs multiple fields.
 Projections may also start at an owned local, without borrowing the entire
 aggregate first: `(#borrow (#get owner field))`. Nested struct, tuple, array,
 and enum-payload projections address the original storage; a dynamic index
@@ -1777,12 +1778,14 @@ structs is needed.
 
 ### Enums
 
-Variants may be fieldless or carry one or more values:
+Variants may be fieldless or carry one payload. Use a named struct when a
+variant needs multiple fields:
 
 ```lisp library
+(#struct Move () (: x #i32 : y #i32))
 (#enum Message ()
   (Quit
-   (Move #i32 #i32)
+   (Move Move)
    (Write (#array #char 8))))
 ```
 
@@ -2249,8 +2252,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#distributed-enum` | `(#distributed-enum Name (properties...))` | `(#distributed-enum Error ())` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
-| `#enum` | `(#enum Name (properties...) ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; properties may include `#linear` and `#repr-c`; variants can carry typed payloads and explicit discriminants. |
-| `#enum-contribute` | `(#enum-contribute EnumName (Variant PayloadType...))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
+| `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
+| `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
@@ -2311,10 +2314,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
-| `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant index)` | `(#let payload (#pin-ref #u64) (#pin-get-payload slot Full 0))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
-| `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant index)` | `(#let payload (#pin-ref-mut #u64) (#pin-get-payload-mut slot Full 0))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
-| `#pin-get-payload-unchecked` | `(#pin-get-payload-unchecked pinned-enum-reference variant index)` | `(#let payload (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Full 0)))` (expression) | Unsafe shared pinned payload projection without a runtime variant-tag check. The caller proves the variant is active and the selected payload initialized; loan origins, lifetimes and native layout are retained. |
-| `#pin-get-payload-unchecked-mut` | `(#pin-get-payload-unchecked-mut mutable-pinned-enum-reference variant index)` | `(#let payload (#pin-ref-mut #u64) (#unsafe (#pin-get-payload-unchecked-mut slot Full 0)))` (expression) | Unsafe exclusive pinned payload projection without a runtime variant-tag check. Requires a mutable pinned reference and the same active-variant/initialization proof as the shared form; it does not waive aliasing or pinning rules. |
+| `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant)` | `(#let payload (#pin-ref #u64) (#pin-get-payload slot Full))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
+| `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant)` | `(#let payload (#pin-ref-mut #u64) (#pin-get-payload-mut slot Full))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
+| `#pin-get-payload-unchecked` | `(#pin-get-payload-unchecked pinned-enum-reference variant)` | `(#let payload (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Full)))` (expression) | Unsafe shared pinned payload projection without a runtime variant-tag check. The caller proves the variant is active and the payload initialized; loan origins, lifetimes and native layout are retained. |
+| `#pin-get-payload-unchecked-mut` | `(#pin-get-payload-unchecked-mut mutable-pinned-enum-reference variant)` | `(#let payload (#pin-ref-mut #u64) (#unsafe (#pin-get-payload-unchecked-mut slot Full)))` (expression) | Unsafe exclusive pinned payload projection without a runtime variant-tag check. Requires a mutable pinned reference and the same active-variant/initialization proof as the shared form; it does not waive aliasing or pinning rules. |
 | `#pin-own` | `(#pin-own TargetType)` | `(#let owner (#pin-own #u64) (#unsafe (#pin-own-of pointer 42u64)))` (type) | Linear pointer-sized owner of stationary heap storage. Moving the owner does not move the pointee or invalidate its views. It cannot be cloned; forgetting it leaks the allocation. |
 | `#pin-own-borrow` | `(#pin-own-borrow owner-or-reference [allocator-reference])` | `(#let view (#pin-ref #u64) (#pin-own-borrow owner allocator))` (expression) | Borrows the allocation, independently of the owner's stack address. An optional allocator anchor remains borrowed for the view's lifetime, even after moving or forgetting the owner. |
 | `#pin-own-borrow-mut` | `(#pin-own-borrow-mut mutable-owner-or-reference [allocator-reference])` | `(#let view (#pin-ref-mut #u64) (#pin-own-borrow-mut owner))` (expression) | Exclusively borrows stationary heap storage. Requires a mutable owner binding or reference; rejects overlapping retained views. |

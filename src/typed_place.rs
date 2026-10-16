@@ -87,13 +87,20 @@ impl Place {
                             usize::try_from(literal_index(body, children[2])?).ok()?,
                         )),
                     },
-                    "get-payload"
-                    | "pin-get-payload"
+                    "pin-get-payload"
                     | "pin-get-payload-mut"
                     | "pin-get-payload-unchecked"
                     | "pin-get-payload-unchecked-mut"
-                        if children.len() == 4 =>
+                        if children.len() == 3 =>
                     {
+                        let NodeKind::Declaration(DeclarationId::Variant(variant)) =
+                            body.nodes[children[2].0].kind
+                        else {
+                            return None;
+                        };
+                        place.segments.push(Segment::Payload(variant, 0));
+                    }
+                    "get-payload" if children.len() == 4 => {
                         let NodeKind::Declaration(DeclarationId::Variant(variant)) =
                             body.nodes[children[2].0].kind
                         else {

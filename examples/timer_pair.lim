@@ -11,10 +11,12 @@
     (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow first))))
   (#assert (#match alias-wait
     (#case (TimerPairFailed1 error) (#i64.== error -22i64))
-    (#case (TimerPairWoken1 a b) false)))
+    (#case (TimerPairWoken1 readiness) false)))
   (#let wake TimerWait2
     (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
-  (#let-else (TimerPairWoken1 first-woke second-woke) TimerWait2 wake (#unreachable))
+  (#let-else (TimerPairWoken1 readiness) TimerWait2 wake (#unreachable))
+  (#let first-woke #bool (#get readiness first))
+  (#let second-woke #bool (#get readiness second))
   (#assert (#bool.|| first-woke second-woke))
   (#let first-poll TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow first))))
@@ -34,7 +36,8 @@
       (#let another TimerWait2
         (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
       (#assert (#match another
-        (#case (TimerPairWoken1 a b) (#bool.|| a b))
+        (#case (TimerPairWoken1 event-readiness)
+          (#bool.|| (#get event-readiness first) (#get event-readiness second)))
         (#case (TimerPairFailed1 error) false)))
       (#if (#bool.! first-done)
         (#assert (#match (#call timer-reactor1-poll (: timer (#borrow first)))

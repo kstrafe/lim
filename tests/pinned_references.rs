@@ -22,7 +22,7 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
             (#let payload (#pin-ref{suffix} #u64)
               (#pin-get-payload{suffix}
                 (#pin-borrow{suffix} (#index owner
-                  (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize))) Number 0))
+                  (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize))) Number))
             {write}
             (#let result #u64 (#deref payload))
             (#drop payload)

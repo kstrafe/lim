@@ -7,7 +7,8 @@
   (FileAllocationError SystemAllocationError) FilePathContainsNul))
 (#enum FileOpenResult () ((FileOpened File) (FileOpenFailed FileError)))
 (#enum FileStatus () (FileOk (FileFailed FileError)))
-(#enum FileWriteResult () ((FileWritten #usize) (FileWriteFailed #usize FileError)))
+(#struct FileWriteFailure () (: written #usize : error FileError))
+(#enum FileWriteResult () ((FileWritten #usize) (FileWriteFailed FileWriteFailure)))
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#unsafe-fn file-open-descriptor (: path (#ptr-mut #u8) : flags #u32 : permissions #u32) #i64
@@ -75,22 +76,34 @@
       (#block
         (#let amount #usize (#as count #usize))
         (#if (#usize.> amount (#usize.-.wrap length offset))
-          (#block (#return (FileWriteFailed offset (FileIoError -5i64)))) ())
+          (#block
+            (#return
+              (FileWriteFailed
+                (#struct-literal FileWriteFailure
+                  (: written offset : error (FileIoError -5i64))))))
+          ())
         (#set offset (#usize.+.wrap offset amount)) ())
       (#if (#i64.== count -4i64) ()
-        (#block (#return (FileWriteFailed offset (FileIoError (#if (#i64.== count 0i64) -5i64 count))))))))
+        (#block
+          (#return
+            (FileWriteFailed
+              (#struct-literal FileWriteFailure
+                (: written offset
+                 : error (FileIoError (#if (#i64.== count 0i64) -5i64 count))))))))))
   (#return (FileWritten offset)))
 
 (#struct FileReader (#linear) (: file File : buffer (#ptr-mut #u8) : capacity #usize
   : position #usize : length #usize : ended #bool))
 (#opaque FileReader)
 
-(#enum FileReaderCreateResult () ((FileReaderCreated FileReader) (FileReaderCreateFailed File FileError)))
+(#struct FileReaderCreateFailure () (: file File : error FileError))
+(#enum FileReaderCreateResult () ((FileReaderCreated FileReader) (FileReaderCreateFailed FileReaderCreateFailure)))
 (#enum FileByteResult () ((FileByte #u8) FileByteEof (FileByteFailed FileError)))
 
 (#fn FileReader-create (: file File : capacity #usize) FileReaderCreateResult
   (#return (#match (#call system-allocate (: size capacity))
-    (#case (SystemAllocationFailed error) (FileReaderCreateFailed file (FileAllocationError error)))
+    (#case (SystemAllocationFailed error) (FileReaderCreateFailed
+      (#struct-literal FileReaderCreateFailure (: file file : error (FileAllocationError error)))))
     (#case (SystemAllocated pointer)
       (FileReaderCreated (#struct-literal FileReader (: file file : buffer pointer
         : capacity capacity : position 0usize : length 0usize : ended false)))))))

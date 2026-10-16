@@ -433,7 +433,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Data Number Number) Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const LIMIT Number 99u64)\n(#static COUNT Number 42u64)\n";
+    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Data (#tuple Number Number)) Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const LIMIT Number 99u64)\n(#static COUNT Number 42u64)\n";
     let module = fixture.write("functions.lim", module_text);
     let root_text = "(#import \"functions.lim\")\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#call foreign (: value (#call guarded (: value input)))))))\n";
     let root = fixture.write("main.lim", root_text);
@@ -505,7 +505,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
         (
             &module,
             module_text,
-            "Number) Empty",
+            "Number)) Empty",
             "#type Number",
             "Number",
         ),

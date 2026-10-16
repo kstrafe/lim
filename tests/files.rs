@@ -131,7 +131,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
         (#let-else (FileOpened file) FileOpenResult opened (#unreachable))\n\
         (#let failed FileReaderCreateResult (#call FileReader-create (: file file : capacity 0usize)))\n\
         (#assert (#match failed\n\
-          (#case (FileReaderCreateFailed retained error)\n\
+          (#case (FileReaderCreateFailed (FileReaderCreateFailure retained error))\n\
             (#block\n\
               (#let invalid-size #bool (#call is-invalid-size-error (: error error)))\n\
               (#let closed #bool (#call closes-successfully (: file retained)))\n\

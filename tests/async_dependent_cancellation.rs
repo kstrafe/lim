@@ -4,14 +4,14 @@ use std::{process::Command, time::Duration};
 
 fn source() -> &'static str {
     "(#struct Owner (#linear) (: amount #u64))
-      (#enum Child (#linear) ((Holding (#ref Owner) #u64)))
+      (#enum Child (#linear) ((Holding (#tuple (#ref Owner) #u64))))
       (#enum ChildPoll () ((Pending Child) (Ready #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-        (#return (#match task (#case (Holding view count)
-          (#if (#u64.== count 0u64) (Pending (Holding view 1u64))
+        (#return (#match task (#case (Holding (#tuple view count))
+          (#if (#u64.== count 0u64) (Pending (Holding (#tuple view 1u64)))
             (Ready (#u64.+.wrap (#get view amount) 2u64)))))))
       (#fn cancel-child (: value Child) ()
-        (#match value (#case (Holding view count)
+        (#match value (#case (Holding (#tuple view count))
           (#block (#assert (#u64.== (#get view amount) 40u64))
             (#drop view) (#forget count) ())))
         (#return ()))
@@ -23,7 +23,7 @@ fn source() -> &'static str {
         : function (#fn work () #u64
           (#let owner Owner (#struct-literal Owner (: amount 40u64)))
           (#let answer #u64 (#await Child Pending Ready child-poll
-            (Holding (#borrow owner) 0u64)))
+            (Holding (#tuple (#borrow owner) 0u64))))
           (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -50,14 +50,14 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
         .replace("(#drop view) (#forget count)",
             "(#assert (#u64.== count 1u64)) (#drop view) (#forget count)")
         .replace("(#forget owner) (#return answer)",
-            "(#let second-answer #u64 (#await Child Pending Ready second-poll\n            (Holding (#borrow owner) 0u64)))\n          (#forget second-answer) (#forget owner) (#return answer)")
+            "(#let second-answer #u64 (#await Child Pending Ready second-poll\n            (Holding (#tuple (#borrow owner) 0u64))))\n          (#forget second-answer) (#forget owner) (#return answer)")
         .replace("(#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task pending)))",
             "(#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))\n        (#let-else (Work::Pending second-pending) Work::Poll second (#unreachable))\n        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task second-pending)))")
         + "\n(#fn second-poll (: task Child : waker (#ref #u64)) ChildPoll
-            (#return (#match task (#case (Holding second-view second-count)
-              (#block (#forget second-count) (Pending (Holding second-view 5u64)))))))
+            (#return (#match task (#case (Holding (#tuple second-view second-count))
+              (#block (#forget second-count) (Pending (Holding (#tuple second-view 5u64))))))))
           (#fn cancel-second (: value Child) ()
-            (#match value (#case (Holding second-view second-count)
+            (#match value (#case (Holding (#tuple second-view second-count))
               (#block (#assert (#u64.== (#get second-view amount) 40u64))
                 (#assert (#u64.== second-count 5u64))
                 (#drop second-view) (#forget second-count) ())))
@@ -73,8 +73,8 @@ fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
             "(#fn destroy-owner (: value (#array Owner 2)) ()\n        (#assert (#u64.== (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64.== (#get (#index value 1usize) amount) 40u64))")
         .replace("(#let owner Owner (#struct-literal Owner (: amount 40u64)))",
             "(#let owner (#array Owner 2) (#array-of (#array Owner 2)\n            (#struct-literal Owner (: amount 10u64)) (#struct-literal Owner (: amount 40u64))))\n          (#let-mut index #usize 1usize)")
-        .replace("(Holding (#borrow owner) 0u64)",
-            "(#block (#let selected (#ref Owner) (#borrow (#index owner index)))\n              (#set index 0usize) (Holding selected 0u64))");
+        .replace("(Holding (#tuple (#borrow owner) 0u64))",
+            "(#block (#let selected (#ref Owner) (#borrow (#index owner index)))\n              (#set index 0usize) (Holding (#tuple selected 0u64)))");
     assert!(program.contains("(#index owner index)"));
     run(&program, "async-runtime-array-dependent-cancellation");
 }
@@ -83,7 +83,7 @@ fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
 fn suspended_for_step_cancels_child_before_its_body_owner() {
     let original = "(#let owner Owner (#struct-literal Owner (: amount 40u64)))
           (#let answer #u64 (#await Child Pending Ready child-poll
-            (Holding (#borrow owner) 0u64)))
+            (Holding (#tuple (#borrow owner) 0u64))))
           (#forget owner) (#return answer)";
     let program = source().replace(
         original,
@@ -91,7 +91,7 @@ fn suspended_for_step_cancels_child_before_its_body_owner() {
           (#for (#let-mut iteration #u64 0u64) (#u64.< iteration 1u64)
             (#block
               (#let answer #u64 (#await Child Pending Ready child-poll
-                (Holding (#borrow owner) 0u64)))
+                (Holding (#tuple (#borrow owner) 0u64))))
               (#set total answer) (#forget owner) (#set iteration 1u64))
             (#let owner Owner (#struct-literal Owner (: amount 40u64))))
           (#return total)",
@@ -118,8 +118,8 @@ fn dependent_child_cancellation_preserves_selected_internal_and_external_owners(
     for choose in ["true", "false"] {
         let program = source()
             .replace("(#fn work () #u64", "(#fn work (: external (#ref Owner) : choose #bool) #u64")
-            .replace("(#let answer #u64 (#await Child Pending Ready child-poll\n            (Holding (#borrow owner) 0u64)))",
-                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let answer #u64 (#await Child Pending Ready child-poll (Holding view 0u64)))\n          (#drop view)")
+            .replace("(#let answer #u64 (#await Child Pending Ready child-poll\n            (Holding (#tuple (#borrow owner) 0u64))))",
+                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let answer #u64 (#await Child Pending Ready child-poll (Holding (#tuple view 0u64))))\n          (#drop view)")
             .replace("(#let waker #u64 0u64)", "(#let outside Owner (#struct-literal Owner (: amount 40u64)))\n        (#let waker #u64 0u64)")
             .replace("(#call work ())", &format!("(#call work (: external (#borrow outside) : choose {choose}))"))
             .replace("(#forget task) (#return 42u64)", "(#forget task) (#forget outside) (#return 42u64)");

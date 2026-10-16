@@ -21,15 +21,15 @@ const PREFIX: &str = r#"
   (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
   (#let ignored #u64 (#unsafe (#atomic-fetch-add (#borrow Destroyed) 1u64 #memory-relaxed)))
   (#return ()))
-(#enum Child (#linear) (: Holding (#pin-ref #u64) #u64))
+(#enum Child (#linear) (: Holding (#tuple (#pin-ref #u64) #u64)))
 (#enum ChildPoll () (: ChildPending Child : ChildReady #u64))
 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-  (#return (#match task (#case (Holding reference count)
+  (#return (#match task (#case (Holding (#tuple reference count))
     (#if (#u64.< count 2u64)
-      (ChildPending (Holding reference (#u64.+.wrap count 1u64)))
+      (ChildPending (Holding (#tuple reference (#u64.+.wrap count 1u64))))
       (ChildReady (#deref reference)))))))
 (#fn cancel-child (: child Child) ()
-  (#match child (#case (Holding reference count) (#block
+  (#match child (#case (Holding (#tuple reference count)) (#block
     (#assert (#u64.>= (#deref reference) 40u64))
     (#drop reference) ())))
   (#let ignored #u64 (#unsafe (#atomic-fetch-add (#borrow Cancelled) 1u64 #memory-relaxed)))
@@ -54,7 +54,7 @@ fn direct_source() -> String {
           (#block (#let allocation (#pin-ref Data) (#pin-own-borrow heap))
             (#pin-borrow (#get allocation value)))
           (#unsafe (#pin-borrow (#get Fallback value))))))
-    (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding view 0u64)))
+    (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding (#tuple view 0u64))))
     (#drop view)
     (#call destroy-heap (: owner heap))
     (#forget local)
@@ -315,7 +315,7 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
   : cancel (work-cancel ((await-0 cancel-child)))
   : function (#fn work () #u64
     (#let view (#pin-ref #u64) (#unsafe (#pin-borrow (#get Fallback value))))
-    (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding view 0u64)))
+    (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding (#tuple view 0u64))))
     (#drop view) (#return answer))))
 (#fn main () #u64
   (#let waker #u64 0u64)

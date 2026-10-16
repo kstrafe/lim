@@ -168,8 +168,8 @@ impl Recipes {
                                     format!("(#get {projected} {})", declarations.field(*id).name)
                                 }
                                 Segment::Tuple(index) => format!("(#get {projected} {index})"),
-                                Segment::Payload(variant, index) => format!(
-                                    "(#deref (#pin-get-payload{suffix} {projected} {} {index}))",
+                                Segment::Payload(variant, _) => format!(
+                                    "(#deref (#pin-get-payload{suffix} {projected} {}))",
                                     declarations.variant(*variant).name
                                 ),
                                 Segment::Index(index) => {
@@ -253,7 +253,7 @@ impl Recipes {
                 let mut prototype_steps = Vec::new();
                 let mut projected_reference = true;
                 for (offset, segment) in place.segments[position..].iter().enumerate() {
-                    if let Segment::Payload(variant, index) = segment {
+                    if let Segment::Payload(variant, _) = segment {
                         // A prototype measures geometry, not the contents of
                         // its sample element. Another element may have an
                         // inactive variant here. Form only its padded payload
@@ -267,7 +267,7 @@ impl Recipes {
                         let next = fresh("array-anchor-payload");
                         let target =
                             target_type(&place, position + offset + 1, graph, declarations);
-                        prototype_steps.push(format!("(#let {next} (#pin-ref {}) (#unsafe (#pin-get-payload-unchecked {input} {} {index})))",
+                        prototype_steps.push(format!("(#let {next} (#pin-ref {}) (#unsafe (#pin-get-payload-unchecked {input} {})))",
                             crate::type_source(&target), declarations.variant(*variant).name));
                         projected = next;
                         projected_reference = true;

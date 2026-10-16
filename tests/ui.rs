@@ -403,7 +403,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "enum-payload-type-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value Payload (Pair true false))",
+            offending_line: "  (#let value Payload (Pair (#tuple true false)))",
             line_number: 3,
         },
         Case {

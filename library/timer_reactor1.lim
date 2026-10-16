@@ -11,7 +11,8 @@
 
 (#enum TimerCreate1 () ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 #i64)))
 (#enum TimerWait1 () (TimerWoken1 (TimerWaitFailed1 #i64)))
-(#enum TimerWait2 () ((TimerPairWoken1 #bool #bool) (TimerPairFailed1 #i64)))
+(#struct TimerPairReady1 () (: first #bool : second #bool))
+(#enum TimerWait2 () ((TimerPairWoken1 TimerPairReady1) (TimerPairFailed1 #i64)))
 (#enum TimerManyWait () ((TimerManyReady #u64) (TimerManyFailed #i64)))
 (#enum TimerPoll1 () (TimerPending1 (TimerReady1 #u64) (TimerPollFailed1 #i64)))
 
@@ -139,7 +140,8 @@
                   (: queue (#borrow (#get second queue)) : token (#get second token)))
                 true))
               (#if (#bool.&& first-valid second-valid)
-                (TimerPairWoken1 first-ready second-ready)
+                (TimerPairWoken1 (#struct-literal TimerPairReady1
+                  (: first first-ready : second second-ready)))
                 (TimerPairFailed1 -22i64))))))))))
 
 (#fn timer-reactor1-poll ((timer (#ref TimerReactor1))) TimerPoll1

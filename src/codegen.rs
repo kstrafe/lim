@@ -14287,8 +14287,8 @@ impl FunctionContext<'_> {
     }
 
     fn pinned_enum_payload_expression(&mut self, items: &[Expr]) -> Result<(), String> {
-        if items.len() != 4 {
-            return Err("pin-get-payload requires an enum reference, variant, and index".into());
+        if items.len() != 3 {
+            return Err("pin-get-payload requires an enum reference and variant".into());
         }
         let Type::PinnedReference { target, .. } = self
             .expression_type(&items[1])
@@ -14302,31 +14302,16 @@ impl FunctionContext<'_> {
         let Expr::Symbol(variant_name) = &items[2] else {
             return Err("pin-get-payload requires a variant name".into());
         };
-        let index =
-            match &items[3] {
-                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
-                    .map_err(|_| "enum payload index is too large".to_owned())?,
-                Expr::UnsignedInteger(index) => usize::try_from(*index)
-                    .map_err(|_| "enum payload index is too large".to_owned())?,
-                _ => return Err("pin-get-payload requires a non-negative integer index".into()),
-            };
         let (variant_owner, discriminant, fields) = self
             .enum_variant_info(&items[2], variant_name)?
             .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
         if variant_owner != enum_name {
             return Err("internal error: checked pinned payload variant owner changed".into());
         }
-        if fields.get(index).is_none() {
-            return Err(format!(
-                "variant '{variant_name}' has no payload field at index {index}"
-            ));
+        if fields.is_empty() {
+            return Err(format!("variant '{variant_name}' has no payload field"));
         }
-        let payload_offset = 1 + fields[..index]
-            .iter()
-            .map(|field| storage_word_count(field, &self.structs, &self.enums))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .sum::<usize>();
+        let payload_offset = 1;
         let unchecked = matches!(items.first(), Some(Expr::Symbol(head))
             if matches!(head.as_str(), "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut"));
         let labels = (!unchecked).then(|| {

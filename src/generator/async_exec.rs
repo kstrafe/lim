@@ -1911,13 +1911,26 @@ impl Builder<'_> {
                 descriptor.projections.push(projection);
                 self.metadata(children[2])?;
             }
-            "get-payload"
-            | "pin-get-payload"
+            "pin-get-payload"
             | "pin-get-payload-mut"
             | "pin-get-payload-unchecked"
             | "pin-get-payload-unchecked-mut"
-                if children.len() == 4 =>
+                if children.len() == 3 =>
             {
+                let NodeKind::Declaration(DeclarationId::Variant(variant)) =
+                    self.node(children[2])?.kind
+                else {
+                    return Err(error(
+                        Some(source),
+                        "payload projection has no checked variant",
+                    ));
+                };
+                descriptor
+                    .projections
+                    .push(AddressProjection::Payload(variant, 0));
+                self.metadata(children[2])?;
+            }
+            "get-payload" if children.len() == 4 => {
                 let NodeKind::Declaration(DeclarationId::Variant(variant)) =
                     self.node(children[2])?.kind
                 else {

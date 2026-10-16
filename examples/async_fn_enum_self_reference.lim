@@ -20,7 +20,7 @@
   (#fn read-after-await ((owner Owner)) #u64
     (#let view (#pin-ref #u64)
       (#pin-borrow
-        (#get (#pin-get-payload (#pin-borrow (#get owner choice)) Number 0) value)))
+        (#get (#pin-get-payload (#pin-borrow (#get owner choice)) Number) value)))
     (#let result #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))

@@ -17,15 +17,16 @@ termination can also report string allocation errors.
 `File-write-string` borrows a file mutably and a `String` immutably. It writes
 the string's exact UTF-8 byte length, including embedded NUL bytes, and loops
 over short writes and interrupted syscalls. `FileWritten` reports the number
-of bytes written. If a later write fails, `FileWriteFailed` reports the
-completed byte count together with the I/O error. The caller remains
-responsible for closing the file.
+of bytes written. If a later write fails, `FileWriteFailed` carries a
+`FileWriteFailure` payload with the completed byte count in `written` and the
+I/O error in `error`. The caller remains responsible for closing the file.
 
 `FileReader-create` takes ownership of a `File` and allocates a caller-sized
 buffer. A zero or otherwise invalid size is reported as an allocation error.
-On failure, `FileReaderCreateFailed` returns the still-owned `File` together
-with the error, so the caller can close it. On success, the reader owns both
-the descriptor and buffer. `FileReader-next-byte` returns one binary byte at
+On failure, `FileReaderCreateFailed` carries a linear `FileReaderCreateFailure`
+payload with the still-owned `File` in `file` and the error in `error`, so the
+caller can close it. On success, the reader owns both the descriptor and
+buffer. `FileReader-next-byte` returns one binary byte at
 a time as `FileByte`, returns `FileByteEof` repeatedly after end-of-file, or
 returns `FileByteFailed` with the raw I/O error. An interrupted read is
 returned as `-4` (`EINTR`); call `FileReader-next-byte` again if retrying is

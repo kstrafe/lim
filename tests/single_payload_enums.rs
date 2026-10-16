@@ -1,0 +1,72 @@
+mod support;
+
+fn compile(source: &str) -> Result<String, lim::Diagnostic> {
+    let scratch = support::Scratch::new("single-payload-enums");
+    lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join(".lim/cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+}
+
+#[test]
+fn generated_and_distributed_variants_cannot_bypass_the_single_payload_rule() {
+    for source in [
+        "(#gn emit () `((#enum Bad () ((Pair #u64 #u32))))) (@emit)",
+        "(#distributed-enum Bad ()) (#enum-contribute Bad (Pair #u64 #u32))",
+    ] {
+        let error = compile(source).unwrap_err();
+        assert!(
+            error.message.contains("at most one payload type"),
+            "{error:?}"
+        );
+        assert!(error.span.is_some(), "{error:?}");
+    }
+}
+
+#[test]
+fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
+    for (operator, reference, borrow) in [
+        ("#pin-get-payload", "#pin-ref", "#pin-borrow"),
+        ("#pin-get-payload-mut", "#pin-ref-mut", "#pin-borrow-mut"),
+        ("#pin-get-payload-unchecked", "#pin-ref", "#pin-borrow"),
+        (
+            "#pin-get-payload-unchecked-mut",
+            "#pin-ref-mut",
+            "#pin-borrow-mut",
+        ),
+    ] {
+        let source = format!(
+            "(#enum Choice () ((Full #u64) Empty))
+             (#fn main () #u64
+               (#let-mut owner Choice (Full 42u64))
+               (#let value ({reference} #u64)
+                 (#unsafe ({operator} ({borrow} owner) Full)))
+               (#return (#deref value)))"
+        );
+        compile(&source).unwrap();
+        let indexed = source.replace("owner) Full)", "owner) Full 0)");
+        let error = compile(&indexed).unwrap_err();
+        assert!(
+            error.message.contains("expects 2 operands"),
+            "{operator}: {error:?}"
+        );
+        assert!(error.span.is_some(), "{operator}: {error:?}");
+    }
+}
+
+#[test]
+fn a_fieldless_variant_has_no_pinned_payload_to_borrow() {
+    let error = compile(
+        "(#enum Choice () ((Full #u64) Empty))
+         (#fn main () #u64
+           (#let-mut owner Choice Empty)
+           (#let value (#pin-ref #u64)
+             (#pin-get-payload (#pin-borrow owner) Empty))
+           (#return (#deref value)))",
+    )
+    .unwrap_err();
+    assert!(error.message.contains("no payload"), "{error:?}");
+}

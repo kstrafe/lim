@@ -165,7 +165,7 @@ fn tag_tests_do_not_bypass_live_mutable_child_loans() {
           (#fn main () #u64
             (#let-mut value Choice (Number 42u64))
             (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
-            (#let child (#pin-ref-mut #u64) (#pin-get-payload-mut parent Number 0))
+            (#let child (#pin-ref-mut #u64) (#pin-get-payload-mut parent Number))
             {expression}
             (#let result #u64 (#deref child))
             (#drop child) (#drop parent) (#forget value) (#return result))"

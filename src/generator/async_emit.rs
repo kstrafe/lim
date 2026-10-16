@@ -1388,8 +1388,8 @@ impl<'a> Emitter<'a> {
                     self.planning.declarations.field(*id).name
                 ),
                 Segment::Tuple(index) => format!("(#get {anchor} {index})"),
-                Segment::Payload(variant, index) => format!(
-                    "(#deref (#pin-get-payload{suffix} {anchor} {} {index}))",
+                Segment::Payload(variant, _) => format!(
+                    "(#deref (#pin-get-payload{suffix} {anchor} {}))",
                     self.planning.declarations.variant(*variant).name
                 ),
                 Segment::Index(index) => format!("(#index {anchor} {index}usize)"),
@@ -1738,7 +1738,7 @@ impl<'a> Emitter<'a> {
             );
         }
         format!(
-            "(#pin-get-payload{} {} {} 0)",
+            "(#pin-get-payload{} {} {})",
             if mutable { "-mut" } else { "" },
             Self::slot_ref(slot, mutable),
             slot.full
@@ -1848,7 +1848,7 @@ impl<'a> Emitter<'a> {
             Ok(Type::MutableSlice(_))
         );
         format!(
-            "(#pin-get-payload{} {} {} 0)",
+            "(#pin-get-payload{} {} {})",
             if mutable { "-mut" } else { "" },
             Self::slot_ref(slot, mutable),
             slot.full
@@ -1972,8 +1972,8 @@ impl<'a> Emitter<'a> {
                   (#unsafe (#pin-write {cell} ({empty})))
                   (#drop {cell})
                   (#let {payload} (#pin-ref-mut {ty})
-                    (#unsafe (#pin-get-payload-unchecked-mut
-                      (#pin-borrow-mut {previous}) {full} 0)))
+                      (#unsafe (#pin-get-payload-unchecked-mut
+                      (#pin-borrow-mut {previous}) {full})))
                   (#let {value} {ty} (#unsafe (#pin-read {payload})))
                   (#forget {payload}) (#forget {previous}) {value})",
                 cell = self.fresh("taken-cell"),
@@ -2561,7 +2561,7 @@ impl<'a> Emitter<'a> {
                 // Source ownership and graph initialization justify this
                 // unchecked access; frame opacity protects those invariants
                 // at the safe public poll boundary. Pinning alone does not.
-                let read = format!("(#deref (#pin-get-payload-unchecked slot {} 0))", slot.full);
+                let read = format!("(#deref (#pin-get-payload-unchecked slot {}))", slot.full);
                 let read = if slot.raw { format!("(#clone {read})") } else { read };
                 format!("; Caller proves this cell Full through checked async flow.\n(#unsafe-fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#unsafe {read})))", slot.peek, slot.name)
             } else { String::new() };
@@ -2573,7 +2573,7 @@ impl<'a> Emitter<'a> {
                 // address: native stack and heap layouts differ.
                 format!("; Caller proves this cell Full through checked async flow.\n\
                   (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
-                    (#let value {ty} (#unsafe (#deref (#pin-get-payload-unchecked slot {full} 0))))\n\
+                    (#let value {ty} (#unsafe (#deref (#pin-get-payload-unchecked slot {full}))))\n\
                     (#unsafe (#forget (#pin-read slot)))\n\
                     (#unsafe (#pin-write slot ({empty})))\n\
                     (#return value))",
@@ -3027,7 +3027,7 @@ impl<'a> Emitter<'a> {
             self.read(self.addresses[&place], false)
         } else {
             format!(
-                "(#deref (#pin-get-payload-mut {} {} 0))",
+                "(#deref (#pin-get-payload-mut {} {}))",
                 Self::slot_ref(slot, true),
                 slot.full
             )
@@ -3160,7 +3160,7 @@ impl<'a> Emitter<'a> {
                         // a pinned payload reference would move the pointee.
                         (
                             format!(
-                                "(#pin-get-payload-mut {} {} 0)",
+                                "(#pin-get-payload-mut {} {})",
                                 Self::slot_ref(slot, true),
                                 slot.full
                             ),
@@ -3246,7 +3246,7 @@ impl<'a> Emitter<'a> {
                     let name = &self.planning.declarations.variant(*variant).name;
                     if pinned {
                         format!(
-                            "(#pin-get-payload{} {reference} {name} {index})",
+                            "(#pin-get-payload{} {reference} {name})",
                             if mutable { "-mut" } else { "" }
                         )
                     } else {
@@ -3855,7 +3855,7 @@ impl<'a> Emitter<'a> {
             } else {
                 let slot = &self.slots[self.values[&value]];
                 format!(
-                    "(#deref (#pin-get-payload-mut {} {} 0))",
+                    "(#deref (#pin-get-payload-mut {} {}))",
                     Self::slot_ref(slot, true),
                     slot.full
                 )
@@ -4405,7 +4405,7 @@ impl<'a> Emitter<'a> {
                 })?;
                 let slot = &self.slots[*slot];
                 format!(
-                    "(#deref (#pin-get-payload-mut {} {} 0))",
+                    "(#deref (#pin-get-payload-mut {} {}))",
                     Self::slot_ref(slot, true),
                     slot.full
                 )
@@ -5025,7 +5025,7 @@ impl<'a> Emitter<'a> {
                             error("slice operation requires a retained checked holder")
                         })?];
                         let holder = format!(
-                            "(#pin-get-payload-mut {} {} 0)",
+                            "(#pin-get-payload-mut {} {})",
                             Self::slot_ref(slot, true),
                             slot.full
                         );
@@ -5334,7 +5334,7 @@ impl<'a> Emitter<'a> {
                             if self.leases.snapshot(*dst) == Some(binding) {
                                 let slot = &self.slots[*slot];
                                 let holder = format!(
-                                    "(#pin-get-payload-mut {} {} 0)",
+                                    "(#pin-get-payload-mut {} {})",
                                     Self::slot_ref(slot, true),
                                     slot.full
                                 );
@@ -6381,7 +6381,7 @@ impl<'a> Emitter<'a> {
                         // The externally visible PC proves this child Full.
                         // This typed projection preserves stack/heap layout;
                         // pinning alone is not initialization permission.
-                        format!("(#call {handler} (: {parameter} (#unsafe (#pin-get-payload-unchecked-mut {reference} {} 0))))\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))", slot.full, slot.empty)
+                        format!("(#call {handler} (: {parameter} (#unsafe (#pin-get-payload-unchecked-mut {reference} {}))))\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))", slot.full, slot.empty)
                     } else {
                         let payload = self.fresh("dependent-child");
                         // Consume a movable child without relocating its
@@ -6948,7 +6948,7 @@ impl<'a> Emitter<'a> {
                 (#return ()))
                 (#fn {name}-read (: task (#pin-ref {})) {ty}
                 {guards}
-                (#return (#deref (#pin-get-payload {} {} 0))))",
+                (#return (#deref (#pin-get-payload {} {}))))",
                 self.frame,
                 slot.name,
                 slot.empty,
@@ -7724,8 +7724,8 @@ mod tests {
         let function = "(#fn work (: choose #bool) #u64
           (#let-mut owner Choice (#if choose (Left 40u64) (Right 40u64)))
           (#let view (#pin-ref-mut #u64) (#if choose
-            (#pin-get-payload-mut (#pin-borrow-mut owner) Left 0)
-            (#pin-get-payload-mut (#pin-borrow-mut owner) Right 0)))
+            (#pin-get-payload-mut (#pin-borrow-mut owner) Left)
+            (#pin-get-payload-mut (#pin-borrow-mut owner) Right)))
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))
           (#let answer #u64 (#deref view))
@@ -7774,8 +7774,8 @@ mod tests {
           (#let-mut outer #usize (#if choose 0usize 1usize))
           (#let-mut inner #usize 1usize)
           (#let view (#pin-ref-mut #u64) (#if choose
-            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Left 0) inner))
-            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Right 0) inner))))
+            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Left) inner))
+            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Right) inner))))
           (#set outer 0usize) (#set inner 0usize)
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))

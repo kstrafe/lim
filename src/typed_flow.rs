@@ -12137,7 +12137,7 @@ impl FlowGraph {
                             | "pin-get-payload-mut"
                             | "pin-get-payload-unchecked"
                             | "pin-get-payload-unchecked-mut"
-                    ) && children.len() == 4
+                    ) && children.len() == 3
                         && head.ends_with("-mut") == *mutable;
                     let slice_form = (matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
                         && children.len() == 3
@@ -16068,8 +16068,8 @@ mod pinned_payload_projection_tests {
               (#unsafe-fn work (: seed (#ref #u64) : pointer (#ptr-mut Storage)) (#ref #u64)
                 (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
                   (Full (#struct-literal Owner (: view seed))))))
-                (#let owner ({result} Owner) (#unsafe (#{operator}
-                  (#pin-own-borrow-mut storage) Full 0)))
+              (#let owner ({result} Owner) (#unsafe (#{operator}
+                  (#pin-own-borrow-mut storage) Full)))
                 (#let holder (#pin-ref (#ref #u64)) (#pin-borrow (#get owner view)))
                 (#let value (#ref #u64) (#deref holder))
                 (#forget holder) (#forget owner) (#forget storage) (#return value))"
@@ -16121,7 +16121,7 @@ mod pinned_payload_projection_tests {
           (#unsafe-fn work (: seed (#ref-mut #u64) : pointer (#ptr-mut Storage)) ()
             (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
               (Full (#struct-literal Owner (: view seed))))))
-            (#let owner (#pin-ref Owner) (#pin-get-payload (#pin-own-borrow-mut storage) Full 0))
+            (#let owner (#pin-ref Owner) (#pin-get-payload (#pin-own-borrow-mut storage) Full))
             (#call touch (: value (#get owner view)))
             (#forget owner) (#forget storage) (#return ()))";
         let error = crate::check_types(&crate::parse_program(source).unwrap()).unwrap_err();
@@ -17144,11 +17144,20 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
             }
             _ => None,
         },
-        "get-payload"
-        | "pin-get-payload"
+        "pin-get-payload"
         | "pin-get-payload-mut"
         | "pin-get-payload-unchecked"
-        | "pin-get-payload-unchecked-mut" => {
+        | "pin-get-payload-unchecked-mut"
+            if children.len() == 3 =>
+        {
+            let NodeKind::Declaration(DeclarationId::Variant(variant)) =
+                body.nodes[children.get(2)?.0].kind
+            else {
+                return None;
+            };
+            Some(Segment::Payload(variant, 0))
+        }
+        "get-payload" => {
             let NodeKind::Declaration(DeclarationId::Variant(variant)) =
                 body.nodes[children.get(2)?.0].kind
             else {
@@ -19587,7 +19596,7 @@ impl Builder<'_> {
                         | "pin-get-payload-mut"
                         | "pin-get-payload-unchecked"
                         | "pin-get-payload-unchecked-mut"
-                ) && children.len() == 4 =>
+                ) && children.len() == 3 =>
             {
                 let action = Place::from_expression(self.body, id).map_or(
                     FlowAction::Evaluate(id),

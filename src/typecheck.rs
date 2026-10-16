@@ -9106,7 +9106,7 @@ fn list_expression(
         | "pin-get-payload-mut"
         | "pin-get-payload-unchecked"
         | "pin-get-payload-unchecked-mut" => {
-            require_arity(operator, items, 4)?;
+            require_arity(operator, items, 3)?;
             let base = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
@@ -9129,22 +9129,17 @@ fn list_expression(
             let Expr::Symbol(variant_name) = &items[2] else {
                 return Err(format!("{operator} requires a variant name").into());
             };
-            let index = match &items[3] {
-                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
-                    .map_err(|_| "enum payload index is too large".to_owned())?,
-                Expr::UnsignedInteger(index) => usize::try_from(*index)
-                    .map_err(|_| "enum payload index is too large".to_owned())?,
-                _ => return Err(format!("{operator} requires a non-negative integer index").into()),
-            };
             let field_type = enums
                 .get(&enum_name)
-                .and_then(|variants| variants.iter().find(|variant| variant.name == *variant_name))
-                .and_then(|variant| variant.fields.get(index))
+                .and_then(|variants| {
+                    variants
+                        .iter()
+                        .find(|variant| variant.name == *variant_name)
+                })
+                .and_then(|variant| variant.fields.first())
                 .cloned()
                 .ok_or_else(|| {
-                    format!(
-                        "enum '{enum_name}' variant '{variant_name}' has no payload field at index {index}"
-                    )
+                    format!("enum '{enum_name}' variant '{variant_name}' has no payload")
                 })?;
             if !is_reference_target(&field_type) {
                 return Err(format!("{operator} cannot borrow a unit or never value").into());
@@ -9340,7 +9335,7 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
         // that checked reference as the root when borrowing a nested payload
         // field instead of walking through the enum's by-value owner.
         Expr::List(items)
-            if items.len() == 4
+            if items.len() == 3
                 && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut" | "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut")) =>
         {
             Some(expression)
@@ -10990,11 +10985,11 @@ mod typed_ownership_tests {
                 "(#array (#ref-mut #u64) 2)",
                 "(#array-of (#array (#ref-mut #u64) 2) reference reference)",
             ),
-            ("Choice", "(Both reference reference)"),
+            ("Choice", "(Both (#tuple reference reference))"),
         ] {
             let source = format!(
                 "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                  (#enum Choice () ((Both (#ref-mut #u64) (#ref-mut #u64))))
+                  (#enum Choice () ((Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
                   (#fn main () ()
                     (#let-mut value #u64 1u64)
                     (#let reference (#ref-mut #u64) (#borrow-mut value))
@@ -11126,8 +11121,8 @@ mod typed_ownership_tests {
              "(#tuple (#borrow-mut first) (#borrow-mut second))", "(#get holder 0)"),
             ("", "(#array (#ref-mut #u64) 2)",
              "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
-            ("(#enum Holder () ((Views (#ref-mut #u64) (#ref-mut #u64))))", "Holder",
-             "(Views (#borrow-mut first) (#borrow-mut second))", "(#get-payload holder Views 0)"),
+            ("(#enum Holder () ((Views (#tuple (#ref-mut #u64) (#ref-mut #u64)))))", "Holder",
+             "(Views (#tuple (#borrow-mut first) (#borrow-mut second)))", "(#get (#get-payload holder Views 0) 0)"),
         ] {
             let source = format!("{declarations}
                 (#fn main () #u64
@@ -11869,7 +11864,7 @@ mod typed_ownership_tests {
     fn pinned_payload_reborrows_retain_parameter_origins() {
         let source = "(#enum Slot () ((Full #u64) Empty))
           (#fn inspect ((slot (#pin-ref Slot))) ()
-            (#let view (#pin-ref #u64) (#pin-get-payload slot Full 0))
+            (#let view (#pin-ref #u64) (#pin-get-payload slot Full))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -16475,7 +16470,7 @@ mod typed_ownership_tests {
         let source = "(#enum Holder () (Empty (Full (#ref-mut #u64))))
             (#unsafe-fn take (: slot (#pin-ref-mut Holder)) (#ref-mut #u64)
               (#let payload (#pin-ref-mut (#ref-mut #u64))
-                (#unsafe (#pin-get-payload-unchecked-mut slot Full 0)))
+                (#unsafe (#pin-get-payload-unchecked-mut slot Full)))
               (#let value (#ref-mut #u64) (#unsafe (#pin-read payload)))
               (#forget payload)
               (#unsafe (#pin-write slot Empty))
@@ -19918,11 +19913,11 @@ mod typed_ownership_tests {
                 "Empty"
             };
             let source = format!(
-                "(#enum Choice () ((Has (#ref #u64) (#ref #u64)) Empty))
+                "(#enum Choice () ((Has (#tuple (#ref #u64) (#ref #u64))) Empty))
           (#struct Envelope () ((item Choice)))
           (#fn echo ((value {ty})) {ty}
             (#match {scrutinee}
-              (#case (Has left right) (#block (#return value)))
+              (#case (Has (#tuple left right)) (#block (#return value)))
               (#case Empty (#block (#return {empty}))))
             (#return (#unreachable)))"
             );
@@ -24346,11 +24341,14 @@ mod typed_ownership_tests {
                 "(#array (#ref-mut #u64) 2)",
                 "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut owner) (#borrow-mut owner))",
             ),
-            ("Choice", "(Both (#borrow-mut owner) (#borrow-mut owner))"),
+            (
+                "Choice",
+                "(Both (#tuple (#borrow-mut owner) (#borrow-mut owner)))",
+            ),
         ] {
             let source = format!(
                 "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                (#enum Choice () ((Both (#ref-mut #u64) (#ref-mut #u64))))
+                (#enum Choice () ((Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
                 (#fn main () () (#let-mut owner #u64 42u64)
                   (#let holder {ty} {constructor}) (#forget holder) (#return ()))"
             );

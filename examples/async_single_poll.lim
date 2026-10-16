@@ -2,15 +2,17 @@
 ;; every resume calls the same Work::poll function. The state enum tag is its index.
 (#import "../library/pin.lim")
 
-(#enum Step (#linear) (: Step-waiting #u64 #u64))
+(#struct StepWaiting () (: value #u64 : remaining #u64))
+(#enum Step (#linear) (: Step-waiting StepWaiting))
 
 (#enum StepPoll () (: StepPending Step : StepReady #u64))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task
-    (#case (Step-waiting value remaining)
-      (#if (#u64.== remaining 0u64)
-        (StepReady value)
-        (StepPending (Step-waiting value (#u64.-.wrap remaining 1u64))))))))
+    (#case (Step-waiting state)
+      (#if (#u64.== (#get state remaining) 0u64)
+        (StepReady (#get state value))
+        (StepPending (Step-waiting (#struct-literal StepWaiting
+          (: value (#get state value) : remaining (#u64.-.wrap (#get state remaining) 1u64))))))))))
 
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
 (#fn cancel-step (: task Step) ()
@@ -23,8 +25,10 @@
   (#fn work () #u64
     ;; The first child is immediately Work::Ready: Work::poll advances to await-1 without
     ;; returning to the caller or calling a generated resume function.
-    (#let first #u64 (#await (#syntax-splice StepAwait) (Step-waiting 40u64 0u64)))
-    (#let second #u64 (#await (#syntax-splice StepAwait) (Step-waiting 2u64 2u64)))
+    (#let first #u64 (#await (#syntax-splice StepAwait)
+      (Step-waiting (#struct-literal StepWaiting (: value 40u64 : remaining 0u64)))))
+    (#let second #u64 (#await (#syntax-splice StepAwait)
+      (Step-waiting (#struct-literal StepWaiting (: value 2u64 : remaining 2u64)))))
     (#return (#u64.+.wrap first second)))))
 
 (@#pin (: type Work::Frame : name PinnedFrame))

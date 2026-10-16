@@ -110,7 +110,7 @@ fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
         (#return (#get-payload owner Value 0)))";
     assert!(!run(inactive).success());
     for words in [1, 8] {
-        let fields = "#u64 ".repeat(words);
+        let fields = format!("(#tuple {})", "#u64 ".repeat(words));
         let value_source = format!(
             "(#enum E () ((Value #u64) (Other {fields})))
              (#fn make () E (#return (Value 42u64)))
@@ -127,4 +127,14 @@ fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
         );
         assert!(!run(&source).success());
     }
+}
+
+#[test]
+fn enum_variants_reject_multiple_payload_types() {
+    let source = "(#enum E () ((Pair #u64 #u64)))
+      (#fn main () #u64 (#return 0u64))";
+    assert!(lim::parse_program(source)
+        .unwrap_err()
+        .to_string()
+        .contains("at most one payload type"));
 }

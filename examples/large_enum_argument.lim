@@ -1,11 +1,13 @@
-(#enum Wide ()
-  ((Values #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
+(#struct WideValues () (: first #u64 : second #u64 : third #u64 : fourth #u64
+  : fifth #u64 : sixth #u64 : seventh #u64))
+(#enum Wide () ((Values WideValues) Empty))
 
 (#fn last ((value Wide)) #u64
   (#return
     (#match value
-      (#case (Values first second third fourth fifth sixth last) last)
+      (#case (Values values) (#get values seventh))
       (#case _ 0u64))))
 
 (#fn main () #u64
-  (#return (#call last (: value (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64)))))
+  (#return (#call last (: value (Values (#struct-literal WideValues
+    (: first 1u64 : second 2u64 : third 3u64 : fourth 4u64 : fifth 5u64 : sixth 6u64 : seventh 42u64)))))))
