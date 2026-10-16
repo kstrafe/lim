@@ -48,33 +48,33 @@
 (#fn main () #u64
   (#let arena Arena (#struct-literal Arena ()))
   (#let frame Work::Frame (#call work (:)))
-  (#let created PinnedFrameBoxCreateResult
-    (#call PinnedFrameBox-create (: allocator (#borrow arena) : value frame)))
+  (#let created PinnedFrameBox::CreateResult
+    (#call PinnedFrameBox::create (: allocator (#borrow arena) : value frame)))
   (#let-mut owner PinnedFrameBox
     (#match created
-      (#case (PinnedFrameBox-created box) box)
-      (#case (PinnedFrameBox-allocation-failed failure)
+      (#case (PinnedFrameBox::created box) box)
+      (#case (PinnedFrameBox::allocation-failed failure)
         (#block (#let (#tuple error failed-frame) (#tuple ArenaError Work::Frame) failure)
           (#forget error) (#forget failed-frame) (#return 0u64)))))
   (#let waker #u64 0u64)
   (#let first Work::Poll
-    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut owner)))
+    (#call Work::poll (: task (#call PinnedFrameBox::borrow-mut (: owner (#borrow-mut owner)))
       : waker (#borrow waker))))
   (#let-else (Work::Pending pending-frame) Work::Poll first (#unreachable))
   (#forget pending-frame)
   (#let-mut moved-once PinnedFrameBox owner)
   (#let second Work::Poll
-    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-once)))
+    (#call Work::poll (: task (#call PinnedFrameBox::borrow-mut (: owner (#borrow-mut moved-once)))
       : waker (#borrow waker))))
   (#let-else (Work::Pending pending-frame-second) Work::Poll second (#unreachable))
   (#forget pending-frame-second)
   (#let-mut moved-twice PinnedFrameBox moved-once)
   (#let third Work::Poll
-    (#call Work::poll (: task (#call PinnedFrameBox-borrow-mut (: owner (#borrow-mut moved-twice)))
+    (#call Work::poll (: task (#call PinnedFrameBox::borrow-mut (: owner (#borrow-mut moved-twice)))
       : waker (#borrow waker))))
   (#let answer #u64
     (#match third
       (#case (Work::Ready value) value)
       (#case (Work::Pending unexpected-frame) (#block (#forget unexpected-frame) 0u64))))
-  (#call PinnedFrameBox-destroy (: owner moved-twice))
+  (#call PinnedFrameBox::destroy (: owner moved-twice))
   (#return answer))

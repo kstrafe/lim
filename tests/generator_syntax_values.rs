@@ -4,7 +4,7 @@ fn expand(expression: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("generator-syntax-values");
     let source = format!(
         "(#gn alias (options) `((#type ,{expression} #u64)))
-         (@alias (: name Word : suffix \"-alias\"))
+         (@alias (: name Word : suffix \"alias\"))
          (#fn main () #u64 (#return 42u64))"
     );
     lim::compile_source_to_assembly(
@@ -23,7 +23,7 @@ fn named_syntax_lookup_and_identifier_composition_are_literal_operations() {
         "(#gn-get options absent Fallback)",
         "(#gn-get options name (#gn-error \"unused fallback must not run\"))",
         "(#gn-symbol-append (#gn-get options name) (#gn-get options suffix))",
-        "(#gn-symbol-append Word -alias)",
+        "(#gn-symbol-append Word alias)",
         "(#gn-gensym \"task\")",
         "(#gn-gensym (#gn-get (: hint \"task\") hint))",
     ] {
@@ -58,7 +58,6 @@ fn syntax_lookup_and_symbol_composition_fail_with_invocation_spans() {
         ("(#gn-gensym \"lim.gensym.fake\")", "ordinary identifier"),
         ("(#gn-symbol \"lim.gensym.fake\")", "cannot forge"),
         ("(#gn-symbol \"word lim.gensym.fake\")", "one identifier"),
-        ("(#gn-symbol-append lim. \"gensym.fake\")", "cannot forge"),
         (
             "(#gn-symbol-append (#gn-gensym \"task\") \"-other\")",
             "cannot alter",
@@ -73,6 +72,31 @@ fn syntax_lookup_and_symbol_composition_fail_with_invocation_spans() {
         assert_eq!(span.line, 2);
         assert!(span.end > span.start);
     }
+}
+
+#[test]
+fn symbol_append_inserts_double_colons_for_literal_suffixes_and_nested_calls() {
+    for (expression, expected) in [
+        ("(#gn-symbol-append Word \"alias\")", "Word::alias"),
+        ("(#gn-symbol-append Word alias)", "Word::alias"),
+        (
+            "(#gn-symbol-append (#gn-symbol-append Word State) Ready)",
+            "Word::State::Ready",
+        ),
+        (
+            "(#gn-symbol-append Word::State Ready)",
+            "Word::State::Ready",
+        ),
+        ("(#gn-symbol-append Word \"::alias\")", "Word::::alias"),
+        ("(#gn-symbol-append Word \"-alias\")", "Word::-alias"),
+    ] {
+        expand(&format!(
+            "(#gn-if (#gn-equal {expression} {expected}) {expression} (#gn-error \"incorrect symbol join\"))"
+        ))
+        .unwrap();
+    }
+    // Joining cannot accidentally enter the compiler-owned gensym domain.
+    expand("(#gn-symbol-append lim. \"gensym.fake\")").unwrap();
 }
 
 #[test]
@@ -93,6 +117,45 @@ fn source_cannot_claim_gensym_identity_and_parser_can_inspect_generated_syntax()
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "lim.gensym.fake");
     assert_eq!(span.line, 2);
+}
+
+#[test]
+fn joined_names_are_inspectable_and_reused_from_the_generated_cache() {
+    let scratch = support::Scratch::new("symbol-append-cache");
+    let source = r#"
+      (#gn emit (name)
+        `((#fn ,(#gn-symbol-append name "read") () #u64 (#return 42u64))))
+      (@emit Word)
+      (#fn main () #u64 (#return (#call Word::read (:))))
+    "#;
+    let compile = || {
+        lim::compile_source_with_generated_sources(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join(".lim/cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &scratch.path().join(".lim"),
+        )
+        .unwrap()
+    };
+    let cold = compile();
+    let files = std::fs::read_dir(scratch.path().join(".lim/generated"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "lim"))
+        .collect::<Vec<_>>();
+    assert_eq!(files.len(), 1);
+    let generated = std::fs::read_to_string(&files[0]).unwrap();
+    assert!(generated.contains("(#fn Word::read"), "{generated}");
+    let modified = std::fs::metadata(&files[0]).unwrap().modified().unwrap();
+    assert_eq!(compile(), cold);
+    assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), generated);
+    assert_eq!(
+        std::fs::metadata(&files[0]).unwrap().modified().unwrap(),
+        modified
+    );
 }
 
 #[test]

@@ -377,25 +377,25 @@ binding statement. Import `library/pin.lim` and declare a concrete API:
   : run drive-frame : destroy destroy-frame : result #u64))
 ```
 
-`@#pin` emits opaque `PinnedFrame` and `PinnedFrame-shared` handles, unsafe
-constructors, and `PinnedFrame-value-read` / `PinnedFrame-value-write` free
+`@#pin` emits opaque `PinnedFrame` and `PinnedFrame::shared` handles, unsafe
+constructors, and `PinnedFrame::value::read` / `PinnedFrame::value::write` free
 functions (plus the shared reader). Field types are literal generator inputs;
 ordinary checking verifies them and rejects moving linear fields or replacing
 fields that do not satisfy the pinned-field restrictions. Optional `copy true`
 emits whole-value readers and a writer only after checking a structural Copy
 proof. All implementation functions are inspectable in the generated cache.
 For linear fields, `projections (: child PinnedChild)` generates
-`PinnedFrame-child-project` and `PinnedFrame-child-project-mut`, returning
+`PinnedFrame::child::project` and `PinnedFrame::child::project-mut`, returning
 the existing concrete child pin handles without moving the field. Shared
 handles also get a shared projection. Projection consumes the parent handle;
 it does not leave a second mutable handle to the same storage. Derived handles
 retain their source's borrow and cannot outlive it. Unsafe
-`PinnedFrame-into-view` consumes a handle and exposes its low-level pinned
+`PinnedFrame::into-view` consumes a handle and exposes its low-level pinned
 reference for trusted implementations; it does not unpin or move the referent.
 
-The same declarations also generate `PinnedFrame-child-borrow-mut`, taking
-`(: pin (#ref-mut PinnedFrame))`, and `PinnedFrame-child-borrow`, taking
-`(: pin (#ref PinnedFrame))`. Shared wrappers have their own shared `-borrow`
+The same declarations also generate `PinnedFrame::child::borrow-mut`, taking
+`(: pin (#ref-mut PinnedFrame))`, and `PinnedFrame::child::borrow`, taking
+`(: pin (#ref PinnedFrame))`. Shared wrappers have their own shared `::borrow`
 function. These reborrow the child without consuming the parent handle.
 Disjoint mutable child fields can coexist, as can overlapping shared views;
 overlapping exclusive access is rejected at the offending call argument.
@@ -488,7 +488,9 @@ generator, which takes named options `type`, `allocator`, `name`, `error`,
 It generates an opaque named linear heap-owner type and create, shared-borrow,
 mutable-borrow, and destroy functions. Its borrow functions return native
 `#pin-ref` and `#pin-ref-mut` values. `examples/pin_box.lim` demonstrates
-moving a handle while a view stays live.
+moving a handle while a view stays live. For an owner `Box`, generated symbols
+include `Box::CreateResult`, `Box::created`, `Box::allocation-failed`, and
+`Box::create` / `Box::borrow` / `Box::borrow-mut` / `Box::destroy`.
 
 `library/pin_rc.lim` defines `@#pin-rc` with the same named options and
 allocator hooks, and generates named linear reference-counted owners with
@@ -497,10 +499,13 @@ is single-threaded and is neither `Send` nor `Sync`; it has no weak-reference
 handles. Mutable borrowing is available only while the handle is the unique
 strong owner. Destroy every borrowed view before destroying a handle, because
 the final handle destruction runs the pointee destructor in place and releases
-the allocation.
+the allocation. For an owner `Shared`, generated symbols include
+`Shared::Allocation`, `Shared::CreateResult`, `Shared::MutResult`, and
+`Shared::create` / `Shared::clone` / `Shared::borrow` / `Shared::borrow-mut` /
+`Shared::destroy`; enum cases include `Shared::unique` and `Shared::shared`.
 
 For an owner named `PinnedFrameRc`, the allocator's success variant contains
-`(#ptr-mut PinnedFrameRcAllocation)`, the generated control-block type, not a
+`(#ptr-mut PinnedFrameRc::Allocation)`, the generated control-block type, not a
 pointer to the frame alone. The generated functions pass that block's size and
 alignment to the allocator and deallocator. Both Box and Rc destruction hooks
 take `(: allocator (#ref Allocator) : pin (#pin-ref-mut Element))` and must
@@ -1189,7 +1194,10 @@ The generator builtins are `#gn-gensym`, `#gn-if`, `#gn-equal`, `#gn-symbol?`,
 `#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-length`, `#gn-first`, `#gn-rest`,
 `#gn-get`, `#gn-symbol-append`, `#gn-for-each`, `#gn-call`, and `#gn-error`.
 `#gn-get` looks up a literal key in a named syntax list without introducing a
-new dictionary type. `#gn-symbol-append` constructs concrete API identifiers.
+new dictionary type. `#gn-symbol-append` constructs concrete API identifiers by
+joining the base and suffix with `::`, for example `Frame` and `"read"` become
+`Frame::read`. Nested calls produce names such as `Frame::State::Ready`.
+These are ordinary identifiers, not namespaces or proof of generator provenance.
 `#gn-for-each` is the only iteration construct; there are no general loops or
 mutable generator values. `#gn-error`
 fails expansion with the supplied message. Generators cannot perform IO or
@@ -1497,9 +1505,9 @@ uphold these obligations internally; printing does not require `#unsafe`.
 `(#std)` also provides `StringView` and `Utf8Slice`: opaque, allocation-free
 UTF-8 views that retain a shared borrow of their source. `String-view
 (: string (#ref String))` borrows the complete String in constant time, since
-safe String operations already guarantee valid UTF-8. `Utf8Slice-from-owner
+safe String operations already guarantee valid UTF-8. `Utf8Slice::from-owner
 (: owner (#slice #u8))` validates the complete byte slice and returns
-`(Utf8SliceValid view)` or `Utf8SliceInvalidUtf8`, without allocating or
+`(Utf8Slice::Valid view)` or `Utf8Slice::InvalidUtf8`, without allocating or
 copying the bytes. Empty input and embedded NUL are valid.
 
 Both APIs come from an ordinary library generator. To declare another concrete
@@ -1511,12 +1519,12 @@ view, choose its public name and source layout explicitly:
 (#fn main () #u64
   (#let bytes (#array #u8 2) (#array-of (#array #u8 2) 195u8 169u8))
   (#let view BorrowedText
-    (#match (#call BorrowedText-from-owner (: owner (#borrow-slice bytes)))
-      (#case (BorrowedTextValid accepted) accepted)
+    (#match (#call BorrowedText::from-owner (: owner (#borrow-slice bytes)))
+      (#case (BorrowedText::Valid accepted) accepted)
       (#case _ (#panic))))
-  (#let-mut iterator BorrowedTextChars (#call BorrowedText-chars (: view view)))
-  (#assert (#match (#call BorrowedTextChars-next (: iterator (#borrow-mut iterator)))
-    (#case (BorrowedTextChar value) (#char.== value #\é))
+  (#let-mut iterator BorrowedText::Chars (#call BorrowedText::chars (: view view)))
+  (#assert (#match (#call BorrowedText::Chars::next (: iterator (#borrow-mut iterator)))
+    (#case (BorrowedText::Char value) (#char.== value #\é))
     (#case _ false)))
   (#forget iterator)
   (#return 42u64))
@@ -1526,15 +1534,15 @@ For a generated name `V`, the public operations are:
 
 | Function | Arguments | Result |
 | --- | --- | --- |
-| `V-from-owner` | `: owner` with the declared source type | `VResult`: `(VValid view)` or `VInvalidUtf8`; validates in O(bytes). |
-| `V-len` | `: view (#ref V)` | `#usize` byte length, not character count. |
-| `V-is-empty` | `: view (#ref V)` | `#bool`. |
-| `V-byte-at` | `: view (#ref V) : index #usize` | `(Utf8Byte copied-byte)` or `Utf8ByteOutOfBounds`. |
-| `V-boundary` | `: view (#ref V) : index #usize` | Whether the offset is a scalar boundary; zero and length are boundaries, out-of-range is false. |
-| `V-subview` | `: view (#ref V) : start #usize : end #usize` | `VResult` for half-open byte range `[start,end)`: `(VValid subview)`, `VInvalidRange`, or `VInvalidBoundary`. |
-| `V-clone` | `: view (#ref V)` | A new borrowed view; copies only borrow metadata, not the source or allocation. |
-| `V-chars` | `: view V` | `VChars`, consuming the view and retaining its source borrow. |
-| `VChars-next` | `: iterator (#ref-mut VChars)` | `(VChar scalar)` or `VEnd`; repeated end reads remain at end. |
+| `V::from-owner` | `: owner` with the declared source type | `V::Result`: `(V::Valid view)` or `V::InvalidUtf8`; validates in O(bytes). |
+| `V::len` | `: view (#ref V)` | `#usize` byte length, not character count. |
+| `V::is-empty` | `: view (#ref V)` | `#bool`. |
+| `V::byte-at` | `: view (#ref V) : index #usize` | `(Utf8Byte copied-byte)` or `Utf8ByteOutOfBounds`. |
+| `V::boundary` | `: view (#ref V) : index #usize` | Whether the offset is a scalar boundary; zero and length are boundaries, out-of-range is false. |
+| `V::subview` | `: view (#ref V) : start #usize : end #usize` | `V::Result` for half-open byte range `[start,end)`: `(V::Valid subview)`, `V::InvalidRange`, or `V::InvalidBoundary`. |
+| `V::clone` | `: view (#ref V)` | A new borrowed view; copies only borrow metadata, not the source or allocation. |
+| `V::chars` | `: view V` | `V::Chars`, consuming the view and retaining its source borrow. |
+| `V::Chars::next` | `: iterator (#ref-mut V::Chars)` | `(V::Char scalar)` or `V::End`; repeated end reads remain at end. |
 
 Subview bounds are checked before additions or byte access, including maximal
 `#usize` offsets. Splitting a multibyte scalar is an error, including an empty
@@ -2267,7 +2275,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#gn-list?` | `(#gn-list? syntax)` | `(#gn-list? value)` (generator expression) | Tests whether a syntax value is a list. |
 | `#gn-rest` | `(#gn-rest list)` | `(#gn-rest fields)` (generator expression) | Returns a list containing all but the first element. |
 | `#gn-symbol` | `(#gn-symbol string-literal)` | `(#gn-symbol "#type")` (generator expression) | Constructs one symbol syntax value from a string literal, including builtin names; rejects malformed text and compiler-reserved gensym names. |
-| `#gn-symbol-append` | `(#gn-symbol-append symbol string-or-symbol)` | `(#gn-symbol-append PinnedFrame "-read")` (generator expression) | Appends literal text to an identifier and checks that the result parses as exactly one symbol. Used for concrete generated type and function names. |
+| `#gn-symbol-append` | `(#gn-symbol-append symbol string-or-symbol)` | `(#gn-symbol-append PinnedFrame "read")` (generator expression) | Joins the base and literal suffix with `::`, producing `PinnedFrame::read`, and checks that the result parses as exactly one symbol. Used for concrete generated type and function names. |
 | `#gn-symbol?` | `(#gn-symbol? syntax)` | `(#gn-symbol? value)` (generator expression) | Tests whether a syntax value is a symbol. |
 | `#i128` | `#i128` | `(#fn identity ((value #i128)) #i128 (#return value))` (function signature) | Signed 128-bit integer scalar type. |
 | `#i16` | `#i16` | `(#fn identity ((value #i16)) #i16 (#return value))` (function signature) | Signed 16-bit integer scalar type. |

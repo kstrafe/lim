@@ -3,15 +3,15 @@
 
 (#gn register-future (executor future)
   `((#require-generated
-       ,(#gn-symbol-append future "::Frame")
+       ,(#gn-symbol-append future "Frame")
        #async-fn-pinned
-       (,(#gn-symbol-append future "::Poll")
-        ,(#gn-symbol-append future "::Pending")
-        ,(#gn-symbol-append future "::Ready")
-        ,(#gn-symbol-append future "::poll")))
+       (,(#gn-symbol-append future "Poll")
+        ,(#gn-symbol-append future "Pending")
+        ,(#gn-symbol-append future "Ready")
+        ,(#gn-symbol-append future "poll")))
     (#enum-contribute ,executor
-      (,(#gn-symbol-append (#gn-symbol-append executor "::") future)
-       ,(#gn-symbol-append future "::Frame")))))
+      (,(#gn-symbol-append executor future)
+       ,(#gn-symbol-append future "Frame")))))
 
 ; Forward references are checked after expansion; they do not schedule it.
 (@register-future ExecutorTask Work)

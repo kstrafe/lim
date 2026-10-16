@@ -9,8 +9,8 @@
 
 (#fn drive-frame (: pin PinnedFrame) #u64
   (#let-mut handle PinnedFrame pin)
-  (#call PinnedFrame-value-write (: pin (#borrow-mut handle) : value 42u64))
-  (#let result #u64 (#call PinnedFrame-value-read (: pin (#borrow handle))))
+  (#call PinnedFrame::value::write (: pin (#borrow-mut handle) : value 42u64))
+  (#let result #u64 (#call PinnedFrame::value::read (: pin (#borrow handle))))
   (#forget handle)
   (#return result))
 

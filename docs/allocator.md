@@ -36,7 +36,7 @@ string with retained capacity still needs freeing.
 
 `library/utf8_view.lim`, included by `#std`, generates validated borrowed text
 views over String allocations or shared byte slices. `String-view` is a
-constant-time borrow; `Utf8Slice-from-owner` validates without allocation.
+constant-time borrow; `Utf8Slice::from-owner` validates without allocation.
 Checked byte-boundary subviews, explicit view clones, and character iterators
 retain the original source loan even after a parent view is forgotten.
 They never copy or destroy the owner. Packed heap bytes and word-backed Lim

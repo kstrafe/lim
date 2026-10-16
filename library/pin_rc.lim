@@ -21,14 +21,14 @@
       (#struct ,name () (: allocator (#ref ,allocator) : pointer (#pin-shared-own ,block)))
       (#opaque ,name)
       (#enum ,(#gn-call pin-rc-name name "CreateResult") (#linear)
-        ((,(#gn-call pin-rc-name name "-created") ,name)
-         (,(#gn-call pin-rc-name name "-allocation-failed") (#tuple ,error ,element))))
+        ((,(#gn-call pin-rc-name name "created") ,name)
+         (,(#gn-call pin-rc-name name "allocation-failed") (#tuple ,error ,element))))
 
       (#enum ,(#gn-call pin-rc-name name "MutResult") (#linear)
-        ((,(#gn-call pin-rc-name name "-unique") (#pin-ref-mut ,element))
-         (,(#gn-call pin-rc-name name "-shared"))))
+        ((,(#gn-call pin-rc-name name "unique") (#pin-ref-mut ,element))
+         (,(#gn-call pin-rc-name name "shared"))))
 
-      (#fn ,(#gn-call pin-rc-name name "-create")
+      (#fn ,(#gn-call pin-rc-name name "create")
         (: allocator (#ref ,allocator) : value ,element) ,(#gn-call pin-rc-name name "CreateResult")
         (#let allocated ,alloc-result (#call ,alloc
           (: allocator allocator : layout (#size-of ,block) : alignment (#align-of ,block))))
@@ -37,15 +37,15 @@
             (#block
               (#let storage (#pin-own ,block) (#unsafe (#pin-own-of raw
                 (#struct-literal ,block (: value value : strong (#atomic-init #usize 1usize))))))
-              (,(#gn-call pin-rc-name name "-created")
+              (,(#gn-call pin-rc-name name "created")
                 (#struct-literal ,name (: allocator allocator : pointer (#pin-share storage))))))
           (#case (,alloc-error failure)
-            (,(#gn-call pin-rc-name name "-allocation-failed") (#tuple failure value))))))
-      (#fn ,(#gn-call pin-rc-name name "-borrow") (: owner (#ref ,name)) (#pin-ref ,element)
+            (,(#gn-call pin-rc-name name "allocation-failed") (#tuple failure value))))))
+      (#fn ,(#gn-call pin-rc-name name "borrow") (: owner (#ref ,name)) (#pin-ref ,element)
         (#let view (#pin-ref ,block)
           (#pin-shared-borrow (#borrow (#get owner pointer)) (#get owner allocator)))
         (#return (#pin-borrow (#get view value))))
-      (#fn ,(#gn-call pin-rc-name name "-clone") (: owner (#ref ,name)) ,name
+      (#fn ,(#gn-call pin-rc-name name "clone") (: owner (#ref ,name)) ,name
         (#let view (#pin-ref ,block) (#pin-shared-borrow (#borrow (#get owner pointer))))
         (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))
         (#assert (#bool.&& (#usize.> count 0usize) (#usize.< count (#usize.-.wrap 0usize 1usize))))
@@ -54,7 +54,7 @@
         (#return (#struct-literal ,name
           (: allocator (#clone (#get owner allocator))
            : pointer (#unsafe (#pin-share-clone (#borrow (#get owner pointer))))))))
-      (#fn ,(#gn-call pin-rc-name name "-borrow-mut") (: owner (#ref-mut ,name)) ,(#gn-call pin-rc-name name "MutResult")
+      (#fn ,(#gn-call pin-rc-name name "borrow-mut") (: owner (#ref-mut ,name)) ,(#gn-call pin-rc-name name "MutResult")
         (#let view (#pin-ref ,block) (#pin-shared-borrow (#borrow (#get owner pointer))))
         (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))
         (#drop view)
@@ -62,9 +62,9 @@
           (#block
             (#let exclusive (#pin-ref-mut ,block)
               (#unsafe (#pin-shared-borrow-mut (#borrow-mut (#get owner pointer)) owner)))
-            (,(#gn-call pin-rc-name name "-unique") (#pin-borrow-mut (#get exclusive value))))
-          (,(#gn-call pin-rc-name name "-shared")))))
-      (#fn ,(#gn-call pin-rc-name name "-destroy") (: owner ,name) ()
+            (,(#gn-call pin-rc-name name "unique") (#pin-borrow-mut (#get exclusive value))))
+          (,(#gn-call pin-rc-name name "shared")))))
+      (#fn ,(#gn-call pin-rc-name name "destroy") (: owner ,name) ()
         (#let-mut (,name allocator pointer) ,name owner)
         (#let view (#pin-ref ,block) (#pin-shared-borrow pointer))
         (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))

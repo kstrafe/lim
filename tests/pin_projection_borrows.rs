@@ -50,13 +50,13 @@ fn run(source: &str) {
 
 const DRIVE: &str = r#"(#fn drive (: pin PinnedOuter) #u64
   (#let-mut parent PinnedOuter pin)
-  (#let-mut left PinnedInner (#call PinnedOuter-left-borrow-mut (: pin (#borrow-mut parent))))
-  (#let-mut right PinnedInner (#call PinnedOuter-right-borrow-mut (: pin (#borrow-mut parent))))
-  (#call PinnedInner-value-write (: pin (#borrow-mut left) : value 20u64))
-  (#call PinnedInner-value-write (: pin (#borrow-mut right) : value 22u64))
+  (#let-mut left PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent))))
+  (#let-mut right PinnedInner (#call PinnedOuter::right::borrow-mut (: pin (#borrow-mut parent))))
+  (#call PinnedInner::value::write (: pin (#borrow-mut left) : value 20u64))
+  (#call PinnedInner::value::write (: pin (#borrow-mut right) : value 22u64))
   (#let answer #u64 (#u64.+.wrap
-    (#call PinnedInner-value-read (: pin (#borrow left)))
-    (#call PinnedInner-value-read (: pin (#borrow right)))))
+    (#call PinnedInner::value::read (: pin (#borrow left)))
+    (#call PinnedInner::value::read (: pin (#borrow right)))))
   (#forget left) (#forget right) (#forget parent) (#return answer))"#;
 
 #[test]
@@ -70,8 +70,8 @@ fn overlapping_child_projections_reject_at_the_second_call() {
         "{} {}",
         prefix(),
         DRIVE.replace(
-            "PinnedOuter-right-borrow-mut",
-            "PinnedOuter-left-borrow-mut"
+            "PinnedOuter::right::borrow-mut",
+            "PinnedOuter::left::borrow-mut"
         )
     );
     let error = compile(&source)
@@ -93,8 +93,8 @@ fn forgetting_a_wrapper_does_not_destroy_its_stationary_referent() {
         prefix(),
         DRIVE
             .replace(
-                "(#call PinnedInner-value-write (: pin (#borrow-mut left)",
-                "(#forget parent) (#call PinnedInner-value-write (: pin (#borrow-mut left)"
+                "(#call PinnedInner::value::write (: pin (#borrow-mut left)",
+                "(#forget parent) (#call PinnedInner::value::write (: pin (#borrow-mut left)"
             )
             .replace("(#forget right) (#forget parent)", "(#forget right)")
     );
@@ -105,16 +105,16 @@ fn forgetting_a_wrapper_does_not_destroy_its_stationary_referent() {
 fn shared_projections_coexist_but_prevent_an_exclusive_projection() {
     let drive = r#"(#fn drive (: pin PinnedOuter) #u64
       (#let-mut parent PinnedOuter pin)
-      (#let-mut initial PinnedInner (#call PinnedOuter-left-borrow-mut (: pin (#borrow-mut parent))))
-      (#call PinnedInner-value-write (: pin (#borrow-mut initial) : value 42u64))
+      (#let-mut initial PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent))))
+      (#call PinnedInner::value::write (: pin (#borrow-mut initial) : value 42u64))
       (#forget initial)
-      (#let first PinnedInner-shared (#call PinnedOuter-left-borrow (: pin (#borrow parent))))
-      (#let second PinnedInner-shared (#call PinnedOuter-left-borrow (: pin (#borrow parent))))
-      (#let answer #u64 (#call PinnedInner-shared-value-read (: pin (#borrow first))))
-      (#assert (#u64.== (#call PinnedInner-shared-value-read (: pin (#borrow second))) answer))
+      (#let first PinnedInner::shared (#call PinnedOuter::left::borrow (: pin (#borrow parent))))
+      (#let second PinnedInner::shared (#call PinnedOuter::left::borrow (: pin (#borrow parent))))
+      (#let answer #u64 (#call PinnedInner::shared::value::read (: pin (#borrow first))))
+      (#assert (#u64.== (#call PinnedInner::shared::value::read (: pin (#borrow second))) answer))
       (#forget first) (#forget second) (#forget parent) (#return answer))"#;
     run(&format!("{} {drive}", prefix()));
-    let bad = drive.replace("(#let answer #u64", "(#let exclusive PinnedInner (#call PinnedOuter-left-borrow-mut (: pin (#borrow-mut parent)))) (#forget exclusive) (#let answer #u64");
+    let bad = drive.replace("(#let answer #u64", "(#let exclusive PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent)))) (#forget exclusive) (#let answer #u64");
     let error = compile(&format!("{} {bad}", prefix()))
         .err()
         .expect("shared children block overlapping exclusive access");
@@ -125,8 +125,8 @@ fn shared_projections_coexist_but_prevent_an_exclusive_projection() {
 fn consuming_a_parent_for_projection_does_not_bypass_a_retained_child() {
     let bad = DRIVE
         .replace(
-            "PinnedOuter-right-borrow-mut (: pin (#borrow-mut parent))",
-            "PinnedOuter-left-project-mut (: pin parent)",
+            "PinnedOuter::right::borrow-mut (: pin (#borrow-mut parent))",
+            "PinnedOuter::left::project-mut (: pin parent)",
         )
         .replace("(#forget right) (#forget parent)", "(#forget right)");
     let error = compile(&format!("{} {bad}", prefix()))
@@ -138,15 +138,15 @@ fn consuming_a_parent_for_projection_does_not_bypass_a_retained_child() {
 #[test]
 fn helper_accesses_are_checked_even_when_the_child_is_transferred_to_the_call() {
     let helper = r#"(#fn helper (: parent (#ref-mut PinnedOuter) : child PinnedInner) ()
-      (#let-mut sibling PinnedInner (#call PinnedOuter-left-borrow-mut (: pin parent)))
-      (#call PinnedInner-value-write (: pin (#borrow-mut sibling) : value 99u64))
+      (#let-mut sibling PinnedInner (#call PinnedOuter::left::borrow-mut (: pin parent)))
+      (#call PinnedInner::value::write (: pin (#borrow-mut sibling) : value 99u64))
       (#forget sibling)
       (#let-mut held PinnedInner child)
-      (#call PinnedInner-value-write (: pin (#borrow-mut held) : value 20u64))
+      (#call PinnedInner::value::write (: pin (#borrow-mut held) : value 20u64))
       (#forget held) (#return ()))"#;
     let drive = r#"(#fn drive (: pin PinnedOuter) #u64
       (#let-mut parent PinnedOuter pin)
-      (#let left PinnedInner (#call PinnedOuter-left-borrow-mut (: pin (#borrow-mut parent))))
+      (#let left PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent))))
       (#call helper (: parent (#borrow-mut parent) : child left))
       (#forget parent) (#return 42u64))"#;
     let source = format!("{} {helper} {drive}", prefix());
@@ -160,8 +160,8 @@ fn helper_accesses_are_checked_even_when_the_child_is_transferred_to_the_call() 
         error.message
     );
     let disjoint = source.replace(
-        "PinnedOuter-left-borrow-mut (: pin parent)",
-        "PinnedOuter-right-borrow-mut (: pin parent)",
+        "PinnedOuter::left::borrow-mut (: pin parent)",
+        "PinnedOuter::right::borrow-mut (: pin parent)",
     );
     run(&disjoint);
 }
@@ -169,8 +169,8 @@ fn helper_accesses_are_checked_even_when_the_child_is_transferred_to_the_call() 
 #[test]
 fn void_helpers_cannot_touch_a_retained_exclusive_child() {
     let helper = r#"(#fn touch (: parent (#ref-mut PinnedOuter)) ()
-      (#let-mut temporary PinnedInner (#call PinnedOuter-left-borrow-mut (: pin parent)))
-      (#call PinnedInner-value-write (: pin (#borrow-mut temporary) : value 99u64))
+      (#let-mut temporary PinnedInner (#call PinnedOuter::left::borrow-mut (: pin parent)))
+      (#call PinnedInner::value::write (: pin (#borrow-mut temporary) : value 99u64))
       (#forget temporary) (#return ()))"#;
     let bad = DRIVE.replace(
         "(#let-mut right PinnedInner",
@@ -198,14 +198,14 @@ fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
         (#let-mut owner (#pin-own Outer) (#unsafe (#pin-own-of pointer
           (#struct-literal Outer (: left (#struct-literal Inner (: value 0u64))
             : right (#struct-literal Inner (: value 0u64)))))))
-        (#let-mut parent PinnedOuter (#unsafe (#call PinnedOuter-from-mut
+        (#let-mut parent PinnedOuter (#unsafe (#call PinnedOuter::from-mut
           (: view (#pin-own-borrow-mut owner)))))
-        (#let-mut left PinnedInner (#call PinnedOuter-left-borrow-mut (: pin (#borrow-mut parent))))
-        (#let-mut right PinnedInner (#call PinnedOuter-right-borrow-mut (: pin (#borrow-mut parent))))
-        (#call PinnedInner-value-write (: pin (#borrow-mut left) : value 20u64))
-        (#call PinnedInner-value-write (: pin (#borrow-mut right) : value 22u64))
-        (#let answer #u64 (#u64.+.wrap (#call PinnedInner-value-read (: pin (#borrow left)))
-          (#call PinnedInner-value-read (: pin (#borrow right)))))
+        (#let-mut left PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent))))
+        (#let-mut right PinnedInner (#call PinnedOuter::right::borrow-mut (: pin (#borrow-mut parent))))
+        (#call PinnedInner::value::write (: pin (#borrow-mut left) : value 20u64))
+        (#call PinnedInner::value::write (: pin (#borrow-mut right) : value 22u64))
+        (#let answer #u64 (#u64.+.wrap (#call PinnedInner::value::read (: pin (#borrow left)))
+          (#call PinnedInner::value::read (: pin (#borrow right)))))
         (#forget left) (#forget right) (#forget parent)
         (#call destroy-heap (: owner owner)) (#return answer))"#
     );

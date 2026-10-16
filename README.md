@@ -28,6 +28,12 @@ returns. See [docs/language.md](docs/language.md) for the implemented syntax,
 ownership rules, and current limitations. The allocator design is described
 in [docs/allocator.md](docs/allocator.md).
 
+The concrete pin, pinned allocation, and borrowed UTF-8 view generators are
+documented in [docs/language.md](docs/language.md#raw-pointers-and-unsafe-blocks) and
+[the borrowed UTF-8 view section](docs/language.md#borrowed-utf-8-views).
+These generators join API names with `::`, such as
+`PinnedFrame::value::read` or `Utf8Slice::from-owner`.
+
 The internal typed-representation migration is documented in
 [docs/compiler-ir.md](docs/compiler-ir.md).
 

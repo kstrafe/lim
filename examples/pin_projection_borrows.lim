@@ -16,14 +16,14 @@
   ; Borrowing a child does not consume the parent handle. Disjoint children
   ; can coexist; asking for left twice while it is borrowed would fail.
   (#let-mut left PinnedNumber
-    (#call PinnedPair-left-borrow-mut (: pin (#borrow-mut parent))))
+    (#call PinnedPair::left::borrow-mut (: pin (#borrow-mut parent))))
   (#let-mut right PinnedNumber
-    (#call PinnedPair-right-borrow-mut (: pin (#borrow-mut parent))))
-  (#call PinnedNumber-value-write (: pin (#borrow-mut left) : value 20u64))
-  (#call PinnedNumber-value-write (: pin (#borrow-mut right) : value 22u64))
+    (#call PinnedPair::right::borrow-mut (: pin (#borrow-mut parent))))
+  (#call PinnedNumber::value::write (: pin (#borrow-mut left) : value 20u64))
+  (#call PinnedNumber::value::write (: pin (#borrow-mut right) : value 22u64))
   (#let answer #u64 (#u64.+.wrap
-    (#call PinnedNumber-value-read (: pin (#borrow left)))
-    (#call PinnedNumber-value-read (: pin (#borrow right)))))
+    (#call PinnedNumber::value::read (: pin (#borrow left)))
+    (#call PinnedNumber::value::read (: pin (#borrow right)))))
   (#forget left)
   (#forget right)
   (#forget parent)

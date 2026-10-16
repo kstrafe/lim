@@ -1932,6 +1932,7 @@ fn evaluate(
                 Expr::String(suffix) | Expr::Symbol(suffix) => suffix,
                 _ => return Err("#gn-symbol-append requires a string or symbol suffix".into()),
             };
+            base.push_str("::");
             base.push_str(&suffix);
             if crate::gensym::reserved(&base) {
                 return Err(

@@ -40,36 +40,36 @@
 
 (#fn main () #u64
   (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
-  (#let failed PinU64BoxCreateResult
-    (#call PinU64Box-create (: allocator (#borrow failed-arena) : value 99u64)))
+  (#let failed PinU64Box::CreateResult
+    (#call PinU64Box::create (: allocator (#borrow failed-arena) : value 99u64)))
   (#let failure-was-preserved #bool
     (#match failed
-      (#case (PinU64Box-created owner)
+      (#case (PinU64Box::created owner)
         (#block
-          (#call PinU64Box-destroy (: owner owner))
+          (#call PinU64Box::destroy (: owner owner))
           false))
-      (#case (PinU64Box-allocation-failed failure)
+      (#case (PinU64Box::allocation-failed failure)
         (#block
           (#let (#tuple error original) (#tuple ArenaError #u64) failure)
           (#forget error)
           (#if (#u64.== original 99u64) true false)))))
   (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
-  (#let created PinU64BoxCreateResult
-    (#call PinU64Box-create (: allocator (#borrow arena) : value 42u64)))
+  (#let created PinU64Box::CreateResult
+    (#call PinU64Box::create (: allocator (#borrow arena) : value 42u64)))
   (#return
     (#match created
-      (#case (PinU64Box-created owner)
+      (#case (PinU64Box::created owner)
         (#block
           (#let value-reference (#pin-ref #u64)
-            (#call PinU64Box-borrow (: owner (#borrow owner))))
+            (#call PinU64Box::borrow (: owner (#borrow owner))))
           (#let moved-owner PinU64Box (#call forward-owner (: owner owner)))
           (#let value #u64 (#unsafe (#pin-read value-reference)))
           (#drop value-reference)
-          (#call PinU64Box-destroy (: owner moved-owner))
+          (#call PinU64Box::destroy (: owner moved-owner))
           (#if failure-was-preserved
             (#if (#u64.== value 42u64) 42u64 1u64)
             1u64)))
-      (#case (PinU64Box-allocation-failed failure)
+      (#case (PinU64Box::allocation-failed failure)
         (#block
           (#let (#tuple error value) (#tuple ArenaError #u64) failure)
           (#forget value)
