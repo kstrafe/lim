@@ -2725,6 +2725,20 @@ the fallback, and borrowed and pinned forms cannot be mixed in one match.
 Payload patterns accept one binder or `_`, without nested destructuring.
 `examples/borrowed_cases.lim` is a runnable example.
 
+All five case forms accept a sequence of body expressions, after the optional
+`(#when condition)` guard. Multiple expressions lower to one `#block` in the
+arm's scope; the last expression supplies its value. This does not introduce
+implicit function returns or automatic destruction. For example:
+
+```lisp syntax
+(#case (Work::Pending pending)
+  (#forget pending)
+  0u64)
+```
+
+This is equivalent to `(#case (Work::Pending pending)
+(#block (#forget pending) 0u64))`. A body is required even after a guard.
+
 Async lowering can still conservatively reject an exclusive match receiver
 returned by another function: its frame retains a conflicting parent reference
 handle. This is a generator limitation, not a restriction on ordinary functions;

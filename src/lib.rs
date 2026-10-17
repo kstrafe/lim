@@ -4611,6 +4611,13 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
                         parts.remove(1);
                     }
                 }
+                let body_start = if matches!(parts.get(1), Some(Expr::List(guard))
+                    if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "when")) { 2 } else { 1 };
+                if parts.len() > body_start + 1 {
+                    let mut body = vec![Expr::Symbol("block".into())];
+                    body.extend(parts.drain(body_start..));
+                    parts.push(Expr::List(body));
+                }
                 for part in parts {
                     normalize_match_cases_expr(part);
                 }
@@ -4670,11 +4677,33 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                     arm.span,
                 ));
             }
-            if !matches!(parts.len(), 3 | 4) {
+            let body_start = if matches!(parts.get(2), Some(Expr::List(guard))
+                if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when")) { 3 } else { 2 };
+            if parts.len() <= body_start {
                 return Err((
-                    "match case must have a pattern and body, with an optional #when guard".into(),
+                    "match case must have a pattern and a nonempty body, with an optional #when guard".into(),
                     arm.span,
                 ));
+            }
+            if parts.len() > body_start + 1 {
+                let mut body = arm.children.split_off(body_start);
+                let first = body[0].span;
+                let last = body.last().unwrap().span;
+                let span = Span { end: last.end, ..first };
+                body.insert(0, SpannedExpr {
+                    expr: Expr::Symbol("#block".into()),
+                    span: first,
+                    children: Vec::new(),
+                });
+                let block = SpannedExpr {
+                    expr: Expr::List(body.iter().map(|child| child.expr.clone()).collect()),
+                    span,
+                    children: body,
+                };
+                let Expr::List(parts) = &mut arm.expr else { unreachable!() };
+                parts.truncate(body_start);
+                parts.push(block.expr.clone());
+                arm.children.push(block);
             }
             let Expr::List(normalized_parts) = &mut arm.expr else {
                 unreachable!();
@@ -11514,6 +11543,35 @@ mod tests {
             let error = Parser::new(&tokens).run().unwrap_err();
             assert!(error.message.contains("shorthand expects"), "{error}");
             assert_eq!(&source[error.span.start..error.span.end], offending);
+        }
+    }
+
+    #[test]
+    fn case_sequences_lower_to_blocks_without_implicit_function_returns() {
+        for (keyword, ty, value, read) in [
+            ("#case", "Choice", "(Full 42u64)", "payload"),
+            ("#case-ref", "(#ref Choice)", "(#borrow choice)", "(#deref payload)"),
+            ("#case-ref-mut", "(#ref-mut Choice)", "(#borrow-mut choice)", "(#deref payload)"),
+            ("#case-pin", "(#pin-ref Choice)", "(#pin-shared choice)", "(#unsafe (#pin-read payload))"),
+            ("#case-pin-mut", "(#pin-ref-mut Choice)", "(#pin choice)", "(#unsafe (#pin-read payload))"),
+        ] {
+            let source = format!("(#enum Choice () ((Full #u64)))
+              (#fn read (: input {ty}) #u64
+                (#return (#match input
+                  ({keyword} (Full payload) (#when true)
+                    (#let result #u64 {read}) result)
+                  (#case _ 0u64))))
+              (#fn main () #u64
+                (#let-mut choice Choice (Full 1u64))
+                (#let answer #u64 (#call read (: input {value})))
+                (#forget choice) (#return answer))");
+            let program = parse_program(&source).unwrap_or_else(|e| panic!("{keyword}: {e}"));
+            check_types(&program).unwrap_or_else(|e| panic!("{keyword}: {e}"));
+            generate_assembly(&program).unwrap();
+        }
+        assert!(parse_program("(#fn main () #u64 (#match true (#case true 1u64) (#case false 0u64)))").is_err());
+        for arm in ["(#case true)", "(#case true (#when true))"] {
+            assert!(parse_program(&format!("(#fn main () #u64 (#return (#match true {arm} (#case false 0u64))))")).is_err());
         }
     }
 
