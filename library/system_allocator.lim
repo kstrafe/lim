@@ -380,3 +380,43 @@
   (#unsafe
     (#unsafe-call system-heap-deallocate (: pointer pointer)))
   (#return ()))
+
+; Byte-oriented shared allocator root backed by the native process heap.
+(#struct SystemAllocator () ())
+(#type SystemAllocator::Allocator::State SystemAllocator)
+(#type SystemAllocator::Allocator::Error SystemAllocationError)
+(#enum SystemAllocator::Allocator::Allocation (#linear)
+  ((SystemAllocator::Allocator::Allocated (#ptr-mut #u8))
+   (SystemAllocator::Allocator::AllocationFailed SystemAllocator::Allocator::Error)))
+(#fn system-allocator-valid-alignment (: alignment #usize) #bool
+  (#return (#bool.&& (#usize.> alignment 0usize)
+    (#bool.&& (#usize.<= alignment SYSTEM-ALLOCATION-ALIGNMENT)
+      (#usize.== (#usize.& alignment (#usize.-.wrap alignment 1usize)) 0usize)))))
+(#fn SystemAllocator::Allocator::allocate
+  (: allocator (#ref SystemAllocator::Allocator::State) : layout #usize : alignment #usize)
+  SystemAllocator::Allocator::Allocation
+  (#if (#bool.! (#call system-allocator-valid-alignment (: alignment alignment)))
+    (#block
+      (#return (SystemAllocator::Allocator::AllocationFailed SystemAllocationInvalidSize))
+      (#unreachable))
+    ())
+  (#return (#match (#call system-allocate (: size layout))
+    (#case (SystemAllocated pointer) (SystemAllocator::Allocator::Allocated pointer))
+    (#case (SystemAllocationFailed error) (SystemAllocator::Allocator::AllocationFailed error)))))
+(#unsafe-fn SystemAllocator::Allocator::grow
+  (: allocator (#ref SystemAllocator::Allocator::State) : pointer (#ptr-mut #u8)
+   : old-layout #usize : layout #usize : alignment #usize)
+  SystemAllocator::Allocator::Allocation
+  (#if (#bool.! (#call system-allocator-valid-alignment (: alignment alignment)))
+    (#block
+      (#return (SystemAllocator::Allocator::AllocationFailed SystemAllocationInvalidSize))
+      (#unreachable))
+    ())
+  (#return (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size layout)))
+    (#case (SystemAllocated resized) (SystemAllocator::Allocator::Allocated resized))
+    (#case (SystemAllocationFailed error) (SystemAllocator::Allocator::AllocationFailed error)))))
+(#unsafe-fn SystemAllocator::Allocator::deallocate
+  (: allocator (#ref SystemAllocator::Allocator::State) : pointer (#ptr-mut #u8)
+   : layout #usize : alignment #usize) ()
+  (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
+  (#return ()))

@@ -280,10 +280,10 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
     let base = replace(&example_source(), ": type #u64", ": type Value");
     let base = replace_function(
         &base,
-        "arena-allocate",
-        "(#fn arena-allocate
-      (: allocator (#ref Arena) : layout #usize : alignment #usize) AllocationResult
-      (#return (AllocationFailed OutOfMemory)))",
+        "Arena::Allocator::allocate",
+        "(#fn Arena::Allocator::allocate
+      (: allocator (#ref Arena) : layout #usize : alignment #usize) Arena::Allocator::Allocation
+      (#return (Arena::Allocator::AllocationFailed OutOfMemory)))",
     );
     let base = replace_function(&base, "destroy-number", "(#fn destroy-number
       (: allocator (#ref Arena) : pin (#pin-ref-mut Value)) ()

@@ -101,6 +101,53 @@ can still require dynamic libraries. The String library does not override
 structural Send/Sync checks: removing libc does not authorize transferring
 an otherwise non-Send owner or reference between threads.
 
+## Allocator bundles
+
+An allocator bundle is a naming convention rooted at a literal symbol such as
+`SystemAllocator::Allocator` or `Arena::Allocator`. It introduces no trait,
+property, dynamic dispatch, or producer provenance requirement. Handwritten
+declarations and generator-produced declarations satisfy the same convention.
+Consumers resolve ordinary names and their generated calls are statically checked.
+
+A root exposes `Root::State`, `Root::Error`, `Root::Allocation`,
+`Root::Allocated`, `Root::AllocationFailed`, `Root::allocate`,
+`Root::grow`, and `Root::deallocate`. State and Error may be aliases to
+existing types. Allocation carries a raw byte pointer on success and Error on
+failure. Pinned Box and Rc request only allocate and deallocate adapters, so
+their bundles may omit grow. The shared adapter generator accepts an explicit
+literal `:operations` list to select the operations it emits.
+
+```lisp syntax
+(@#allocator-for (: allocator Root : type T : name TypedAllocator
+  : operations (allocate deallocate)))
+```
+
+This emits typed allocate and deallocate adapters without referencing
+`Root::grow`. Request `:operations (allocate grow deallocate)` when all three
+adapters are needed. Each listed operation must be `allocate`, `grow`, or
+`deallocate`; consumers check the signatures of the selected operations.
+
+`#std` includes the shared convention helpers and
+`SystemAllocator::Allocator`, backed by the native process heap above.
+Its State aliases the empty `SystemAllocator` struct; construct an instance
+with `(#struct-literal SystemAllocator ())`. Its Error aliases
+`SystemAllocationError`. Layouts are byte counts and alignments are byte
+alignments; unsupported alignment or invalid sizes fail explicitly.
+
+Pinned consumers use exactly these public options:
+
+```lisp syntax
+(@#pin-box (: type T : allocator Root : name Box : destroy destroy-value))
+(@#pin-rc (: type T : allocator Root : name Rc : destroy destroy-value))
+```
+
+Each generates its own typed adapter for the bundle's byte-pointer ABI.
+The safe destroy callback takes
+`(: allocator (#ref Root::State) : pin (#pin-ref-mut T))` and performs
+explicit in-place cleanup. A callback accepting the original State alias is
+equivalent. Rc adapts pointers to its generated control block internally;
+providers never depend on that control-block type.
+
 ## Allocator identity
 
 An allocator is an ordinary user-defined value with a stable concrete type.
@@ -119,15 +166,14 @@ Collections store an immutable reference to that value:
 The reference is immutable at the type level. Allocator implementations use
 explicit interior-mutable state such as the generated `@#cell` type to track
 their allocation state. The allocator type is part of the
-collection's concrete generated type, so two allocator instances cannot be
-accidentally mixed.
+collection's concrete generated type. Each owner retains the particular
+instance reference used at construction and passes it to every operation.
 
 `@#vec` must therefore generate a distinct concrete type for each allocator
 type and element type. A generated collection retains the allocator borrow for
 its entire lifetime. Moving or returning the collection also moves that borrow;
-the collection cannot outlive the allocator. `@vec-ref-alloc` and similar
-generators may produce alternate concrete layouts, but they must obey the same
-ownership rule.
+the collection cannot outlive the allocator. Other collection generators must
+obey the same ownership rule.
 
 The concrete representation is declared first:
 
@@ -140,17 +186,15 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(@#vec-alloc (: element ElementType : allocator AllocatorType : vector ConcreteVecType : alloc-result AllocResult : alloc-error AllocError : alloc alloc-name : grow grow-name : dealloc dealloc-name : destroy destroy-name))
+(@#vec-alloc (: element ElementType : allocator Root : vector ConcreteVecType : destroy destroy-name))
 ```
 
-The allocation result must contain `(#ptr-mut ElementType)` on success and
-`AllocError` on failure. The four function names are literal inputs; they
-resolve to ordinary, statically checked functions. Allocation, growth, and
-deallocation functions receive `(#ref AllocatorType)` followed by layout and
-alignment values (growth also receives the old pointer and old layout). The
-element destruction function receives the allocator reference and one owned
-element. This lets destruction use allocator-local interior-mutable state
-without function pointers or a hidden global context.
+Here `Root::State` must denote the state type passed to `@#vec`.
+The representation generator still accepts a state type, not a bundle root.
+The consumer converts byte pointers to element pointers internally and calls
+the root's operations directly. The explicit safe destruction function takes
+`(: allocator (#ref Root::State) : value ElementType)`. This lets destruction
+use allocator-local interior-mutable state without function pointers.
 
 The generated API includes an empty `-new`, checked geometric `-reserve`,
 `-push`, `-get`, `-get-mut`, `-set`, `-pop`, and explicit `-free`. Allocation
@@ -178,33 +222,37 @@ zero-sized element vector is left unchanged.
 
 ## Required operations
 
-The compiler recognizes the following allocator operation signatures when a
-collection generator requests them. They are ordinary free-standing functions
-whose names are supplied as literal generator arguments:
+Bundle operations have these concrete signatures:
 
 ```lisp syntax
-(#enum AllocError () (OutOfMemory))
-(@#result (: ok (#ptr-mut #u8) : error AllocError : name AllocResult))
+(#type Root::State Arena)
+(#type Root::Error ArenaError)
+(#enum Root::Allocation ()
+  ((Root::Allocated (#ptr-mut #u8))
+   (Root::AllocationFailed Root::Error)))
 
-(#fn allocator-alloc
-  ((allocator (#ref AllocatorU64)) (layout #usize) (alignment #usize))
-  AllocResult)
+(#fn Root::allocate
+  (: allocator (#ref Root::State) : layout #usize : alignment #usize)
+  Root::Allocation)
 
-(#fn allocator-dealloc
-  ((allocator (#ref AllocatorU64))
-   (pointer (#ptr-mut #u8))
-   (layout #usize)
-   (alignment #usize))
+(#unsafe-fn Root::grow
+  (: allocator (#ref Root::State) : pointer (#ptr-mut #u8)
+   : old-layout #usize : layout #usize : alignment #usize)
+  Root::Allocation)
+
+(#unsafe-fn Root::deallocate
+  (: allocator (#ref Root::State) : pointer (#ptr-mut #u8)
+   : layout #usize : alignment #usize)
   ())
-
-(#fn allocator-grow
-  ((allocator (#ref AllocatorU64))
-   (pointer (#ptr-mut #u8))
-   (old-layout #usize)
-   (new-layout #usize)
-   (alignment #usize))
-  AllocResult)
 ```
+
+`allocate` is safe and called with `#call`. `grow` and `deallocate`
+are unsafe declarations, called with `#unsafe-call` inside `#unsafe`.
+Using `#call` for an unsafe operation remains an error inside an unsafe block.
+Growth's `layout` is the requested new byte size, and `old-layout` is the
+previous byte size. Failed growth preserves the old allocation and all its
+initialized bytes; successful growth transfers ownership to the returned
+pointer. Do not grow live pinned storage.
 
 These signatures are generator contracts rather than interfaces or dynamic
 dispatch. The generated calls are statically checked like every other Lim
@@ -218,8 +266,15 @@ collection's initialized elements.
 
 ## Allocation failure and destruction
 
-Allocation failure is an explicit `AllocError` result. No allocator operation
-may return a null pointer as a successful allocation. `dealloc` is called only
+Allocation failure is an explicit `Root::AllocationFailed Root::Error` result.
+A successful allocation promises fresh, uniquely owned, non-null storage of
+at least the requested byte size and alignment. Growth failure preserves the
+old allocation and its initialized bytes; successful growth returns uniquely
+owned storage and retires the old pointer. Deallocation must release the
+matching allocation exactly once. These are semantic promises made by a
+custom provider: names, types, and generated-call checking cannot prove them.
+No allocator operation may return a null pointer as a successful allocation.
+`deallocate` is called only
 for a pointer previously returned by the same allocator instance, with the
 same layout and alignment. A zero-sized element uses a non-dereferenceable
 sentinel and has no allocation requirement.

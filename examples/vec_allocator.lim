@@ -1,53 +1,47 @@
+(#std)
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-(#struct SystemAllocator () ((identity #u64) (destructions CellU64)))
-(#enum AllocError () (OutOfMemory))
-(@#result (: ok (#ptr-mut #u64) : error AllocError : name AllocResult))
-(@#vec (: element #u64 : allocator SystemAllocator : name VecU64))
+(#struct CountingAllocator () ((identity #u64) (destructions CellU64)))
+(#type CountingAllocator::Allocator::State CountingAllocator)
+(#type CountingAllocator::Allocator::Error SystemAllocationError)
+(#enum CountingAllocator::Allocator::Allocation ()
+  ((CountingAllocator::Allocator::Allocated (#ptr-mut #u8))
+   (CountingAllocator::Allocator::AllocationFailed SystemAllocationError)))
+(@#vec (: element #u64 : allocator CountingAllocator : name VecU64))
 (@#vec-sort (: element #u64 : vector VecU64 : comparator compare-u64))
-(@#vec-alloc (: element #u64 : allocator SystemAllocator : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc system-alloc : grow system-grow : dealloc system-dealloc : destroy drop-u64))
+(@#vec-alloc (: element #u64 : allocator CountingAllocator::Allocator : vector VecU64 : destroy drop-u64))
 
 (#fn compare-u64 ((left (#ref #u64)) (right (#ref #u64))) #bool
   (#return (#u64.< (#deref left) (#deref right))))
 
-(#extern-fn #abi-c malloc ((size #usize)) (#ptr-mut #u64))
-(#extern-fn #abi-c realloc ((pointer (#ptr-mut #u64)) (size #usize)) (#ptr-mut #u64))
-(#extern-fn #abi-c free ((pointer (#ptr-mut #u64))) ())
+(#fn CountingAllocator::Allocator::allocate
+  (: allocator (#ref CountingAllocator) : layout #usize : alignment #usize)
+  CountingAllocator::Allocator::Allocation
+  (#return (#match (#call system-allocate (: size layout))
+    (#case (SystemAllocated pointer) (CountingAllocator::Allocator::Allocated pointer))
+    (#case (SystemAllocationFailed error) (CountingAllocator::Allocator::AllocationFailed error)))))
 
-(#fn system-alloc
-  ((allocator (#ref SystemAllocator)) (layout #usize) (alignment #usize))
-  AllocResult
-  (#let pointer (#ptr-mut #u64) (#unsafe (#unsafe-call malloc (: size layout))))
-  (#return
-    (#if (#ptr-is-null pointer)
-      (#block (#forget pointer) (#call AllocResult-err (: error OutOfMemory)))
-      (#call AllocResult-ok (: value pointer)))))
+(#unsafe-fn CountingAllocator::Allocator::grow
+  (: allocator (#ref CountingAllocator) : pointer (#ptr-mut #u8)
+   : old-layout #usize : layout #usize : alignment #usize)
+  CountingAllocator::Allocator::Allocation
+  (#return (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size layout)))
+    (#case (SystemAllocated grown) (CountingAllocator::Allocator::Allocated grown))
+    (#case (SystemAllocationFailed error) (CountingAllocator::Allocator::AllocationFailed error)))))
 
-(#fn system-grow
-  ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut #u64))
-   (old-layout #usize) (new-layout #usize) (alignment #usize))
-  AllocResult
-  (#let new-pointer (#ptr-mut #u64)
-    (#unsafe (#unsafe-call realloc (: pointer pointer : size new-layout))))
-  (#return
-    (#if (#ptr-is-null new-pointer)
-      (#block (#forget new-pointer) (#call AllocResult-err (: error OutOfMemory)))
-      (#call AllocResult-ok (: value new-pointer)))))
-
-(#fn system-dealloc
-  ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut #u64))
-   (layout #usize) (alignment #usize))
-  ()
-  (#unsafe (#unsafe-call free (: pointer pointer)))
+(#unsafe-fn CountingAllocator::Allocator::deallocate
+  (: allocator (#ref CountingAllocator) : pointer (#ptr-mut #u8)
+   : layout #usize : alignment #usize) ()
+  (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
   (#return ()))
 
-(#fn drop-u64 ((allocator (#ref SystemAllocator)) (value #u64)) ()
+(#fn drop-u64 ((allocator (#ref CountingAllocator)) (value #u64)) ()
   (#let cell (#ref CellU64) (#borrow (#get allocator destructions)))
   (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut allocator SystemAllocator (#struct-literal SystemAllocator
+  (#let-mut allocator CountingAllocator (#struct-literal CountingAllocator
     ((identity 0u64) (destructions
       (#call CellU64-create (: value 0u64))))))
   (#let-mut vector VecU64 (#call VecU64-new (: allocator (#borrow allocator))))
@@ -74,7 +68,7 @@
         (#block (#call drop-u64 (: allocator (#borrow allocator) : value value)) true))
       (#case VecU64-PopResult-none false)))
   (#call VecU64-free (: vector vector))
-  (#let allocator-ref (#ref SystemAllocator) (#borrow allocator))
+  (#let allocator-ref (#ref CountingAllocator) (#borrow allocator))
   (#let destruction-count #u64 (#call CellU64-get (: cell (#borrow (#get allocator-ref destructions)))))
   (#drop allocator-ref)
   (#forget allocator)

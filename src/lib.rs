@@ -7271,19 +7271,19 @@ fn generated_vec_source(items: &[Expr]) -> Result<String, String> {
 }
 
 fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
-    if items.len() != 11 {
-        return Err("generated declaration must have the form (@#vec-alloc (: element Element : allocator Allocator : vector Vec : alloc-result AllocResult : alloc-error AllocError : alloc alloc : grow grow : dealloc dealloc : destroy destroy))".into());
+    if items.len() != 6 {
+        return Err("generated declaration must have the form (@#vec-alloc (: element Element : allocator Bundle : vector Vec : destroy destroy))".into());
     }
     let element = type_source(&parse_type(items.get(2))?);
-    let allocator = expect_symbol(items.get(3), "vector allocator type")?;
+    let bundle = expect_symbol(items.get(3), "vector allocator bundle")?;
     let name = expect_symbol(items.get(4), "generated vector type name")?;
-    let allocation_result = expect_symbol(items.get(5), "allocator result type")?;
-    let allocation_error = expect_symbol(items.get(6), "allocator error type")?;
-    let alloc = expect_symbol(items.get(7), "allocator allocation function")?;
-    let grow = expect_symbol(items.get(8), "allocator growth function")?;
-    let dealloc = expect_symbol(items.get(9), "allocator deallocation function")?;
-    let destroy = expect_symbol(items.get(10), "element destruction function")?;
-    let _ = (dealloc, destroy);
+    let allocator = format!("{bundle}::State");
+    let allocation_result = format!("{bundle}::Allocation");
+    let allocation_error = format!("{bundle}::Error");
+    let alloc = format!("{bundle}::allocate");
+    let grow = format!("{bundle}::grow");
+    let dealloc = format!("{bundle}::deallocate");
+    let destroy = expect_symbol(items.get(5), "element destruction function")?;
     Ok(format!(
         r#"
 (#enum {name}-ReserveError ()
@@ -7343,14 +7343,19 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
               (#let allocation-result {allocation_result}
                 (#if (#usize.== capacity 0usize)
                   (#call {alloc} (: allocator (#clone allocator) : layout new-layout : alignment (#align-of {element})))
-                  (#call {grow} (: allocator (#clone allocator) : pointer (#clone (#deref pointer-slot)) : old-layout old-layout : new-layout new-layout : alignment (#align-of {element})))))
+                  (#unsafe (#unsafe-call {grow} (: allocator (#clone allocator)
+                    : pointer (#asm (#ptr-mut #u8) ((rdi (#clone (#deref pointer-slot)))) "mov rax, rdi")
+                    : old-layout old-layout : layout new-layout : alignment (#align-of {element}))))))
               (#match allocation-result
-                (#case ({allocation_result}-ok-value new-pointer)
+                (#case ({bundle}::Allocated raw-pointer)
                   (#block
+                    (#let bytes (#ptr-mut #u8) raw-pointer)
+                    (#let new-pointer (#ptr-mut {element})
+                      (#unsafe (#asm (#ptr-mut {element}) ((rdi bytes)) "mov rax, rdi")))
                     (#deref-set pointer-slot new-pointer)
                     (#deref-set capacity-slot new-capacity)
                     ({name}-ReserveResult-ok-value ())))
-                (#case ({allocation_result}-err-value error)
+                (#case ({bundle}::AllocationFailed error)
                   ({name}-ReserveResult-err-value
                     ({name}-ReserveAllocationError error)))))
             ({name}-ReserveResult-err-value
@@ -7457,7 +7462,9 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
   (#if
     (#&& (#usize.!= element-size 0usize) (#usize.!= capacity 0usize))
     (#block
-      (#call {dealloc} (: allocator (#clone allocator) : pointer (#clone pointer) : layout (#usize.*.wrap capacity element-size) : alignment (#align-of {element})))
+      (#unsafe (#unsafe-call {dealloc} (: allocator (#clone allocator)
+        : pointer (#asm (#ptr-mut #u8) ((rdi (#clone pointer))) "mov rax, rdi")
+        : layout (#usize.*.wrap capacity element-size) : alignment (#align-of {element}))))
       (#forget pointer)
       ())
     (#block (#forget pointer) ()))
@@ -12587,8 +12594,8 @@ mod tests {
                 "(@ #vec-sort #u64 VecU64 less)",
             ),
             (
-                "(@#vec-alloc (: destroy drop-item : dealloc release : grow grow : alloc allocate : alloc-error AllocError : alloc-result AllocResult : vector VecU64 : allocator Arena : element #u64))",
-                "(@ #vec-alloc #u64 Arena VecU64 AllocResult AllocError allocate grow release drop-item)",
+                "(@#vec-alloc (: destroy drop-item : vector VecU64 : allocator Arena::Allocator : element #u64))",
+                "(@ #vec-alloc #u64 Arena::Allocator VecU64 drop-item)",
             ),
             (
                 "(@#async-fn (: function (#fn work () #u64 (#return 1)) : protocol WorkAwait : waker Wake))",
@@ -12628,6 +12635,10 @@ mod tests {
             (
                 "(@#optional (: type #u64 : renamed Maybe))",
                 "has no argument 'renamed'",
+            ),
+            (
+                "(@#vec-alloc (: element #u64 : allocator Pool::Allocator : vector VecU64 : destroy destroy : alloc allocate))",
+                "has no argument 'alloc'",
             ),
         ] {
             let error = parse_program(source).unwrap_err();
@@ -13035,19 +13046,22 @@ mod tests {
             r#"
 (#struct Arena () ((cursor #u64)))
 (#enum AllocError () (OutOfMemory))
-(@#result (: ok (#ptr-mut #u64) : error AllocError : name AllocResult))
+(#type Arena::Allocator::State Arena)
+(#type Arena::Allocator::Error AllocError)
+(#enum Arena::Allocator::Allocation ()
+  ((Arena::Allocator::Allocated (#ptr-mut #u8)) (Arena::Allocator::AllocationFailed AllocError)))
 (@#vec (: element #u64 : allocator Arena : name VecU64))
-(@#vec-alloc (: element #u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc arena-alloc : grow arena-grow : dealloc arena-dealloc : destroy drop-u64))
-(#fn arena-alloc ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) AllocResult
-  (#return (#call AllocResult-err (: error OutOfMemory))))
-(#fn arena-grow
-  ((allocator (#ref Arena)) (pointer (#ptr-mut #u64)) (old-layout #usize)
-   (new-layout #usize) (alignment #usize))
-  AllocResult
+(@#vec-alloc (: element #u64 : allocator Arena::Allocator : vector VecU64 : destroy drop-u64))
+(#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+(#unsafe-fn Arena::Allocator::grow
+  ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (old-layout #usize)
+   (layout #usize) (alignment #usize))
+  Arena::Allocator::Allocation
   (#forget pointer)
-  (#return (#call AllocResult-err (: error OutOfMemory))))
-(#fn arena-dealloc
-  ((allocator (#ref Arena)) (pointer (#ptr-mut #u64)) (layout #usize)
+  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+(#unsafe-fn Arena::Allocator::deallocate
+  ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize)
    (alignment #usize))
   ()
   (#forget pointer)

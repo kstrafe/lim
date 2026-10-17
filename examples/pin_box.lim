@@ -4,28 +4,29 @@
 
 (#struct Arena () ((identity #u64) (fail #bool)))
 (#enum ArenaError () (OutOfMemory))
-(@#result (: ok (#ptr-mut #u64) : error ArenaError : name ArenaAllocResult))
-(@#pin-box (: type #u64 : allocator Arena : name PinU64Box : error ArenaError
-  : alloc-result ArenaAllocResult : alloc-ok ArenaAllocResult-ok-value
-  : alloc-error ArenaAllocResult-err-value : alloc arena-allocate
-  : dealloc arena-deallocate : destroy destroy-u64))
+(#type Arena::Allocator::State Arena)
+(#type Arena::Allocator::Error ArenaError)
+(#enum Arena::Allocator::Allocation ()
+  ((Arena::Allocator::Allocated (#ptr-mut #u8))
+   (Arena::Allocator::AllocationFailed ArenaError)))
+(@#pin-box (: type #u64 : allocator Arena::Allocator : name PinU64Box : destroy destroy-u64))
 
-(#fn arena-allocate
-  ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) ArenaAllocResult
-  (#let result ArenaAllocResult
+(#fn Arena::Allocator::allocate
+  ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+  (#let result Arena::Allocator::Allocation
     (#if (#get allocator fail)
-      (ArenaAllocResult-err-value OutOfMemory)
+      (Arena::Allocator::AllocationFailed OutOfMemory)
       (#block
-        (#let pointer (#ptr-mut #u64)
-          (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+        (#let pointer (#ptr-mut #u8)
+          (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
             (0usize layout 3usize 34usize -1i64 0usize))))
         (#if (#usize.>= (#ptr-address pointer) 18446744073709547520usize)
-          (ArenaAllocResult-err-value OutOfMemory)
-          (ArenaAllocResult-ok-value pointer)))))
+          (Arena::Allocator::AllocationFailed OutOfMemory)
+          (Arena::Allocator::Allocated pointer)))))
   (#return result))
 
-(#fn arena-deallocate
-  ((allocator (#ref Arena)) (pointer (#ptr-mut #u64)) (layout #usize) (alignment #usize)) ()
+(#unsafe-fn Arena::Allocator::deallocate
+  ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize)) ()
   (#let status #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (pointer layout))))
   (#assert (#i64.== status 0i64))

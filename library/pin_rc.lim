@@ -2,44 +2,47 @@
 ;; No weak handles or ordinary mutable pointee references are exposed.
 ;; -borrow-mut succeeds only with one strong owner. Destroy all borrowed
 ;; views before dropping a handle; final destruction runs in place.
-;; Allocator hooks use the same layout/alignment protocol as @#pin-box.
-;; allocate returns alloc-result containing (#ptr-mut NameAllocation).
-;; destroy takes (: allocator (#ref Allocator) : pin (#pin-ref-mut Element)).
+;; The allocator adapter allocates the complete reference-counted block.
+;; destroy takes (: allocator (#ref ROOT::State) : pin (#pin-ref-mut Element)).
+(#import "/<lim-std>/allocator.lim")
 (#gn-fn pin-rc-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-rc-check (option)
   (#gn-if (#gn-equal (#gn-length option) 2)
     (#gn-if (#gn-equal
-      (#gn-for-each key (type allocator name error alloc-result alloc-ok alloc-error alloc dealloc destroy)
+      (#gn-for-each key (type allocator name destroy)
         (#gn-if (#gn-equal (#gn-first option) key) true false))
-      (#gn-for-each key (type allocator name error alloc-result alloc-ok alloc-error alloc dealloc destroy) false))
+      (#gn-for-each key (type allocator name destroy) false))
       (#gn-error "@#pin-rc has an unknown named argument") ())
     (#gn-error "@#pin-rc requires named argument pairs")))
 
-(#gn-fn pin-rc-build (element allocator name block error alloc-result alloc-ok alloc-error alloc dealloc destroy checked)
+(#gn-fn pin-rc-build (element allocator name block adapter destroy checked)
     `((#struct ,block () (: value ,element : strong (#atomic #usize)))
       (#opaque ,block)
-      (#struct ,name () (: allocator (#ref ,allocator) : pointer (#pin-shared-own ,block)))
+      (@#allocator-for (: allocator ,allocator : type ,block : name ,adapter : operations (allocate deallocate)))
+      (#struct ,name () (: allocator (#ref ,(#gn-call pin-rc-name allocator "State")) : pointer (#pin-shared-own ,block)))
       (#opaque ,name)
       (#enum ,(#gn-call pin-rc-name name "CreateResult") (#linear)
         ((,(#gn-call pin-rc-name name "created") ,name)
-         (,(#gn-call pin-rc-name name "allocation-failed") (#tuple ,error ,element))))
+         (,(#gn-call pin-rc-name name "allocation-failed")
+          (#tuple ,(#gn-call pin-rc-name allocator "Error") ,element))))
 
       (#enum ,(#gn-call pin-rc-name name "MutResult") (#linear)
         ((,(#gn-call pin-rc-name name "unique") (#pin-ref-mut ,element))
          (,(#gn-call pin-rc-name name "shared"))))
 
       (#fn ,(#gn-call pin-rc-name name "create")
-        (: allocator (#ref ,allocator) : value ,element) ,(#gn-call pin-rc-name name "CreateResult")
-        (#let allocated ,alloc-result (#call ,alloc
+        (: allocator (#ref ,(#gn-call pin-rc-name allocator "State")) : value ,element) ,(#gn-call pin-rc-name name "CreateResult")
+        (#let allocated ,(#gn-call pin-rc-name adapter "Allocation")
+          (#call ,(#gn-call pin-rc-name adapter "allocate")
           (: allocator allocator : layout (#size-of ,block) : alignment (#align-of ,block))))
         (#return (#match allocated
-          (#case (,alloc-ok raw)
+          (#case (,(#gn-call pin-rc-name adapter "Allocated") raw)
             (#block
               (#let storage (#pin-own ,block) (#unsafe (#pin-own-of raw
                 (#struct-literal ,block (: value value : strong (#atomic-init #usize 1usize))))))
               (,(#gn-call pin-rc-name name "created")
                 (#struct-literal ,name (: allocator allocator : pointer (#pin-share storage))))))
-          (#case (,alloc-error failure)
+          (#case (,(#gn-call pin-rc-name adapter "AllocationFailed") failure)
             (,(#gn-call pin-rc-name name "allocation-failed") (#tuple failure value))))))
       (#fn ,(#gn-call pin-rc-name name "borrow") (: owner (#ref ,name)) (#pin-ref ,element)
         (#let view (#pin-ref ,block)
@@ -77,8 +80,9 @@
             (#call ,destroy (: allocator (#clone allocator) : pin (#pin-borrow-mut (#get exclusive value))))
             (#drop exclusive)
             (#let raw (#ptr-mut ,block) (#unsafe (#pin-shared-release pointer)))
-            (#call ,dealloc (: allocator allocator : pointer raw
-              : layout (#size-of ,block) : alignment (#align-of ,block))))
+            (#unsafe (#unsafe-call ,(#gn-call pin-rc-name adapter "deallocate")
+              (: allocator allocator : pointer raw
+               : layout (#size-of ,block) : alignment (#align-of ,block)))))
           (#forget pointer))
         (#return ()))))
 
@@ -86,7 +90,6 @@
   (#gn-call pin-rc-build
     (#gn-get options type) (#gn-get options allocator) (#gn-get options name)
     (#gn-call pin-rc-name (#gn-get options name) "Allocation")
-    (#gn-get options error) (#gn-get options alloc-result)
-    (#gn-get options alloc-ok) (#gn-get options alloc-error)
-    (#gn-get options alloc) (#gn-get options dealloc) (#gn-get options destroy)
+    (#gn-call pin-rc-name (#gn-get options name) "Allocator")
+    (#gn-get options destroy)
     (#gn-for-each option options (#gn-call pin-rc-check option))))

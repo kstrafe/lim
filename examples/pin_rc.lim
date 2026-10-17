@@ -2,20 +2,21 @@
 
 (#struct Arena () (: destroyed (#atomic #u64) : deallocated (#atomic #u64)))
 (#enum ArenaError () (OutOfMemory))
-(#enum AllocationResult () ((Allocated (#ptr-mut PinnedNumberRc::Allocation)) (AllocationFailed ArenaError)))
-(@#pin-rc (: type #u64 : allocator Arena : name PinnedNumberRc
-  : error ArenaError : alloc-result AllocationResult : alloc-ok Allocated
-  : alloc-error AllocationFailed : alloc arena-allocate : dealloc arena-deallocate
-  : destroy destroy-number))
+(#type Arena::Allocator::State Arena)
+(#type Arena::Allocator::Error ArenaError)
+(#enum Arena::Allocator::Allocation ()
+  ((Arena::Allocator::Allocated (#ptr-mut #u8))
+   (Arena::Allocator::AllocationFailed ArenaError)))
+(@#pin-rc (: type #u64 : allocator Arena::Allocator : name PinnedNumberRc : destroy destroy-number))
 
-(#fn arena-allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) AllocationResult
-  (#let pointer (#ptr-mut PinnedNumberRc::Allocation)
-    (#unsafe (#linux-syscall (#ptr-mut PinnedNumberRc::Allocation) 9usize
+(#fn Arena::Allocator::allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) Arena::Allocator::Allocation
+  (#let pointer (#ptr-mut #u8)
+    (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
       (0usize layout 3usize 34usize -1i64 0usize))))
   (#return (#if (#usize.>= (#ptr-address pointer) 18446744073709547520usize)
-    (AllocationFailed OutOfMemory) (Allocated pointer))))
+    (Arena::Allocator::AllocationFailed OutOfMemory) (Arena::Allocator::Allocated pointer))))
 
-(#fn arena-deallocate (: allocator (#ref Arena) : pointer (#ptr-mut PinnedNumberRc::Allocation)
+(#unsafe-fn Arena::Allocator::deallocate (: allocator (#ref Arena) : pointer (#ptr-mut #u8)
   : layout #usize : alignment #usize) ()
   (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
   (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator deallocated)) 1u64 #memory-relaxed))

@@ -489,8 +489,10 @@ allocation. A definite write to one concrete field retires that field's old
 loan and records its replacement; uncertain writes and control-flow joins keep
 all possible referents. A reference already loaded from the old field remains
 an independent live loan. `library/pin_box.lim` defines the `@#pin-box`
-generator, which takes named options `type`, `allocator`, `name`, `error`,
-`alloc-result`, `alloc-ok`, `alloc-error`, `alloc`, `dealloc`, and `destroy`.
+generator, which takes exactly the named options `type`, `allocator`, `name`,
+and `destroy`. `allocator` is a literal bundle root exposing `::State`,
+`::Error`, byte-pointer `::Allocation`, safe `::allocate`, and unsafe
+`::deallocate`. Its private typed adapter converts the byte pointers.
 It generates an opaque named linear heap-owner type and create, shared-borrow,
 mutable-borrow, and destroy functions. Its borrow functions return native
 `#pin-ref` and `#pin-ref-mut` values. `examples/pin_box.lim` demonstrates
@@ -499,8 +501,8 @@ include `Box::CreateResult`, `Box::created`, `Box::allocation-failed`, and
 `Box::create` / `Box::borrow` / `Box::borrow-mut` / `Box::destroy`.
 
 `library/pin_rc.lim` defines `@#pin-rc` with the same named options and
-allocator hooks, and generates named linear reference-counted owners with
-create, clone, shared-borrow, mutable-borrow, and destroy functions. This Rc
+allocator bundle convention, and generates named linear reference-counted owners
+with create, clone, shared-borrow, mutable-borrow, and destroy functions. This Rc
 is single-threaded and is neither `Send` nor `Sync`; it has no weak-reference
 handles. Mutable borrowing is available only while the handle is the unique
 strong owner. Destroy every borrowed view before destroying a handle, because
@@ -510,11 +512,13 @@ the allocation. For an owner `Shared`, generated symbols include
 `Shared::create` / `Shared::clone` / `Shared::borrow` / `Shared::borrow-mut` /
 `Shared::destroy`; enum cases include `Shared::unique` and `Shared::shared`.
 
-For an owner named `PinnedFrameRc`, the allocator's success variant contains
-`(#ptr-mut PinnedFrameRc::Allocation)`, the generated control-block type, not a
-pointer to the frame alone. The generated functions pass that block's size and
-alignment to the allocator and deallocator. Both Box and Rc destruction hooks
-take `(: allocator (#ref Allocator) : pin (#pin-ref-mut Element))` and must
+For an owner named `PinnedFrameRc`, a private adapter converts the bundle's
+`(#ptr-mut #u8)` success payload to a pointer to the generated
+`PinnedFrameRc::Allocation` control block. The generated functions pass that
+block's size and alignment to the allocator and deallocator. Both Box and Rc
+request only allocate and deallocate adapters; their bundles may omit grow.
+Destruction hooks are explicit safe functions taking
+`(: allocator (#ref Root::State) : pin (#pin-ref-mut Element))` and must
 perform explicit in-place cleanup. `examples/pinned_box_async.lim` and
 `examples/pinned_rc_async.lim` poll generated futures through these native
 pinned references, including after moving the owning handle.
@@ -1422,8 +1426,17 @@ User-defined names refer to concrete structs, enums, and aliases.  Generic
 declarations and angle-bracket applications are not part of Lim.  Generators
 create concrete specializations explicitly, such as `(@#vec (: element #u64 : allocator Alloc : name VecU64))`.
 Allocator-backed collections add their concrete operations explicitly with
-`(@#vec-alloc (: element #u64 : allocator Alloc : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc alloc : grow grow : dealloc dealloc : destroy destroy))`;
-the generated API includes `VecU64-new`, `-reserve`, `-push`, `-get`,
+`(@#vec-alloc (: element #u64 : allocator Root : vector VecU64 : destroy destroy))`;
+`Root::State` must denote `Alloc`, the state type passed to `@#vec`.
+The root provides a byte-pointer allocation enum, safe `::allocate`, and unsafe
+`::grow` / `::deallocate`; grow takes `:old-layout` and the requested `:layout`.
+Handwritten and generated bundles follow the same ordinary naming convention,
+without a producer requirement. `#std` provides `SystemAllocator::Allocator`,
+whose empty state is constructed with `(#struct-literal SystemAllocator ())`.
+Providers promise fresh, unique, aligned, non-null successful allocations,
+preservation of the old allocation on growth failure, and matching deallocation.
+Names and type checking cannot prove these semantic promises.
+The generated API includes `VecU64-new`, `-reserve`, `-push`, `-get`,
 `-get-mut`, `-set`, `-pop`, and `-free`. `(@#vec-sort (: element #u64 : vector VecU64 : comparator compare-u64))`
 adds `VecU64-sort`; its named comparator accepts two immutable element
 references and returns `#bool`. Allocation failure and capacity

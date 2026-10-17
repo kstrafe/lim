@@ -12,6 +12,7 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
     DECLARATIONS
         .get_or_init(|| {
             [
+                include_str!("../library/allocator.lim"),
                 include_str!("../library/cell.lim"),
                 include_str!("../library/local_waker.lim"),
                 include_str!("../library/ready_queue.lim"),
@@ -37,6 +38,7 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
 pub(crate) fn source(path: &Path) -> Option<&'static str> {
     match path.to_str()? {
         ROOT => Some(include_str!("../library/std.lim")),
+        "/<lim-std>/allocator.lim" => Some(include_str!("../library/allocator.lim")),
         "/<lim-std>/string.lim" => Some(include_str!("../library/string.lim")),
         "/<lim-std>/utf8_view.lim" => Some(include_str!("../library/utf8_view.lim")),
         "/<lim-std>/system_allocator.lim" => Some(include_str!("../library/system_allocator.lim")),

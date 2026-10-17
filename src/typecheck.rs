@@ -24004,7 +24004,14 @@ mod typed_ownership_tests {
     fn staged_raw_pointer_external_boundaries_preserve_allocator_program() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/vec_allocator.lim");
-        let source = std::fs::read_to_string(&path).unwrap();
+        // The allocator example is now native. Keep the foreign boundary
+        // assertions explicit instead of depending on its allocator backend.
+        let source = format!(
+            "{}\n(#extern-fn #abi-c malloc (: size #usize) (#ptr-mut #u8))
+             (#extern-fn #abi-c realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8))
+             (#extern-fn #abi-c free (: pointer (#ptr-mut #u8)) ())",
+            std::fs::read_to_string(&path).unwrap()
+        );
         let program = crate::parse_program_from_path(&source, &path).unwrap();
         crate::check_types(&program).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();

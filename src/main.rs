@@ -1521,16 +1521,19 @@ mod tests {
         let source = r#"
 (#struct Arena () ((identity #u64)))
 (#enum AllocError () (OutOfMemory))
-(@#result (: ok (#ptr-mut #u64) : error AllocError : name AllocResult))
+(#type Arena::Allocator::State Arena)
+(#type Arena::Allocator::Error AllocError)
+(#enum Arena::Allocator::Allocation ()
+  ((Arena::Allocator::Allocated (#ptr-mut #u8)) (Arena::Allocator::AllocationFailed AllocError)))
 (@#vec (: element #u64 : allocator Arena : name VecU64))
-(@#vec-alloc (: element #u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc fail-alloc : grow fail-grow : dealloc no-dealloc : destroy drop-u64))
-(#fn fail-alloc ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) AllocResult
-  (#return (#call AllocResult-err (: error OutOfMemory))))
-(#fn fail-grow ((allocator (#ref Arena)) (pointer (#ptr-mut #u64))
-                (old-layout #usize) (new-layout #usize) (alignment #usize)) AllocResult
+(@#vec-alloc (: element #u64 : allocator Arena::Allocator : vector VecU64 : destroy drop-u64))
+(#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+(#unsafe-fn Arena::Allocator::grow ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
+                (old-layout #usize) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
   (#forget pointer)
-  (#return (#call AllocResult-err (: error OutOfMemory))))
-(#fn no-dealloc ((allocator (#ref Arena)) (pointer (#ptr-mut #u64))
+  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+(#unsafe-fn Arena::Allocator::deallocate ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
                  (layout #usize) (alignment #usize)) ()
   (#forget pointer)
   (#return ()))

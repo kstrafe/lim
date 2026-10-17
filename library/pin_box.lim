@@ -1,4 +1,5 @@
 ;; Allocator owned stable storage exposed only through native pinned references.
+(#import "/<lim-std>/allocator.lim")
 (#gn-fn pin-box-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-box-check (option keys)
   (#gn-if (#gn-equal (#gn-length option) 2)
@@ -8,27 +9,28 @@
       (#gn-error "@#pin-box has an unknown named option") ())
     (#gn-error "@#pin-box options must be (key value) pairs")))
 
-(#gn-fn pin-box-build (o checked)
-  `((#enum ,(#gn-call pin-box-name (#gn-get o name) "CreateResult") ()
+(#gn-fn pin-box-build (o adapter checked)
+  `((@#allocator-for (: allocator ,(#gn-get o allocator) : type ,(#gn-get o type) : name ,adapter : operations (allocate deallocate)))
+    (#enum ,(#gn-call pin-box-name (#gn-get o name) "CreateResult") ()
       ((,(#gn-call pin-box-name (#gn-get o name) "created") ,(#gn-get o name))
        (,(#gn-call pin-box-name (#gn-get o name) "allocation-failed")
-        (#tuple ,(#gn-get o error) ,(#gn-get o type)))))
+        (#tuple ,(#gn-call pin-box-name (#gn-get o allocator) "Error") ,(#gn-get o type)))))
     (#struct ,(#gn-get o name) (#linear)
-      (: allocator (#ref ,(#gn-get o allocator)) : pointer (#pin-own ,(#gn-get o type))))
+      (: allocator (#ref ,(#gn-call pin-box-name (#gn-get o allocator) "State")) : pointer (#pin-own ,(#gn-get o type))))
     (#opaque ,(#gn-get o name))
     (#fn ,(#gn-call pin-box-name (#gn-get o name) "create")
-      (: allocator (#ref ,(#gn-get o allocator)) : value ,(#gn-get o type))
+      (: allocator (#ref ,(#gn-call pin-box-name (#gn-get o allocator) "State")) : value ,(#gn-get o type))
       ,(#gn-call pin-box-name (#gn-get o name) "CreateResult")
-      (#let allocation ,(#gn-get o alloc-result)
-        (#call ,(#gn-get o alloc) (: allocator allocator
+      (#let allocation ,(#gn-call pin-box-name adapter "Allocation")
+        (#call ,(#gn-call pin-box-name adapter "allocate") (: allocator allocator
           : layout (#size-of ,(#gn-get o type)) : alignment (#align-of ,(#gn-get o type)))))
       (#return (#match allocation
-        (#case (,(#gn-get o alloc-ok) pointer)
+        (#case (,(#gn-call pin-box-name adapter "Allocated") pointer)
           (#block (,(#gn-call pin-box-name (#gn-get o name) "created")
             (#struct-literal ,(#gn-get o name)
               (: allocator (#clone allocator)
                : pointer (#unsafe (#pin-own-of pointer value)))))))
-        (#case (,(#gn-get o alloc-error) error)
+        (#case (,(#gn-call pin-box-name adapter "AllocationFailed") error)
           (,(#gn-call pin-box-name (#gn-get o name) "allocation-failed")
             (#tuple error value))))))
     (#fn ,(#gn-call pin-box-name (#gn-get o name) "borrow")
@@ -47,11 +49,13 @@
       (#call ,(#gn-get o destroy) (: allocator (#clone allocator) : pin pin))
       (#forget pin)
       (#let raw (#ptr-mut ,(#gn-get o type)) (#unsafe (#pin-release pointer)))
-      (#call ,(#gn-get o dealloc) (: allocator (#clone allocator) : pointer raw
-        : layout (#size-of ,(#gn-get o type)) : alignment (#align-of ,(#gn-get o type))))
+      (#unsafe (#unsafe-call ,(#gn-call pin-box-name adapter "deallocate")
+        (: allocator (#clone allocator) : pointer raw
+         : layout (#size-of ,(#gn-get o type)) : alignment (#align-of ,(#gn-get o type)))))
       (#return ()))))
 
 (#gn #pin-box (options)
   (#gn-call pin-box-build options
+    (#gn-call pin-box-name (#gn-get options name) "Allocator")
     (#gn-for-each option options (#gn-call pin-box-check option
-      (type allocator name error alloc-result alloc-ok alloc-error alloc dealloc destroy)))))
+      (type allocator name destroy)))))
