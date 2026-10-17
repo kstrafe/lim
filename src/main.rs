@@ -972,10 +972,16 @@ fn compile_with_links(
 }
 
 #[cfg(test)]
+#[path = "../tests/support/process.rs"]
+mod test_process;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::process::ExitStatusExt;
     use std::process::Command;
+
+    use super::test_process as process;
 
     mod elf_fixture {
         include!("../tests/support/elf_fixture.rs");
@@ -1001,7 +1007,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1040,7 +1046,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(20));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1063,7 +1069,10 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(15));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(15)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1086,7 +1095,10 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(42));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(42)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1109,7 +1121,10 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(84));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(84)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1138,7 +1153,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(44));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1170,7 +1185,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1199,7 +1214,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1229,7 +1244,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1267,7 +1282,10 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .is_ok());
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(43));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(43)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1303,7 +1321,10 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .is_ok());
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(44));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(44)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1347,7 +1368,7 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .is_ok());
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.signal(), Some(4));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1456,7 +1477,10 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        assert_eq!(Command::new(&output).status().unwrap().code(), Some(42));
+        assert_eq!(
+            process::status(&mut Command::new(&output)).unwrap().code(),
+            Some(42)
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1487,7 +1511,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(4));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1540,7 +1564,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1569,7 +1593,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(22));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1601,7 +1625,7 @@ mod tests {
             ),
             ExitCode::SUCCESS
         );
-        let status = Command::new(&output).status().unwrap();
+        let status = process::status(&mut Command::new(&output)).unwrap();
         assert_eq!(status.code(), Some(2));
         fs::remove_dir_all(directory).unwrap();
     }

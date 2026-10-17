@@ -1645,7 +1645,16 @@ mod async_migration_tests {
             crate::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
-        let output = std::process::Command::new(binary).output().unwrap();
+        let output = crate::test_process::spawn(
+            std::process::Command::new(binary)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped()),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap()
+        .wait_with_output()
+        .unwrap();
         assert_eq!(output.status.code(), Some(42), "{:?}", output.stderr);
         assert!(output.stdout.is_empty());
         assert!(output.stderr.is_empty());

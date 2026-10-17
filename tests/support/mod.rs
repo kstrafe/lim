@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod elf_fixture;
+mod process;
 
 use std::os::unix::process::CommandExt;
 use std::{
@@ -70,26 +71,20 @@ pub fn run(
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), String> {
     let started = Instant::now();
     // Every child gets a new group. Never send a signal to our own group.
-    let mut child = loop {
-        match command
+    let mut child = process::spawn(
+        command
             .process_group(0)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => break child,
-            // A writable descriptor still held elsewhere can briefly prevent
-            // executing a freshly linked file. Retry only this Linux launch
-            // failure, never a running child's exit or another spawn error.
-            Err(error) if cfg!(target_os = "linux") && error.raw_os_error() == Some(26) => {
-                if started.elapsed() >= budget {
-                    return Err(format!("timeout after {budget:?} starting child: {error}"));
-                }
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(error) => return Err(error.to_string()),
+            .stderr(Stdio::piped()),
+        budget.saturating_sub(started.elapsed()),
+    )
+    .map_err(|error| {
+        if cfg!(target_os = "linux") && error.kind() == std::io::ErrorKind::ExecutableFileBusy {
+            format!("timeout after {budget:?} starting child: {error}")
+        } else {
+            error.to_string()
         }
-    };
+    })?;
     let pid = i32::try_from(child.id()).expect("Linux process ID fits #i32");
     assert!(pid > 1);
     let exceeded = Arc::new(AtomicBool::new(false));

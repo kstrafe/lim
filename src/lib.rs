@@ -44,6 +44,9 @@ mod source_error;
 mod stack_usage;
 mod standard_library;
 mod syntax_bundle;
+#[cfg(test)]
+#[path = "../tests/support/process.rs"]
+mod test_process;
 mod thread_contract;
 mod timing;
 mod typecheck;

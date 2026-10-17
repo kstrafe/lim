@@ -765,7 +765,9 @@ mod tests {
             std::fs::write(&output, &image).unwrap();
             std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o700)).unwrap();
             assert_eq!(
-                std::process::Command::new(output).status().unwrap().code(),
+                crate::test_process::status(&mut std::process::Command::new(output))
+                    .unwrap()
+                    .code(),
                 Some(42)
             );
         }

@@ -8650,19 +8650,9 @@ mod tests {
             crate::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
-        let launch_deadline = Instant::now() + Duration::from_secs(5);
-        let mut child = loop {
-            match Command::new(&binary).spawn() {
-                Ok(child) => break child,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy
-                        && Instant::now() < launch_deadline =>
-                {
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Err(error) => panic!("cannot launch {}: {error}", binary.display()),
-            }
-        };
+        let mut child =
+            crate::test_process::spawn(&mut Command::new(&binary), Duration::from_secs(5))
+                .unwrap_or_else(|error| panic!("cannot launch {}: {error}", binary.display()));
         let deadline = Instant::now() + Duration::from_secs(5);
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {

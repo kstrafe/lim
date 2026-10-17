@@ -81,6 +81,87 @@ pub fn reject_source_output_collision(source: &Path, output: &Path) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn inherited_writer_blocks_exec_even_after_parent_closes_descriptor() {
+        use std::{
+            ffi::c_void,
+            io::Write,
+            os::{fd::AsRawFd, unix::fs::PermissionsExt, unix::net::UnixStream},
+            process::Command,
+        };
+
+        unsafe extern "C" {
+            fn fork() -> i32;
+            fn read(fd: i32, buffer: *mut c_void, count: usize) -> isize;
+            fn close(fd: i32) -> i32;
+            fn _exit(status: i32) -> !;
+            fn kill(pid: i32, signal: i32) -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+
+        struct ChildGuard(i32);
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                // SAFETY: this is our unreaped fork child, including on panic.
+                // Never leave a child blocked holding a writable descriptor.
+                unsafe {
+                    kill(self.0, 9);
+                    let mut status = 0;
+                    while waitpid(self.0, &mut status, 0) == -1 {
+                        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let directory = StagingDirectory::beside(&std::env::temp_dir().join("unused")).unwrap();
+        let binary = directory.0.join("program");
+        // mov eax, SYS_exit; xor edi, edi; syscall -- no compiler or libc needed.
+        let image =
+            crate::elf_writer::executable(&[0xb8, 60, 0, 0, 0, 0x31, 0xff, 0x0f, 0x05], 0).unwrap();
+        fs::write(&binary, image).unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let writer = fs::OpenOptions::new().write(true).open(&binary).unwrap();
+        let writer_fd = writer.as_raw_fd();
+        let (mut release, inherited) = UnixStream::pair().unwrap();
+        let inherited_fd = inherited.as_raw_fd();
+
+        // SAFETY: the child calls only async-signal-safe C functions before
+        // _exit; it never allocates, locks Rust state, or runs Rust destructors.
+        let pid = unsafe { fork() };
+        assert!(pid >= 0, "fork failed: {}", io::Error::last_os_error());
+        if pid == 0 {
+            unsafe {
+                let mut byte = 0u8;
+                while read(inherited_fd, (&mut byte as *mut u8).cast(), 1) == -1 {}
+                close(writer_fd);
+                _exit(0);
+            }
+        }
+        let _child = ChildGuard(pid);
+        drop(inherited);
+        drop(writer);
+        assert_eq!(
+            fs::read_link(format!("/proc/{pid}/fd/{writer_fd}")).unwrap(),
+            binary,
+            "the forked child still holds the parent's closed writer"
+        );
+        let error = Command::new(&binary).spawn().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy);
+
+        release.write_all(&[1]).unwrap();
+        assert_eq!(
+            crate::test_process::status(&mut Command::new(&binary))
+                .unwrap()
+                .code(),
+            Some(0)
+        );
+    }
+
     #[test]
     fn linker_failures_preserve_binary_and_success_preserves_executable_mode() {
         let temp = StagingDirectory::beside(&std::env::temp_dir().join("unused")).unwrap();
@@ -102,7 +183,9 @@ mod tests {
         assert_eq!(fs::read(&output).unwrap(), b"original");
         crate::link_native_binary(&assembly, &output, &[], &[], target).unwrap();
         assert_eq!(
-            std::process::Command::new(&output).status().unwrap().code(),
+            crate::test_process::status(&mut std::process::Command::new(&output))
+                .unwrap()
+                .code(),
             Some(42)
         );
         assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
