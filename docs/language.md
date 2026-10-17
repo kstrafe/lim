@@ -1680,7 +1680,11 @@ When a variable has the same name as its parameter, `($ name)` expands to
 ```
 
 This is general parser sugar, so it also works in struct field lists and
-quoted generator syntax. It requires exactly one identifier, preserves that
+quoted generator syntax. It accepts one identifier or an explicit unary borrow
+of one identifier: `($ (#borrow owner))` expands to
+`(owner (#borrow owner))`. The same form supports `#borrow-mut`, `#pin-borrow`,
+and `#pin-borrow-mut`; arbitrary expressions and implicit borrowing are not
+supported. It preserves that
 identifier's source location for diagnostics, and does not change evaluation
 order or borrowing rules. The formatter preserves the shorthand spelling.
 Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`

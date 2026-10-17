@@ -1419,10 +1419,11 @@ fn is_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
 
 fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
     is_colon_list_source(expression, source)
-        // Dollar shorthand duplicates one source token into two AST children.
+        // Dollar shorthand's label is sourced from within its value expression.
         || (matches!(expression.expr, Expr::List(_))
             && expression.children.len() == 2
-            && expression.children[0].span == expression.children[1].span)
+            && expression.children[0].span.start >= expression.children[1].span.start
+            && expression.children[0].span.end <= expression.children[1].span.end)
 }
 
 fn gap_is_comment_free(comments: &[SourceComment], start: usize, end: usize) -> bool {
@@ -8976,13 +8977,23 @@ impl<'a> Parser<'a> {
                                 self.error("'$' shorthand expects exactly one identifier", span)
                             );
                         }
-                        if !matches!(items[1], Expr::Symbol(_)) {
-                            return Err(
-                                self.error("'$' shorthand expects an identifier", children[1].span)
-                            );
-                        }
-                        items[0] = items[1].clone();
-                        children[0] = children[1].clone();
+                        let value = &children[1];
+                        let name = match &value.expr {
+                            Expr::Symbol(_) => value,
+                            Expr::List(parts)
+                                if parts.len() == 2
+                                    && matches!(&parts[0], Expr::Symbol(op) if matches!(op.as_str(), "#borrow" | "#borrow-mut" | "#pin-borrow" | "#pin-borrow-mut"))
+                                    && matches!(&parts[1], Expr::Symbol(_)) =>
+                            {
+                                &value.children[1]
+                            }
+                            _ => return Err(self.error(
+                                "'$' shorthand expects an identifier or an explicit borrow of an identifier",
+                                value.span,
+                            )),
+                        };
+                        items[0] = name.expr.clone();
+                        children[0] = name.clone();
                     }
                     return Ok(SpannedExpr {
                         expr: Expr::List(items),
@@ -11504,6 +11515,35 @@ mod tests {
             assert!(error.message.contains("shorthand expects"), "{error}");
             assert_eq!(&source[error.span.start..error.span.end], offending);
         }
+    }
+
+    #[test]
+    fn borrowed_dollar_shorthand_is_explicit_and_preserves_spans() {
+        for op in ["#borrow", "#borrow-mut", "#pin-borrow", "#pin-borrow-mut"] {
+            let source = format!("($ ({op} owner))");
+            let expression = parse(&source).unwrap().remove(0);
+            assert_eq!(
+                expression.expr,
+                parse(&format!("(owner ({op} owner))")).unwrap()[0].expr
+            );
+            let label = expression.children[0].span;
+            assert_eq!(&source[label.start..label.end], "owner");
+            assert_eq!(format_source(&source).unwrap(), format!("{source}\n"));
+        }
+        for source in [
+            "($ (#borrow (#get owner value)))",
+            "($ (#clone owner))",
+            "($ (#borrow owner extra))",
+            "($ (#borrow 42u64))",
+        ] {
+            assert!(parse(source).unwrap_err().contains("shorthand expects"));
+        }
+        let source = "(#fn read (: value (#ref #u64)) #u64 (#return (#deref value)))
+          (#fn main () #u64 (#let value #u64 42u64)
+            (#return (#call read (($ (#borrow value))))))";
+        let program = parse_program(source).unwrap();
+        check_types(&program).unwrap();
+        generate_assembly(&program).unwrap();
     }
 
     #[test]
