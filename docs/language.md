@@ -1691,8 +1691,9 @@ Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`
 would introduce an extra list, just like `(: (name name))`.
 
 Positional call forms are rejected. Calls with no arguments use
-`(#call function (:))` for safe functions, or
-`(#unsafe (#unsafe-call function (:)))` for unsafe and external functions.
+`(#call function ())` for safe functions, or
+`(#unsafe (#unsafe-call function ()))` for unsafe and external functions.
+The equivalent empty colon group `(:)` formats as `()`.
 `#call` rejects unsafe and external callees even inside `#unsafe`;
 `#unsafe-call` requires an enclosing `#unsafe` block and rejects safe callees.
 Both forms accept `($ name)` shorthand and apply the same argument checks.

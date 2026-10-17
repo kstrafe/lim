@@ -1289,15 +1289,39 @@ fn pretty_spanned_expression(
     comments: &[SourceComment],
     indent: usize,
 ) -> String {
-    // Parser sugar keeps its spelling when formatting
-    // instead of printing its desugared list-of-lists representation.
-    if is_parser_sugar_source(expression, source) {
-        return source[expression.span.start..expression.span.end].to_owned();
-    }
     let has_comments = comments.iter().any(|comment| {
         comment.span.start > expression.span.start && comment.span.end < expression.span.end
     });
     let flat = flat_spanned_expression(expression, source);
+    // Keep sugar visible instead of printing its expanded representation.
+    // Comments inside sugar retain their original positions and spelling.
+    if is_parser_sugar_source(expression, source) {
+        if has_comments {
+            return source[expression.span.start..expression.span.end].to_owned();
+        }
+        if !is_colon_list_source(expression, source) || indent + flat.chars().count() <= 100 {
+            return flat;
+        }
+        let mut output = String::from("(");
+        for (index, group) in expression.children.iter().enumerate() {
+            if index != 0 {
+                output.push('\n');
+                output.push_str(&" ".repeat(indent + 1));
+            }
+            output.push(':');
+            for child in &group.children {
+                output.push(' ');
+                output.push_str(&pretty_spanned_expression(
+                    child,
+                    source,
+                    comments,
+                    indent + 3,
+                ));
+            }
+        }
+        output.push(')');
+        return output;
+    }
     let header = expression_header_length(expression);
     if !has_comments && !contains_body_form(expression) && indent + flat.chars().count() <= 100 {
         return flat;
@@ -1307,7 +1331,17 @@ fn pretty_spanned_expression(
             if items.is_empty() {
                 return "()".into();
             }
-            let header = header.unwrap_or(1).min(expression.children.len());
+            let layout_header = match items.first() {
+                Some(Expr::Symbol(head)) => match head.as_str() {
+                    "#call" | "#unsafe-call" | "#struct-literal" => 2,
+                    "#let" | "#let-mut" | "#const" | "#static" => 3,
+                    _ => 1,
+                },
+                _ => 1,
+            };
+            let header = header
+                .unwrap_or(layout_header)
+                .min(expression.children.len());
             let mut rendered = String::from("(");
             let mut cursor = expression.span.start + 1;
             for (index, child) in expression.children.iter().enumerate() {
@@ -1466,6 +1500,32 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
 }
 
 fn flat_spanned_expression(expression: &SpannedExpr, source: &str) -> String {
+    if is_colon_list_source(expression, source) {
+        // Empty argument lists have one canonical spelling, including `(:)`.
+        if expression.children.is_empty() {
+            return "()".into();
+        }
+        // Do not flatten away comments embedded in grouped syntax.
+        if !source_comments(&source[expression.span.start..expression.span.end]).is_empty() {
+            return source[expression.span.start..expression.span.end].to_owned();
+        }
+        return format!(
+            "(: {})",
+            expression
+                .children
+                .iter()
+                .map(|group| {
+                    group
+                        .children
+                        .iter()
+                        .map(|child| flat_spanned_expression(child, source))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect::<Vec<_>>()
+                .join(" : ")
+        );
+    }
     // Typed numeric tokens are represented as synthetic lists without children.
     if expression.children.is_empty() || is_parser_sugar_source(expression, source) {
         return source[expression.span.start..expression.span.end].to_owned();
@@ -4612,7 +4672,12 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
                     }
                 }
                 let body_start = if matches!(parts.get(1), Some(Expr::List(guard))
-                    if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "when")) { 2 } else { 1 };
+                    if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "when"))
+                {
+                    2
+                } else {
+                    1
+                };
                 if parts.len() > body_start + 1 {
                     let mut body = vec![Expr::Symbol("block".into())];
                     body.extend(parts.drain(body_start..));
@@ -4678,7 +4743,12 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                 ));
             }
             let body_start = if matches!(parts.get(2), Some(Expr::List(guard))
-                if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when")) { 3 } else { 2 };
+                if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when"))
+            {
+                3
+            } else {
+                2
+            };
             if parts.len() <= body_start {
                 return Err((
                     "match case must have a pattern and a nonempty body, with an optional #when guard".into(),
@@ -4689,18 +4759,26 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                 let mut body = arm.children.split_off(body_start);
                 let first = body[0].span;
                 let last = body.last().unwrap().span;
-                let span = Span { end: last.end, ..first };
-                body.insert(0, SpannedExpr {
-                    expr: Expr::Symbol("#block".into()),
-                    span: first,
-                    children: Vec::new(),
-                });
+                let span = Span {
+                    end: last.end,
+                    ..first
+                };
+                body.insert(
+                    0,
+                    SpannedExpr {
+                        expr: Expr::Symbol("#block".into()),
+                        span: first,
+                        children: Vec::new(),
+                    },
+                );
                 let block = SpannedExpr {
                     expr: Expr::List(body.iter().map(|child| child.expr.clone()).collect()),
                     span,
                     children: body,
                 };
-                let Expr::List(parts) = &mut arm.expr else { unreachable!() };
+                let Expr::List(parts) = &mut arm.expr else {
+                    unreachable!()
+                };
                 parts.truncate(body_start);
                 parts.push(block.expr.clone());
                 arm.children.push(block);
@@ -9479,6 +9557,32 @@ mod tests {
     }
 
     #[test]
+    fn formatter_groups_bindings_calls_and_long_named_arguments() {
+        let source = "(#fn main () #u64
+          (#let created PinU64Box::CreateResult
+            (#call PinU64Box::create (: allocator (#borrow allocator) : value 42u64)))
+          (#call VeryLongConcreteOwner::create (: allocator (#borrow allocator) : first-argument 40u64 : second-argument 2u64 : third-argument 0u64))
+          (#return (#call answer (:))))";
+        let formatted = format_source(source).unwrap();
+        assert!(
+            formatted
+                .contains("(#let created PinU64Box::CreateResult\n    (#call PinU64Box::create"),
+            "{formatted}"
+        );
+        assert!(formatted.contains("(#call VeryLongConcreteOwner::create\n    (: allocator (#borrow allocator)\n     : first-argument 40u64\n     : second-argument 2u64\n     : third-argument 0u64))"), "{formatted}");
+        assert!(formatted.contains("(#call answer ())"), "{formatted}");
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
+        let exprs = |text: &str| {
+            parse(text)
+                .unwrap()
+                .into_iter()
+                .map(|node| node.expr)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(exprs(source), exprs(&formatted));
+    }
+
+    #[test]
     fn formatter_normalizes_nested_syntax() {
         let formatted = format_source("(#fn main () #u64 (#return (#u64.+.wrap 40 2)))").unwrap();
         assert_eq!(
@@ -11550,12 +11654,33 @@ mod tests {
     fn case_sequences_lower_to_blocks_without_implicit_function_returns() {
         for (keyword, ty, value, read) in [
             ("#case", "Choice", "(Full 42u64)", "payload"),
-            ("#case-ref", "(#ref Choice)", "(#borrow choice)", "(#deref payload)"),
-            ("#case-ref-mut", "(#ref-mut Choice)", "(#borrow-mut choice)", "(#deref payload)"),
-            ("#case-pin", "(#pin-ref Choice)", "(#pin-shared choice)", "(#unsafe (#pin-read payload))"),
-            ("#case-pin-mut", "(#pin-ref-mut Choice)", "(#pin choice)", "(#unsafe (#pin-read payload))"),
+            (
+                "#case-ref",
+                "(#ref Choice)",
+                "(#borrow choice)",
+                "(#deref payload)",
+            ),
+            (
+                "#case-ref-mut",
+                "(#ref-mut Choice)",
+                "(#borrow-mut choice)",
+                "(#deref payload)",
+            ),
+            (
+                "#case-pin",
+                "(#pin-ref Choice)",
+                "(#pin-shared choice)",
+                "(#unsafe (#pin-read payload))",
+            ),
+            (
+                "#case-pin-mut",
+                "(#pin-ref-mut Choice)",
+                "(#pin choice)",
+                "(#unsafe (#pin-read payload))",
+            ),
         ] {
-            let source = format!("(#enum Choice () ((Full #u64)))
+            let source = format!(
+                "(#enum Choice () ((Full #u64)))
               (#fn read (: input {ty}) #u64
                 (#return (#match input
                   ({keyword} (Full payload) (#when true)
@@ -11564,14 +11689,21 @@ mod tests {
               (#fn main () #u64
                 (#let-mut choice Choice (Full 1u64))
                 (#let answer #u64 (#call read (: input {value})))
-                (#forget choice) (#return answer))");
+                (#forget choice) (#return answer))"
+            );
             let program = parse_program(&source).unwrap_or_else(|e| panic!("{keyword}: {e}"));
             check_types(&program).unwrap_or_else(|e| panic!("{keyword}: {e}"));
             generate_assembly(&program).unwrap();
         }
-        assert!(parse_program("(#fn main () #u64 (#match true (#case true 1u64) (#case false 0u64)))").is_err());
+        assert!(parse_program(
+            "(#fn main () #u64 (#match true (#case true 1u64) (#case false 0u64)))"
+        )
+        .is_err());
         for arm in ["(#case true)", "(#case true (#when true))"] {
-            assert!(parse_program(&format!("(#fn main () #u64 (#return (#match true {arm} (#case false 0u64))))")).is_err());
+            assert!(parse_program(&format!(
+                "(#fn main () #u64 (#return (#match true {arm} (#case false 0u64))))"
+            ))
+            .is_err());
         }
     }
 
