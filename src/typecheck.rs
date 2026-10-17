@@ -1033,69 +1033,96 @@ fn ownership_subjects_overlap(syntax_subject: &str, typed_subject: &str) -> bool
         })
 }
 
-fn validate_planning_declaration_types(
+fn validate_declaration_types(
     program: &Program,
-    interfaces: &crate::generation_interfaces::DeclarationInterfaces,
+    interfaces: Option<&crate::generation_interfaces::DeclarationInterfaces>,
     declared: &HashSet<&String>,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), (String, Option<crate::Span>)> {
-    let check = |ty: &Type, span: Option<crate::Span>| {
+    let check = |ty: &Type, source: Option<&crate::SpannedExpr>, fallback: Option<crate::Span>| {
+        let span = source.map(|source| source.span).or(fallback);
         let ty = resolve_type(ty, aliases).map_err(|error| (error.message, span))?;
         if let Some(unknown) = first_unresolved_type(&ty, declared, aliases) {
             return Err((
-                format!("undeclared type '{unknown}' in generated declaration"),
-                span,
+                format!("undeclared type '{unknown}' in declaration"),
+                source
+                    .and_then(|source| first_symbol_span(source, unknown))
+                    .or(span),
             ));
         }
         Ok(())
     };
-    for item in &program.items {
+    for item in program
+        .items
+        .iter()
+        .filter(|item| matches!(item, Item::TypeAlias { .. }))
+        .chain(
+            program
+                .items
+                .iter()
+                .filter(|item| !matches!(item, Item::TypeAlias { .. })),
+        )
+    {
+        if interfaces.is_none()
+            && !matches!(
+                item,
+                Item::TypeAlias { .. } | Item::Struct { .. } | Item::Enum { .. }
+            )
+        {
+            continue;
+        }
         let names = crate::item_declared_names(item);
         let name = names.first().map(String::as_str).unwrap_or("");
         let declaration = program.declaration_expressions.get(name);
         let span = program.declaration_spans.get(name).copied();
         match item {
-            Item::Function(function) => {
+            Item::Function(function) if interfaces.is_some() => {
                 for (index, parameter) in function.parameters.iter().enumerate() {
                     let parameter_source = declaration
                         .and_then(|source| source.children.get(2))
                         .and_then(|source| source.children.get(index));
                     let ty_source = parameter_source.and_then(|source| source.children.last());
-                    check(&parameter.ty, ty_source.map(|source| source.span).or(span))?;
+                    check(&parameter.ty, ty_source, span)?;
                 }
                 check(
                     &function.return_type,
-                    declaration
-                        .and_then(|source| source.children.get(3))
-                        .map(|source| source.span)
-                        .or(span),
+                    declaration.and_then(|source| source.children.get(3)),
+                    span,
                 )?;
             }
             Item::TypeAlias { target, .. }
             | Item::Let { ty: target, .. }
-            | Item::Static { ty: target, .. } => {
+            | Item::Static { ty: target, .. }
+                if interfaces.is_some() || matches!(item, Item::TypeAlias { .. }) =>
+            {
                 check(
                     target,
-                    declaration
-                        .and_then(|source| source.children.get(2))
-                        .map(|source| source.span)
-                        .or(span),
+                    declaration.and_then(|source| source.children.get(2)),
+                    span,
                 )?;
             }
             Item::Struct { fields, .. } => {
-                for field in fields {
+                for (index, field) in fields.iter().enumerate() {
                     check(
                         &field.ty,
-                        declaration_member_span(program, name, 3, &field.name, 1).or(span),
+                        declaration
+                            .and_then(|source| source.children.get(3))
+                            .and_then(|members| members.children.get(index))
+                            .and_then(|member| member.children.get(1)),
+                        span,
                     )?;
                 }
             }
             Item::Enum { variants, .. } => {
-                for variant in variants {
+                for (index, variant) in variants.iter().enumerate() {
                     for field in &variant.fields {
                         check(
                             field,
-                            declaration_member_span(program, name, 3, &variant.name, 1).or(span),
+                            declaration
+                                .and_then(|source| source.children.get(3))
+                                .and_then(|members| members.children.get(index))
+                                .and_then(|member| member.children.last()),
+                            span,
                         )?;
                     }
                 }
@@ -1103,18 +1130,21 @@ fn validate_planning_declaration_types(
             Item::ThreadTask {
                 generated_functions,
                 ..
-            } => {
+            } if interfaces.is_some() => {
                 for function in generated_functions {
                     for parameter in &function.parameters {
-                        check(&parameter.ty, span)?;
+                        check(&parameter.ty, None, span)?;
                     }
-                    check(&function.return_type, span)?;
+                    check(&function.return_type, None, span)?;
                 }
             }
             _ => {}
         }
     }
-    for interface in interfaces.functions.values() {
+    for interface in interfaces
+        .into_iter()
+        .flat_map(|interfaces| interfaces.functions.values())
+    {
         let function = &interface.declaration;
         if function.external != (function.calling_convention == CallingConvention::C) {
             return Err((
@@ -1142,15 +1172,20 @@ fn validate_planning_declaration_types(
                     interface.span,
                 ));
             }
-            check(&parameter.ty, interface.span)?;
+            check(&parameter.ty, None, interface.span)?;
         }
-        check(&function.return_type, interface.span)?;
+        check(&function.return_type, None, interface.span)?;
     }
-    for (name, variants) in &interfaces.protocols {
-        let span = interfaces.generated_names.get(name).copied();
+    for (name, variants) in interfaces
+        .into_iter()
+        .flat_map(|interfaces| &interfaces.protocols)
+    {
+        let span = interfaces
+            .and_then(|interfaces| interfaces.generated_names.get(name))
+            .copied();
         for variant in variants {
             for field in &variant.fields {
-                check(field, span)?;
+                check(field, None, span)?;
             }
         }
     }
@@ -1159,6 +1194,109 @@ fn validate_planning_declaration_types(
 
 /// A reference has a known handle layout even when its pointee is deferred.
 /// By-value containers, however, cannot hide a layout dependency.
+/// Reject infinite by-value layouts even when no expression uses the type.
+/// References, pointers, slices and pinned owners break layout dependencies.
+fn validate_finite_declarations(program: &Program) -> Result<(), (String, Option<crate::Span>)> {
+    fn dependencies(
+        ty: &Type,
+        source: Option<&crate::SpannedExpr>,
+        output: &mut Vec<(String, Option<crate::Span>)>,
+    ) {
+        match ty {
+            Type::Named(name) => output.push((
+                name.clone(),
+                source.and_then(|source| first_symbol_span(source, name)),
+            )),
+            Type::Array(element, _) | Type::Atomic(element) => {
+                dependencies(element, source, output)
+            }
+            Type::Tuple(fields) => {
+                for field in fields {
+                    dependencies(field, source, output);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut graph = HashMap::new();
+    let mut order = Vec::new();
+    for item in &program.items {
+        let (name, members): (&str, Vec<(usize, &Type)>) = match item {
+            Item::TypeAlias { name, target, .. } => (name, vec![(0, target)]),
+            Item::Struct { name, fields, .. } => (
+                name,
+                fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| (index, &field.ty))
+                    .collect(),
+            ),
+            Item::Enum { name, variants, .. } => (
+                name,
+                variants
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(index, variant)| variant.fields.iter().map(move |ty| (index, ty)))
+                    .collect(),
+            ),
+            _ => continue,
+        };
+        let declaration = program.declaration_expressions.get(name);
+        let mut edges = Vec::new();
+        for (index, ty) in members {
+            let source = if matches!(item, Item::TypeAlias { .. }) {
+                declaration.and_then(|source| source.children.get(2))
+            } else {
+                declaration
+                    .and_then(|source| source.children.get(3))
+                    .and_then(|members| members.children.get(index))
+                    .and_then(|member| member.children.last())
+            };
+            dependencies(ty, source, &mut edges);
+        }
+        order.push(name.to_owned());
+        graph.insert(name.to_owned(), edges);
+    }
+    let mut states = HashMap::new();
+    let mut active: Vec<String> = Vec::new();
+    for root in order {
+        let mut pending = vec![(root, false, None)];
+        while let Some((name, exit, span)) = pending.pop() {
+            if exit {
+                active.pop();
+                states.insert(name, 2);
+                continue;
+            }
+            match states.get(&name) {
+                Some(2) => continue,
+                Some(1) => {
+                    let start = active.iter().position(|item| item == &name).unwrap();
+                    let mut cycle = active[start..].to_vec();
+                    cycle.push(name);
+                    return Err((
+                        format!("infinitely sized type cycle: {}", cycle.join(" -> ")),
+                        span,
+                    ));
+                }
+                _ => {}
+            }
+            let Some(edges) = graph.get(&name) else {
+                continue;
+            };
+            states.insert(name.clone(), 1);
+            active.push(name.clone());
+            pending.push((name, true, None));
+            pending.extend(
+                edges
+                    .iter()
+                    .rev()
+                    .map(|(name, span)| (name.clone(), false, *span)),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn deferred_value_layout(
     ty: &Type,
     deferred: &HashMap<String, crate::generation_interfaces::DeferredLayout>,
@@ -1450,18 +1588,18 @@ fn check_types_inner(
             return Err(error.into());
         }
     }
-    if let Some(planning) = planning {
-        validate_planning_declaration_types(
-            program,
-            planning.interfaces,
-            &declared_types,
-            &aliases,
-        )
-        .map_err(|(message, span)| {
-            *diagnostic_span = span;
-            message
-        })?;
-    }
+    validate_declaration_types(
+        program,
+        planning.map(|planning| planning.interfaces),
+        &declared_types,
+        &aliases,
+    )
+    .and_then(|()| validate_finite_declarations(program))
+    .map_err(|(message, span)| {
+        *diagnostic_span = span;
+        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+        message
+    })?;
     let mut globals = HashMap::new();
     for item in &program.items {
         let (name, ty, mutable) = match item {
