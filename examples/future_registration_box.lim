@@ -1,0 +1,100 @@
+(#import "../library/linux_x86_64.lim")
+(#import "../library/pin_box.lim")
+(#import "../library/pin.lim")
+
+; Registration consumes only literal names. It never inspects unfinished enums.
+(#distributed-enum ExecutorTask ())
+
+(#gn register-future (executor future)
+  `((#require-generated
+       ,(#gn-symbol-append future "Frame")
+       #async-fn-pinned
+       (,(#gn-symbol-append future "Poll")
+        ,(#gn-symbol-append future "Pending")
+        ,(#gn-symbol-append future "Ready")
+        ,(#gn-symbol-append future "poll")))
+    (#enum-contribute ,executor
+      (,(#gn-symbol-append executor future)
+       ,(#gn-symbol-append future "Frame")))))
+
+(@register-future ExecutorTask Work)
+
+(@#async-fn-pinned
+  (: protocol Work::Await
+   : waker #u64
+   : cancel (cancel-work ())
+   : function (#fn work () #u64 (#return 42u64))))
+
+(#struct Arena () ())
+(#enum ArenaError () (OutOfMemory))
+
+(@#result (: ok (#ptr-mut ExecutorTask) : error ArenaError : name FrameAllocResult))
+(#fn arena-allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) FrameAllocResult
+  (#let pointer (#ptr-mut ExecutorTask)
+    (#unsafe (#linux-syscall (#ptr-mut ExecutorTask) LINUX-SYS-MMAP
+      (0usize layout 3usize 34usize -1i64 0usize))))
+  (#return (#if (#usize.>= (#ptr-address pointer) 18446744073709547520usize)
+    (FrameAllocResult-err-value OutOfMemory)
+    (FrameAllocResult-ok-value pointer))))
+
+(#fn arena-deallocate (: allocator (#ref Arena) : pointer (#ptr-mut ExecutorTask)
+  : layout #usize : alignment #usize) ()
+  (#let status #i64 (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (pointer layout))))
+  (#assert (#i64.== status 0i64))
+  (#return ()))
+
+(#fn destroy-executor-task (: allocator (#ref Arena) : pin (#pin-ref-mut ExecutorTask)) ()
+  (#match pin
+    (#case-pin-mut (ExecutorTask::Work frame)
+      (#call cancel-work (: task (#call Work::poll::cleanup (: task frame))))))
+  (#forget pin)
+  (#return ()))
+
+(@#pin-box (: type ExecutorTask : allocator Arena : name PinnedExecutorTaskBox
+  : error ArenaError : alloc-result FrameAllocResult
+  : alloc-ok FrameAllocResult-ok-value : alloc-error FrameAllocResult-err-value
+  : alloc arena-allocate : dealloc arena-deallocate : destroy destroy-executor-task))
+
+(#fn poll-executor-task (: pin (#pin-ref-mut ExecutorTask) : waker (#ref #u64)) Work::Poll
+  (#return (#match pin
+    (#case-pin-mut (ExecutorTask::Work frame)
+      (#call Work::poll (: task frame : waker waker))))))
+
+(#fn dispose-executor-task (: allocator (#ref Arena) : task ExecutorTask) ()
+  (#let-mut local ExecutorTask task)
+  (#let pin (#pin-ref-mut ExecutorTask) (#pin local))
+  (#call destroy-executor-task (: allocator allocator : pin pin))
+  (#forget pin)
+  (#forget local)
+  (#return ()))
+
+(#fn main () #u64
+  (#let arena Arena (#struct-literal Arena ()))
+  ; Build the registered task and move its enum owner into stable heap storage.
+  (#let task ExecutorTask (ExecutorTask::Work (#call work (:))))
+  (#let created PinnedExecutorTaskBox::CreateResult
+    (#call PinnedExecutorTaskBox::create (: allocator (#borrow arena) : value task)))
+  (#let-mut owner PinnedExecutorTaskBox
+    (#match created
+      (#case (PinnedExecutorTaskBox::created box) box)
+      (#case (PinnedExecutorTaskBox::allocation-failed failure)
+        (#block
+          (#let (#tuple error failed-task) (#tuple ArenaError ExecutorTask) failure)
+          (#forget error)
+          (#call dispose-executor-task (: allocator (#borrow arena) : task failed-task))
+          (#return 0u64)))))
+  (#let waker #u64 0u64)
+  ; Borrow the boxed enum mutably; the polling helper projects its frame in place.
+  (#let pin (#pin-ref-mut ExecutorTask)
+    (#call PinnedExecutorTaskBox::borrow-mut (: owner (#borrow-mut owner))))
+  (#let result Work::Poll
+    (#call poll-executor-task (: pin pin : waker (#borrow waker))))
+  (#let answer #u64
+    (#match result
+      (#case (Work::Ready value) value)
+      (#case (Work::Pending pending) (#block (#forget pending) 0u64))))
+  ; Release the projected borrow before cleanup and allocator-backed destruction.
+  (#forget pin)
+  (#call PinnedExecutorTaskBox::destroy (: owner owner))
+  (#forget arena)
+  (#return answer))
