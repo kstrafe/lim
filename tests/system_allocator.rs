@@ -9,7 +9,7 @@ const HELPERS: &str = r#"
     (#case (SystemAllocated pointer) pointer)
     (#case (SystemAllocationFailed error) (#panic)))))
 (#unsafe-fn resize-required (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
-  (#return (#match (#unsafe (#call system-reallocate (: pointer pointer : size size)))
+  (#return (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size size)))
     (#case (SystemAllocated resized) resized)
     (#case (SystemAllocationFailed error) (#panic)))))
 (#unsafe-fn fill (: pointer (#ptr-mut #u8) : size #usize) ()
@@ -32,7 +32,7 @@ fn replace_calls(source: &str, replacements: &[(&str, &str)]) -> String {
         replacements: &[(&str, &str)],
         edits: &mut Vec<(lim::Span, String)>,
     ) {
-        if matches!(node.children.first().map(|child| &child.expr), Some(lim::Expr::Symbol(head)) if head == "#call")
+        if matches!(node.children.first().map(|child| &child.expr), Some(lim::Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))
         {
             let callee = &node.children[1];
             if let lim::Expr::Symbol(name) = &callee.expr {
@@ -117,19 +117,19 @@ fn kernel_error_pointers_and_invalid_resize_sizes_preserve_ownership() {
         r#"
       (#fn main () #u64
         (#assert (#ptr-is-null (#call system-allocator-map (: length 0usize))))
-        (#assert (#ptr-is-null (#unsafe (#call system-allocator-remap
+        (#assert (#ptr-is-null (#unsafe (#unsafe-call system-allocator-remap
           (: pointer (#ptr-null (#ptr-mut #u8)) : old-length 4096usize : length 8192usize)))))
         (#assert (#match (#call system-allocate (: size SYSTEM-ALLOCATION-MAX))
           (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
         (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 10000usize)))
-        (#unsafe (#call fill (: pointer pointer : size 10000usize)))
-        (#assert (#match (#unsafe (#call system-reallocate (: pointer pointer : size 0usize)))
+        (#unsafe (#unsafe-call fill (: pointer pointer : size 10000usize)))
+        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size 0usize)))
           (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
-        (#unsafe (#call verify (: pointer pointer : size 10000usize)))
-        (#assert (#match (#unsafe (#call system-reallocate (: pointer pointer : size SYSTEM-ALLOCATION-MAX)))
+        (#unsafe (#unsafe-call verify (: pointer pointer : size 10000usize)))
+        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size SYSTEM-ALLOCATION-MAX)))
           (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
-        (#unsafe (#call verify (: pointer pointer : size 10000usize)))
-        (#unsafe (#call system-deallocate (: pointer pointer)))
+        (#unsafe (#unsafe-call verify (: pointer pointer : size 10000usize)))
+        (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
         (#return 42u64))"#,
     );
 }
@@ -142,7 +142,7 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
       (#extern-fn #abi-c malloc (: size #usize) (#ptr-mut #u8))
       (#extern-fn #abi-c free (: pointer (#ptr-mut #u8)) ())
       (#fn main () #u64
-        (#let foreign (#ptr-mut #u8) (#unsafe (#call malloc (: size 64usize))))
+        (#let foreign (#ptr-mut #u8) (#unsafe (#unsafe-call malloc (: size 64usize))))
         (#assert (#bool.! (#ptr-is-null foreign)))
         (#let native (#ptr-mut #u8) (#call allocate-required (: size 64usize)))
         (#assert (#usize.!= (#ptr-address foreign) (#ptr-address native)))
@@ -150,8 +150,8 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
         (#unsafe (#ptr-write native 21u8))
         (#let answer #u64 (#u64.+.wrap (#as (#unsafe (#ptr-read foreign)) #u64)
           (#as (#unsafe (#ptr-read native)) #u64)))
-        (#unsafe (#call free (: pointer foreign)))
-        (#unsafe (#call system-deallocate (: pointer native)))
+        (#unsafe (#unsafe-call free (: pointer foreign)))
+        (#unsafe (#unsafe-call system-deallocate (: pointer native)))
         (#return answer))"#,
         false,
     );
@@ -170,36 +170,36 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
         body.push_str(&format!(r#"
           (#let pointer{index} (#ptr-mut #u8) (#call allocate-required (: size {size}usize)))
           (#assert (#usize.== (#usize.%.wrap (#ptr-address pointer{index}) 16usize) 0usize))
-          (#unsafe (#call fill (: pointer pointer{index} : size {size}usize)))
-          (#let grown{index} (#ptr-mut #u8) (#unsafe (#call resize-required (: pointer pointer{index} : size {}usize))))
-          (#unsafe (#call verify (: pointer grown{index} : size {size}usize)))
-          (#let shrunk{index} (#ptr-mut #u8) (#unsafe (#call resize-required (: pointer grown{index} : size 1usize))))
+          (#unsafe (#unsafe-call fill (: pointer pointer{index} : size {size}usize)))
+          (#let grown{index} (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer pointer{index} : size {}usize))))
+          (#unsafe (#unsafe-call verify (: pointer grown{index} : size {size}usize)))
+          (#let shrunk{index} (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer grown{index} : size 1usize))))
           (#assert (#usize.== (#ptr-address shrunk{index}) (#ptr-address grown{index})))
-          (#unsafe (#call verify (: pointer shrunk{index} : size 1usize)))
-          (#unsafe (#call system-deallocate (: pointer shrunk{index})))
+          (#unsafe (#unsafe-call verify (: pointer shrunk{index} : size 1usize)))
+          (#unsafe (#unsafe-call system-deallocate (: pointer shrunk{index})))
         "#, size * 3 + 1));
     }
     body.push_str(r#"
       (#let first (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
       (#let second (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
       (#assert (#usize.!= (#ptr-address first) (#ptr-address second)))
-      (#unsafe (#call fill (: pointer second : size 17usize)))
-      (#unsafe (#call system-deallocate (: pointer first)))
+      (#unsafe (#unsafe-call fill (: pointer second : size 17usize)))
+      (#unsafe (#unsafe-call system-deallocate (: pointer first)))
       (#let recycled (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
       (#assert (#usize.== (#ptr-address first) (#ptr-address recycled)))
-      (#unsafe (#call verify (: pointer second : size 17usize)))
-      (#unsafe (#call system-deallocate (: pointer second)))
-      (#unsafe (#call system-deallocate (: pointer recycled)))
+      (#unsafe (#unsafe-call verify (: pointer second : size 17usize)))
+      (#unsafe (#unsafe-call system-deallocate (: pointer second)))
+      (#unsafe (#unsafe-call system-deallocate (: pointer recycled)))
       (#let in-place (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
-      (#unsafe (#call fill (: pointer in-place : size 17usize)))
-      (#let extended (#ptr-mut #u8) (#unsafe (#call resize-required (: pointer in-place : size 47usize))))
+      (#unsafe (#unsafe-call fill (: pointer in-place : size 17usize)))
+      (#let extended (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer in-place : size 47usize))))
       (#assert (#usize.== (#ptr-address in-place) (#ptr-address extended)))
-      (#unsafe (#call verify (: pointer extended : size 17usize)))
-      (#unsafe (#call system-deallocate (: pointer extended)))
-      (#let null-growth (#ptr-mut #u8) (#unsafe (#call resize-required
+      (#unsafe (#unsafe-call verify (: pointer extended : size 17usize)))
+      (#unsafe (#unsafe-call system-deallocate (: pointer extended)))
+      (#let null-growth (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required
         (: pointer (#ptr-null (#ptr-mut #u8)) : size 64usize))))
-      (#unsafe (#call system-deallocate (: pointer null-growth)))
-      (#unsafe (#call system-deallocate (: pointer (#ptr-null (#ptr-mut #u8)))))
+      (#unsafe (#unsafe-call system-deallocate (: pointer null-growth)))
+      (#unsafe (#unsafe-call system-deallocate (: pointer (#ptr-null (#ptr-mut #u8)))))
       (#return 42u64))"#);
     run(HEAP, &body);
 }
@@ -212,7 +212,7 @@ const COUNT_OS_CALLS: &str = r#"
   (#return (#call system-allocator-map (: length length))))
 (#unsafe-fn counted-unmap (: pointer (#ptr-mut #u8) : length #usize) ()
   (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow Unmapped) 1u64 #memory-relaxed)))
-  (#unsafe (#call system-allocator-unmap (: pointer pointer : length length)))
+  (#unsafe (#unsafe-call system-allocator-unmap (: pointer pointer : length length)))
   (#return ()))
 "#;
 
@@ -235,23 +235,23 @@ fn full_slabs_reenter_free_lists_and_empty_cache_is_bounded() {
         (#let-mut pointers (#array (#ptr-mut #u8) 96) (#array-repeat (#ptr-null (#ptr-mut #u8))))
         (#for-range (slot #usize) 0usize 96usize
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 4080usize)))
-          (#unsafe (#call fill (: pointer pointer : size 4080usize)))
+          (#unsafe (#unsafe-call fill (: pointer pointer : size 4080usize)))
           (#set-index pointers slot pointer))
         (#assert (#u64.== (#unsafe (#atomic-load (#borrow Mapped) #memory-relaxed)) 7u64))
         (#for-range (pass #usize) 0usize 2usize
           (#let-mut index #usize pass)
           (#while (#usize.< index 96usize)
             (#let pointer (#ptr-mut #u8) (#index pointers index))
-            (#unsafe (#call verify (: pointer pointer : size 4080usize)))
-            (#unsafe (#call system-deallocate (: pointer pointer)))
+            (#unsafe (#unsafe-call verify (: pointer pointer : size 4080usize)))
+            (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
             (#set index (#usize.+.wrap index 2usize))))
         (#assert (#u64.== (#unsafe (#atomic-load (#borrow Unmapped) #memory-relaxed)) 6u64))
         (#for-range (iteration #usize) 0usize 100usize
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 4080usize)))
-          (#unsafe (#call system-deallocate (: pointer pointer))))
+          (#unsafe (#unsafe-call system-deallocate (: pointer pointer))))
         (#assert (#u64.== (#unsafe (#atomic-load (#borrow Mapped) #memory-relaxed)) 7u64))
         (#let large (#ptr-mut #u8) (#call allocate-required (: size 100000usize)))
-        (#unsafe (#call system-deallocate (: pointer large)))
+        (#unsafe (#unsafe-call system-deallocate (: pointer large)))
         (#assert (#u64.== (#unsafe (#atomic-load (#borrow Unmapped) #memory-relaxed)) 7u64))
         (#return 42u64))"#,
     );
@@ -286,21 +286,21 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
           (#case (SystemAllocated unexpected) (#panic))))
         (#unsafe (#atomic-store (#borrow FailMapping) 0u32 #memory-relaxed))
         (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
-        (#unsafe (#call fill (: pointer pointer : size 17usize)))
+        (#unsafe (#unsafe-call fill (: pointer pointer : size 17usize)))
         (#unsafe (#atomic-store (#borrow FailMapping) 1u32 #memory-relaxed))
-        (#assert (#match (#unsafe (#call system-reallocate (: pointer pointer : size 10000usize)))
+        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size 10000usize)))
           (#case (SystemAllocationFailed error) true)
           (#case (SystemAllocated unexpected) (#panic))))
-        (#unsafe (#call verify (: pointer pointer : size 17usize)))
-        (#unsafe (#call system-deallocate (: pointer pointer)))
+        (#unsafe (#unsafe-call verify (: pointer pointer : size 17usize)))
+        (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
         (#unsafe (#atomic-store (#borrow FailMapping) 0u32 #memory-relaxed))
         (#let large (#ptr-mut #u8) (#call allocate-required (: size 10000usize)))
-        (#unsafe (#call fill (: pointer large : size 10000usize)))
-        (#assert (#match (#unsafe (#call system-reallocate (: pointer large : size 100000usize)))
+        (#unsafe (#unsafe-call fill (: pointer large : size 10000usize)))
+        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer large : size 100000usize)))
           (#case (SystemAllocationFailed error) true)
           (#case (SystemAllocated unexpected) (#panic))))
-        (#unsafe (#call verify (: pointer large : size 10000usize)))
-        (#unsafe (#call system-deallocate (: pointer large)))
+        (#unsafe (#unsafe-call verify (: pointer large : size 10000usize)))
+        (#unsafe (#unsafe-call system-deallocate (: pointer large)))
         (#assert (#match (#call system-allocate (: size 0usize))
           (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
         (#assert (#match (#call system-allocate (: size 18446744073709551615usize))
@@ -311,8 +311,9 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
 
 #[test]
 fn bypassing_allocator_lock_ownership_requires_unsafe() {
-    let source =
-        format!("{HEAP}\n(#fn main () #u64 (#call system-allocator-unlock (:)) (#return 42u64))");
+    let source = format!(
+        "{HEAP}\n(#fn main () #u64 (#unsafe-call system-allocator-unlock (:)) (#return 42u64))"
+    );
     let program = lim::parse_program(&source).unwrap();
     let error = lim::check_types(&program)
         .expect_err("safe callers must not release another thread's lock");
@@ -367,10 +368,10 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
         (#for-range (iteration #usize) 0usize 200usize
           (#let size #usize (#usize.+.wrap (#usize.%.wrap iteration 4080usize) 1usize))
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size size)))
-          (#unsafe (#call fill (: pointer pointer : size size)))
-          (#let resized (#ptr-mut #u8) (#unsafe (#call resize-required (: pointer pointer : size 5000usize))))
-          (#unsafe (#call verify (: pointer resized : size size)))
-          (#unsafe (#call system-deallocate (: pointer resized))))
+          (#unsafe (#unsafe-call fill (: pointer pointer : size size)))
+          (#let resized (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer pointer : size 5000usize))))
+          (#unsafe (#unsafe-call verify (: pointer resized : size size)))
+          (#unsafe (#unsafe-call system-deallocate (: pointer resized))))
         (#return 21u64))
       (@#thread-spawn (: task WorkerA : worker worker))
       (@#thread-spawn (: task WorkerB : worker worker))

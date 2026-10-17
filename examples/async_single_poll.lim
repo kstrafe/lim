@@ -39,7 +39,7 @@
   ;; The adapter is unsafe because it exposes a low-level pin view. The
   ;; generated scope still owns the storage until cleanup has completed.
   (#let view (#pin-ref-mut Work::Frame)
-    (#unsafe (#call PinnedFrame::into-view (: pin pin))))
+    (#unsafe (#unsafe-call PinnedFrame::into-view (: pin pin))))
   (#let waker #u64 0u64)
   (#let first Work::Poll (#call Work::poll (: task view : waker (#borrow waker))))
   (#let-else (Work::Pending after-first) Work::Poll first (#unreachable))
@@ -51,7 +51,7 @@
 
 (#fn destroy-frame (: pin PinnedFrame) ()
   (#let view (#pin-ref-mut Work::Frame)
-    (#unsafe (#call PinnedFrame::into-view (: pin pin))))
+    (#unsafe (#unsafe-call PinnedFrame::into-view (: pin pin))))
   ;; Source-named cleanup handles entry, Pending and completed frames without
   ;; exposing private program counters or generated state variants.
   (#call cancel-work (: task (#call Work::poll::cleanup (: task view))))

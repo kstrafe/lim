@@ -464,7 +464,7 @@ fn graph_source_origin(prepared: &PreparedProgramSyntax, span: Span) -> String {
 // The whole-program environment is immutable throughout an expansion or
 // publication pass. Sort and serialize it once, not for every invocation.
 fn graph_source_key_context(prepared: &PreparedProgramSyntax) -> String {
-    format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}",
+    format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}",
         env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
         async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types))
 }
@@ -1149,7 +1149,7 @@ fn write_prepared_generated_sources_reusing_graph(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v6\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v7\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
@@ -1217,7 +1217,7 @@ mod async_migration_tests {
         for invocation in invocations {
             // Byte-identical to the former per-invocation serialization: no
             // cache schema change or loss of dependency/type information.
-            let expected = format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
+            let expected = format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
                 env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
                 async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap());
             let actual = graph_source_key(&context, invocation).unwrap();
@@ -1411,7 +1411,7 @@ mod async_migration_tests {
             .collect::<Vec<_>>();
         assert!(keys
             .iter()
-            .any(|key| key.contains("lim-inspectable-async-graph-v3")));
+            .any(|key| key.contains("lim-inspectable-async-graph-v4")));
         assert!(!keys.iter().any(|key| key.contains("async-capture-plan=")));
     }
 

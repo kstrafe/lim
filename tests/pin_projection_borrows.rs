@@ -198,7 +198,7 @@ fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
         (#let-mut owner (#pin-own Outer) (#unsafe (#pin-own-of pointer
           (#struct-literal Outer (: left (#struct-literal Inner (: value 0u64))
             : right (#struct-literal Inner (: value 0u64)))))))
-        (#let-mut parent PinnedOuter (#unsafe (#call PinnedOuter::from-mut
+        (#let-mut parent PinnedOuter (#unsafe (#unsafe-call PinnedOuter::from-mut
           (: view (#pin-own-borrow-mut owner)))))
         (#let-mut left PinnedInner (#call PinnedOuter::left::borrow-mut (: pin (#borrow-mut parent))))
         (#let-mut right PinnedInner (#call PinnedOuter::right::borrow-mut (: pin (#borrow-mut parent))))

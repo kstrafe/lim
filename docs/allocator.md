@@ -24,6 +24,27 @@ reallocation leaves the original allocation valid. Reallocation never uses a
 zero size. A null input to reallocation allocates fresh storage; null
 deallocation is a no-op. Deallocation is explicit; there is no implicit destructor.
 
+Call safe `system-allocate` with `#call`. Calls to `system-reallocate` and
+`system-deallocate` require `#unsafe-call` inside `#unsafe`; `#call` rejects
+them even within that block. Both call forms use the same named arguments.
+For example, this allocates fresh storage through the documented null-input
+reallocation path, then releases the successful allocation:
+
+```lisp run=42
+(#import "../library/system_allocator.lim")
+(#fn main () #u64
+  (#let allocation SystemAllocationResult
+    (#unsafe (#unsafe-call system-reallocate
+      (: pointer (#ptr-null (#ptr-mut #u8)) : size 16usize))))
+  (#return (#match allocation
+    (#case (SystemAllocated pointer)
+      (#block
+        (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
+        42u64))
+    (#case (SystemAllocationFailed error)
+      (#block (#drop error) 0u64)))))
+```
+
 Allocations are aligned to `SYSTEM-ALLOCATION-ALIGNMENT` (16 bytes). Sizes
 up to 4080 bytes use power-of-two block classes in 64 KiB slabs; a 16-byte
 header precedes each payload. Partially occupied slabs maintain per-class

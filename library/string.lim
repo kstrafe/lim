@@ -307,7 +307,7 @@
                 (
                   #unsafe
                   (
-                    #call
+                    #unsafe-call
                     system-reallocate
                     (: pointer (#get string pointer) : size chosen)                  )                )              )            )
             (
@@ -675,7 +675,7 @@
             (
               #unsafe
               (
-                #call
+                #unsafe-call
                 String-write-scalar
                 (: pointer (#get string pointer) : offset length : value value : width width)              )            )
             (
@@ -820,7 +820,7 @@
             (
               #unsafe
               (
-                #call
+                #unsafe-call
                 String-write-scalar
                 (: pointer (#get string pointer) : offset offset : value value : width scalar-width)              )            )
             (
@@ -1679,7 +1679,7 @@
     (
       #unsafe
       (
-        #call
+        #unsafe-call
         system-deallocate
         (: pointer (#get string pointer))      )    )
     ()  )

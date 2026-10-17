@@ -675,7 +675,7 @@ mod tests {
             "(#struct Resource (#linear) ((value #u64)))
              (#extern-fn #abi-c opaque ((owner (#ref-mut Resource))) ())
              (#fn work ((owner (#ref-mut Resource))) ()
-               (#unsafe (#call opaque (: owner owner)))
+               (#unsafe (#unsafe-call opaque (: owner owner)))
                (#call checkpoint (:)) (#return ()))",
         );
         let types = LinearTypes::from_program(&program);

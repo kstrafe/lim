@@ -265,7 +265,10 @@ fn unsafe_user_borrow_does_not_make_builtin_borrow_unsafe() {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .unwrap();
-    let unsafe_call = source.replace("(#deref view)", "(#call borrow (: value (#deref view)))");
+    let unsafe_call = source.replace(
+        "(#deref view)",
+        "(#unsafe-call borrow (: value (#deref view)))",
+    );
     let error = compile_error(&unsafe_call);
     assert!(
         error.message.contains("unsafe function 'borrow'"),

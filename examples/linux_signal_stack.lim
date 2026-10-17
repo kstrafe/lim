@@ -1,20 +1,20 @@
 (#import "../library/linux_x86_64.lim")
 
 (#fn main () #u64
-  (#let memory (#ptr-mut #u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 69632usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 69632usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   ; Native stack_t: pointer at 0, int flags at 8, size_t size at 16.
   (#let original (#ptr-mut #u8) memory)
   (#let requested (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))
   (#let observed (#ptr-mut #u8) (#unsafe (#ptr-offset memory 64usize)))
   (#let restored (#ptr-mut #u8) (#unsafe (#ptr-offset memory 96usize)))
   (#let null (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack null : old-stack original))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack null : old-stack original))) 0i64))
   (#unsafe (#asm () ((rdi memory) (rsi requested))
     "lea rax, [rdi+4096]\nmov QWORD PTR [rsi], rax\nmov DWORD PTR [rsi+8], 0\nmov QWORD PTR [rsi+16], 65536"))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack requested : old-stack null))) 0i64))
-  (#let queried #i64 (#unsafe (#call linux-sigaltstack (: new-stack null : old-stack observed))))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) 0i64))
+  (#let queried #i64 (#unsafe (#unsafe-call linux-sigaltstack (: new-stack null : old-stack observed))))
   ; Restore the old stack before assertions and before freeing its replacement.
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack original : old-stack null))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack original : old-stack null))) 0i64))
   (#assert (#i64.== queried 0i64))
   (#assert (#unsafe (#asm #bool ((rdi requested) (rsi observed))
     "mov rax, QWORD PTR [rdi]\ncmp rax, QWORD PTR [rsi]\nsete al\nmovzx eax, al")))
@@ -22,7 +22,7 @@
     "mov rax, QWORD PTR [rdi+16]")) 65536u64))
   (#assert (#u32.== (#unsafe (#asm #u32 ((rdi observed))
     "mov eax, DWORD PTR [rdi+8]")) 0u32))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack null : old-stack restored))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack null : old-stack restored))) 0i64))
   (#for-range (word #usize) 0usize 24usize
     ; Bytes 12..16 are ABI padding, not part of the stack state.
     (#if (#bool.|| (#usize.< word 12usize) (#usize.>= word 16usize))
@@ -30,9 +30,9 @@
         (#unsafe (#ptr-read (#ptr-offset original word)))
         (#unsafe (#ptr-read (#ptr-offset restored word))))) ()))
   (#unsafe (#asm () ((rdi requested)) "mov QWORD PTR [rdi+16], 1"))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack requested : old-stack null))) -12i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) -12i64))
   (#unsafe (#asm () ((rdi requested)) "mov DWORD PTR [rdi+8], 4"))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack requested : old-stack null))) -22i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) -22i64))
   ; A long alarm cannot expire during the bounded test; cancel immediately.
   (#let previous #i64 (#call linux-alarm (: seconds 3600u32)))
   (#let remaining #i64 (#call linux-alarm (: seconds 0u32)))
@@ -43,7 +43,7 @@
   ; Signal zero only performs existence and permission checks.
   (#assert (#i64.== (#call linux-tkill (: thread thread : signal 0i32)) 0i64))
   (#assert (#i64.== (#call linux-tkill (: thread thread : signal 65i32)) -22i64))
-  (#assert (#i64.== (#unsafe (#call linux-munmap (: address memory : length 69632usize))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap (: address memory : length 69632usize))) 0i64))
   (#let letter #u8 83u8)
   (#let newline #u8 10u8)
   (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))

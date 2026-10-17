@@ -933,7 +933,7 @@ fn signal_handler_checks_reject_broken_delivery_stack_and_return() {
         ),
         (
             "missing-delivery",
-            "(#unsafe (#call linux-rt-sigsuspend (: signal-set unblocked-mask : sigset-size 8usize)))",
+            "(#unsafe (#unsafe-call linux-rt-sigsuspend (: signal-set unblocked-mask : sigset-size 8usize)))",
             "-4i64",
         ),
     ] {
@@ -1346,8 +1346,8 @@ fn futex2_requeue_checks_reject_waking_instead_of_moving_the_waiter() {
     let scratch = support::Scratch::new("linux-futex2-false-requeue");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let original = include_str!("../examples/linux_futex2.lim");
-    let from = "(#unsafe (#call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 0i32 : requeue-count 1i32)))\n      (#unsafe (#call linux-futex-wake";
-    let to = "(#unsafe (#call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 1i32 : requeue-count 0i32)))\n      (#unsafe (#call linux-futex-wake";
+    let from = "(#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 0i32 : requeue-count 1i32)))\n      (#unsafe (#unsafe-call linux-futex-wake";
+    let to = "(#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 1i32 : requeue-count 0i32)))\n      (#unsafe (#unsafe-call linux-futex-wake";
     assert_eq!(
         original.matches(from).count(),
         1,

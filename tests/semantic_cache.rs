@@ -545,7 +545,7 @@ fn imported_word_take_preserves_transferred_loans_and_source_retirement() {
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
         (#unsafe (#word-write Holder (#borrow-slice-mut words)
           (#struct-literal Holder (: view (#borrow-mut seed)))))
-        (#let holder Holder (#unsafe (#call take (: words (#borrow-slice-mut words)))))
+        (#let holder Holder (#unsafe (#unsafe-call take (: words (#borrow-slice-mut words)))))
         (#forget words)
         (#let answer #u64 (#deref (#get holder view)))
         (#forget holder) (#return answer))";

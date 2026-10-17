@@ -1621,7 +1621,7 @@ fn generate_checked_assembly_with_roots(
                 let Some(value) = declaration.children.get(3) else { return error.at(declaration.span); };
                 fn locate(node: &crate::SpannedExpr, fails: &impl Fn(&Expr) -> bool) -> Option<crate::Span> {
                     if matches!(&node.expr, Expr::Symbol(_)) && fails(&node.expr) { return Some(node.span); }
-                    if matches!(&node.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call")) { return Some(node.span); }
+                    if matches!(&node.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))) { return Some(node.span); }
                     node.children.iter().skip(1).find_map(|child| locate(child, fails))
                 }
                 let span = locate(value, &|expression| {

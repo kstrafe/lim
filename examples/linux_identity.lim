@@ -3,15 +3,15 @@
 ; This executable only reapplies its current identity. Never use it as setuid.
 ; SAFETY: memory supplies six exclusively writable #u32 slots.
 (#unsafe-fn identity-snapshot ((memory (#ptr-mut #u32))) ()
-  (#assert (#i64.== (#unsafe (#call linux-getresuid (: real memory : effective (#unsafe (#ptr-offset memory 1usize)) : saved (#unsafe (#ptr-offset memory 2usize))))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-getresgid (: real (#unsafe (#ptr-offset memory 3usize)) : effective (#unsafe (#ptr-offset memory 4usize)) : saved (#unsafe (#ptr-offset memory 5usize))))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-getresuid (: real memory : effective (#unsafe (#ptr-offset memory 1usize)) : saved (#unsafe (#ptr-offset memory 2usize))))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-getresgid (: real (#unsafe (#ptr-offset memory 3usize)) : effective (#unsafe (#ptr-offset memory 4usize)) : saved (#unsafe (#ptr-offset memory 5usize))))) 0i64))
   (#return ()))
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u32)
     (#unsafe (#linux-syscall (#ptr-mut #u32) LINUX-SYS-MMAP
       (0usize 4096usize 3u32 34u32 -1i64 0i64))))
-  (#unsafe (#call identity-snapshot (: memory memory)))
+  (#unsafe (#unsafe-call identity-snapshot (: memory memory)))
   (#let uid #u32 (#unsafe (#ptr-read memory)))
   (#let gid #u32 (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
   ; Check preconditions before calling setters: no differing saved/effective IDs.
@@ -38,7 +38,7 @@
   (#assert (#i64.== (#call linux-setfsuid (: uid 4294967295u32)) fsuid))
   (#assert (#i64.== (#call linux-setfsgid (: gid 4294967295u32)) fsgid))
   (#let after (#ptr-mut #u32) (#unsafe (#ptr-offset memory 6usize)))
-  (#unsafe (#call identity-snapshot (: memory after)))
+  (#unsafe (#unsafe-call identity-snapshot (: memory after)))
   (#for-range (word #usize) 0usize 6usize
     (#assert (#u32.==
       (#unsafe (#ptr-read (#ptr-offset memory word)))

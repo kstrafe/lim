@@ -5,14 +5,14 @@
     (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let pair-result #i64
-    (#unsafe (#call linux-socketpair (: domain 1i32 : socket-type 1i32 : protocol 0i32 : descriptors memory))))
+    (#unsafe (#unsafe-call linux-socketpair (: domain 1i32 : socket-type 1i32 : protocol 0i32 : descriptors memory))))
   (#let first-fd #i32 (#unsafe (#ptr-read memory)))
   (#let second-fd #i32 (#unsafe (#ptr-read (#ptr-offset memory 1usize))))
   (#let socket-result #i64
     (#call linux-socket (: domain 1i32 : socket-type 2i32 : protocol 0i32)))
   (#let socket-closed #i64 (#call linux-close (: fd socket-result)))
   (#let bytes (#ptr-mut #u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+    (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let null-bytes (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
   (#let null-length (#ptr-mut #u32) (#ptr-null (#ptr-mut #u32)))
   (#let payload-setup ()
@@ -23,18 +23,18 @@
       (#ptr-write (#ptr-offset bytes 3usize) 10u8)
       ())))
   (#let bytes-written #i64
-    (#unsafe (#call linux-sendto (: fd (#as first-fd #i64) : source bytes : size 4usize : flags 0i32 : destination null-bytes : address-length 0u32))))
+    (#unsafe (#unsafe-call linux-sendto (: fd (#as first-fd #i64) : source bytes : size 4usize : flags 0i32 : destination null-bytes : address-length 0u32))))
   (#let bytes-read #i64
-    (#unsafe (#call linux-recvfrom (: fd (#as second-fd #i64) : destination (#ptr-offset bytes 16usize) : size 4usize : flags 0i32 : source-address null-bytes : address-length null-length))))
+    (#unsafe (#unsafe-call linux-recvfrom (: fd (#as second-fd #i64) : destination (#ptr-offset bytes 16usize) : size 4usize : flags 0i32 : source-address null-bytes : address-length null-length))))
   (#let received-first #u8
     (#unsafe (#ptr-read (#ptr-offset bytes 16usize))))
   (#let received-last #u8
     (#unsafe (#ptr-read (#ptr-offset bytes 19usize))))
   (#let echoed #i64
-    (#unsafe (#call linux-write (: fd 1i64 : source (#ptr-offset bytes 16usize) : count 4usize))))
+    (#unsafe (#unsafe-call linux-write (: fd 1i64 : source (#ptr-offset bytes 16usize) : count 4usize))))
   (#let-mut socket-option-length #u32 4u32)
   (#let get-option #i64
-    (#unsafe (#call linux-getsockopt (: fd (#as first-fd #i64) : level 1i32 : option 3i32 : value (#ptr-offset bytes 32usize) : value-length (#addr-of-mut socket-option-length)))))
+    (#unsafe (#unsafe-call linux-getsockopt (: fd (#as first-fd #i64) : level 1i32 : option 3i32 : value (#ptr-offset bytes 32usize) : value-length (#addr-of-mut socket-option-length)))))
   (#let socket-type-byte #u8
     (#unsafe (#ptr-read (#ptr-offset bytes 32usize))))
   (#let set-option #i64
@@ -44,10 +44,10 @@
         (#ptr-write (#ptr-offset bytes 41usize) 0u8)
         (#ptr-write (#ptr-offset bytes 42usize) 1u8)
         (#ptr-write (#ptr-offset bytes 43usize) 0u8)
-        (#call linux-setsockopt (: fd (#as first-fd #i64) : level 1i32 : option 7i32 : value (#ptr-offset bytes 40usize) : value-length 4u32)))))
+        (#unsafe-call linux-setsockopt (: fd (#as first-fd #i64) : level 1i32 : option 7i32 : value (#ptr-offset bytes 40usize) : value-length 4u32)))))
   (#let-mut sndbuf-length #u32 4u32)
   (#let get-sndbuf #i64
-    (#unsafe (#call linux-getsockopt (: fd (#as first-fd #i64) : level 1i32 : option 7i32 : value (#ptr-offset bytes 48usize) : value-length (#addr-of-mut sndbuf-length)))))
+    (#unsafe (#unsafe-call linux-getsockopt (: fd (#as first-fd #i64) : level 1i32 : option 7i32 : value (#ptr-offset bytes 48usize) : value-length (#addr-of-mut sndbuf-length)))))
   (#let sndbuf-nonzero #bool
     (#bool.|| (#u8.!= (#unsafe (#ptr-read (#ptr-offset bytes 48usize))) 0u8)
       (#bool.|| (#u8.!= (#unsafe (#ptr-read (#ptr-offset bytes 49usize))) 0u8)
@@ -55,20 +55,20 @@
           (#u8.!= (#unsafe (#ptr-read (#ptr-offset bytes 51usize))) 0u8)))))
   (#let-mut local-address-length #u32 128u32)
   (#let local-name #i64
-    (#unsafe (#call linux-getsockname (: fd (#as first-fd #i64) : address (#ptr-offset bytes 64usize) : address-length (#addr-of-mut local-address-length)))))
+    (#unsafe (#unsafe-call linux-getsockname (: fd (#as first-fd #i64) : address (#ptr-offset bytes 64usize) : address-length (#addr-of-mut local-address-length)))))
   (#let local-family-byte #u8
     (#unsafe (#ptr-read (#ptr-offset bytes 64usize))))
   (#let-mut peer-address-length #u32 128u32)
   (#let peer-name #i64
-    (#unsafe (#call linux-getpeername (: fd (#as first-fd #i64) : address (#ptr-offset bytes 96usize) : address-length (#addr-of-mut peer-address-length)))))
+    (#unsafe (#unsafe-call linux-getpeername (: fd (#as first-fd #i64) : address (#ptr-offset bytes 96usize) : address-length (#addr-of-mut peer-address-length)))))
   (#let peer-family-byte #u8
     (#unsafe (#ptr-read (#ptr-offset bytes 96usize))))
   (#let shut-down #i64
     (#call linux-shutdown (: fd (#as first-fd #i64) : how 1i32)))
   (#let eof-count #i64
-    (#unsafe (#call linux-recvfrom (: fd (#as second-fd #i64) : destination (#ptr-offset bytes 16usize) : size 4usize : flags 0i32 : source-address null-bytes : address-length null-length))))
+    (#unsafe (#unsafe-call linux-recvfrom (: fd (#as second-fd #i64) : destination (#ptr-offset bytes 16usize) : size 4usize : flags 0i32 : source-address null-bytes : address-length null-length))))
   (#let invalid-send #i64
-    (#unsafe (#call linux-sendto (: fd 999999i64 : source bytes : size 4usize : flags 0i32 : destination null-bytes : address-length 0u32))))
+    (#unsafe (#unsafe-call linux-sendto (: fd 999999i64 : source bytes : size 4usize : flags 0i32 : destination null-bytes : address-length 0u32))))
   (#let first-closed #i64
     (#call linux-close (: fd (#as first-fd #i64))))
   (#let second-closed #i64
@@ -76,7 +76,7 @@
   (#let unmapped #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
   (#let bytes-unmapped #i64
-    (#unsafe (#call linux-munmap (: address bytes : length 4096usize))))
+    (#unsafe (#unsafe-call linux-munmap (: address bytes : length 4096usize))))
   (#let sockets-ok #bool
     (#bool.&& (#i64.== pair-result 0i64)
       (#bool.&& (#i32.>= first-fd 0i32)

@@ -2507,7 +2507,7 @@ mod link_location_tests {
 
     #[test]
     fn unresolved_symbol_highlights_the_call_not_its_declaration() {
-        let source = "(#extern-fn #abi-c unavailable () #u64)\n(#fn main () #u64 (#return (#unsafe (#call unavailable (:)))))\n";
+        let source = "(#extern-fn #abi-c unavailable () #u64)\n(#fn main () #u64 (#return (#unsafe (#unsafe-call unavailable (:)))))\n";
         let diagnostic = locate_link_diagnostic(
             Diagnostic::new(
                 DiagnosticCode::Link,
@@ -2840,8 +2840,22 @@ fn set_source_id(expression: &mut SpannedExpr, source_id: u32) {
     }
 }
 
-/// Validate source-level named calls and lower them to the positional call
-/// representation consumed by the existing analysis and backend passes.
+/// Declaration facts checked before source call keywords are lowered away.
+struct CallSignature {
+    parameters: Vec<String>,
+    unsafe_call: bool,
+}
+
+impl CallSignature {
+    fn of(function: &Function) -> Self {
+        Self {
+            parameters: function.parameters.iter().map(|p| p.name.clone()).collect(),
+            unsafe_call: function.external || function.unsafe_call,
+        }
+    }
+}
+
+/// Validate named calls and lower them to the shared positional representation.
 fn normalize_function_calls(
     items: &mut [Item],
     statement_spans: &HashMap<(String, usize), Span>,
@@ -2853,14 +2867,7 @@ fn normalize_function_calls(
     let signatures = items
         .iter()
         .filter_map(|item| match item {
-            Item::Function(function) => Some((
-                function.name.clone(),
-                function
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.name.clone())
-                    .collect::<Vec<_>>(),
-            )),
+            Item::Function(function) => Some((function.name.clone(), CallSignature::of(function))),
             Item::ThreadTask { .. } => None,
             _ => None,
         })
@@ -2876,11 +2883,10 @@ fn normalize_function_calls(
         for function in generated {
             signatures.insert(
                 function.name.clone(),
-                function
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.name.clone())
-                    .collect(),
+                CallSignature {
+                    parameters: function.parameters.iter().map(|p| p.name.clone()).collect(),
+                    unsafe_call: false,
+                },
             );
         }
     }
@@ -2951,7 +2957,7 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
         Some("#await") => children
             .last()
             .and_then(|child| source_value_symbol_span(child, name)),
-        Some("#call") => children.get(2).and_then(|arguments| {
+        Some("#call" | "#unsafe-call") => children.get(2).and_then(|arguments| {
             arguments.children.iter().rev().find_map(|pair| {
                 pair.children
                     .get(1)
@@ -3079,13 +3085,17 @@ fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
             return span;
         }
     }
-    source_form_head_span(expression, &["#call", "call", "#println"])
-        .unwrap_or_else(|| source_value_span(expression))
+    source_form_head_span(
+        expression,
+        &["#call", "#unsafe-call", "call", "unsafe-call", "#println"],
+    )
+    .unwrap_or_else(|| source_value_span(expression))
 }
 
 fn duplicate_call_parameter_span(expression: &SpannedExpr) -> Option<Span> {
     if let Expr::List(items) = &expression.expr {
-        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#call" || name == "call") {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#call" | "#unsafe-call" | "call" | "unsafe-call"))
+        {
             let arguments = expression.children.get(2)?;
             let mut seen = HashSet::new();
             for argument in &arguments.children {
@@ -3131,7 +3141,7 @@ fn attach_span_to_source_error_kind(
 
 fn normalize_call_statement(
     statement: &mut Statement,
-    signatures: &HashMap<String, Vec<String>>,
+    signatures: &HashMap<String, CallSignature>,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { value, .. }
@@ -3190,7 +3200,7 @@ fn normalize_call_statement(
 
 fn normalize_call_expr(
     expression: &mut Expr,
-    signatures: &HashMap<String, Vec<String>>,
+    signatures: &HashMap<String, CallSignature>,
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
@@ -3201,25 +3211,41 @@ fn normalize_call_expr(
                 if !signatures.contains_key("std-println") {
                     return Err("#println requires the standard IO library; add (#std)".into());
                 }
+                if signatures["std-println"].unsafe_call {
+                    return Err("#println requires safe function 'std-println'".into());
+                }
                 normalize_call_expr(&mut items[1], signatures)?;
                 // Preserve the source shape and reuse the checked operand;
                 // this is only call sugar, not a new emission primitive.
                 items[0] = Expr::Function("std-println".into());
                 return Ok(());
             }
-            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "call") {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "call" || name == "unsafe-call")
+            {
+                let unsafe_call = matches!(&items[0], Expr::Symbol(name) if name == "unsafe-call");
+                let keyword = if unsafe_call { "#unsafe-call" } else { "#call" };
                 if items.len() != 3 {
-                    return Err("#call requires a function name and named arguments".into());
+                    return Err(format!(
+                        "{keyword} requires a function name and named arguments"
+                    ));
                 }
                 let Expr::Symbol(function) = &items[1] else {
-                    return Err("#call requires a function name".into());
+                    return Err(format!("{keyword} requires a function name"));
                 };
                 let function = function.clone();
-                let parameters = signatures
+                let signature = signatures
                     .get(&function)
-                    .ok_or_else(|| format!("#call refers to unknown function '{function}'"))?;
+                    .ok_or_else(|| format!("{keyword} refers to unknown function '{function}'"))?;
+                if signature.unsafe_call != unsafe_call {
+                    return Err(if signature.unsafe_call {
+                        format!("unsafe function '{function}' must be called with #unsafe-call, not #call")
+                    } else {
+                        format!("safe function '{function}' must be called with #call, not #unsafe-call")
+                    });
+                }
+                let parameters = &signature.parameters;
                 let Expr::List(argument_form) = &mut items[2] else {
-                    return Err("#call arguments must be a named argument list".into());
+                    return Err(format!("{keyword} arguments must be a named argument list"));
                 };
                 let mut arguments = HashMap::new();
                 for argument in argument_form.iter_mut() {
@@ -3243,7 +3269,7 @@ fn normalize_call_expr(
                     normalize_call_expr(&mut pair[1], signatures)?;
                     if arguments.insert(name.clone(), pair[1].clone()).is_some() {
                         return Err(format!(
-                            "#call to '{function}' provides parameter '{name}' more than once"
+                            "{keyword} to '{function}' provides parameter '{name}' more than once"
                         ));
                     }
                 }
@@ -3251,7 +3277,7 @@ fn normalize_call_expr(
                 lowered.push(Expr::Function(function.clone()));
                 for parameter in parameters {
                     lowered.push(arguments.remove(parameter).ok_or_else(|| {
-                        format!("#call to '{function}' is missing parameter '{parameter}'")
+                        format!("{keyword} to '{function}' is missing parameter '{parameter}'")
                     })?);
                 }
                 *expression = Expr::List(lowered);
@@ -3259,8 +3285,13 @@ fn normalize_call_expr(
             }
             if let Some(Expr::Symbol(name)) = items.first() {
                 if signatures.contains_key(name) && !is_builtin_head(name) {
+                    let keyword = if signatures[name].unsafe_call {
+                        "#unsafe-call"
+                    } else {
+                        "#call"
+                    };
                     return Err(format!(
-                        "function '{name}' must be called with (#call {name} (: parameter value ...))"
+                        "function '{name}' must be called with ({keyword} {name} (: parameter value ...))"
                     ));
                 }
                 if name == "match" {
@@ -4432,7 +4463,8 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
             return Ok(());
         }
     }
-    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#call") {
+    if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#call" | "#unsafe-call"))
+    {
         if let Some(Expr::List(arguments)) = items.get(2) {
             for argument in arguments {
                 if let Expr::List(pair) = argument {
@@ -4679,6 +4711,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "fn"
             | "unsafe-fn"
             | "call"
+            | "unsafe-call"
             | "extern-fn"
             | "struct"
             | "enum"
@@ -11283,7 +11316,7 @@ mod tests {
         let valid = parse_program("(#fn main () #u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
         let external = parse_program(
-            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#unsafe (#call abs (: value -42))) #u64)))",
+            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#unsafe (#unsafe-call abs (: value -42))) #u64)))",
         )
         .unwrap();
         assert!(check_types(&external).is_ok());
@@ -11291,7 +11324,7 @@ mod tests {
         assert!(external_assembly.contains(".extern abs"));
         assert!(external_assembly.contains("call abs"));
         let unsafe_boundary = parse_program(
-            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#call abs (: value -42)) #u64)))",
+            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#unsafe-call abs (: value -42)) #u64)))",
         )
         .unwrap();
         assert!(check_types(&unsafe_boundary)
@@ -12663,7 +12696,7 @@ mod tests {
         assert_eq!(warm_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert!(!warm_report.contains("\"missing-entry\""));
         assert!(warm_report.contains("\"kind\":\"source\""));
-        assert!(warm_report.contains("lim-inspectable-async-graph-v3"));
+        assert!(warm_report.contains("lim-inspectable-async-graph-v4"));
         let artifact = fs::read_dir(generator::generated_source_directory(&cache))
             .unwrap()
             .map(|entry| entry.unwrap().path())

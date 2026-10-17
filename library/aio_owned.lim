@@ -33,7 +33,7 @@
 (#fn aio-owned-context-create () AioOwnedContextCreate
   (#let-mut id #usize 0usize)
   (#let result #i64
-    (#unsafe (#call linux-io-setup (: capacity 8u32 : context (#addr-of-mut id)))))
+    (#unsafe (#unsafe-call linux-io-setup (: capacity 8u32 : context (#addr-of-mut id)))))
   (#return (#if (#i64.== result 0i64)
     (AioOwnedContextCreated
       (#struct-literal AioOwnedContext
@@ -43,7 +43,7 @@
 (#fn aio-owned-context-destroy ((context AioOwnedContext)) #i64
   (#let (AioOwnedContext id local-marker) AioOwnedContext context)
   (#forget local-marker)
-  (#return (#unsafe (#call linux-io-destroy (: context id)))))
+  (#return (#unsafe (#unsafe-call linux-io-destroy (: context id)))))
 
 ;; The request and its read buffer share a private mapping:
 ;; iocb at 0, pointer list at 64, io_event at 128, read bytes at 256.
@@ -55,7 +55,7 @@
     (AioOwnedSubmitFailed -22i64)
     (#block
       (#let memory (#ptr-mut #u8)
-        (#unsafe (#call linux-mmap
+        (#unsafe (#unsafe-call linux-mmap
           (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
            : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
       (#let address #usize (#ptr-address memory))
@@ -72,14 +72,14 @@
                             (rcx length) (r8 offset) (r9 events))
             "mov QWORD PTR [rdi], r9\nmov WORD PTR [rdi+16], 0\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], rdx\nmov QWORD PTR [rdi+32], rcx\nmov QWORD PTR [rdi+40], r8\nmov QWORD PTR [rdi+64], rdi"))
           (#let submitted #i64
-            (#unsafe (#call linux-io-submit
+            (#unsafe (#unsafe-call linux-io-submit
               (: context (#get context id) : count 1i64 : requests requests))))
           (#if (#i64.== submitted 1i64)
             (AioOwnedSubmitted
               (#struct-literal AioOwnedPending
                 ((context context) (memory memory) (length length))))
             (#block
-              (#unsafe (#call linux-munmap
+              (#unsafe (#unsafe-call linux-munmap
                 (: address memory : length 4096usize)))
               (AioOwnedSubmitFailed submitted)))))))))
 
@@ -89,7 +89,7 @@
 (#fn aio-owned-poll-submit
   ((context (#ref AioOwnedContext)) (fd #i64) (events #u16)) AioOwnedSubmit
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#call linux-mmap
+    (#unsafe (#unsafe-call linux-mmap
       (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
        : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let address #usize (#ptr-address memory))
@@ -103,14 +103,14 @@
       (#unsafe (#asm () ((rdi memory) (rsi fd) (rdx events) (rcx event-buffer))
         "mov QWORD PTR [rdi], rcx\nmov WORD PTR [rdi+16], 5\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], rdx\nmov QWORD PTR [rdi+32], 0\nmov QWORD PTR [rdi+64], rdi"))
       (#let submitted #i64
-        (#unsafe (#call linux-io-submit
+        (#unsafe (#unsafe-call linux-io-submit
           (: context (#get context id) : count 1i64 : requests requests))))
       (#if (#i64.== submitted 1i64)
         (AioOwnedSubmitted
           (#struct-literal AioOwnedPending
             ((context context) (memory memory) (length 0usize))))
         (#block
-          (#unsafe (#call linux-munmap
+          (#unsafe (#unsafe-call linux-munmap
             (: address memory : length 4096usize)))
           (AioOwnedSubmitFailed submitted)))))))
 
@@ -131,7 +131,7 @@
   (#let-mut failed #bool false)
   (#while (#bool.&& (#bool.! completed) (#bool.! failed))
     (#let count #i64
-      (#unsafe (#call linux-io-getevents
+      (#unsafe (#unsafe-call linux-io-getevents
         (: context (#get context id) : minimum 1i64 : count 1i64
          : events events : timeout (#ptr-null (#ptr-mut #i64))))))
     (#if (#i64.== count 1i64)
@@ -168,7 +168,7 @@
   (#let request (#ptr-mut #u8) memory)
   (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
   (#let cancelled #i64
-    (#unsafe (#call linux-io-cancel
+    (#unsafe (#unsafe-call linux-io-cancel
       (: context (#get context id) : request request : event events))))
   (#return (#if (#i64.== cancelled -115i64)
     (#match (#call aio-owned-wait
@@ -204,5 +204,5 @@
   (#drop context)
   (#forget length)
   (#forget result)
-  (#return (#unsafe (#call linux-munmap
+  (#return (#unsafe (#unsafe-call linux-munmap
     (: address memory : length 4096usize)))))

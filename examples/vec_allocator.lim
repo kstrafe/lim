@@ -17,7 +17,7 @@
 (#fn system-alloc
   ((allocator (#ref SystemAllocator)) (layout #usize) (alignment #usize))
   AllocResult
-  (#let pointer (#ptr-mut #u64) (#unsafe (#call malloc (: size layout))))
+  (#let pointer (#ptr-mut #u64) (#unsafe (#unsafe-call malloc (: size layout))))
   (#return
     (#if (#ptr-is-null pointer)
       (#block (#forget pointer) (#call AllocResult-err (: error OutOfMemory)))
@@ -28,7 +28,7 @@
    (old-layout #usize) (new-layout #usize) (alignment #usize))
   AllocResult
   (#let new-pointer (#ptr-mut #u64)
-    (#unsafe (#call realloc (: pointer pointer : size new-layout))))
+    (#unsafe (#unsafe-call realloc (: pointer pointer : size new-layout))))
   (#return
     (#if (#ptr-is-null new-pointer)
       (#block (#forget new-pointer) (#call AllocResult-err (: error OutOfMemory)))
@@ -38,7 +38,7 @@
   ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut #u64))
    (layout #usize) (alignment #usize))
   ()
-  (#unsafe (#call free (: pointer pointer)))
+  (#unsafe (#unsafe-call free (: pointer pointer)))
   (#return ()))
 
 (#fn drop-u64 ((allocator (#ref SystemAllocator)) (value #u64)) ()

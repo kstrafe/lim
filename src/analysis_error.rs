@@ -71,8 +71,8 @@ impl Site {
     pub fn span(self, program: &Program) -> Option<Span> {
         let source = crate::typecheck::analysis_node_source(program, self.node, self.statement)?;
         let child = self.child.and_then(|index| {
-            // Lowered call heads correspond to the source callee, not #call.
-            let index = if index == 0 && matches!(&source.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call")) { 1 } else { index };
+            // Lowered call heads correspond to the source callee, not its keyword.
+            let index = if index == 0 && matches!(&source.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))) { 1 } else { index };
             source.children.get(index)
         });
         Some(child.unwrap_or(source).span)

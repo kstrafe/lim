@@ -46,7 +46,7 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
     run(
         r#"(#import "@LINUX@")
         (#fn main () #u64
-          (#let base (#ptr-mut #u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+          (#let base (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
           (#let odd (#ptr-mut #u8) (#unsafe (#ptr-offset base 1usize)))
           (#unsafe (#ptr-write base 91u8))
           (#unsafe (#ptr-write odd 0u8))
@@ -60,7 +60,7 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
           (#let shared (#ref #u8) (#unsafe (#ptr-borrow (#borrow anchor) odd)))
           (#assert (#i64.== (#call linux-write-byte (: source shared)) 1i64))
           (#drop shared)
-          (#assert (#i64.== (#unsafe (#call linux-munmap (: address base : length 4096usize))) 0i64))
+          (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap (: address base : length 4096usize))) 0i64))
           (#return 42u64))"#,
         &[0xa7],
         &[0xa7],
@@ -84,7 +84,7 @@ fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
           (#assert (#i64.== (#get stack-rem seconds) 456i64))
           (#let invalid LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 1000000000i64) (seconds 0i64))))
           (#assert (#i64.== (#call linux-nanosleep (: request (#borrow invalid) : remaining (#borrow-mut stack-rem))) -22i64))
-          (#let raw (#ptr-mut #u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+          (#let raw (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
           ; Lim's ascending raw words hold ns then seconds, unlike Linux's C ABI.
           (#let raw-words (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi raw)) "mov rax, rdi")))
           (#unsafe (#ptr-write raw-words 0i64))
@@ -118,7 +118,7 @@ fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
           (#assert (#i64.== (#get raw-remaining nanoseconds) 123i64))
           (#assert (#i64.== (#get raw-remaining seconds) 456i64))
           (#drop raw-invalid) (#drop raw-remaining)
-          (#assert (#i64.== (#unsafe (#call linux-munmap (: address raw : length 4096usize))) 0i64))
+          (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap (: address raw : length 4096usize))) 0i64))
           (#return 42u64))"#,
         &[],
         &[],

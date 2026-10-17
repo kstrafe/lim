@@ -47,8 +47,8 @@
             (#block (#call String-free (: string terminated))
               (#return (FileOpenFailed (FileTextError error)))))
           (#case StringOk ()))
-        (#let descriptor #i64 (#unsafe (#call file-open-descriptor
-          (: path (#call String-data-pointer (: string (#borrow terminated)))
+        (#let descriptor #i64 (#unsafe (#unsafe-call file-open-descriptor
+          (: path (#unsafe-call String-data-pointer (: string (#borrow terminated)))
            : flags flags : permissions permissions))))
         (#call String-free (: string terminated))
         (#if (#i64.< descriptor 0i64) (FileOpenFailed (FileIoError descriptor))
@@ -67,10 +67,10 @@
 
 (#fn File-write-string (: file (#ref-mut File) : text (#ref String)) FileWriteResult
   (#let length #usize (#call String-len (: string text)))
-  (#let pointer (#ptr-mut #u8) (#unsafe (#call String-data-pointer (: string text))))
+  (#let pointer (#ptr-mut #u8) (#unsafe (#unsafe-call String-data-pointer (: string text))))
   (#let-mut offset #usize 0usize)
   (#while (#usize.< offset length)
-    (#let count #i64 (#unsafe (#call file-write-raw
+    (#let count #i64 (#unsafe (#unsafe-call file-write-raw
       (: file file : buffer (#ptr-offset pointer offset) : length (#usize.-.wrap length offset)))))
     (#if (#i64.> count 0i64)
       (#block
@@ -112,7 +112,7 @@
   (#if (#usize.== (#get reader position) (#get reader length))
     (#block
       (#if (#get reader ended) (#block (#return FileByteEof)) ())
-      (#let count #i64 (#unsafe (#call File-read-raw
+      (#let count #i64 (#unsafe (#unsafe-call File-read-raw
         (: file (#borrow-mut (#get reader file)) : buffer (#get reader buffer) : capacity (#get reader capacity)))))
       (#if (#i64.< count 0i64) (#block (#return (FileByteFailed (FileIoError count)))) ())
       (#if (#i64.== count 0i64)
@@ -128,7 +128,7 @@
   (#return (FileByte byte)))
 
 (#fn FileReader-close (: reader FileReader) FileStatus
-  (#unsafe (#call system-deallocate (: pointer (#get reader buffer))))
+  (#unsafe (#unsafe-call system-deallocate (: pointer (#get reader buffer))))
   (#let file File (#get reader file))
   (#forget reader)
   (#return (#call File-close (: file file))))

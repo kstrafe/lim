@@ -141,4 +141,4 @@
 (@#utf8-view (: name Utf8Slice : owner (#slice #u8)))
 ; String already guarantees UTF-8, so borrowing its complete contents is O(1).
 (#fn String-view (: string (#ref String)) StringView
-  (#return (#unsafe (#call StringView::assume-valid (: owner string)))))
+  (#return (#unsafe (#unsafe-call StringView::assume-valid (: owner string)))))

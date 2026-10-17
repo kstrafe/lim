@@ -13,19 +13,19 @@
         (#ptr-write (#ptr-offset memory 3usize) 0i64)
         ()) ))
   (#let initial-query #i64
-    (#unsafe (#call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 8usize)))))
+    (#unsafe (#unsafe-call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 8usize)))))
   (#let timer-armed #i64
-    (#unsafe (#call linux-setitimer (: which 0i64 : new-value memory : old-value (#ptr-offset memory 4usize)))))
+    (#unsafe (#unsafe-call linux-setitimer (: which 0i64 : new-value memory : old-value (#ptr-offset memory 4usize)))))
   (#let active-query #i64
-    (#unsafe (#call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 8usize)))))
+    (#unsafe (#unsafe-call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 8usize)))))
   (#let remaining-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 10usize))))
   (#let remaining-microseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 11usize))))
   (#let timer-restored #i64
-    (#unsafe (#call linux-setitimer (: which 0i64 : new-value (#ptr-offset memory 4usize) : old-value (#ptr-offset memory 12usize)))))
+    (#unsafe (#unsafe-call linux-setitimer (: which 0i64 : new-value (#ptr-offset memory 4usize) : old-value (#ptr-offset memory 12usize)))))
   (#let restored-query #i64
-    (#unsafe (#call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 16usize)))))
+    (#unsafe (#unsafe-call linux-getitimer (: which 0i64 : current-value (#ptr-offset memory 16usize)))))
   (#let original-interval-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
   (#let restored-interval-seconds #i64

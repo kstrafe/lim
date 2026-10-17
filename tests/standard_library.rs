@@ -176,7 +176,7 @@ fn std_and_println_errors_retain_exact_source_spans() {
         ),
         (
             "(#std) (#fn main () () (#let text String (#call String-new ()))
-             (#call String-data-pointer (: string (#borrow text)))
+             (#unsafe-call String-data-pointer (: string (#borrow text)))
              (#call String-free (: string text)) (#return ()))",
             "unsafe",
             "String-data-pointer",

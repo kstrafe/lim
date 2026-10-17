@@ -27,7 +27,7 @@
     (AsyncPoll4Failed -22i64)
     (#block
       (#let memory (#ptr-mut #u8)
-        (#unsafe (#call linux-mmap
+        (#unsafe (#unsafe-call linux-mmap
           (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
            : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
       (#let address #i64 (#as (#ptr-address memory) #i64))
@@ -68,7 +68,7 @@
           (#let count-ready #i64
             (#if (#u32.!= ready-mask 0u32)
               0i64
-              (#unsafe (#call linux-poll
+              (#unsafe (#unsafe-call linux-poll
                 (: pollfds (#clone memory) : count count : timeout-ms timeout-ms)))))
           (#let-mut error #i64 (#if (#i64.< count-ready 0i64) count-ready 0i64))
           (#if (#i64.>= count-ready 0i64)
@@ -93,7 +93,7 @@
                       (#block (#set error -22i64) ())))
                   ()))))
             ())
-          (#let unmapped #i64 (#unsafe (#call linux-munmap
+          (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
             (: address memory : length 4096usize))))
           (#if (#i64.< error 0i64)
             (AsyncPoll4Failed error)

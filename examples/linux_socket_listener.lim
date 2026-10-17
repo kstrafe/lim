@@ -10,40 +10,40 @@
     (#call linux-socket (: domain 1i32 : socket-type 2049i32 : protocol 0i32)))
   (#assert (#i64.>= client 0i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-connect (: fd client : address address : address-length address-length))) 0i64))
+    (#unsafe (#unsafe-call linux-connect (: fd client : address address : address-length address-length))) 0i64))
   (#let peer-address (#ptr-mut #u8) (#unsafe (#ptr-offset address 256usize)))
   (#let-mut peer-length #u32 108u32)
   (#let accepted #i64
     (#if with-flags
-      (#unsafe (#call linux-accept4 (: fd listener : address peer-address : address-length (#addr-of-mut peer-length) : flags 526336i32)))
-      (#unsafe (#call linux-accept (: fd listener : address peer-address : address-length (#addr-of-mut peer-length))))))
+      (#unsafe (#unsafe-call linux-accept4 (: fd listener : address peer-address : address-length (#addr-of-mut peer-length) : flags 526336i32)))
+      (#unsafe (#unsafe-call linux-accept (: fd listener : address peer-address : address-length (#addr-of-mut peer-length))))))
   (#assert (#i64.>= accepted 0i64))
   (#assert (#u32.== peer-length 2u32))
   (#assert (#u8.== (#unsafe (#ptr-read peer-address)) 1u8))
   (#let descriptor-flags #i64
-    (#unsafe (#call linux-fcntl (: fd accepted : command 1i32 : argument 0usize))))
+    (#unsafe (#unsafe-call linux-fcntl (: fd accepted : command 1i32 : argument 0usize))))
   (#assert (#i64.== descriptor-flags (#if with-flags 1i64 0i64)))
   (#let status-flags #i64
-    (#unsafe (#call linux-fcntl (: fd accepted : command 3i32 : argument 0usize))))
+    (#unsafe (#unsafe-call linux-fcntl (: fd accepted : command 3i32 : argument 0usize))))
   (#assert (#i64.== (#i64.& status-flags 2048i64)
     (#if with-flags 2048i64 0i64)))
   (#let payload (#ptr-mut #u8) (#unsafe (#ptr-offset address 128usize)))
   (#let received (#ptr-mut #u8) (#unsafe (#ptr-offset address 129usize)))
   (#let initialize () (#unsafe (#ptr-write payload 83u8)))
   (#assert (#i64.==
-    (#unsafe (#call linux-sendto (: fd client : source payload : size 1usize : flags 16448i32 : destination (#ptr-null (#ptr-mut #u8)) : address-length 0u32))) 1i64))
+    (#unsafe (#unsafe-call linux-sendto (: fd client : source payload : size 1usize : flags 16448i32 : destination (#ptr-null (#ptr-mut #u8)) : address-length 0u32))) 1i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-recvfrom (: fd accepted : destination received : size 1usize : flags 64i32 : source-address (#ptr-null (#ptr-mut #u8)) : address-length (#ptr-null (#ptr-mut #u32))))) 1i64))
+    (#unsafe (#unsafe-call linux-recvfrom (: fd accepted : destination received : size 1usize : flags 64i32 : source-address (#ptr-null (#ptr-mut #u8)) : address-length (#ptr-null (#ptr-mut #u32))))) 1i64))
   (#assert (#u8.== (#unsafe (#ptr-read received)) 83u8))
   (#assert (#i64.==
-    (#unsafe (#call linux-write (: fd 1i64 : source received : count 1usize))) 1i64))
+    (#unsafe (#unsafe-call linux-write (: fd 1i64 : source received : count 1usize))) 1i64))
   (#assert (#i64.== (#call linux-close (: fd accepted)) 0i64))
   (#assert (#i64.== (#call linux-close (: fd client)) 0i64))
   (#return ()))
 
 (#fn main () #u64
   (#let address (#ptr-mut #u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+    (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   ; sockaddr_un starts with the two-byte AF_UNIX family. Length two asks
   ; Linux to choose a unique abstract address, released on socket close.
   (#let initialize () (#unsafe (#ptr-write address 1u8)))
@@ -51,30 +51,30 @@
     (#call linux-socket (: domain 1i32 : socket-type 2049i32 : protocol 0i32)))
   (#assert (#i64.>= listener 0i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-bind (: fd -1i64 : address address : address-length 2u32))) -9i64))
+    (#unsafe (#unsafe-call linux-bind (: fd -1i64 : address address : address-length 2u32))) -9i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-connect (: fd -1i64 : address address : address-length 2u32))) -9i64))
+    (#unsafe (#unsafe-call linux-connect (: fd -1i64 : address address : address-length 2u32))) -9i64))
   (#assert (#i64.==
     (#call linux-listen (: fd -1i64 : backlog 2i32)) -9i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-bind (: fd listener : address address : address-length 2u32))) 0i64))
+    (#unsafe (#unsafe-call linux-bind (: fd listener : address address : address-length 2u32))) 0i64))
   (#let-mut address-length #u32 108u32)
   (#assert (#i64.==
-    (#unsafe (#call linux-getsockname (: fd listener : address address : address-length (#addr-of-mut address-length)))) 0i64))
+    (#unsafe (#unsafe-call linux-getsockname (: fd listener : address address : address-length (#addr-of-mut address-length)))) 0i64))
   (#assert (#u32.> address-length 2u32))
   (#assert (#i64.==
     (#call linux-listen (: fd listener : backlog 2i32)) 0i64))
   (#let no-address (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
   (#let no-length (#ptr-mut #u32) (#ptr-null (#ptr-mut #u32)))
   (#assert (#i64.==
-    (#unsafe (#call linux-accept (: fd listener : address no-address : address-length no-length))) -11i64))
+    (#unsafe (#unsafe-call linux-accept (: fd listener : address no-address : address-length no-length))) -11i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-accept4 (: fd listener : address no-address : address-length no-length : flags 1i32))) -22i64))
-  (#unsafe (#call exchange (: listener listener : address address : address-length address-length : with-flags false)))
-  (#unsafe (#call exchange (: listener listener : address address : address-length address-length : with-flags true)))
+    (#unsafe (#unsafe-call linux-accept4 (: fd listener : address no-address : address-length no-length : flags 1i32))) -22i64))
+  (#unsafe (#unsafe-call exchange (: listener listener : address address : address-length address-length : with-flags false)))
+  (#unsafe (#unsafe-call exchange (: listener listener : address address : address-length address-length : with-flags true)))
   (#assert (#i64.== (#call linux-close (: fd listener)) 0i64))
   (#assert (#i64.==
-    (#unsafe (#call linux-munmap (: address address : length 4096usize))) 0i64))
+    (#unsafe (#unsafe-call linux-munmap (: address address : length 4096usize))) 0i64))
   (#let newline #u8 10u8)
   (#assert (#i64.==
     (#call linux-write-byte (: source (#borrow newline))) 1i64))

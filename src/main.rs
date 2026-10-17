@@ -1336,7 +1336,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "(#extern-fn #abi-c exit ((status #i32)) ()) (#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task-spawn (: value 41)) (#case (Task-spawn-ok task) (#match (#call Task-join (: task task)) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#call exit (: status 43))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
+        let source = "(#extern-fn #abi-c exit ((status #i32)) ()) (#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task-spawn (: value 41)) (#case (Task-spawn-ok task) (#match (#call Task-join (: task task)) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#unsafe-call exit (: status 43))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1459,7 +1459,7 @@ mod tests {
         .unwrap();
         fs::write(
             &input,
-            "(#extern-fn #abi-c provided_value () #u64) (#fn main () #u64 (#return (#unsafe (#call provided_value (:)))))",
+            "(#extern-fn #abi-c provided_value () #u64) (#fn main () #u64 (#return (#unsafe (#unsafe-call provided_value (:)))))",
         )
         .unwrap();
         let links = LinkOptions {

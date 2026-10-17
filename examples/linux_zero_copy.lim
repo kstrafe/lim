@@ -26,7 +26,7 @@
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let payload-set () (#unsafe (#ptr-write data-memory 305419896i32)))
   (#let descriptor #i64
-    (#unsafe (#call linux-memfd-create
+    (#unsafe (#unsafe-call linux-memfd-create
       (: name name-memory : flags 1u32))))
   (#let payload-written #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-WRITE
@@ -37,11 +37,11 @@
     (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let first-pipe #i64
-    (#unsafe (#call linux-pipe2 (: descriptors pipe-memory : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 (: descriptors pipe-memory : flags 0i32))))
   (#let second-pipe #i64
-    (#unsafe (#call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 2usize) : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 2usize) : flags 0i32))))
   (#let third-pipe #i64
-    (#unsafe (#call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 4usize) : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 4usize) : flags 0i32))))
   (#let first-read-fd #i32 (#unsafe (#ptr-read pipe-memory)))
   (#let first-write-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 1usize))))
   (#let second-read-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 2usize))))
@@ -52,14 +52,14 @@
     (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let sent #i64
-    (#unsafe (#call linux-sendfile (: output (#as first-write-fd #i64) : input descriptor : offset offsets : count 4usize))))
+    (#unsafe (#unsafe-call linux-sendfile (: output (#as first-write-fd #i64) : input descriptor : offset offsets : count 4usize))))
   (#let sendfile-offset #i64 (#unsafe (#ptr-read offsets)))
   (#let tee-count #i64
     (#call linux-tee (: input (#as first-read-fd #i64) : output (#as second-write-fd #i64) : count 4usize : flags 0u32)))
   (#let second-offset-set ()
     (#unsafe (#ptr-write (#ptr-offset offsets 1usize) 0i64)))
   (#let spliced #i64
-    (#unsafe (#call linux-splice (: input descriptor : input-offset (#ptr-offset offsets 1usize) : output (#as third-write-fd #i64) : output-offset (#ptr-null (#ptr-mut #i64)) : count 4usize : flags 0u32))))
+    (#unsafe (#unsafe-call linux-splice (: input descriptor : input-offset (#ptr-offset offsets 1usize) : output (#as third-write-fd #i64) : output-offset (#ptr-null (#ptr-mut #i64)) : count 4usize : flags 0u32))))
   (#let splice-offset #i64
     (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
   (#let receive-memory (#ptr-mut #i32)

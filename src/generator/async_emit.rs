@@ -379,6 +379,11 @@ impl<'a> Emitter<'a> {
                 body,
                 &planning.declarations,
                 &function.graph,
+                planning
+                    .interfaces
+                    .functions
+                    .values()
+                    .map(|interface| &interface.declaration),
             )
             .map_err(|error| fail(function, error.message))?,
             retirement: None,
@@ -1933,13 +1938,13 @@ impl<'a> Emitter<'a> {
             let pointer = self.fresh("self-pointer");
             let read = if transfer && !slot.copy {
                 format!(
-                    "(#unsafe (#call {} (: slot {})))",
+                    "(#unsafe (#unsafe-call {} (: slot {})))",
                     slot.take,
                     Self::slot_ref(slot, true)
                 )
             } else {
                 format!(
-                    "(#unsafe (#call {} (: slot {})))",
+                    "(#unsafe (#unsafe-call {} (: slot {})))",
                     slot.peek,
                     Self::slot_ref(slot, false)
                 )
@@ -1957,7 +1962,7 @@ impl<'a> Emitter<'a> {
         }
         if slot.copy && (!transfer || self.types.contains_reference(&slot.ty)) {
             format!(
-                "(#unsafe (#call {} (: slot {})))",
+                "(#unsafe (#unsafe-call {} (: slot {})))",
                 slot.peek,
                 Self::slot_ref(slot, false)
             )
@@ -1988,7 +1993,7 @@ impl<'a> Emitter<'a> {
             )
         } else {
             format!(
-                "(#unsafe (#call {} (: slot {})))",
+                "(#unsafe (#unsafe-call {} (: slot {})))",
                 slot.take,
                 Self::slot_ref(slot, true)
             )
@@ -6121,16 +6126,17 @@ impl<'a> Emitter<'a> {
                     )
                     .signature
                     .return_type;
-                let mut call = format!(
-                    "(#call {} (: task {child_value} : waker waker))",
-                    protocol.poll
-                );
-                if self
+                let unsafe_call = self
                     .planning
                     .interfaces
                     .function(&protocol.poll)
-                    .is_some_and(|poll| poll.unsafe_call || poll.external)
-                {
+                    .is_some_and(|poll| poll.unsafe_call || poll.external);
+                let call_head = if unsafe_call { "#unsafe-call" } else { "#call" };
+                let mut call = format!(
+                    "({call_head} {} (: task {child_value} : waker waker))",
+                    protocol.poll
+                );
+                if unsafe_call {
                     call = format!("(#unsafe {call})");
                 }
                 let edge = self.edge(block, 0, ready, Some(&result))?;
@@ -6588,7 +6594,7 @@ impl<'a> Emitter<'a> {
                                 // A generated destroyer needs only occupied
                                 // payloads, not a typed view of discarded captures.
                                 operations.push(format!(
-                                    "(#unsafe (#call {handler}-words (: {parameter} {})))",
+                                    "(#unsafe (#unsafe-call {handler}-words (: {parameter} {})))",
                                     self.word_slice(slot.words.as_ref().unwrap(), true)
                                 ));
                                 operations
@@ -7057,7 +7063,7 @@ impl<'a> Emitter<'a> {
                 let slice = Layout::slice(start, length);
                 if pinned && self.word_cleanup_available(handler) {
                     operations.push(format!(
-                        "(#unsafe (#call {handler}-words (: {parameter} {slice})))"
+                        "(#unsafe (#unsafe-call {handler}-words (: {parameter} {slice})))"
                     ));
                 } else if pinned {
                     operations.push(format!("(#call {handler} (: {parameter} (#unsafe (#word-view (#pin-ref-mut {}) {slice}))))", crate::type_source(&slot.ty)));
@@ -9092,7 +9098,7 @@ mod tests {
             let main = format!("(#fn main () #u64
               (#let-mut cell {name} {constructor})
               (#call {put} (: slot (#pin-borrow-mut cell) : value (Start 42u64)))
-              (#let value Child (#unsafe (#call {take} (: slot (#pin-borrow-mut cell)))))
+              (#let value Child (#unsafe (#unsafe-call {take} (: slot (#pin-borrow-mut cell)))))
               (#forget cell)
               (#return (#match value (#case (Start answer) answer) (#case (Resume answer) answer))))",
               name=slot.name, put=slot.put, take=slot.take);
@@ -11212,7 +11218,7 @@ mod tests {
         let planning = prepare_function(
             "(#fn work ((view (#ref Owner)) (count (#ptr-mut #u64))) #u64
               (#return (#u64.+.wrap
-                (#get (#unsafe (#call select (: view view : count count))) value)
+                (#get (#unsafe (#unsafe-call select (: view view : count count))) value)
                 (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
             "(#struct Owner (#linear) ((padding #u64) (value #u64)))
               (#unsafe-fn select ((view (#ref Owner)) (count (#ptr-mut #u64))) (#ref Owner)
@@ -11978,7 +11984,7 @@ mod tests {
         let planning = prepare_function(
             "(#fn work ((seed #u64) (count (#ptr-mut #u64))) #u64
           (#return (#u64.+.wrap seed (#await Child ChildPending ChildReady child-poll
-            (#unsafe (#call make-child (: seed 2u64 : count count)))))))",
+            (#unsafe (#unsafe-call make-child (: seed 2u64 : count count)))))))",
             main,
         );
         runtime_planned(planning, 42);

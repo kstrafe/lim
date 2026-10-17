@@ -27,7 +27,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
         (#pin-set-field pinned view view)
         (#let slot StableU64
           (#unsafe
-            (#call stable-u64-take
+            (#unsafe-call stable-u64-take
               (: slot (#pin-borrow-mut (#get pinned payload))))))
         (#let extracted #u64
           (#match slot
@@ -35,7 +35,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
             (#case StableU64-empty (#unreachable))))
         (#let empty-slot StableU64
           (#unsafe
-            (#call stable-u64-take
+            (#unsafe-call stable-u64-take
               (: slot (#pin-borrow-mut (#get pinned payload))))))
         (#assert (#match empty-slot
           (#case StableU64-empty true)
@@ -100,7 +100,7 @@ fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let view (#pin-ref StableU64) (#pin-borrow (#get pinned payload)))
         (#unsafe
-          (#call stable-u64-take
+          (#unsafe-call stable-u64-take
             (: slot (#pin-borrow-mut (#get pinned payload)))))
         (#drop view)
         (#drop pinned)
@@ -133,7 +133,7 @@ fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
             (#case StableU64-inserted (#unreachable))
             (#case (StableU64-occupied value) value)))
         (#let contents StableU64
-          (#unsafe (#call stable-u64-take (: slot pinned))))
+          (#unsafe (#unsafe-call stable-u64-take (: slot pinned))))
         (#let stored #u64
           (#match contents
             (#case StableU64-empty (#unreachable))
@@ -230,7 +230,7 @@ fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
         (#let slot (#pin-ref-mut StableU64) (#pin-borrow-mut (#get pinned payload)))
         (#let payload-view (#pin-ref #u64)
           (#pin-get-payload slot StableU64-full))
-        (#unsafe (#call stable-u64-take (: slot slot)))
+        (#unsafe (#unsafe-call stable-u64-take (: slot slot)))
         (#drop payload-view)
         (#drop slot)
         (#drop pinned)

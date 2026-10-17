@@ -188,10 +188,13 @@ I/O check and full native-example sweep pass with this change.
 
 ## Caller safety contracts
 
-Every raw-pointer Linux wrapper requires `#unsafe`, even when a particular
-invocation uses null, length zero, or an operation that does not dereference
-the argument. The compiler does not infer safety from command numbers or
-flags. The unsupported-target branch retains the same API contract.
+Every raw-pointer Linux wrapper requires `#unsafe-call` inside `#unsafe`,
+even when a particular invocation uses null, length zero, or an operation that
+does not dereference the argument. The compiler does not infer safety from command numbers or
+flags. `#call` accepts only safe functions, even inside `#unsafe`, while
+`#unsafe-call` accepts only unsafe or external functions. Both use the same
+named arguments and parameter declaration evaluation order. Safe byte/time
+helpers use `#call`. The unsupported-target branch retains the same API contract.
 
 - **Synchronous buffers and paths:** supply the kernel's layout, readable or
   writable bounds, required alignment, and initialization. Strings must have

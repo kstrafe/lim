@@ -31,19 +31,19 @@
   (#let failed_truncate #i64
     (#call linux-ftruncate (: fd 999999i64 : length 0i64)))
   (#let failed_fstat #i64
-    (#unsafe (#call linux-fstat (: fd 999999i64 : metadata (#ptr-null (#ptr-mut #i64))))))
+    (#unsafe (#unsafe-call linux-fstat (: fd 999999i64 : metadata (#ptr-null (#ptr-mut #i64))))))
   (#let failed_ioctl #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl #i64
-    (#unsafe (#call linux-fcntl (: fd 999999i64 : command 1i32 : argument 0usize))))
+    (#unsafe (#unsafe-call linux-fcntl (: fd 999999i64 : command 1i32 : argument 0usize))))
   (#let failed_flock #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync #i64
     (#call linux-fdatasync (: fd 999999i64)))
   (#let failed_openat #i64
-    (#unsafe (#call linux-openat (: directory -100i64 : path (#ptr-null (#ptr-mut #u8)) : flags 0i32 : mode 0u32))))
+    (#unsafe (#unsafe-call linux-openat (: directory -100i64 : path (#ptr-null (#ptr-mut #u8)) : flags 0i32 : mode 0u32))))
   (#let failed_unlinkat #i64
-    (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-null (#ptr-mut #u8)) : flags 0i32))))
+    (#unsafe (#unsafe-call linux-unlinkat (: directory -100i64 : path (#ptr-null (#ptr-mut #u8)) : flags 0i32))))
   (#let failed_fchdir #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHDIR (999999i64))))
   (#let failed_fchmod #i64
@@ -68,30 +68,30 @@
     (#unsafe (#linux-syscall (#ptr-mut #u32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let getresuid-result #i64
-    (#unsafe (#call linux-getresuid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
+    (#unsafe (#unsafe-call linux-getresuid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
   (#let real-uid #u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-uid #u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-uid #u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let getresgid-result #i64
-    (#unsafe (#call linux-getresgid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
+    (#unsafe (#unsafe-call linux-getresgid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
   (#let real-gid #u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-gid #u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-gid #u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let supplementary-groups #i64
-    (#unsafe (#call linux-getgroups (: size 0i32 : groups (#ptr-null (#ptr-mut #u32))))))
+    (#unsafe (#unsafe-call linux-getgroups (: size 0i32 : groups (#ptr-null (#ptr-mut #u32))))))
   (#let invalid-groups-size #i64
-    (#unsafe (#call linux-getgroups (: size -1i32 : groups (#ptr-null (#ptr-mut #u32))))))
+    (#unsafe (#unsafe-call linux-getgroups (: size -1i32 : groups (#ptr-null (#ptr-mut #u32))))))
   (#let identity-memory-unmapped #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (identity-memory 4096usize))))
   (#let-mut mapping (#ptr-mut #u8)
     (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let uname-result #i64
-    (#unsafe (#call linux-uname (: buffer mapping))))
+    (#unsafe (#unsafe-call linux-uname (: buffer mapping))))
   (#let uname-first-byte #u8 (#unsafe (#ptr-read mapping)))
   (#let uname-second-byte #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 1usize))))
@@ -104,7 +104,7 @@
   (#let uname-terminator #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 5usize))))
   (#let random-buffer-count #i64
-    (#unsafe (#call linux-getrandom (: destination mapping : size 4usize : flags 0u32))))
+    (#unsafe (#unsafe-call linux-getrandom (: destination mapping : size 4usize : flags 0u32))))
   (#unsafe
     (#block
       (#ptr-write mapping 47u8)
@@ -119,7 +119,7 @@
       (#ptr-write (#ptr-offset mapping 9usize) 0u8)
       ()))
   (#let null-device #i64
-    (#unsafe (#call linux-openat (: directory -100i64 : path mapping : flags 0i32 : mode 0u32))))
+    (#unsafe (#unsafe-call linux-openat (: directory -100i64 : path mapping : flags 0i32 : mode 0u32))))
   (#let close-null-device #i64
     (#call linux-close (: fd null-device)))
   (#unsafe
@@ -140,7 +140,7 @@
       (#ptr-write (#ptr-offset mapping 14usize) 0u8)
       ()))
   (#let readlink-count #i64
-    (#unsafe (#call linux-readlinkat (: directory -100i64 : path mapping : destination (#ptr-offset mapping 64usize) : size 256usize))))
+    (#unsafe (#unsafe-call linux-readlinkat (: directory -100i64 : path mapping : destination (#ptr-offset mapping 64usize) : size 256usize))))
   (#let link-first-byte #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 64usize))))
   (#let cwd-result #i64
@@ -152,13 +152,13 @@
   (#let unprotected #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-MPROTECT (mapping 4096usize 3usize))))
   (#let advised #i64
-    (#unsafe (#call linux-madvise (: address mapping : length 4096usize : advice 0i32))))
+    (#unsafe (#unsafe-call linux-madvise (: address mapping : length 4096usize : advice 0i32))))
   (#let edge-written ()
     (#unsafe (#ptr-write (#ptr-offset mapping 4095usize) 42u8)))
   (#let edge-byte #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))
   (#let remapped (#ptr-mut #u8)
-    (#unsafe (#call linux-mremap (: old-address mapping : old-length 4096usize : new-length 8192usize : flags 1u32 : new-address (#ptr-null (#ptr-mut #u8))))))
+    (#unsafe (#unsafe-call linux-mremap (: old-address mapping : old-length 4096usize : new-length 8192usize : flags 1u32 : new-address (#ptr-null (#ptr-mut #u8))))))
   (#set mapping remapped)
   (#let preserved-edge #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))

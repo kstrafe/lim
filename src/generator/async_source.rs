@@ -519,7 +519,8 @@ impl Builder<'_> {
         let polled = self.fresh("polled");
         let next = self.fresh("next");
         let value = self.fresh("value");
-        let call = format!("(#call {poll_name} (: task task : waker waker))");
+        let call_head = if unsafe_call { "#unsafe-call" } else { "#call" };
+        let call = format!("({call_head} {poll_name} (: task task : waker waker))");
         let call = if unsafe_call {
             format!("(#unsafe {call})")
         } else {
@@ -555,7 +556,7 @@ impl Builder<'_> {
         });
         Ok(list(
             vec![
-                atom("#call", c[0].span),
+                atom(call_head, c[0].span),
                 atom(&driver, c[0].span),
                 list(
                     vec![
@@ -1453,6 +1454,13 @@ mod tests {
                 &context,
                 &format!("(#fn work () #u64 (#return {expression}))"),
             );
+            assert!(crate::expression_source(&lowered.function.expr)
+                .unwrap()
+                .contains(&format!("(#unsafe-call {} ", lowered.awaits[0].driver)));
+            assert!(lowered
+                .drivers
+                .iter()
+                .any(|(_, source)| source.contains("(#unsafe (#unsafe-call step-poll ")));
             let program = lowered.program(&base).unwrap();
             let result = crate::CheckedProgram::validate_with_span(&program);
             if allowed {

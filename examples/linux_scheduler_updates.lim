@@ -9,17 +9,17 @@
   (#let parameters (#ptr-mut #i32) (#unsafe (#addr-of-mut priority)))
   (#let policy #i64 (#call linux-sched-getscheduler (: pid 0i64)))
   (#assert (#i64.>= policy 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-getparam (: pid 0i64 : scheduler-parameters parameters))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-setparam (: pid 0i32 : scheduler-parameters parameters))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-setparam (: pid -1i32 : scheduler-parameters parameters))) -22i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-setscheduler (: pid 0i32 : policy (#as policy #i32) : scheduler-parameters parameters))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-setscheduler (: pid 0i32 : policy 99i32 : scheduler-parameters parameters))) -22i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-getparam (: pid 0i64 : scheduler-parameters parameters))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setparam (: pid 0i32 : scheduler-parameters parameters))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setparam (: pid -1i32 : scheduler-parameters parameters))) -22i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setscheduler (: pid 0i32 : policy (#as policy #i32) : scheduler-parameters parameters))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setscheduler (: pid 0i32 : policy 99i32 : scheduler-parameters parameters))) -22i64))
   (#assert (#i64.== (#call linux-sched-getscheduler (: pid 0i64)) policy))
-  (#assert (#i64.== (#unsafe (#call linux-sched-getattr (: pid 0i64 : attributes memory : size 56u32 : flags 0u32))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes memory : size 56u32 : flags 0u32))) 0i64))
   ; Replay the current sched_attr instead of choosing a different policy.
-  (#assert (#i64.== (#unsafe (#call linux-sched-setattr (: pid 0i32 : attributes memory : flags 0u32))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-setattr (: pid 0i32 : attributes memory : flags 1u32))) -22i64))
-  (#assert (#i64.== (#unsafe (#call linux-sched-getattr (: pid 0i64 : attributes after : size 56u32 : flags 0u32))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setattr (: pid 0i32 : attributes memory : flags 0u32))) 0i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-setattr (: pid 0i32 : attributes memory : flags 1u32))) -22i64))
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes after : size 56u32 : flags 0u32))) 0i64))
   ; Compare size/policy, flags, and nice/static-priority words.
   (#for-range (word #usize) 0usize 3usize
     (#assert (#u64.==

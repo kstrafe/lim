@@ -47,6 +47,9 @@ pub(crate) struct RenderContext<'a> {
     operations: HashMap<NodeId, &'a Operation>,
     atoms: HashSet<NodeId>,
     patterns: HashSet<NodeId>,
+    // Call normalization erases the source keyword. Recover it from the
+    // declaration interfaces, independently of the enclosing unsafe region.
+    unsafe_functions: HashSet<String>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -54,6 +57,7 @@ impl<'a> RenderContext<'a> {
         body: &'a Body,
         declarations: &'a Declarations,
         graph: &'a Graph,
+        functions: impl IntoIterator<Item = &'a crate::Function>,
     ) -> Result<Self, Error> {
         let mut context = Self {
             body,
@@ -62,6 +66,11 @@ impl<'a> RenderContext<'a> {
             operations: HashMap::new(),
             atoms: HashSet::new(),
             patterns: HashSet::new(),
+            unsafe_functions: functions
+                .into_iter()
+                .filter(|function| function.unsafe_call || function.external)
+                .map(|function| function.name.clone())
+                .collect(),
         };
         context.validate().map_err(|error| attach(body, error))?;
         for block in &graph.blocks {
@@ -331,7 +340,16 @@ impl<'a> RenderContext<'a> {
                 arguments.push(Expr::List(vec![symbol(name), value.clone()]));
             }
             return Ok(Expr::List(vec![
-                symbol("#call"),
+                symbol(
+                    if self
+                        .unsafe_functions
+                        .contains(&self.declarations.function(callee).name)
+                    {
+                        "#unsafe-call"
+                    } else {
+                        "#call"
+                    },
+                ),
                 symbol(&self.declarations.function(callee).name),
                 Expr::List(arguments),
             ]));
@@ -705,6 +723,52 @@ mod tests {
     }
 
     #[test]
+    fn calls_restore_safety_from_declarations_without_widening_unsafe_scope() {
+        for (declaration, keyword) in [
+            ("(#fn target () #u64 (#return 42u64))", "#call"),
+            (
+                "(#unsafe-fn target () #u64 (#return 42u64))",
+                "#unsafe-call",
+            ),
+            ("(#extern-fn #abi-c target () #u64)", "#unsafe-call"),
+        ] {
+            let source = format!(
+                "{declaration}\n(#fn main () #u64 (#return (#unsafe ({keyword} target (:)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let (declarations, graph) = prepare(&source, "main");
+            let context = RenderContext::new(
+                &declarations.bodies["main"],
+                &declarations,
+                &graph,
+                program.items.iter().filter_map(|item| match item {
+                    crate::Item::Function(function) => Some(function),
+                    _ => None,
+                }),
+            )
+            .unwrap();
+            let compute = graph
+                .blocks
+                .iter()
+                .flat_map(|block| &block.actions)
+                .find_map(|located| match &located.action {
+                    Action::Compute {
+                        operation: compute @ Compute::Checked(operation),
+                        ..
+                    } if operation.callee == declarations.function_id("target") => Some(compute),
+                    _ => None,
+                })
+                .unwrap();
+            let rendered = context.render_compute(compute, &HashMap::new()).unwrap();
+            assert_eq!(text(&rendered), format!("({keyword} target ())"));
+            check(&format!(
+                "{declaration}\n(#fn again () #u64 (#return (#unsafe {})))",
+                text(&rendered)
+            ));
+        }
+    }
+
+    #[test]
     fn named_calls_restore_signature_order_without_evaluating_arguments() {
         let declarations_source = "
           (#fn effect () #u32 (#return 7))
@@ -717,7 +781,7 @@ mod tests {
         );
         let (declarations, graph) = prepare(&source, "main");
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let compute = graph
             .blocks
             .iter()
@@ -773,7 +837,7 @@ mod tests {
             "main",
         );
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let compute = operation(&graph, "asm");
         let rendered = context
             .render_compute(compute, &stored(compute, "stored"))
@@ -797,7 +861,7 @@ mod tests {
             "main",
         );
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let layout = operation(&graph, "size-of");
         let rendered = context.render_compute(layout, &HashMap::new()).unwrap();
         assert_eq!(text(&rendered), "(#size-of (#tuple #u64 (#ref #u32)))");
@@ -820,7 +884,7 @@ mod tests {
     fn contextual_literals_keep_their_checked_type_in_a_different_context() {
         let (declarations, graph) = prepare("(#fn main () #u32 (#return 42))", "main");
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let atom = graph
             .blocks
             .iter()
@@ -849,11 +913,11 @@ mod tests {
             NodeKind::Literal(Expr::Integer(42))
         ) && node.ty == Some(Type::U32)));
         let (other, _) = prepare("(#fn main () #u64 (#return 42))", "main");
-        assert!(RenderContext::new(&other.bodies["main"], &other, &graph).is_err());
+        assert!(RenderContext::new(&other.bodies["main"], &other, &graph, []).is_err());
 
         let (declarations, graph) = prepare("(#fn main () #f32 (#return 1.5))", "main");
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let atom = graph
             .blocks
             .iter()
@@ -887,7 +951,7 @@ mod tests {
         );
         let (declarations, graph) = prepare(&source, "main");
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let compute = operation(&graph, "Pair");
         let rendered = context
             .render_compute(compute, &stored(compute, "stored"))
@@ -921,7 +985,7 @@ mod tests {
             "main",
         );
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let pattern = graph
             .blocks
             .iter()
@@ -960,7 +1024,8 @@ mod tests {
             let (declarations, graph) = prepare(&source, "make");
             let compute = operation(&graph, head);
             let context =
-                RenderContext::new(&declarations.bodies["make"], &declarations, &graph).unwrap();
+                RenderContext::new(&declarations.bodies["make"], &declarations, &graph, [])
+                    .unwrap();
             let rendered = context
                 .render_compute(compute, &stored(compute, "stored"))
                 .unwrap();
@@ -987,7 +1052,7 @@ mod tests {
         };
         assert_eq!(operation.operands.len(), 1);
         let context =
-            RenderContext::new(&declarations.bodies["inspect"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["inspect"], &declarations, &graph, []).unwrap();
         let rendered = context
             .render_compute(compute, &stored(compute, "stored"))
             .unwrap();
@@ -1008,7 +1073,7 @@ mod tests {
             "main",
         );
         let context =
-            RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
+            RenderContext::new(&declarations.bodies["main"], &declarations, &graph, []).unwrap();
         let compute = operation(&graph, "literal");
         assert!(context
             .render_compute(compute, &HashMap::new())

@@ -2,21 +2,21 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+    (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let locked #i64
-    (#unsafe (#call linux-mlock (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-mlock (: address memory : length 4096usize))))
   (#let unlocked #i64
-    (#unsafe (#call linux-munlock (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-munlock (: address memory : length 4096usize))))
   (#let locked-on-fault #i64
-    (#unsafe (#call linux-mlock2 (: address memory : length 4096usize : flags 1i32))))
+    (#unsafe (#unsafe-call linux-mlock2 (: address memory : length 4096usize : flags 1i32))))
   (#let invalid-lock-flags #i64
-    (#unsafe (#call linux-mlock2 (: address memory : length 4096usize : flags 2i32))))
+    (#unsafe (#unsafe-call linux-mlock2 (: address memory : length 4096usize : flags 2i32))))
   (#let invalid-all-flags #i64
     (#call linux-mlockall (: flags 8i32)))
   (#let all-unlocked #i64
     (#call linux-munlockall (:)))
   (#let unmapped #i64
-    (#unsafe (#call linux-munmap (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-munmap (: address memory : length 4096usize))))
   (#return
     (#if (#bool.&& (#i64.== locked 0i64)
           (#bool.&& (#i64.== unlocked 0i64)

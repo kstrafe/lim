@@ -232,7 +232,7 @@ impl Checker<'_> {
                     .skip(3)
                     .find_map(|node| self.visit(node, &mut inner, None))
             }
-            "call" if items.len() == 3 => {
+            "call" | "unsafe-call" if items.len() == 3 => {
                 let Expr::Symbol(function) = &items[1].expr else {
                     return None;
                 };

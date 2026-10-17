@@ -321,7 +321,7 @@ fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
 #[test]
 fn assume_valid_requires_unsafe_and_unstable_owner_types_fail_at_the_invocation() {
     let scratch = support::Scratch::new("utf8-unsafe-contract");
-    let source = "(#std) (#fn bad (: owner (#slice #u8)) Utf8Slice (#return (#call Utf8Slice::assume-valid (: owner owner))))";
+    let source = "(#std) (#fn bad (: owner (#slice #u8)) Utf8Slice (#return (#unsafe-call Utf8Slice::assume-valid (: owner owner))))";
     let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
     assert_eq!(error.code_string(), "E4300", "{}", error.message);
     assert!(error.message.contains("unsafe"));

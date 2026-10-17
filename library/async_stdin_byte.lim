@@ -33,30 +33,30 @@
 ;; Explicitly changes the shared open-file-description status flags. Keeping
 ;; this enabled makes a readiness race return EAGAIN instead of blocking.
 (#fn async-byte-read1-enable-nonblocking ((fd #i64)) #i64
-  (#let flags #i64 (#unsafe (#call linux-fcntl
+  (#let flags #i64 (#unsafe (#unsafe-call linux-fcntl
     (: fd fd : command LINUX-FCNTL-F_GETFL : argument 0usize))))
   (#return (#if (#i64.< flags 0i64)
     flags
-    (#unsafe (#call linux-fcntl
+    (#unsafe (#unsafe-call linux-fcntl
       (: fd fd : command LINUX-FCNTL-F_SETFL
        : argument (#as (#u64.| (#as flags #u64) LINUX-O_NONBLOCK) #usize)))))))
 
 (#fn async-byte-read1-create
   ((fd #i64) (destination (#ref-mut #u8))) AsyncByteReadCreate1
-  (#let flags #i64 (#unsafe (#call linux-fcntl
+  (#let flags #i64 (#unsafe (#unsafe-call linux-fcntl
     (: fd fd : command LINUX-FCNTL-F_GETFL : argument 0usize))))
   (#return (#if (#i64.< flags 0i64)
     (AsyncByteReadCreateFailed1 flags)
     (#if (#u64.== (#u64.& (#as flags #u64) LINUX-O_NONBLOCK) 0u64)
       (AsyncByteReadCreateFailed1 -22i64)
       (#block
-        (#let owned-fd #i64 (#unsafe (#call linux-fcntl
+        (#let owned-fd #i64 (#unsafe (#unsafe-call linux-fcntl
           (: fd fd : command LINUX-FCNTL-F_DUPFD-CLOEXEC : argument 0usize))))
         (#if (#i64.< owned-fd 0i64)
           (AsyncByteReadCreateFailed1 owned-fd)
           (#block
             (#let memory (#ptr-mut #u8)
-              (#unsafe (#call linux-mmap
+              (#unsafe (#unsafe-call linux-mmap
                 (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
                  : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
             (#let address #i64 (#as (#ptr-address memory) #i64))
@@ -135,6 +135,6 @@
   (#forget queue-mut)
   (#forget destination)
   (#let closed #i64 (#call linux-close (: fd fd)))
-  (#let unmapped #i64 (#unsafe (#call linux-munmap
+  (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
     (: address memory : length 4096usize))))
   (#return (#if (#i64.< closed 0i64) closed unmapped)))

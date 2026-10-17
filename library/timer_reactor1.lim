@@ -32,7 +32,7 @@
         (TimerCreateFailed1 fd)
         (#block
           (#let memory (#ptr-mut #u8)
-            (#unsafe (#call linux-mmap
+            (#unsafe (#unsafe-call linux-mmap
               (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
                : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
           (#let address #i64 (#as (#ptr-address memory) #i64))
@@ -62,7 +62,7 @@
                   (#ptr-null (#ptr-mut #u8))))))
               (#if (#i64.< armed 0i64)
                 (#block
-                  (#let unmapped #i64 (#unsafe (#call linux-munmap
+                  (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
                     (: address (#clone memory) : length 4096usize))))
                   (#let closed #i64 (#call linux-close (: fd fd)))
                   (#if (#i64.< unmapped 0i64)
@@ -82,7 +82,7 @@
                     ((fd fd) (memory memory) (queue queue) (token token))))))))))))))
 
 (#fn timer-reactor1-wait ((timer (#ref TimerReactor1))) TimerWait1
-  (#let result #i64 (#unsafe (#call linux-poll
+  (#let result #i64 (#unsafe (#unsafe-call linux-poll
     (: pollfds (#get timer memory) : count 1usize : timeout-ms -1i32))))
   (#return (#if (#i64.== result 1i64)
     (#if (#call wake-ready4-notify
@@ -116,7 +116,7 @@
         (#ptr-write (#ptr-offset (#clone memory) 13usize) 0u8)
         (#ptr-write (#ptr-offset (#clone memory) 14usize) 0u8)
         (#ptr-write (#ptr-offset (#clone memory) 15usize) 0u8)))
-      (#let count #i64 (#unsafe (#call linux-poll
+      (#let count #i64 (#unsafe (#unsafe-call linux-poll
         (: pollfds memory : count 2usize : timeout-ms -1i32))))
       (#if (#i64.<= count 0i64)
         (TimerPairFailed1 (#if (#i64.== count 0i64) -22i64 count))
@@ -150,7 +150,7 @@
     (#block
       (#let destination (#ptr-mut #u8)
         (#unsafe (#ptr-offset (#get timer memory) 64usize)))
-      (#let count #i64 (#unsafe (#call linux-read
+      (#let count #i64 (#unsafe (#unsafe-call linux-read
         (: fd (#get timer fd) : destination destination : count 8usize))))
       (#if (#i64.== count 8i64)
         (TimerReady1 1u64)
@@ -165,7 +165,7 @@
   (#assert (#match retired (#case WakeRetired4 true) (#case WakeStale4 false)))
   (#forget queue-mut)
   (#let closed #i64 (#call linux-close (: fd fd)))
-  (#let unmapped #i64 (#unsafe (#call linux-munmap
+  (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
     (: address memory : length 4096usize))))
   (#return (#if (#i64.< closed 0i64) closed unmapped)))
 
@@ -215,7 +215,7 @@
         (#block (#set error -22i64) ())
         (#block
           (#let ready-count #i64
-            (#unsafe (#call linux-poll
+            (#unsafe (#unsafe-call linux-poll
               (: pollfds memory : count count : timeout-ms -1i32))))
           (#if (#i64.< ready-count 0i64)
             (#block (#set error ready-count) ())

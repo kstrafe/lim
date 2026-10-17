@@ -764,7 +764,7 @@ fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             if head == "#gn" || head == "#gn-fn" {
                 continue;
             }
-            if head == "#call" {
+            if matches!(head.as_str(), "#call" | "#unsafe-call") {
                 if let Some(callee) = expression.children.get(1) {
                     if callee.span.start <= byte && byte < callee.span.end {
                         if let Expr::Symbol(name) = &callee.expr {

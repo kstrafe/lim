@@ -153,7 +153,7 @@ fn thread_argument_result_layouts_and_nested_workers_run() {
 fn foreign_worker_calls_are_rejected_transitively() {
     let scratch = support::Scratch::new("kernel-thread-ffi");
     let source = "(#extern-fn #abi-c abs ((value #i32)) #i32)
-      (#fn helper () #i32 (#return (#unsafe (#call abs (: value -42i32)))))
+      (#fn helper () #i32 (#return (#unsafe (#unsafe-call abs (: value -42i32)))))
       (#fn work () #i32 (#return (#call helper (:))))
       (@#thread-spawn (: task Work : worker work))";
     let error = assembly(source, &scratch.path().join("input.lim"), scratch.path()).unwrap_err();

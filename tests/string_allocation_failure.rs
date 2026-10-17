@@ -9,7 +9,7 @@ fn allocator_with_calls(replacements: &[(&str, &str)]) -> String {
         edits: &mut Vec<(lim::Span, String)>,
     ) {
         if matches!(node.children.first().map(|child| &child.expr),
-            Some(lim::Expr::Symbol(head)) if head == "#call")
+            Some(lim::Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))
         {
             let callee = &node.children[1];
             if let lim::Expr::Symbol(name) = &callee.expr {
@@ -83,7 +83,7 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
         ]),
         "(#fn failing-allocate (: size #usize) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))
-         (#fn unexpected-deallocate (: pointer (#ptr-mut #u8)) ()
+         (#unsafe-fn unexpected-deallocate (: pointer (#ptr-mut #u8)) ()
            (#panic) (#return ()))"
     );
     execute(
@@ -118,7 +118,7 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "(#fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        "(#unsafe-fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -152,7 +152,7 @@ fn failed_string_append_preserves_both_owners() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "(#fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        "(#unsafe-fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
           (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -220,7 +220,7 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
         ]),
         "(#fn unexpected-allocate (: size #usize) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))
-         (#fn unexpected-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+         (#unsafe-fn unexpected-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -232,7 +232,7 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
           (#assert (#match (#call system-allocate (: size 18446744073709551615usize))
             (#case (SystemAllocationFailed error) (#match error (#case SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocated pointer) false)))
-          (#assert (#match (#unsafe (#call system-reallocate (: pointer (#ptr-null (#ptr-mut #u8)) : size 0usize)))
+          (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer (#ptr-null (#ptr-mut #u8)) : size 0usize)))
             (#case (SystemAllocationFailed error) (#match error (#case SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocated pointer) false)))
           (#return 42u64))"#,

@@ -9,7 +9,7 @@ mod support;
 
 fn replace_call(source: &str, old: &str, new: &str) -> String {
     fn visit(node: &lim::SpannedExpr, old: &str, new: &str, edits: &mut Vec<(lim::Span, String)>) {
-        if matches!(node.children.first().map(|child| &child.expr), Some(lim::Expr::Symbol(head)) if head == "#call")
+        if matches!(node.children.first().map(|child| &child.expr), Some(lim::Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))
         {
             if let Some(lim::Expr::Symbol(name)) = node.children.get(1).map(|child| &child.expr) {
                 if name == old {
@@ -59,7 +59,7 @@ fn run(
             "system-heap-reallocate",
             "stdin-failing-reallocate",
         );
-        allocator.push_str("\n(#fn stdin-failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)\n  (#return (#ptr-null (#ptr-mut #u8))))\n");
+        allocator.push_str("\n(#unsafe-fn stdin-failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)\n  (#return (#ptr-null (#ptr-mut #u8))))\n");
     }
     fs::write(scratch.path().join("system_allocator.lim"), allocator).unwrap();
     let source = format!(

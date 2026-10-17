@@ -143,9 +143,9 @@
       (
         #unsafe
         (
-          #call
+          #unsafe-call
           std-write-all
-          (: pointer (#call String-data-pointer (: string text))
+          (: pointer (#unsafe-call String-data-pointer (: string text))
        : length (#call String-len (: string text)))        )      )    )  )
   (
     #fn
@@ -178,7 +178,7 @@
         (
           #unsafe
           (
-            #call
+            #unsafe-call
             std-write-all
             (: pointer (#addr-of-mut newline) : length 1usize)          )        )
         result      )    )  )

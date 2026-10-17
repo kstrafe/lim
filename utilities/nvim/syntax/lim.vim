@@ -30,7 +30,7 @@ syn match limDeclaration +#\%(fn\|extern-fn\|struct\|enum\|distributed-enum\|enu
 syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limUnsafe +#\%(unsafe\|unsafe-fn\|unsafe-impl\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limUnsafe +#\%(unsafe\|unsafe-call\|unsafe-fn\|unsafe-impl\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limPin +#\%(pin\|pin-shared\|pin-share\|pin-share-clone\|pin-shared-borrow\|pin-shared-borrow-mut\|pin-shared-release\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limGeneratorKeyword +#gn\%(-[^[:space:]();"'`,@#]\+\)\?\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limCfg +#cfg-[^[:space:]();"'`,@#]\++

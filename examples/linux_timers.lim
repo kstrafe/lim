@@ -31,13 +31,13 @@
         (#ptr-write (#ptr-offset time-memory 7usize) 0i64)
         ())))
   (#let timer-created #i64
-    (#unsafe (#call linux-timer-create (: clock-id 1i64 : event event-memory : timer-id timer-memory))))
+    (#unsafe (#unsafe-call linux-timer-create (: clock-id 1i64 : event event-memory : timer-id timer-memory))))
   (#let timer-id #i64 (#as (#unsafe (#ptr-read timer-memory)) #i64))
   (#assert (#i64.== (#call linux-timer-getoverrun (: timer-id timer-id)) 0i64))
   (#let timer-armed #i64
-    (#unsafe (#call linux-timer-settime (: timer-id timer-id : flags 0i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
+    (#unsafe (#unsafe-call linux-timer-settime (: timer-id timer-id : flags 0i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
   (#let timer-read #i64
-    (#unsafe (#call linux-timer-gettime (: timer-id timer-id : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timer-gettime (: timer-id timer-id : current-time (#ptr-offset time-memory 4usize)))))
   (#let remaining-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset time-memory 6usize))))
   (#let remaining-nanoseconds #i64
@@ -46,7 +46,7 @@
     (#unsafe (#call linux-timer-delete (: timer-id timer-id))))
   (#assert (#i64.== (#call linux-timer-getoverrun (: timer-id timer-id)) -22i64))
   (#let deleted-timer-query #i64
-    (#unsafe (#call linux-timer-gettime (: timer-id timer-id : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timer-gettime (: timer-id timer-id : current-time (#ptr-offset time-memory 4usize)))))
   (#let invalid-timerfd-clock #i64
     (#call linux-timerfd-create (: clock-id -1i32 : flags 0i32)))
   (#let invalid-timerfd-flags #i64
@@ -54,7 +54,7 @@
   (#let timer-fd #i64
     (#call linux-timerfd-create (: clock-id 1i32 : flags 0i32)))
   (#let initially-disarmed #i64
-    (#unsafe (#call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
   (#let initial-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset time-memory 6usize))))
   (#let initial-nanoseconds #i64
@@ -67,11 +67,11 @@
       (#ptr-write (#ptr-offset time-memory 2usize) 0i64)
       (#ptr-write (#ptr-offset time-memory 3usize) 1000000i64)))
   (#let timerfd-armed #i64
-    (#unsafe (#call linux-timerfd-settime (: fd timer-fd : flags 0i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
+    (#unsafe (#unsafe-call linux-timerfd-settime (: fd timer-fd : flags 0i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
   (#let timerfd-state #i64
-    (#unsafe (#call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
   (#let invalid-timerfd-settime #i64
-    (#unsafe (#call linux-timerfd-settime (: fd timer-fd : flags 8i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
+    (#unsafe (#unsafe-call linux-timerfd-settime (: fd timer-fd : flags 8i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
   (#unsafe (#ptr-write (#ptr-offset time-memory 8usize)
     (#as (#u64.| (#as timer-fd #u64) (#u64.<< 1u64 32u64)) #i64)))
   (#let timerfd-ready #i64
@@ -85,7 +85,7 @@
   (#let expirations #i64
     (#unsafe (#ptr-read (#ptr-offset time-memory 9usize))))
   (#let disarmed-state #i64
-    (#unsafe (#call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
   (#let remaining-after-read-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset time-memory 6usize))))
   (#let remaining-after-read-nanoseconds #i64
@@ -93,7 +93,7 @@
   (#let timerfd-closed #i64
     (#call linux-close (: fd timer-fd)))
   (#let closed-timerfd-query #i64
-    (#unsafe (#call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
+    (#unsafe (#unsafe-call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
   (#let event-unmapped #i64
     (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (event-memory 4096usize))))
   (#let timer-unmapped #i64

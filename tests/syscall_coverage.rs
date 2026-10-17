@@ -177,7 +177,7 @@ fn calls(source: &str) -> BTreeSet<String> {
     for form in lim::parse(source).unwrap() {
         walk(&form.expr, &mut |expression| {
             if let lim::Expr::List(items) = expression {
-                if symbol(items.first()) == Some("#call") {
+                if matches!(symbol(items.first()), Some("#call" | "#unsafe-call")) {
                     if let Some(name) = symbol(items.get(1)) {
                         result.insert(name.to_owned());
                     }
@@ -380,6 +380,9 @@ fn library_sources_only_declare_the_standard_allocator_ffi() {
 
 #[test]
 fn comments_strings_and_quoted_calls_are_not_runtime_evidence() {
-    let found = calls("; (#call comment (:))\n\"(#call string (:))\"\n'(#call quoted (:))\n(#fn f () () (#call real (:)) (#return ()))");
-    assert_eq!(found, BTreeSet::from(["real".to_owned()]));
+    let found = calls("; (#call comment (:)) (#unsafe-call unsafe-comment (:))\n\"(#call string (:)) (#unsafe-call unsafe-string (:))\"\n'(#call quoted (:))\n'(#unsafe-call unsafe-quoted (:))\n(#fn f () () (#call real (:)) (#unsafe (#unsafe-call unsafe-real (:))) (#return ()))");
+    assert_eq!(
+        found,
+        BTreeSet::from(["real".to_owned(), "unsafe-real".to_owned()])
+    );
 }

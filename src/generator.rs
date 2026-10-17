@@ -919,7 +919,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v11\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v12\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -1469,7 +1469,7 @@ pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
         let prefix = match head {
             "#fn" | "#unsafe-fn" => 4,
             "#case" | "#case-ref" | "#case-ref-mut" | "#case-pin" | "#case-pin-mut" | "#call"
-            | "#match" | "#if" => 2,
+            | "#unsafe-call" | "#match" | "#if" => 2,
             "#enum" | "#struct" => 3,
             "#struct-literal" => 2,
             "#let" | "#let-mut" => 3,

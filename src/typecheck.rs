@@ -3859,7 +3859,7 @@ fn reject_recursive_calls(
 fn recursive_call_span(program: &Program, caller: &str, callee: &str) -> Option<crate::Span> {
     fn find_call(expression: &crate::SpannedExpr, callee: &str) -> Option<crate::Span> {
         if let Expr::List(items) = &expression.expr {
-            let target_index = if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call" || head == "call")
+            let target_index = if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call" | "call" | "unsafe-call"))
             {
                 1
             } else if matches!(items.first(), Some(Expr::Symbol(head)) if head == callee) {
@@ -4726,7 +4726,7 @@ fn semantic_expression_source<'a>(
             for (index, child) in items.iter().enumerate() {
                 let corresponding = match (source_head, target_head) {
                     (Some("case"), _) => source.children.get(index + 1),
-                    (Some("call"), Some(function)) => {
+                    (Some("call" | "unsafe-call"), Some(function)) => {
                         if index == 0 {
                             source.children.get(1)
                         } else {
@@ -4816,7 +4816,7 @@ fn semantic_error_span(
         }
         if let (Expr::List(source), Expr::List(target)) = (&normalized, scope) {
             let actual = match source.first() {
-                Some(Expr::Symbol(head)) if head == "call" => {
+                Some(Expr::Symbol(head)) if matches!(head.as_str(), "call" | "unsafe-call") => {
                     if source.get(1) == target.first() {
                         source.get(2).and_then(|args| match args {
                             Expr::List(args) => Some(
@@ -5065,7 +5065,7 @@ fn control_flow_mismatch_span(
                     }
                     return None;
                 }
-                "#call" | "call" => return None,
+                "#call" | "#unsafe-call" | "call" | "unsafe-call" => return None,
                 _ => {}
             }
         }
@@ -5089,7 +5089,7 @@ fn named_call_argument_span(
         {
             return expression.children.get(1).map(|value| value.span);
         }
-        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "call"))
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call" | "call" | "unsafe-call"))
             && matches!(items.get(1), Some(Expr::Symbol(callee)) if callee == function_name)
         {
             let arguments = expression.children.get(2)?;
@@ -5142,8 +5142,10 @@ fn source_operator_span(expression: &crate::SpannedExpr, target: &str) -> Option
             if normalized == target || normalized.split('.').skip(1).any(|part| part == target) {
                 return expression.children.first().map(|head| head.span);
             }
-            if matches!(head.as_str(), "#call" | "call")
-                && matches!(items.get(1), Some(Expr::Symbol(name)) if name == target)
+            if matches!(
+                head.as_str(),
+                "#call" | "#unsafe-call" | "call" | "unsafe-call"
+            ) && matches!(items.get(1), Some(Expr::Symbol(name)) if name == target)
             {
                 return expression.children.get(1).map(|name| name.span);
             }
@@ -5198,7 +5200,10 @@ fn expression_with_type_hint(
         // A function call's result type is not encoded in its syntax. Do not
         // mistake one of its arguments for the result when pinpointing a
         // mismatch reported by the caller.
-        if matches!(head.as_str(), "#call" | "call") {
+        if matches!(
+            head.as_str(),
+            "#call" | "#unsafe-call" | "call" | "unsafe-call"
+        ) {
             return false;
         }
         head.strip_prefix('#')
@@ -5217,7 +5222,10 @@ fn expression_with_type_hint(
     let Some(Expr::Symbol(head)) = items.first() else {
         return None;
     };
-    if matches!(head.as_str(), "#call" | "call") {
+    if matches!(
+        head.as_str(),
+        "#call" | "#unsafe-call" | "call" | "unsafe-call"
+    ) {
         return None;
     }
     let is_typed_scalar_operator = head
@@ -16832,7 +16840,7 @@ mod typed_ownership_tests {
         assert!(error.contains("borrow"), "{error}");
         let invalid = source.replace(
             "(#let selected",
-            "(#unsafe (#call restore-item
+            "(#unsafe (#unsafe-call restore-item
           (: item (#pin-borrow-mut (#get owner item))))) (#let selected",
         );
         let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
@@ -16856,7 +16864,7 @@ mod typed_ownership_tests {
             (#fn main () #u64
               (#let-mut owner #u64 42u64)
               (#let-mut holder Holder (Full (#borrow-mut owner)))
-              (#let view (#ref-mut #u64) (#unsafe (#call take (: slot (#pin-borrow-mut holder)))))
+              (#let view (#ref-mut #u64) (#unsafe (#unsafe-call take (: slot (#pin-borrow-mut holder)))))
               (#call clear (: slot (#pin-borrow-mut holder)))
               (#let answer #u64 (#call read (: value view)))
               (#forget view) (#forget holder) (#set owner 0u64) (#return answer))";
@@ -23652,7 +23660,7 @@ mod typed_ownership_tests {
                 ": value value",
             ),
         ] {
-            let call = format!("(#call opaque ({arguments}))");
+            let call = format!("(#unsafe-call opaque ({arguments}))");
             let source = format!(
                 "(#extern-fn #abi-c opaque {parameters} {return_type})
                  (#fn inspect {caller_parameters} {return_type}
@@ -23683,7 +23691,7 @@ mod typed_ownership_tests {
             (#extern-fn #abi-c touch ((address (#ptr-mut Resource))) ())
             (#fn inspect ((target (#ref-mut Resource)) (address (#ptr-mut Resource))) #u64
               (#forget (#deref target))
-              (#unsafe (#call touch (: address address)))
+              (#unsafe (#unsafe-call touch (: address address)))
               (#return (#get target value)))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();

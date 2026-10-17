@@ -325,7 +325,7 @@ impl<'a> Builder<'a> {
                 node.children.get(1).and_then(type_contract)
             }
             "await" if node.children.len() == 7 => type_contract(&node.children[1]),
-            "call" => node
+            "call" | "unsafe-call" => node
                 .children
                 .get(1)
                 .and_then(symbol)
@@ -822,9 +822,9 @@ impl<'a> Builder<'a> {
         let mut operands = Vec::new();
         match head(node) {
             "quote" | "quasiquote" | "literal" | "size-of" | "align-of" | "offset-of" => {}
-            "call" | "struct-literal" if c.len() == 3 => {
+            "call" | "unsafe-call" | "struct-literal" if c.len() == 3 => {
                 let name = symbol(&c[1]).unwrap_or("");
-                let order = if head(node) == "call" {
+                let order = if matches!(head(node), "call" | "unsafe-call") {
                     self.environment.function_parameter_order.get(name)
                 } else {
                     self.environment.struct_field_order.get(name)
@@ -846,7 +846,7 @@ impl<'a> Builder<'a> {
                 }
                 for field in ordered {
                     if let Some(value) = field.children.get(1) {
-                        let ty = if head(node) == "call" {
+                        let ty = if matches!(head(node), "call" | "unsafe-call") {
                             self.environment.functions.get(name)
                         } else {
                             self.environment.struct_fields.get(name)
@@ -1262,6 +1262,43 @@ mod tests {
             };
             assert!(live[index].values.contains(&NodeId(first)));
         }
+    }
+
+    #[test]
+    fn unsafe_call_arguments_keep_declaration_order_and_inferred_result_type() {
+        let source = "(#unsafe-fn combine ((first #u64) (second #u64)) #u64 (#return first))
+          (#fn work () #u64
+            (#return (#match (#unsafe (#unsafe-call combine (: second
+              (#await #u64 Child Pending Ready poll 4u64) : first 3u64)))
+              (#case result result))))";
+        let forms = parsed(source);
+        let environment = crate::generator::frontend::async_type_environment(&forms);
+        let graph = build(&forms[1], &environment).unwrap().unwrap();
+        let first = graph
+            .nodes
+            .iter()
+            .position(|node| source_text(source, node) == "3u64")
+            .unwrap();
+        let second = graph
+            .nodes
+            .iter()
+            .position(|node| source_text(source, node) == "4u64")
+            .unwrap();
+        assert!(first < second);
+        assert_eq!(
+            graph.bindings[binding(&graph, "result").0]
+                .declared_type
+                .as_deref(),
+            Some("#u64")
+        );
+        let await_index = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, Action::Await { .. }))
+            .unwrap();
+        assert!(graph.data_liveness()[await_index]
+            .values
+            .contains(&NodeId(first)));
     }
 
     #[test]

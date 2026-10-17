@@ -26,7 +26,10 @@ when a name also spells a builtin. For example, `(#call panic (: value
 reference))` calls the declared user function named `panic`; `(#panic)` remains
 the builtin trap. `#call` requires named arguments, evaluates their expressions
 in parameter declaration order, and applies the declared function signature
-and ordinary eager-call ownership rules. The public syntax is unchanged.
+and ordinary eager-call ownership rules. `#call` accepts only safe functions,
+even inside `#unsafe`. Use `#unsafe-call` for unsafe or external functions;
+it requires an enclosing `#unsafe` block and uses the same named arguments,
+evaluation order, signature checks, and ownership rules.
 
 For syntax, contextual examples, and semantics of every builtin, see the
 [alphabetical builtin reference](#complete--builtin-reference-alphabetical)
@@ -325,9 +328,11 @@ address and reading or writing through a raw pointer must occur inside an
 ```
 
 Functions with caller safety obligations use `#unsafe-fn` instead of `#fn`.
-Their signatures otherwise have the same shape. Every call must be enclosed
-in `#unsafe`, including calls from another unsafe function. The declaration
-does not make its body implicitly unsafe: raw operations still need a block.
+Their signatures otherwise have the same shape. Every call uses `#unsafe-call`
+inside `#unsafe`, including calls from another unsafe function. `#call` rejects
+unsafe functions even inside `#unsafe`, and `#unsafe-call` rejects safe
+functions. The declaration does not make its body implicitly unsafe: raw
+operations and unsafe calls still need an explicit block.
 
 ```lisp run=42
 (#unsafe-fn read-byte ((pointer (#ptr #u8))) #u8
@@ -335,7 +340,7 @@ does not make its body implicitly unsafe: raw operations still need a block.
 (#fn main () #u64
   (#let value #u8 42u8)
   (#return (#as (#unsafe
-    (#call read-byte (: pointer (#addr-of value)))) #u64)))
+    (#unsafe-call read-byte (: pointer (#addr-of value)))) #u64)))
 ```
 
 Imports and generated declarations preserve the calling requirement. Implicit
@@ -624,10 +629,20 @@ directory queries, resource limits and usage, advice, locking, allocation,
 descriptor duplication, anonymous files, wall-clock/process-time queries, and
 private futex operations) on this primitive. The low-level
 pointer wrappers do not validate kernel buffer ranges; callers must uphold
-pointer validity and length preconditions, and callers should mark those calls
-with `#unsafe`. Lim does not yet enforce unsafe function contracts on wrapper
-calls, so this annotation is presently a caller convention rather than a
-checked requirement. The raw syscall operation remains available for the rest
+pointer validity and length preconditions. These wrappers are `#unsafe-fn`:
+the compiler requires `#unsafe-call` inside `#unsafe`, even for null pointers
+or zero-length buffers. Safe reference-bounded helpers use `#call`. For example,
+this unsafe forwarding function passes its caller's buffer contract through
+to the low-level read wrapper:
+
+```lisp library
+(#import "../library/linux_x86_64.lim")
+(#unsafe-fn read-buffer ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
+  (#return (#unsafe
+    (#unsafe-call linux-read (: fd fd : destination destination : count count)))))
+```
+
+The raw syscall operation remains available for the rest
 of the Linux syscall table. `examples/linux_syscalls.lim` and
 `examples/linux_sockets.lim` exercise direct socket syscalls, while
 `examples/linux_socket_listener.lim` binds an automatically named abstract
@@ -1629,7 +1644,8 @@ marked mutable:
   (#return value))
 ```
 
-Function calls also name every argument explicitly. Use `#call` with a
+Function calls also name every argument explicitly. Use `#call` for safe
+functions or `#unsafe-call` for unsafe and external functions, with a
 list of `(name value)` pairs or a colon-prefixed argument list;
 each argument label must match a parameter in
 the declaration:
@@ -1658,7 +1674,11 @@ Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`
 would introduce an extra list, just like `(: (name name))`.
 
 Positional call forms are rejected. Calls with no arguments use
-`(#call function (:))`.
+`(#call function (:))` for safe functions, or
+`(#unsafe (#unsafe-call function (:)))` for unsafe and external functions.
+`#call` rejects unsafe and external callees even inside `#unsafe`;
+`#unsafe-call` requires an enclosing `#unsafe` block and rejects safe callees.
+Both forms accept `($ name)` shorthand and apply the same argument checks.
 Named argument expressions are evaluated in the function's parameter
 declaration order, regardless of the order of labels at the call site. `#struct-literal`
 field expressions are evaluated in the struct's field declaration order,
@@ -1673,13 +1693,13 @@ There are no implicit returns.  Every reachable function path must use
 
 Native functions declare their calling convention explicitly. `#abi-c` selects
 the target's C ABI; external signatures currently accept scalar values and raw
-pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must be enclosed in
-`#unsafe`:
+pointers only. By-value aggregate FFI signatures remain rejected. Calls are
+unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
 
 ```lisp run=42
 (#extern-fn #abi-c abs ((value #i32)) #i32)
 (#fn main () #u64
-  (#return (#as (#unsafe (#call abs (: value -42i32))) #u64)))
+  (#return (#as (#unsafe (#unsafe-call abs (: value -42i32))) #u64)))
 ```
 
 Binary compilation links statically without libc or pthread when the assembled
@@ -2206,7 +2226,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 
 | Builtin | Syntax | Example (context) | Meaning |
 | --- | --- | --- | --- |
-| `#abi-c` | `#abi-c` in `#extern-fn` | `(#extern-fn #abi-c abs ((value #i32)) #i32)` (declaration) | Selects the C calling convention; foreign calls require `#unsafe`. |
+| `#abi-c` | `#abi-c` in `#extern-fn` | `(#extern-fn #abi-c abs ((value #i32)) #i32)` (declaration) | Selects the C calling convention; foreign calls use `#unsafe-call` inside `#unsafe`. |
 | `#addr-of` | `(#addr-of local)` | `(#unsafe (#addr-of value))` (expression) | Takes a shared raw address of a scalar local; unsafe because later access is not checked. |
 | `#addr-of-mut` | `(#addr-of-mut mutable-local)` | `(#unsafe (#addr-of-mut value))` (expression) | Takes a mutable raw address of a mutable scalar local. |
 | `#align-of` | `(#align-of Type)` | `(#align-of Point)` (expression) | Compile-time alignment in bytes for the Lim representation, or C layout of a `#repr-c` type. |
@@ -2234,7 +2254,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#borrow-slice-mut` | `(#borrow-slice-mut mutable-array-place)` or `(#borrow-slice-mut mutable-array-place start end)` | `(#let view (#slice-mut #u64) (#borrow-slice-mut values 1usize 3usize))` (binding) | Exclusively borrows a full array or checked half-open range. Constant disjoint ranges can coexist; dynamic bounds conservatively overlap. |
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
-| `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
+| `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
 | `#case-pin` | `(#case-pin Variant body)` or `(#case-pin (Variant binder) body)`, optionally with `(#when guard)` | `(#case-pin (Full payload) (#get payload value))` (inside a pinned `#match`) | Binds a shared `#pin-ref Payload` to an enum payload without moving it. Supports one payload binding or `_`; fieldless variants use their name, such as `(#case-pin Empty body)`. Works on shared or mutable pinned input. |
@@ -2397,8 +2417,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#u64` | `#u64` | `(#fn identity ((value #u64)) #u64 (#return value))` (function signature) | Unsigned 64-bit integer scalar type. |
 | `#u8` | `#u8` | `(#fn identity ((value #u8)) #u8 (#return value))` (function signature) | Unsigned 8-bit integer scalar type. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
-| `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, and raw syscalls. |
-| `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls require `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
+| `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, raw syscalls, and `#unsafe-call`; does not permit unsafe callees through `#call`. |
+| `#unsafe-call` | `(#unsafe-call function (: name value : ...))` | `(#unsafe (#unsafe-call read-byte (: pointer p)))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |
+| `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls use `#unsafe-call` inside `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#usize` | `#usize` | `(#fn identity ((value #usize)) #usize (#return value))` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
@@ -2930,7 +2951,7 @@ Generator-function recursion errors underline the recursive `#gn-call` target.
 Duplicate generator parameters underline the repeated parameter name.
 Unknown worker parameter types are resolved to the worker signature even when
 an unrelated earlier local has the same name.
-Unsafe external calls in named `#call` syntax underline the callee; raw-pointer
+Call safety errors for `#call` and `#unsafe-call` underline the callee; raw-pointer
 operation errors underline the offending builtin name.
 Duplicate capability/type pairs and duplicate generator declarations underline
 the repeated type or generator name.

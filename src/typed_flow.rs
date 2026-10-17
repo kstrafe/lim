@@ -24452,11 +24452,16 @@ mod tests {
               (#fn mutate (: slot (#pin-ref-mut Choice)) ()
                 (#unsafe (#forget global)) (#return ()))",
         ] {
+            let call_keyword = if effect.starts_with("(#extern-fn") {
+                "#unsafe-call"
+            } else {
+                "#call"
+            };
             let source = format!(
                 "(#enum Choice () ((Empty) (Full #u64))) {effect}
               (#fn main () ()
                 (#let-mut cell Choice (Empty)) (#let-mut target Choice (Empty))
-                (#unsafe (#call mutate (: slot (#pin-borrow-mut target))))
+                (#unsafe ({call_keyword} mutate (: slot (#pin-borrow-mut target))))
                 (#forget cell) (#forget target) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();

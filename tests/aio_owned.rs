@@ -130,7 +130,7 @@ fn native_aio_wait_routes_another_requests_completion() {
                  (#case (AioOwnedSubmitFailed error)
                    (#block (#forget error) (#unreachable)))))
              (#let scratch (#ptr-mut #u8)
-               (#unsafe (#call linux-mmap
+               (#unsafe (#unsafe-call linux-mmap
                  (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
                   : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
              (#let value (#ptr-mut #u64)
@@ -139,7 +139,7 @@ fn native_aio_wait_routes_another_requests_completion() {
              (#let bytes (#ptr-mut #u8)
                (#unsafe (#asm (#ptr-mut #u8) ((rdi scratch)) "lea rax, [rdi+256]")))
              (#assert (#i64.==
-               (#unsafe (#call linux-write (: fd fd-b : source bytes : count 8usize)))
+               (#unsafe (#unsafe-call linux-write (: fd fd-b : source bytes : count 8usize)))
                8i64))
              (#let delay LinuxTimespec
                (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 10000000i64))))
@@ -148,7 +148,7 @@ fn native_aio_wait_routes_another_requests_completion() {
              (#assert (#i64.== (#call linux-nanosleep
                (: request (#borrow delay) : remaining (#borrow-mut remaining))) 0i64))
              (#assert (#i64.==
-               (#unsafe (#call linux-write (: fd fd-a : source bytes : count 8usize)))
+               (#unsafe (#unsafe-call linux-write (: fd fd-a : source bytes : count 8usize)))
                8i64))
              (#let wait-a AioOwnedWait (#call aio-owned-wait (: operation pending-a)))
              (#let completed-a AioOwnedCompleted
@@ -184,7 +184,7 @@ fn native_aio_wait_routes_another_requests_completion() {
                (: context context)) 0i64))
              (#assert (#i64.== (#call linux-close (: fd fd-a)) 0i64))
              (#assert (#i64.== (#call linux-close (: fd fd-b)) 0i64))
-             (#assert (#i64.== (#unsafe (#call linux-munmap
+             (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap
                (: address scratch : length 4096usize))) 0i64))
              (#return 42u64))"#,
         library.display(),

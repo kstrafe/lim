@@ -3,12 +3,12 @@
 
 (#fn main () #u64
   (#let scratch (#ptr-mut #u8)
-    (#unsafe (#call linux-mmap
+    (#unsafe (#unsafe-call linux-mmap
       (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
        : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let name (#ptr-mut #u8) scratch)
   (#unsafe (#ptr-write name 0u8))
-  (#let fd #i64 (#unsafe (#call linux-memfd-create
+  (#let fd #i64 (#unsafe (#unsafe-call linux-memfd-create
     (: name name : flags 1u32))))
   (#assert (#i64.>= fd 0i64))
   (#let input (#ptr-mut #u8) (#unsafe (#ptr-offset scratch 32usize)))
@@ -17,7 +17,7 @@
     (#ptr-write (#ptr-offset (#clone input) 1usize) 73u8)
     (#ptr-write (#ptr-offset (#clone input) 2usize) 77u8)
     (#ptr-write (#ptr-offset (#clone input) 3usize) 33u8)))
-  (#assert (#i64.== (#unsafe (#call linux-write
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-write
     (: fd fd : source input : count 4usize))) 4i64))
   (#let context-result AioOwnedContextCreate (#call aio-owned-context-create (:)))
   (#let-mut context AioOwnedContext
@@ -93,6 +93,6 @@
     (#call aio-owned-context-destroy (: context context)))
   (#assert (#i64.== context-destroyed 0i64))
   (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-munmap
+  (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap
     (: address scratch : length 4096usize))) 0i64))
   (#return 42u64))

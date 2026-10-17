@@ -7,7 +7,7 @@
   (#let policy #i64
     (#unsafe (#call linux-sched-getscheduler (: pid 0i64))))
   (#let parameters-read #i64
-    (#unsafe (#call linux-sched-getparam (: pid 0i64 : scheduler-parameters scheduler-memory))))
+    (#unsafe (#unsafe-call linux-sched-getparam (: pid 0i64 : scheduler-parameters scheduler-memory))))
   (#let priority #i32 (#unsafe (#ptr-read scheduler-memory)))
   (#let other-priority-min #i64
     (#unsafe (#call linux-sched-get-priority-min (: policy 0i64))))
