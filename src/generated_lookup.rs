@@ -299,9 +299,7 @@ mod tests {
     #[test]
     fn details_track_builtin_origins_through_user_reuse_and_cache() {
         let builtin = "(@#optional (: type #u64 : name Shared))";
-        // Combining identical direct and nested parser-backed invocations
-        // currently duplicates declarations. Give the independent direct
-        // invocation its own type so this program is valid.
+        // Distinct inputs stay distinct even when both use the same builtin.
         let direct_builtin = "(@#optional (: type #u64 : name Direct))";
         for calls in [
             format!("(@outer)\n(@other)\n(@other)\n{direct_builtin}"),

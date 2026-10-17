@@ -557,6 +557,37 @@ pub(crate) fn prepare_program_syntax(
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    // A parser-backed builtin may be emitted by a user generator and also be
+    // called directly. Canonicalize literal arguments before deduplicating so
+    // both routes compile one definition and retain every invocation origin.
+    let mut builtin_invocations = HashMap::<String, String>::new();
+    let mut unique = Vec::with_capacity(expressions.len());
+    for expression in expressions {
+        if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        {
+            let canonical =
+                expression_source(&normalize_builtin_generator_invocation(&expression.expr)?)?;
+            let original = expression_source(&expression.expr)?;
+            if let Some(retained) = builtin_invocations.get(&canonical) {
+                if retained != &original {
+                    generator_origins
+                        .generation
+                        .rewrite_builtin(&original, retained);
+                    if let Some(origins) = generator_origins.builtins.remove(&original) {
+                        generator_origins
+                            .builtins
+                            .entry(retained.clone())
+                            .or_default()
+                            .extend(origins);
+                    }
+                }
+                continue;
+            }
+            builtin_invocations.insert(canonical, original);
+        }
+        unique.push(expression);
+    }
+    let expressions = unique;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
