@@ -9078,29 +9078,7 @@ impl<'a> Parser<'a> {
                     let end = span.end;
                     self.index += 1;
                     if matches!(items.first(), Some(Expr::Symbol(name)) if name == "$") {
-                        if items.len() != 2 {
-                            let span = children.get(2).unwrap_or(&children[0]).span;
-                            return Err(
-                                self.error("'$' shorthand expects exactly one identifier", span)
-                            );
-                        }
-                        let value = &children[1];
-                        let name = match &value.expr {
-                            Expr::Symbol(_) => value,
-                            Expr::List(parts)
-                                if parts.len() == 2
-                                    && matches!(&parts[0], Expr::Symbol(op) if matches!(op.as_str(), "#borrow" | "#borrow-mut" | "#pin-borrow" | "#pin-borrow-mut"))
-                                    && matches!(&parts[1], Expr::Symbol(_)) =>
-                            {
-                                &value.children[1]
-                            }
-                            _ => return Err(self.error(
-                                "'$' shorthand expects an identifier or an explicit borrow of an identifier",
-                                value.span,
-                            )),
-                        };
-                        items[0] = name.expr.clone();
-                        children[0] = name.clone();
+                        self.expand_dollar_shorthand(&mut items, &mut children)?;
                     }
                     return Ok(SpannedExpr {
                         expr: Expr::List(items),
@@ -9116,6 +9094,38 @@ impl<'a> Parser<'a> {
                 None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
             }
         }
+    }
+
+    // Keep sugar handling off the recursive list reader's stack frame.
+    fn expand_dollar_shorthand(
+        &self,
+        items: &mut [Expr],
+        children: &mut [SpannedExpr],
+    ) -> Result<(), ParseError> {
+        if items.len() != 2 {
+            let span = children.get(2).unwrap_or(&children[0]).span;
+            return Err(self.error("'$' shorthand expects exactly one identifier", span));
+        }
+        let value = &children[1];
+        let name = match &value.expr {
+            Expr::Symbol(_) => value,
+            Expr::List(parts)
+                if parts.len() == 2
+                    && matches!(&parts[0], Expr::Symbol(op) if matches!(op.as_str(), "#borrow" | "#borrow-mut" | "#pin-borrow" | "#pin-borrow-mut"))
+                    && matches!(&parts[1], Expr::Symbol(_)) =>
+            {
+                &value.children[1]
+            }
+            _ => {
+                return Err(self.error(
+                    "'$' shorthand expects an identifier or an explicit borrow of an identifier",
+                    value.span,
+                ))
+            }
+        };
+        items[0] = name.expr.clone();
+        children[0] = name.clone();
+        Ok(())
     }
 
     fn colon_list(&mut self, start: Span) -> Result<SpannedExpr, ParseError> {
