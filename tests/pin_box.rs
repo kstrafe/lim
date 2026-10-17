@@ -3,19 +3,10 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 fn example_source() -> String {
-    include_str!("../examples/pin_box.lim")
-        .replace(
-            "../library/linux_x86_64.lim",
-            &format!("{}/library/linux_x86_64.lim", env!("CARGO_MANIFEST_DIR")),
-        )
-        .replace(
-            "../library/pin_box.lim",
-            &format!("{}/library/pin_box.lim", env!("CARGO_MANIFEST_DIR")),
-        )
-        .replace(
-            "../library/pin.lim",
-            &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
-        )
+    include_str!("../examples/pin_box.lim").replace(
+        "../library/",
+        &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
+    )
 }
 
 #[test]
@@ -23,7 +14,10 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
     let scratch = support::Scratch::new("pin-box");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
-    fs::write(&input, example_source()).unwrap();
+    let source = example_source();
+    assert!(source.contains(": allocator SystemAllocator::Allocator"));
+    assert!(!source.contains("Arena"));
+    fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
             .arg(&input)
@@ -97,7 +91,8 @@ fn derived_pin_prevents_destroying_its_box() {
 fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
     let scratch = support::Scratch::new("pin-box-allocator");
     let input = scratch.path().join("main.lim");
-    let source = example_source()
+    let source = include_str!("fixtures/pin_box_arena.lim")
+        .replace("../../library/", &format!("{}/library/", env!("CARGO_MANIFEST_DIR")))
         .replace("(#let arena Arena", "(#let-mut arena Arena")
         .replace("          (#call PinU64Box::destroy (: owner moved-owner))", "")
         .replace("          (#let value #u64 (#unsafe (#pin-read value-reference)))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value #u64 (#unsafe (#pin-read value-reference)))");

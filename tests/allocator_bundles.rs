@@ -3,8 +3,8 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 fn fixture() -> String {
-    include_str!("../examples/pin_box.lim").replace(
-        "../library/",
+    include_str!("fixtures/pin_box_arena.lim").replace(
+        "../../library/",
         &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
     )
 }
