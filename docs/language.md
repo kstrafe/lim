@@ -894,6 +894,13 @@ nix develop --command cargo run -- fmt examples/modules/main.lim
 `--format` retains comments in their surrounding syntax, including nested
 forms and generator templates. Formatting is idempotent.
 
+The formatter keeps binding names beside their explicit types and callees
+beside `#call` or `#unsafe-call`. Long colon argument lists put each named
+group on its own line; empty argument lists use `()`. Short unsafe expressions
+and single-expression cases stay compact, while multi-expression case bodies
+are indented as sequences. Function and generator declarations are separated
+with blank lines.
+
 Formatting uses Lisp-style headers and two-space body indentation. Function
 signatures stay together, short nested expressions stay inline, and closing
 parentheses follow the final expression. A `#for` keeps initialization,

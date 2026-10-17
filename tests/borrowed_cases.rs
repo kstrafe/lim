@@ -67,8 +67,8 @@ fn borrowed_payload_matches_and_updates_in_place() {
                 "inspect (: choice (#ref-mut Choice))",
             )
             .replace(
-                "inspect (: choice (#borrow choice))",
-                "inspect (: choice (#borrow-mut choice))",
+                "inspect (($ (#borrow choice)))",
+                "inspect (($ (#borrow-mut choice)))",
             ),
         82,
     );
@@ -79,7 +79,7 @@ fn borrowed_payload_matches_and_updates_in_place() {
         )
         .replace("(#borrow choice)", "choice")
         .replace("(#borrow-mut choice)", "choice")
-        .replace("(#call inspect (: choice choice))", "(#call inspect (: choice (#borrow (#deref choice))))")
+        .replace("(#call inspect (($ choice)))", "(#call inspect (: choice (#borrow (#deref choice))))")
         .replace(
             "(#return (#u64.+.wrap observed changed)))",
             "(#forget choice)\n  (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))\n  (#return (#u64.+.wrap observed changed)))",

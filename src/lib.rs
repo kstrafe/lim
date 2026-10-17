@@ -1073,6 +1073,17 @@ pub fn format_source(source: &str) -> Result<String, String> {
         if !output.is_empty() && !output.ends_with('\n') {
             output.push('\n');
         }
+        let declaration = |node: &SpannedExpr| {
+            matches!(&node.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")))
+        };
+        if index > 0
+            && (declaration(expression) || declaration(&expressions[index - 1]))
+            && !output.ends_with("\n\n")
+        {
+            output.push('\n');
+        }
         output.push_str(&pretty_spanned_expression(expression, source, &comments, 0));
         cursor = expression.span.end;
         // Nested comments were emitted by the expression renderer already.
@@ -1337,7 +1348,9 @@ fn pretty_spanned_expression(
                     "#let" | "#let-mut" | "#const" | "#static" => 3,
                     _ => 1,
                 },
-                _ => 1,
+                Some(Expr::At) => 2,
+                // A list of lists has no head to keep on the opening line.
+                _ => 0,
             };
             let header = header
                 .unwrap_or(layout_header)
@@ -1467,7 +1480,11 @@ fn gap_is_comment_free(comments: &[SourceComment], start: usize, end: usize) -> 
 }
 
 fn contains_body_form(expression: &SpannedExpr) -> bool {
-    expression_header_length(expression).is_some()
+    let compact = matches!(&expression.expr, Expr::List(items)
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#unsafe" | "#case" | "#case-ref" | "#case-ref-mut" | "#case-pin" | "#case-pin-mut"))
+        && expression_header_length(expression).is_some_and(|header| items.len() == header + 1));
+    (expression_header_length(expression).is_some() && !compact)
         || expression.children.iter().any(contains_body_form)
 }
 
@@ -1494,6 +1511,8 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
             },
         ),
         "#gn-for-each" => Some(3),
+        "#let-else" => Some(3),
+        "#else" => Some(2),
         "#loop" | "#block" | "#unsafe" => Some(1),
         _ => None,
     }
@@ -9590,6 +9609,21 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(exprs(source), exprs(&formatted));
+    }
+
+    #[test]
+    fn formatter_keeps_short_cases_and_unsafe_expressions_compact() {
+        let source = "(#fn read () #u64 (#let value #u64 (#unsafe (#ptr-read pointer)))
+            (#return (#match true (#case true value) (#case false 0u64))))";
+        let formatted = format_source(source).unwrap();
+        assert!(formatted.contains("(#let value #u64 (#unsafe (#ptr-read pointer)))"));
+        assert!(formatted.contains("(#case true value)"));
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
+        let source = "(#let-else (Full owner) Choice value (#else Empty (#return 0u64)))";
+        let formatted = format_source(source).unwrap();
+        assert!(formatted.starts_with("(#let-else (Full owner) Choice\n"));
+        assert!(formatted.contains("(#else Empty\n"));
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
     }
 
     #[test]

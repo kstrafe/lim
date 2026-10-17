@@ -66,9 +66,14 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
 fn derived_pin_prevents_destroying_its_box() {
     let scratch = support::Scratch::new("pin-box-borrow");
     let input = scratch.path().join("main.lim");
-    let source = example_source()
-        .replace("          (#call PinU64Box::destroy (: owner moved-owner))", "")
-        .replace("          (#let value #u64 (#unsafe (#pin-read value-reference)))", "          (#call PinU64Box::destroy (: owner moved-owner))\n          (#let value #u64 (#unsafe (#pin-read value-reference)))");
+    let original = example_source();
+    let destroy = "(#call PinU64Box::destroy (: owner moved-owner))";
+    let read = "(#let value #u64";
+    assert_eq!(original.matches(destroy).count(), 1);
+    assert_eq!(original.matches(read).count(), 1);
+    let source = original
+        .replace(destroy, "")
+        .replace(read, &format!("{destroy}\n  {read}"));
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
