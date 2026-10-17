@@ -39,7 +39,7 @@ pub(crate) fn validate_mutability(
                     ..
                 } => *declared == binding && *mutable,
                 Action::Commit(pattern) => {
-                    (pattern.mutable || pattern.pin_mutable == Some(true))
+                    (pattern.mutable || pattern.borrow_mode.is_some_and(|mode| mode.mutable))
                         && pattern.bindings.contains(&binding)
                 }
                 _ => false,

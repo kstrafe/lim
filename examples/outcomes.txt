@@ -67,6 +67,7 @@ graph-exit 42 async_frame_access.lim - -
 exit 42 async_fn_local_self_reference.lim - -
 exit 44 pinned_self_reference.lim - -
 exit 83 pinned_cases.lim - -
+exit 82 borrowed_cases.lim - -
 exit 42 async_fn_two_awaits.lim tests/fixtures/async_fn_two_awaits.stdout -
 exit 42 async_fn_while_condition.lim - -
 exit 42 cell.lim - -

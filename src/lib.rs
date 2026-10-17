@@ -12,6 +12,7 @@ pub mod aarch64;
 mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
+mod borrow_case;
 #[cfg(test)]
 mod borrowcheck;
 mod cache_report;
@@ -37,7 +38,6 @@ mod native_linker;
 mod output;
 mod pin_access;
 mod pin_ownership;
-mod pinned_case;
 mod reachability;
 mod semantic_cache;
 mod source_error;
@@ -1419,7 +1419,7 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
         "#gn" | "#gn-fn" => Some(3),
         "#for" | "#for-range" => Some(4),
         "#while" | "#if" | "#match" | "#gn-if" => Some(2),
-        "#case" | "#case-pin" | "#case-pin-mut" => Some(
+        "#case" | "#case-pin" | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => Some(
             if matches!(items.get(2), Some(Expr::List(guard))
             if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when"))
             {
@@ -2962,7 +2962,7 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
                     .and_then(|value| source_value_symbol_span(value, name))
             })
         }),
-        Some("#case" | "#case-pin" | "#case-pin-mut") => children
+        Some("#case" | "#case-pin" | "#case-pin-mut" | "#case-ref" | "#case-ref-mut") => children
             .iter()
             .skip(2)
             .rev()
@@ -3780,7 +3780,7 @@ pub(crate) fn function_shadowing_span(
                 }
                 children[2..].iter().find_map(|arm| {
                     let mut inner = *bound;
-                    if matches!(head(arm), "#case-pin" | "#case-pin-mut") {
+                    if crate::borrow_case::Mode::from_keyword(head(arm)).is_some() {
                         let pattern = arm.children.get(1)?;
                         if let Expr::List(parts) = &pattern.expr {
                             if parts.len() == 2 {
@@ -4270,7 +4270,7 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
         | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
-        | "#case-pin-mut" => {
+        | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
             if let Some(value) = items.get(1) {
                 pattern(value)?;
             }
@@ -4375,7 +4375,7 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
                 validate_prefixed_forms_inner(arm)?;
                 continue;
             };
-            if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#case" | "#case-pin" | "#case-pin-mut"))
+            if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case" || crate::borrow_case::Mode::from_keyword(head).is_some())
             {
                 if let Some(pattern) = parts.get(1) {
                     validate_match_pattern_prefixes(pattern)?;
@@ -4539,21 +4539,10 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
                 if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "case") {
                     parts.remove(0);
                 } else if matches!(parts.first(), Some(Expr::Symbol(head))
-                    if matches!(head.as_str(), "#case-pin" | "#case-pin-mut"))
+                    if crate::borrow_case::Mode::from_keyword(head).is_some())
                 {
-                    let mutable = matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case-pin-mut");
                     if parts.len() >= 2 {
-                        parts[0] = Expr::List(vec![
-                            Expr::Symbol(
-                                if mutable {
-                                    "#case-pin-mut"
-                                } else {
-                                    "#case-pin"
-                                }
-                                .into(),
-                            ),
-                            parts[1].clone(),
-                        ]);
+                        parts[0] = Expr::List(vec![parts[0].clone(), parts[1].clone()]);
                         parts.remove(1);
                     }
                 }
@@ -4589,9 +4578,9 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
             expression.span,
         ));
     }
-    if matches!(head, "#case-pin" | "#case-pin-mut") {
+    if crate::borrow_case::Mode::from_keyword(head).is_some() {
         return Err((
-            "#case-pin is only valid as an arm of #match".to_owned(),
+            format!("{head} is only valid as an arm of #match"),
             expression.span,
         ));
     }
@@ -4607,10 +4596,12 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
             let Expr::List(parts) = &arm.expr else {
                 return Err(("#match arms must use (#case pattern body)".into(), arm.span));
             };
-            let pin_case = matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#case-pin" | "#case-pin-mut"));
-            if !matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case") && !pin_case {
+            let borrowed_case = matches!(parts.first(), Some(Expr::Symbol(head)) if crate::borrow_case::Mode::from_keyword(head).is_some());
+            if !matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case")
+                && !borrowed_case
+            {
                 return Err((
-                    "each #match arm must use #case or #case-pin".into(),
+                    "each #match arm must use #case, #case-ref, or #case-pin (or their mutable forms)".into(),
                     arm.span,
                 ));
             }
@@ -4623,42 +4614,24 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
             let Expr::List(normalized_parts) = &mut arm.expr else {
                 unreachable!();
             };
-            let source_case = if pin_case {
+            let source_case = if borrowed_case {
                 Some(normalized_parts.remove(0))
             } else {
                 None
             };
-            let source_case_node = if pin_case {
+            let source_case_node = if borrowed_case {
                 Some(arm.children.remove(0))
             } else {
                 None
             };
-            if pin_case {
+            if borrowed_case {
                 let pattern = normalized_parts[0].clone();
                 let pattern_node = arm.children[0].clone();
-                let mutable =
-                    matches!(source_case, Some(Expr::Symbol(ref head)) if head == "#case-pin-mut");
+                let keyword = source_case.expect("borrowed case has a marker");
                 let mut source_case_node =
-                    source_case_node.expect("pin case marker has a source node");
-                source_case_node.expr = Expr::Symbol(
-                    if mutable {
-                        "#case-pin-mut"
-                    } else {
-                        "#case-pin"
-                    }
-                    .into(),
-                );
-                normalized_parts[0] = Expr::List(vec![
-                    Expr::Symbol(
-                        if mutable {
-                            "#case-pin-mut"
-                        } else {
-                            "#case-pin"
-                        }
-                        .into(),
-                    ),
-                    pattern,
-                ]);
+                    source_case_node.expect("borrowed case marker has a source node");
+                source_case_node.expr = keyword.clone();
+                normalized_parts[0] = Expr::List(vec![keyword, pattern]);
                 arm.children[0] = SpannedExpr {
                     expr: normalized_parts[0].clone(),
                     span: Span {
@@ -4674,7 +4647,7 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                 normalized_parts.remove(0);
                 arm.children.remove(0);
             }
-            if pin_case {
+            if borrowed_case {
                 let wrapper = &mut arm.children[0];
                 for child in wrapper.children.iter_mut().skip(1) {
                     normalize_match_case_forms(child)?;
@@ -4739,6 +4712,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "case"
             | "case-pin"
             | "case-pin-mut"
+            | "case-ref"
+            | "case-ref-mut"
             | "when"
             | "range"
             | "or"
@@ -4956,7 +4931,7 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
         Expr::Symbol(name) if name == "#variant-is" => Expr::Symbol(name),
         // Pinned-match wrappers are internal pattern markers. Preserve their
         // prefixed spelling so they cannot collide with enum variant names.
-        Expr::Symbol(name) if matches!(name.as_str(), "#case-pin" | "#case-pin-mut") => {
+        Expr::Symbol(name) if crate::borrow_case::Mode::from_keyword(&name).is_some() => {
             Expr::Symbol(name)
         }
         Expr::Symbol(name) => Expr::Symbol(if let Some(keyword) = name.strip_prefix('#') {
@@ -11364,6 +11339,30 @@ mod tests {
         let diagnostic = structured_type_error(&program);
         let span = diagnostic.span.expect("pinned case has a source span");
         assert_eq!(&source[span.start..span.end], "Full");
+    }
+
+    #[test]
+    fn ordinary_reference_cases_are_explicit_and_do_not_reserve_identifiers() {
+        let source = "(#enum Choice () ((Full #u64) Empty))
+            (#fn read (: choice (#ref Choice)) #u64
+              (#return (#match choice
+                (#case-ref (Full payload) (#deref payload))
+                (#case-ref Empty 0u64))))
+            (#fn write (: choice (#ref-mut Choice)) #u64
+              (#return (#match choice
+                (#case-ref-mut (Full payload)
+                  (#block (#deref-set payload 42u64) (#deref payload)))
+                (#case _ 0u64))))
+            (#enum Keywords () ((case-ref #u64) (case-ref-mut #u64)))
+            (#fn ordinary (: value Keywords) #u64
+              (#return (#match value
+                (#case (case-ref x) x)
+                (#case (case-ref-mut y) y))))";
+        let program = parse_program(source).unwrap();
+        let checked = check_types(&program);
+        assert!(checked.is_ok(), "{checked:?}");
+        let unprefixed = source.replace("(#case-ref Empty", "(case-ref Empty");
+        assert!(parse_program(&unprefixed).is_err());
     }
 
     #[test]

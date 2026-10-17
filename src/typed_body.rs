@@ -1302,13 +1302,13 @@ pub(crate) type OutputVariantMap<T> =
 
 #[derive(Default)]
 pub(crate) struct Body {
-    /// Pin cases bind through ordinary checked payload borrows, not moves of
+    /// Borrowed cases bind through checked payload borrows, not moves of
     /// an enum value. The synthetic value is analysis-only: emission retains
     /// the explicit source pattern and evaluates its scrutinee once.
-    pub pinned_cases: HashMap<NodeId, Option<(BindingId, NodeId)>>,
-    /// Computed pinned-match receivers get an analysis-only local snapshot so
+    pub borrowed_cases: HashMap<NodeId, Option<(BindingId, NodeId)>>,
+    /// Computed borrowed-match receivers get an analysis-only local snapshot so
     /// payload borrows have an addressable provenance root in flow analysis.
-    pub pinned_match_receivers: HashMap<NodeId, (BindingId, NodeId)>,
+    pub borrowed_match_receivers: HashMap<NodeId, (BindingId, NodeId)>,
     /// Synthetic bindings are appended after source bindings and omitted from
     /// source-emission metadata.
     pub analysis_only_bindings: std::collections::HashSet<BindingId>,
@@ -2042,12 +2042,12 @@ impl Body {
             builder.expression_order.is_empty(),
             "typed body traversal left source expressions unlowered"
         );
-        builder.body.prepare_pinned_match_receivers();
+        builder.body.prepare_borrowed_match_receivers();
         builder.body.emission_nodes = builder.body.emission_node_order();
         builder.body
     }
 
-    fn prepare_pinned_match_receivers(&mut self) {
+    fn prepare_borrowed_match_receivers(&mut self) {
         let mut matches = self
             .nodes
             .iter()
@@ -2056,7 +2056,7 @@ impl Body {
                 NodeKind::Match { value, arms, .. }
                     if arms
                         .iter()
-                        .any(|arm| self.pinned_cases.get(arm).is_some_and(Option::is_some)) =>
+                        .any(|arm| self.borrowed_cases.get(arm).is_some_and(Option::is_some)) =>
                 {
                     Some((NodeId(index), *value, arms.clone()))
                 }
@@ -2067,7 +2067,7 @@ impl Body {
 
         for (match_id, receiver, arms) in matches {
             let needs_snapshot = arms.iter().any(|arm| {
-                self.pinned_cases
+                self.borrowed_cases
                     .get(arm)
                     .and_then(|projection| *projection)
                     .is_some_and(|(_, value)| {
@@ -2081,7 +2081,7 @@ impl Body {
                 continue;
             };
             let binding = BindingId(self.bindings.len());
-            let name = format!("\0lim-pinned-match-receiver:{}", match_id.0);
+            let name = format!("\0lim-borrowed-match-receiver:{}", match_id.0);
             self.bindings.push(Binding {
                 name,
                 ty: receiver_type.clone(),
@@ -2098,18 +2098,26 @@ impl Body {
                     binding: Some(binding),
                 },
             });
-            self.pinned_match_receivers
+            self.borrowed_match_receivers
                 .insert(match_id, (binding, receiver));
             for arm in arms {
-                let Some(Some((_, projection))) = self.pinned_cases.get(&arm).copied() else {
+                let Some(Some((_, projection))) = self.borrowed_cases.get(&arm).copied() else {
                     continue;
                 };
-                let NodeKind::Form { children, .. } = &mut self.nodes[projection.0].kind else {
-                    continue;
+                // Ordinary references borrow a get-payload place, whereas a
+                // pinned projection produces its reference directly.
+                let receiver_form = match &self.nodes[projection.0].kind {
+                    NodeKind::Form { head, children, .. }
+                        if matches!(head.as_str(), "borrow" | "borrow-mut") =>
+                    {
+                        children[1]
+                    }
+                    _ => projection,
                 };
-                if children.len() == 3 {
-                    children[1] = snapshot;
-                }
+                let NodeKind::Form { children, .. } = &mut self.nodes[receiver_form.0].kind else {
+                    unreachable!("checked borrowed payload projection");
+                };
+                children[1] = snapshot;
             }
         }
     }
@@ -2486,9 +2494,12 @@ impl Builder<'_> {
         };
         let pattern = self.expression(&parts[0]);
         let resolved = resolve_type(ty, &self.declarations.aliases).expect("checked match type");
-        let pinned = matches!(resolved, Type::PinnedReference { .. });
-        let projection = if let Some((mutable, inner)) = crate::pinned_case::parts(&parts[0]) {
-            self.pinned_case_binding(pattern, inner, &resolved, source, mutable)
+        let borrowed = matches!(
+            resolved,
+            Type::PinnedReference { .. } | Type::Reference { .. }
+        );
+        let projection = if let Some((mode, inner)) = crate::borrow_case::parts(&parts[0]) {
+            self.borrowed_case_binding(pattern, inner, &resolved, source, mode)
         } else {
             self.pattern_bindings(&parts[0], pattern, ty, true);
             None
@@ -2503,25 +2514,25 @@ impl Builder<'_> {
             expression_type,
             NodeKind::MatchArm { pattern, values },
         );
-        if pinned {
-            self.body.pinned_cases.insert(arm, projection);
+        if borrowed {
+            self.body.borrowed_cases.insert(arm, projection);
         }
         arm
     }
 
-    fn pinned_case_binding(
+    fn borrowed_case_binding(
         &mut self,
         wrapper: NodeId,
         pattern: &Expr,
         ty: &Type,
         source: NodeId,
-        mutable: bool,
+        mode: crate::borrow_case::Mode,
     ) -> Option<(BindingId, NodeId)> {
-        let Type::PinnedReference { target, .. } = ty else {
-            unreachable!("checked pin case receiver");
+        let (Type::PinnedReference { target, .. } | Type::Reference { target, .. }) = ty else {
+            unreachable!("checked borrowed case receiver");
         };
         let NodeKind::Form { children, .. } = &self.body.nodes[wrapper.0].kind else {
-            unreachable!("checked pin case wrapper");
+            unreachable!("checked borrowed case wrapper");
         };
         let inner = children[1];
         let (variant_name, variant_node, binding) = match pattern {
@@ -2532,7 +2543,7 @@ impl Builder<'_> {
                     unreachable!()
                 };
                 let NodeKind::Form { children, .. } = &self.body.nodes[inner.0].kind else {
-                    unreachable!("checked pin case variant");
+                    unreachable!("checked borrowed case variant");
                 };
                 (
                     name,
@@ -2540,36 +2551,72 @@ impl Builder<'_> {
                     items.get(1).zip(children.get(1)).map(|(p, n)| (p, *n)),
                 )
             }
-            _ => unreachable!("checked pin case pattern"),
+            _ => unreachable!("checked borrowed case pattern"),
         };
         let variant = self
             .declarations
             .variant_id(target, variant_name)
-            .expect("checked pin case variant identity");
+            .expect("checked borrowed case variant identity");
         self.resolve_node(variant_node, DeclarationId::Variant(variant));
         let (name, binding_node) = binding?;
         if matches!(name, Expr::Symbol(name) if name == "_") {
             return None;
         }
         let payload = self.declarations.variant(variant).fields[0].clone();
-        let reference = Type::PinnedReference {
-            mutable,
-            target: Box::new(payload),
-        };
+        let reference = mode.reference(payload.clone());
         self.pattern_bindings(name, binding_node, &reference, false);
         let NodeKind::Symbol {
             binding: Some(binding),
             ..
         } = self.body.nodes[binding_node.0].kind
         else {
-            unreachable!("checked pin case binding");
-        };
-        let operator = if mutable {
-            "pin-get-payload-mut"
-        } else {
-            "pin-get-payload"
+            unreachable!("checked borrowed case binding");
         };
         let span = self.body.nodes[binding_node.0].span;
+        let borrow = if mode.pinned {
+            self.analysis_form(
+                if mode.mutable {
+                    "pin-get-payload-mut"
+                } else {
+                    "pin-get-payload"
+                },
+                vec![source, variant_node],
+                reference,
+                span,
+            )
+        } else {
+            let index = NodeId(self.body.nodes.len());
+            self.body.nodes.push(Node {
+                expression_id: None,
+                ty: None,
+                span,
+                kind: NodeKind::Literal(Expr::Integer(0)),
+            });
+            let place = self.analysis_form(
+                "get-payload",
+                vec![source, variant_node, index],
+                payload,
+                span,
+            );
+            self.analysis_form(
+                if mode.mutable { "borrow-mut" } else { "borrow" },
+                vec![place],
+                reference,
+                span,
+            )
+        };
+        Some((binding, borrow))
+    }
+
+    /// Analysis-only operations have no source expression ID and never become
+    /// emitted code. They use the ordinary place/borrow analysis machinery.
+    fn analysis_form(
+        &mut self,
+        operator: &str,
+        arguments: Vec<NodeId>,
+        ty: Type,
+        span: Option<Span>,
+    ) -> NodeId {
         let head = NodeId(self.body.nodes.len());
         self.body.nodes.push(Node {
             expression_id: None,
@@ -2580,20 +2627,22 @@ impl Builder<'_> {
                 binding: None,
             },
         });
-        let borrow = NodeId(self.body.nodes.len());
+        let value = NodeId(self.body.nodes.len());
+        let mut children = vec![head];
+        children.extend(arguments);
         self.body.nodes.push(Node {
             expression_id: None,
-            ty: Some(reference),
+            ty: Some(ty),
             span,
             kind: NodeKind::Form {
                 head: operator.into(),
-                children: vec![head, source, variant_node],
+                children,
                 numeric: None,
                 callee: None,
                 argument_source_order: None,
             },
         });
-        Some((binding, borrow))
+        value
     }
 
     fn resolve_form(&mut self, items: &[Expr], children: &[NodeId], ty: Option<&Type>) {

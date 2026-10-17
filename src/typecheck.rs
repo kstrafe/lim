@@ -5542,14 +5542,14 @@ fn last_match_pattern_symbol_span(
         expression: &crate::SpannedExpr,
         target: &str,
         spans: &mut Vec<crate::Span>,
-        pinned_variant_spans: &mut Vec<crate::Span>,
+        borrowed_variant_spans: &mut Vec<crate::Span>,
     ) {
         if let Expr::List(items) = &expression.expr {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "match")
             {
                 for arm in expression.children.iter().skip(2) {
                     if let Some(pattern) = arm.children.first() {
-                        if crate::pinned_case::parts(&pattern.expr).is_some() {
+                        if crate::borrow_case::parts(&pattern.expr).is_some() {
                             if let Some(source_pattern) = pattern.children.get(1) {
                                 let variant_node = match &source_pattern.expr {
                                     Expr::Symbol(_) => Some(source_pattern),
@@ -5559,7 +5559,7 @@ fn last_match_pattern_symbol_span(
                                 if variant_node.is_some_and(|node| {
                                     matches!(&node.expr, Expr::Symbol(name) if name == target)
                                 }) {
-                                    pinned_variant_spans
+                                    borrowed_variant_spans
                                         .push(variant_node.expect("checked above").span);
                                 }
                             }
@@ -5570,13 +5570,13 @@ fn last_match_pattern_symbol_span(
             }
         }
         for child in &expression.children {
-            collect_patterns(child, target, spans, pinned_variant_spans);
+            collect_patterns(child, target, spans, borrowed_variant_spans);
         }
     }
     let mut spans = Vec::new();
-    let mut pinned_variant_spans = Vec::new();
-    collect_patterns(expression, target, &mut spans, &mut pinned_variant_spans);
-    pinned_variant_spans
+    let mut borrowed_variant_spans = Vec::new();
+    collect_patterns(expression, target, &mut spans, &mut borrowed_variant_spans);
+    borrowed_variant_spans
         .into_iter()
         .max_by_key(|span| span.start)
         .or_else(|| spans.into_iter().max_by_key(|span| span.start))
@@ -8715,22 +8715,28 @@ fn list_expression(
             let scrutinee = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
-            if !matches!(scrutinee, Type::PinnedReference { .. })
-                && items[2..].iter().any(|arm| {
-                    match_arm_parts(arm)
-                        .ok()
-                        .is_some_and(|(pattern, _, _)| crate::pinned_case::parts(pattern).is_some())
-                })
-            {
-                return Err("#case-pin requires a pinned reference to an enum".into());
+            if !matches!(
+                scrutinee,
+                Type::PinnedReference { .. } | Type::Reference { .. }
+            ) && items[2..].iter().any(|arm| {
+                match_arm_parts(arm)
+                    .ok()
+                    .is_some_and(|(pattern, _, _)| crate::borrow_case::parts(pattern).is_some())
+            }) {
+                return Err("borrowed match arms require a reference to an enum".into());
             }
             if let Type::PinnedReference {
                 mutable: scrutinee_mutable,
                 target,
+            }
+            | Type::Reference {
+                mutable: scrutinee_mutable,
+                target,
             } = &scrutinee
             {
-                return check_pinned_enum_match(
+                return check_borrowed_enum_match(
                     items,
+                    matches!(scrutinee, Type::PinnedReference { .. }),
                     *scrutinee_mutable,
                     target,
                     variables,
@@ -9761,8 +9767,9 @@ fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), Semantic
     }
 }
 
-fn check_pinned_enum_match(
+fn check_borrowed_enum_match(
     items: &[Expr],
+    pinned: bool,
     scrutinee_mutable: bool,
     target: &Type,
     variables: &VariableTypes<'_>,
@@ -9774,45 +9781,56 @@ fn check_pinned_enum_match(
     expected: Option<&Type>,
 ) -> Result<Type, SemanticError> {
     let Type::Named(enum_name) = target else {
-        return Err("pinned match requires a pinned reference to an enum".into());
+        return Err("borrowed match requires a reference to an enum".into());
     };
-    let variants = enums.get(enum_name).ok_or_else(|| {
-        SemanticError::from("pinned match requires a pinned reference to an enum")
-    })?;
+    let variants = enums
+        .get(enum_name)
+        .ok_or_else(|| SemanticError::from("borrowed match requires a reference to an enum"))?;
     let mut seen = HashSet::new();
     let mut wildcard = false;
     let mut result_type: Option<Type> = None;
     for arm in &items[2..] {
         let (pattern, guard, body) = match_arm_parts(arm)?;
-        if let Some((needs_mutable, pattern)) = crate::pinned_case::parts(pattern) {
-            if needs_mutable && !scrutinee_mutable {
-                return Err(
-                    borrow_error("#case-pin-mut requires a mutable pinned reference").at(
-                        ErrorSite::PatternSymbol(match pattern {
-                            Expr::Symbol(name) => name.clone(),
-                            Expr::List(parts) => match parts.first() {
-                                Some(Expr::Symbol(name)) => name.clone(),
-                                _ => "_".into(),
-                            },
-                            _ => "_".into(),
-                        }),
-                    ),
-                );
+        if let Some((mode, pattern)) = crate::borrow_case::parts(pattern) {
+            let pattern_site = || {
+                ErrorSite::PatternSymbol(match pattern {
+                    Expr::Symbol(name) => name.clone(),
+                    Expr::List(parts) => match parts.first() {
+                        Some(Expr::Symbol(name)) => name.clone(),
+                        _ => "_".into(),
+                    },
+                    _ => "_".into(),
+                })
+            };
+            if mode.pinned != pinned {
+                return Err(SemanticError::from(format!(
+                    "{} requires {}reference input; pinned and ordinary reference cases cannot be mixed",
+                    mode.keyword(), if mode.pinned { "a pinned " } else { "an ordinary " },
+                )).at(pattern_site()));
+            }
+            if mode.mutable && !scrutinee_mutable {
+                return Err(borrow_error(&format!(
+                    "{} requires a mutable {}reference",
+                    mode.keyword(),
+                    if pinned { "pinned " } else { "" }
+                ))
+                .at(pattern_site()));
             }
             let (variant_name, binder) = match pattern {
                 Expr::Symbol(name) => (name.as_str(), None),
                 Expr::List(parts) if !parts.is_empty() => {
                     let Expr::Symbol(name) = &parts[0] else {
-                        return Err("pinned case pattern must name an enum variant".into());
+                        return Err("borrowed case pattern must name an enum variant".into());
                     };
                     if parts.len() > 2 {
-                        return Err("pinned case payload binding must be a symbol or '_'".into());
+                        return Err("borrowed case payload binding must be a symbol or '_'".into());
                     }
                     (name.as_str(), parts.get(1))
                 }
                 _ => {
                     return Err(
-                        "pinned case pattern must be a variant symbol or (Variant binding)".into(),
+                        "borrowed case pattern must be a variant symbol or (Variant binding)"
+                            .into(),
                     )
                 }
             };
@@ -9830,25 +9848,25 @@ fn check_pinned_enum_match(
                 if binder.is_some() {
                     return Err(semantic_at!(
                         ErrorSite::PatternSymbol(variant_name.to_owned()),
-                        "fieldless pinned case must use the variant name without a binding"
+                        "fieldless borrowed case must use the variant name without a binding"
                     ));
                 }
             } else {
                 let Some(binder) = binder else {
                     return Err(semantic_at!(
                         ErrorSite::PatternSymbol(variant_name.to_owned()),
-                        "pinned case payload variant requires a binding"
+                        "borrowed case payload variant requires a binding"
                     ));
                 };
                 let Expr::Symbol(binding) = binder else {
-                    return Err("pinned case payload binding must be a symbol or '_'".into());
+                    return Err("borrowed case payload binding must be a symbol or '_'".into());
                 };
                 if variant.fields.len() != 1 {
-                    return Err("pinned case supports variants with at most one payload".into());
+                    return Err("borrowed case supports variants with at most one payload".into());
                 }
                 let payload_type = resolve_type(&variant.fields[0], aliases)?;
                 if !is_reference_target(&payload_type) {
-                    return Err("pinned case payload type must be a reference target other than () or #never".into());
+                    return Err("borrowed case payload type must be a reference target other than () or #never".into());
                 }
                 if binding != "_" {
                     if variables.contains_key(binding) {
@@ -9857,13 +9875,7 @@ fn check_pinned_enum_match(
                             "match binding '{binding}' shadows an existing binding"
                         ));
                     }
-                    arm_variables.insert(
-                        binding.clone(),
-                        Type::PinnedReference {
-                            mutable: needs_mutable,
-                            target: Box::new(payload_type),
-                        },
-                    );
+                    arm_variables.insert(binding.clone(), mode.reference(payload_type));
                 }
             }
             if let Some(guard) = guard {
@@ -9946,7 +9958,12 @@ fn check_pinned_enum_match(
                 arm_type
             });
         } else {
-            return Err("pinned match arms must use #case-pin, #case-pin-mut, or #case _".into());
+            return Err(if pinned {
+                "pinned match arms must use #case-pin, #case-pin-mut, or #case _"
+            } else {
+                "reference match arms must use #case-ref, #case-ref-mut, or #case _"
+            }
+            .into());
         }
     }
     if !wildcard && seen.len() != variants.len() {

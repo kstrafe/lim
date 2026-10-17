@@ -2890,44 +2890,68 @@ impl<'a> Emitter<'a> {
         Ok(self.value(pattern.scrutinee, false))
     }
 
-    fn pinned_pattern_value(
-        &self,
+    fn borrowed_pattern_value(
+        &mut self,
         pattern: &crate::generator::async_exec::Pattern,
     ) -> Result<String, Error> {
         let value = pattern.scrutinee;
-        let mutable = match crate::typed_ir::resolve_type(
+        let (pinned, mutable) = match crate::typed_ir::resolve_type(
             &self.function.graph.values[value.0].ty,
             &self.planning.declarations.aliases,
         ) {
-            Ok(Type::PinnedReference { mutable, .. }) => mutable,
+            Ok(Type::Reference { mutable, .. }) => (false, mutable),
+            Ok(Type::PinnedReference { mutable, .. }) => (true, mutable),
             _ => {
                 return Err(fail(
                     self.function,
-                    "pinned graph pattern has a non-pinned scrutinee",
+                    "borrowed graph pattern has a non-reference scrutinee",
                 ))
             }
         };
-        let stored_handle = if self.leases.get(value).is_some() {
-            // A lease reads the checked binding in place and already preserves
-            // its frame cell; reborrow the referent below without transferring
-            // the pinned handle.
-            self.value(value, false)
+        let stored_handle = if let Some(lease) = self.leases.get(value) {
+            let slot = &self.slots[self.bindings[&lease.binding]];
+            if slot.raw {
+                self.read(self.bindings[&lease.binding], false)
+            } else {
+                let descriptor = &self.function.graph.places[lease.place.0];
+                if !descriptor.projections.is_empty() {
+                    let address = self
+                        .owned_projection_address(lease.place, pinned || mutable)?
+                        .0;
+                    if self.is_word_place(lease.place) {
+                        format!("(#deref {address})")
+                    } else {
+                        address
+                    }
+                } else {
+                    format!("(#deref {})", self.payload_ref(slot, pinned || mutable))
+                }
+            }
         } else if let Some(slot) = self.values.get(&value).copied() {
             if self.slots[slot].raw {
-                // Raw internal cells have a non-consuming peek/materialization
-                // path in read(false).
                 self.read(slot, false)
             } else {
-                // Access the pinned-reference value through its occupied slot,
-                // then use it only to establish a fresh borrow of the enum.
-                format!("(#deref {})", self.payload_ref(&self.slots[slot], true))
+                format!(
+                    "(#deref {})",
+                    self.payload_ref(&self.slots[slot], pinned || mutable)
+                )
             }
         } else {
             return Err(fail(
                 self.function,
-                "pinned graph scrutinee has no retained storage",
+                "borrowed graph scrutinee has no retained storage",
             ));
         };
+        if !pinned {
+            // Lend the stored handle through the ordinary call ABI, rather
+            // than reading a second independent exclusive reference value.
+            let helper = self.fresh("borrowed-lend");
+            let argument = self.fresh("borrowed-lend-input");
+            let ty = crate::type_source(&self.function.graph.values[value.0].ty);
+            let suffix = if mutable { "-mut" } else { "" };
+            self.projections.push(format!("(#fn {helper} (: {argument} {ty}) {ty} (#return (#borrow{suffix} (#deref {argument}))))"));
+            return Ok(format!("(#call {helper} (: {argument} {stored_handle}))"));
+        }
         Ok(format!(
             "(#pin-borrow{} (#deref {stored_handle}))",
             if mutable { "-mut" } else { "" }
@@ -2949,44 +2973,44 @@ impl<'a> Emitter<'a> {
         crate::expression_source(&rendered).map_err(|message| fail(self.function, message))
     }
 
-    fn pinned_pattern_arm(
+    fn borrowed_pattern_arm(
         &self,
         source: &str,
         body: &str,
-        expected_mutable: bool,
+        expected_mode: crate::borrow_case::Mode,
     ) -> Result<String, Error> {
         let pattern = crate::parse(source)
             .map_err(|error| fail(self.function, error.to_string()))?
             .remove(0)
             .expr;
-        let Some((mutable, inner)) = crate::pinned_case::parts(&pattern) else {
+        let Some((mode, inner)) = crate::borrow_case::parts(&pattern) else {
             return Err(fail(
                 self.function,
-                "pinned graph pattern lost its case wrapper",
+                "borrowed graph pattern lost its case wrapper",
             ));
         };
-        if mutable != expected_mutable {
-            return Err(fail(self.function, "pinned graph pattern mode changed"));
+        if mode != expected_mode {
+            return Err(fail(self.function, "borrowed graph pattern mode changed"));
         }
         let Expr::List(parts) = &pattern else {
             return Err(fail(
                 self.function,
-                "pinned graph case wrapper is malformed",
+                "borrowed graph case wrapper is malformed",
             ));
         };
         let Some(Expr::Symbol(head)) = parts.first() else {
             return Err(fail(
                 self.function,
-                "pinned graph case wrapper has no keyword",
+                "borrowed graph case wrapper has no keyword",
             ));
         };
         if !head.starts_with('#') {
             return Err(fail(
                 self.function,
-                "pinned graph case wrapper lost its '#' prefix",
+                "borrowed graph case wrapper lost its '#' prefix",
             ));
         }
-        let keyword = head.clone();
+        let keyword = mode.keyword();
         let inner =
             crate::expression_source(inner).map_err(|message| fail(self.function, message))?;
         Ok(format!("({keyword} {inner} {body})"))
@@ -2997,34 +3021,61 @@ impl<'a> Emitter<'a> {
         pattern: &crate::generator::async_exec::Pattern,
         commit: bool,
     ) -> Result<String, Error> {
-        if pattern.pinned {
-            let Some(mutable) = pattern.pin_mutable else {
+        if pattern.borrowed {
+            let Some(mode) = pattern.borrow_mode else {
                 if pattern.bindings.is_empty() {
                     return Ok(String::new());
                 }
                 return Err(fail(
                     self.function,
-                    "pinned wildcard unexpectedly has bindings",
+                    "borrowed wildcard unexpectedly has bindings",
                 ));
             };
             if pattern.bindings.is_empty() {
                 return Ok(String::new());
             }
-            let value = self.pinned_pattern_value(pattern)?;
+            let value = self.borrowed_pattern_value(pattern)?;
+            if !mode.pinned {
+                if pattern.bindings.len() != 1 {
+                    return Err(fail(
+                        self.function,
+                        "borrowed payload must have one binding",
+                    ));
+                }
+                let binding = pattern.bindings[0];
+                if !self.bindings.contains_key(&binding) {
+                    return Ok(String::new());
+                }
+                let helper = self.fresh("borrowed-project");
+                let receiver = self.fresh("borrowed-project-input");
+                let payload = self.fresh("borrowed-project-payload");
+                let source_type =
+                    crate::type_source(&self.function.graph.values[pattern.scrutinee.0].ty);
+                let target_type = crate::type_source(&self.function.graph.bindings[binding.0].ty);
+                let source =
+                    self.pattern_source(pattern, &HashMap::from([(binding, payload.clone())]))?;
+                let arm = self.borrowed_pattern_arm(&source, &payload, mode)?;
+                self.projections.push(format!(
+                    "(#fn {helper} (: {receiver} {source_type}) {target_type}\n(#return (#match {receiver} {arm} (#case _ (#unreachable)))))"
+                ));
+                return Ok(
+                    self.put_binding(binding, &format!("(#call {helper} (: {receiver} {value}))"))
+                );
+            }
             let mut names = HashMap::new();
             let mut stores = Vec::new();
             for &binding in &pattern.bindings {
-                let name = self.fresh("pinned-pattern");
+                let name = self.fresh("borrowed-pattern");
                 if self.bindings.contains_key(&binding) {
                     stores.push(self.put_binding(binding, &name));
                 }
                 names.insert(binding, name);
             }
             let source = self.pattern_source(pattern, &names)?;
-            let arm = self.pinned_pattern_arm(
+            let arm = self.borrowed_pattern_arm(
                 &source,
                 &format!("(#block {} ())", stores.join("\n")),
-                mutable,
+                mode,
             )?;
             return Ok(format!("(#match {value} {arm} (#case _ (#unreachable)))"));
         }
@@ -4396,6 +4447,40 @@ impl<'a> Emitter<'a> {
             return Ok(self.put(dst, &value));
         }
         if matches!(descriptor.root, AddressRoot::Local(_)) {
+            if let AddressRoot::Local(binding) = descriptor.root {
+                if let Type::Reference {
+                    mutable: source_mutable,
+                    target,
+                } = crate::typed_ir::resolve_type(
+                    &self.function.graph.bindings[binding.0].ty,
+                    &self.planning.declarations.aliases,
+                )
+                .map_err(|message| fail(self.function, message))?
+                {
+                    if descriptor.projections == [AddressProjection::Dereference] && !pinned {
+                        if mutable && !source_mutable || *target != descriptor.ty {
+                            return Err(fail(
+                                self.function,
+                                "reference reborrow changes its checked capabilities",
+                            ));
+                        }
+                        let slot = &self.slots[self.bindings[&binding]];
+                        let input = self.payload_ref(slot, mutable);
+                        let reference_type = crate::type_source(&slot.ty);
+                        let result_type = crate::type_source(&Type::Reference { mutable, target });
+                        let helper = self.fresh("reference-reborrow");
+                        let argument = self.fresh("reference-holder");
+                        let handle = self.fresh("reference-handle");
+                        let suffix = if mutable { "-mut" } else { "" };
+                        self.projections.push(format!(
+                            "(#fn {helper} (: {argument} (#pin-ref{suffix} {reference_type})) {result_type}\n(#let {handle} {reference_type} (#deref {argument}))\n(#return (#borrow{suffix} (#deref {handle}))))"
+                        ));
+                        return Ok(
+                            self.put(dst, &format!("(#call {helper} (: {argument} {input}))"))
+                        );
+                    }
+                }
+            }
             if pinned && !self.pinned {
                 return Err(fail(
                     self.function,
@@ -5204,6 +5289,10 @@ impl<'a> Emitter<'a> {
                                 AddressProjection::Field(_) | AddressProjection::Tuple(_)
                             )
                         }));
+                let reference_reborrow = matches!(descriptor.root, AddressRoot::Local(binding)
+                    if matches!(graph.bindings[binding.0].ty, Type::Reference { .. })
+                    && descriptor.projections == [AddressProjection::Dereference]
+                    && descriptor.checks().is_empty());
                 let simple_handle = matches!(descriptor.root, AddressRoot::Value(_))
                     && matches!(
                         descriptor.projections.first(),
@@ -5225,7 +5314,11 @@ impl<'a> Emitter<'a> {
                             AddressProjection::Field(_) | AddressProjection::Tuple(_)
                         )
                     });
-                if (!simple_owned && !simple_handle && !computed_value && !global_value)
+                if (!simple_owned
+                    && !simple_handle
+                    && !computed_value
+                    && !global_value
+                    && !reference_reborrow)
                     || (!descriptor.checks().is_empty() && !static_owned)
                 {
                     return Err(error(
@@ -6110,17 +6203,17 @@ impl<'a> Emitter<'a> {
                     .collect();
                 let source = self.pattern_source(pattern, &names)?;
                 let ty = self.function.graph.values[pattern.scrutinee.0].ty.clone();
-                let test = if pattern.pinned {
-                    if let Some(mutable) = pattern.pin_mutable {
-                        let value = self.pinned_pattern_value(pattern)?;
-                        let arm = self.pinned_pattern_arm(&source, "true", mutable)?;
+                let test = if pattern.borrowed {
+                    if let Some(mode) = pattern.borrow_mode {
+                        let value = self.borrowed_pattern_value(pattern)?;
+                        let arm = self.borrowed_pattern_arm(&source, "true", mode)?;
                         format!("(#match {value} {arm} (#case _ false))")
                     } else if source == "_" && pattern.bindings.is_empty() {
                         "true".into()
                     } else {
                         return Err(fail(
                             self.function,
-                            "pinned wildcard fallback has an invalid pattern",
+                            "borrowed wildcard fallback has an invalid pattern",
                         ));
                     }
                 } else if self.types.can_repeat(&ty) {

@@ -1,0 +1,5 @@
+(#enum Choice () ((Full #u64) Empty))
+(#fn inspect (: choice (#ref Choice)) #u64
+  (#return (#match choice
+    (#case-ref (Full value) (#deref value))
+    (#case-pin Empty 0u64))))

@@ -166,7 +166,7 @@ impl Solver<'_> {
                 }
             }
             Action::Commit(pattern) => {
-                if !pattern.pinned {
+                if !pattern.borrowed {
                     self.value(states, pattern.scrutinee, true);
                 }
                 for binding in &pattern.bindings {

@@ -1,0 +1,26 @@
+(#struct Payload () (: value #u64 : narrow #u8))
+(#enum Choice () ((Empty) (Full Payload) (Byte #u8)))
+
+(#fn inspect (: choice (#ref Choice)) #u64
+  (#return (#match choice
+    (#case-ref (Full payload) (#get payload value))
+    (#case-ref Empty 0u64)
+    (#case-ref (Byte _) 0u64)
+    (#case _ 99u64))))
+
+(#fn update (: choice (#ref-mut Choice)) #u64
+  (#return (#match choice
+    (#case-ref-mut (Full payload) (#block
+      (#deref-set (#borrow-mut (#get payload narrow)) 42u8)
+      (#assert (#u8.== (#get payload narrow) 42u8))
+      (#get payload value)))
+    (#case-ref-mut Empty 0u64)
+    (#case-ref-mut (Byte byte) (#block (#deref-set byte 41u8) 41u64))
+    (#case _ 99u64))))
+
+(#fn main () #u64
+  (#let-mut choice Choice (Full (#struct-literal Payload (: value 41u64 : narrow 7u8))))
+  (#let observed #u64 (#call inspect (: choice (#borrow choice))))
+  (#let changed #u64 (#call update (: choice (#borrow-mut choice))))
+  (#assert (#u64.== observed 41u64))
+  (#return (#u64.+.wrap observed changed)))

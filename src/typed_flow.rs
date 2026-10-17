@@ -2610,7 +2610,7 @@ impl FlowGraph {
                     if !possible.contains(&literal) {
                         possible.push(literal);
                         if possible.len() > 16 {
-                            return None
+                            return None;
                         }
                     }
                 }
@@ -2814,7 +2814,7 @@ impl FlowGraph {
         let mut record = |targets: Vec<LoanOrigin>| -> Option<()> {
             for mut target in targets {
                 if !target.has_concrete_address() || !target.storage.is_empty() {
-                    return None
+                    return None;
                 }
                 // This is a possible byte-write address, not a typed-value
                 // initialization, ownership, or consumption permission.
@@ -19553,7 +19553,7 @@ impl Builder<'_> {
             NodeKind::Match { value, arms, .. } => {
                 // Try arms in source order. A failed pattern or guard resumes
                 // at the next arm; only the successful edge binds its pattern.
-                let snapshot = self.body.pinned_match_receivers.get(&id).copied();
+                let snapshot = self.body.borrowed_match_receivers.get(&id).copied();
                 let match_next = if let Some((binding, _)) = snapshot {
                     self.push(FlowAction::ScopeExit(vec![binding]), span, vec![next])
                 } else {
@@ -19886,18 +19886,21 @@ impl Builder<'_> {
             body_entry
         };
         self.active_scopes.pop();
-        let bound = if let Some(projection) = self.body.pinned_cases.get(&id) {
+        let bound = if let Some(projection) = self.body.borrowed_cases.get(&id) {
             if let Some((binding, value)) = *projection {
                 let bind = self.push(FlowAction::Bind { binding, value }, span, vec![success]);
                 let place = Place::from_expression(self.body, value).ok_or_else(|| {
-                    "pinned payload projection has no addressable provenance source".to_owned()
+                    "borrowed payload projection has no addressable provenance source".to_owned()
                 })?;
                 let action = FlowAction::Borrow {
                     value,
                     place,
                     mutable: matches!(
                         self.body.nodes[value.0].ty,
-                        Some(Type::PinnedReference { mutable: true, .. })
+                        Some(
+                            Type::PinnedReference { mutable: true, .. }
+                                | Type::Reference { mutable: true, .. }
+                        )
                     ),
                 };
                 // The match already evaluated the receiver. Only project its
@@ -19925,7 +19928,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pinned_cases_bind_checked_payload_borrows_without_moving_the_enum() {
+    fn borrowed_cases_bind_checked_payload_borrows_without_moving_the_enum() {
         let program = crate::parse_program(
             "(#enum Choice () ((Full #u64) Empty))
              (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
@@ -19937,9 +19940,9 @@ mod tests {
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["inspect"];
         let flow = &declarations.flows["inspect"];
-        assert_eq!(body.pinned_cases.len(), 2);
+        assert_eq!(body.borrowed_cases.len(), 2);
         let (binding, projection) = body
-            .pinned_cases
+            .borrowed_cases
             .values()
             .flatten()
             .copied()
@@ -19972,7 +19975,7 @@ mod tests {
         let body = &declarations.bodies["inspect"];
         let flow = &declarations.flows["inspect"];
         let (match_id, (snapshot, receiver)) = body
-            .pinned_match_receivers
+            .borrowed_match_receivers
             .iter()
             .next()
             .expect("computed pinned match has an analysis snapshot");

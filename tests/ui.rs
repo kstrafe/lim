@@ -11,6 +11,24 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "borrowed-case-requires-mut",
+            diagnostic_code: "E4100",
+            offending_line: "    (#case-ref-mut (Full value) (#deref value)))))",
+            line_number: 4,
+        },
+        Case {
+            name: "borrowed-case-mixed-modes",
+            diagnostic_code: "E4000",
+            offending_line: "    (#case-pin Empty 0u64))))",
+            line_number: 5,
+        },
+        Case {
+            name: "borrowed-case-owner-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#return (#match (#borrow value)",
+            line_number: 4,
+        },
+        Case {
             name: "pinned-case-requires-exclusive",
             diagnostic_code: "E4100",
             offending_line: "    (#case-pin-mut (Full value) (#deref value)))))",
@@ -1340,6 +1358,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-reference-escape" => Some("(#return (#pin-borrow owner))"),
             "pinned-self-reference-conflict" => Some("#pin-set-field"),
             "pinned-case-requires-exclusive" => Some("Full"),
+            "borrowed-case-requires-mut" => Some("Full"),
+            "borrowed-case-mixed-modes" => Some("Empty"),
+            "borrowed-case-owner-escape" => Some("(#return (#match (#borrow value)"),
             "pinned-case-parent-reborrow" => Some("choice"),
             "call-self-loan-owner-mutation" => Some("running"),
             "call-self-loan-owner-borrow" => Some("running"),

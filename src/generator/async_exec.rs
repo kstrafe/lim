@@ -171,10 +171,10 @@ pub(crate) struct Pattern {
     /// Match payload bindings are immutable; destructuring declarations retain
     /// their checked Control::Destructure mutability, including unused names.
     pub mutable: bool,
-    /// The scrutinee belongs to a pinned match. Wildcard fallback arms are
-    /// pinned too, but have no pinned arm mutability of their own.
-    pub pinned: bool,
-    pub pin_mutable: Option<bool>,
+    /// The scrutinee belongs to a borrowed match. Wildcard fallback arms are
+    /// borrowed too, but have no arm mode of their own.
+    pub borrowed: bool,
+    pub borrow_mode: Option<crate::borrow_case::Mode>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -660,8 +660,8 @@ impl Builder<'_> {
             scrutinee,
             bindings,
             mutable,
-            pinned: false,
-            pin_mutable: None,
+            borrowed: false,
+            borrow_mode: None,
         })
     }
 
@@ -1354,7 +1354,79 @@ impl Builder<'_> {
         arms: &[NodeId],
         block: BlockId,
     ) -> Result<(Option<BlockId>, ValueId), Error> {
-        let (end, value) = self.expression(scrutinee, block)?;
+        let (end, value) = if let (
+            Type::Reference { mutable, target },
+            NodeKind::Symbol {
+                binding: Some(binding),
+                ..
+            },
+        ) = (self.ty(scrutinee)?, self.node(scrutinee)?.kind.clone())
+        {
+            // Matching a borrowed enum reborrows its referent. It must not
+            // materialize a second independently owned exclusive handle.
+            let value = self.value(scrutinee)?;
+            let place = self.make_place(
+                block,
+                PlaceDescriptor {
+                    source: Some(scrutinee),
+                    ty: *target,
+                    root: AddressRoot::Local(binding),
+                    projections: vec![AddressProjection::Dereference],
+                    parent: None,
+                    checked_prefix: 0,
+                },
+            );
+            self.action(
+                block,
+                Some(scrutinee),
+                Action::Borrow {
+                    dst: Some(value),
+                    scope: None,
+                    place,
+                    mutable,
+                    pinned: false,
+                },
+            );
+            (Some(block), value)
+        } else {
+            let (end, original) = self.expression(scrutinee, block)?;
+            if let (Some(end), Type::Reference { mutable, target }) = (end, self.ty(scrutinee)?) {
+                let value = ValueId(self.graph.values.len());
+                self.graph.values.push(Value {
+                    source: None,
+                    ty: Type::Reference {
+                        mutable,
+                        target: target.clone(),
+                    },
+                    span: self.node(scrutinee)?.span,
+                });
+                let place = self.make_place(
+                    end,
+                    PlaceDescriptor {
+                        source: Some(scrutinee),
+                        ty: *target,
+                        root: AddressRoot::Value(original),
+                        projections: vec![AddressProjection::Dereference],
+                        parent: None,
+                        checked_prefix: 0,
+                    },
+                );
+                self.action(
+                    end,
+                    Some(scrutinee),
+                    Action::Borrow {
+                        dst: Some(value),
+                        scope: None,
+                        place,
+                        mutable,
+                        pinned: false,
+                    },
+                );
+                (Some(end), value)
+            } else {
+                (end, original)
+            }
+        };
         let Some(mut test) = end else {
             return Ok((None, dst));
         };
@@ -1378,44 +1450,50 @@ impl Builder<'_> {
                 _ => return Err(error(Some(arm), "unsupported match arm sequence")),
             };
             let mut pattern = self.pattern(pattern, value, false)?;
-            if let Some(projection) = self.body.pinned_cases.get(&arm) {
+            if let Some(projection) = self.body.borrowed_cases.get(&arm) {
                 let source_pattern = self.body.syntax(pattern.source, false);
-                let pin_mutable =
-                    crate::pinned_case::parts(&source_pattern).map(|(mutable, _)| mutable);
-                if pin_mutable.is_none() && source_pattern != Expr::Symbol("_".into()) {
+                let borrow_mode = crate::borrow_case::parts(&source_pattern).map(|(mode, _)| mode);
+                if borrow_mode.is_none() && source_pattern != Expr::Symbol("_".into()) {
                     return Err(error(
                         Some(pattern.source),
-                        "checked pinned match has an unsupported fallback pattern",
+                        "checked borrowed match has an unsupported fallback pattern",
                     ));
                 }
                 if let Some((binding, _)) = projection {
-                    let Some(mutable) = pin_mutable else {
+                    let Some(mode) = borrow_mode else {
                         return Err(error(
                             Some(pattern.source),
-                            "checked pinned fallback unexpectedly binds a payload",
+                            "checked borrowed fallback unexpectedly binds a payload",
                         ));
                     };
                     if !pattern.bindings.contains(binding) {
                         return Err(error(
                             Some(pattern.source),
-                            "checked pinned payload binding is absent from the arm scope",
+                            "checked borrowed payload binding is absent from the arm scope",
                         ));
                     }
                     let expected = match self.body.bindings.get(binding.0).map(|b| &b.ty) {
-                        Some(Type::PinnedReference {
-                            mutable: actual, ..
-                        }) if *actual == mutable => true,
+                        Some(Type::Reference { mutable, .. })
+                            if !mode.pinned && *mutable == mode.mutable =>
+                        {
+                            true
+                        }
+                        Some(Type::PinnedReference { mutable, .. })
+                            if mode.pinned && *mutable == mode.mutable =>
+                        {
+                            true
+                        }
                         _ => false,
                     };
                     if !expected {
                         return Err(error(
                             Some(pattern.source),
-                            "checked pinned payload binding mode changed",
+                            "checked borrowed payload binding mode changed",
                         ));
                     }
                 }
-                pattern.pinned = true;
-                pattern.pin_mutable = pin_mutable;
+                pattern.borrowed = true;
+                pattern.borrow_mode = borrow_mode;
             }
             let success = self.block(Vec::new());
             let failure = self.block(Vec::new());
@@ -2119,16 +2197,16 @@ impl Graph {
 
     fn check_pattern(&self, pattern: &Pattern) -> Result<(), Error> {
         self.value_type(pattern.scrutinee)?;
-        if pattern.pin_mutable.is_some() && !pattern.pinned {
+        if pattern.borrow_mode.is_some() && !pattern.borrowed {
             return Err(error(
                 Some(pattern.source),
-                "ordinary graph pattern carries pinned arm mutability",
+                "ordinary graph pattern carries borrowed arm mode",
             ));
         }
-        if pattern.pinned && pattern.pin_mutable.is_none() && !pattern.bindings.is_empty() {
+        if pattern.borrowed && pattern.borrow_mode.is_none() && !pattern.bindings.is_empty() {
             return Err(error(
                 Some(pattern.source),
-                "pinned wildcard fallback carries lexical bindings",
+                "borrowed wildcard fallback carries lexical bindings",
             ));
         }
         if !self.metadata.contains_key(&pattern.source) {

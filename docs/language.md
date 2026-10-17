@@ -2238,6 +2238,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
 | `#case-pin` | `(#case-pin Variant body)` or `(#case-pin (Variant binder) body)`, optionally with `(#when guard)` | `(#case-pin (Full payload) (#get payload value))` (inside a pinned `#match`) | Binds a shared `#pin-ref Payload` to an enum payload without moving it. Supports one payload binding or `_`; fieldless variants use their name, such as `(#case-pin Empty body)`. Works on shared or mutable pinned input. |
 | `#case-pin-mut` | `(#case-pin-mut Variant body)` or `(#case-pin-mut (Variant binder) body)`, optionally with `(#when guard)` | `(#case-pin-mut (Full payload) (#pin-set-field payload value 42u64))` (inside a pinned `#match`) | Binds an exclusive `#pin-ref-mut Payload`; the match input must be exclusively pinned. Supports one payload binding or `_`; fieldless variants use their name, such as `(#case-pin-mut Other body)`. |
+| `#case-ref` | `(#case-ref Variant body)` or `(#case-ref (Variant binder) body)`, optionally guarded | `(#case-ref (Full payload) (#get payload value))` (inside shared-reference `#match`) | Binds a shared `#ref Payload` without moving it; fieldless variants use their name. |
+| `#case-ref-mut` | `(#case-ref-mut Variant body)` or `(#case-ref-mut (Variant binder) body)`, optionally guarded | `(#case-ref-mut (Full payload) (#get payload value))` (inside exclusive-reference `#match`) | Binds an exclusive `#ref-mut Payload`; requires mutable input and follows ordinary aliasing rules. |
 | `#cfg-and` | `(#cfg-and condition...)` | `(#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))` (cfg condition) | Combines conditions with logical AND; requires at least one condition. |
 | `#cfg-else` | `(#cfg-else form...)` | `(#cfg-else (#fn fallback () () (#return ())))` (last `#cfg-if` branch) | Supplies forms when the preceding `#cfg-if` condition is false. |
 | `#cfg-if` | `(#cfg-if condition form... [(#cfg-else form...)])` | `(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
@@ -2301,7 +2303,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall #i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
 | `#literal` | `(#literal NumericType literal)` | `(#let n #u16 (#literal #u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
-| `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. On pinned enum references, every named variant arm uses `#case-pin` or `#case-pin-mut`, including fieldless variants; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
+| `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
@@ -2658,6 +2660,35 @@ duplicate checks follow the usual match rules. The payload stays in its
 original stack or heap slot, and returned payload references retain the
 matched owner’s lifetime. Existing unsafe `#pin-write` and checked
 `#pin-set-field` rules still apply inside an exclusive arm.
+
+Ordinary references use `#case-ref` and `#case-ref-mut` to borrow enum
+payloads without pinning the owner. The shared form binds `#ref Payload`; the
+exclusive form binds `#ref-mut Payload` and requires mutable input. Each named
+variant, including fieldless variants, uses the matching form. `#case _` is
+the fallback, and borrowed and pinned forms cannot be mixed in one match.
+Payload patterns accept one binder or `_`, without nested destructuring.
+`examples/borrowed_cases.lim` is a runnable example.
+
+Async lowering can still conservatively reject an exclusive match receiver
+returned by another function: its frame retains a conflicting parent reference
+handle. This is a generator limitation, not a restriction on ordinary functions;
+`async_generator_matches_reference_returned_by_call` records the pending case.
+
+```lim run=42
+(#enum Choice () ((Full #u64) Empty Other))
+(#fn main () #u64
+  (#let-mut choice Choice (Full 41u64))
+  (#let observed #u64 (#match (#borrow choice)
+    (#case-ref (Full payload) (#deref payload))
+    (#case-ref Empty 0u64)
+    (#case _ 0u64)))
+  (#let updated #u64 (#match (#borrow-mut choice)
+    (#case-ref-mut (Full payload) (#block (#deref-set payload 42u64) (#deref payload)))
+    (#case-ref-mut Empty 0u64)
+    (#case _ 0u64)))
+  (#assert (#u64.== observed 41u64))
+  (#return updated))
+```
 
 ```lim run=42
 (#struct Payload () (: value #u64))

@@ -11829,9 +11829,10 @@ impl FunctionContext<'_> {
         }
         if matches!(
             self.expression_type(scrutinee),
-            Some(Type::PinnedReference { .. })
+            Some(Type::Reference { target, .. } | Type::PinnedReference { target, .. })
+                if matches!(target.as_ref(), Type::Named(_))
         ) {
-            return self.pinned_reference_match_expression(
+            return self.borrowed_reference_match_expression(
                 items,
                 scrutinee,
                 float_type,
@@ -12343,7 +12344,7 @@ impl FunctionContext<'_> {
         Ok(())
     }
 
-    fn pinned_reference_match_expression(
+    fn borrowed_reference_match_expression(
         &mut self,
         items: &[Expr],
         scrutinee: &Expr,
@@ -12351,41 +12352,61 @@ impl FunctionContext<'_> {
         result_type: Option<&Type>,
         destination: MatchDestination<'_>,
     ) -> Result<(), String> {
-        let Some(Type::PinnedReference { target, .. }) = self.expression_type(scrutinee) else {
-            return Err("pinned match has no checked reference type".into());
+        let Some(reference_type @ (Type::Reference { .. } | Type::PinnedReference { .. })) =
+            self.expression_type(scrutinee)
+        else {
+            return Err("borrowed match has no checked reference type".into());
+        };
+        let input_mode = match reference_type {
+            Type::Reference { mutable, .. } => crate::borrow_case::Mode {
+                pinned: false,
+                mutable,
+            },
+            Type::PinnedReference { mutable, .. } => crate::borrow_case::Mode {
+                pinned: true,
+                mutable,
+            },
+            _ => unreachable!(),
+        };
+        let target = match reference_type {
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
+            _ => unreachable!(),
         };
         let Type::Named(enum_name) = *target else {
-            return Err("pinned match requires a pinned reference to an enum".into());
+            return Err("borrowed match requires a reference to an enum".into());
         };
         self.expression(scrutinee)?;
         self.push_rax();
-        let end = self.label("pinned_match_end");
+        let end = self.label("borrowed_match_end");
         let base_depth = self.stack_depth;
         for arm in &items[2..] {
             let (pattern, guard, body) = match_arm_parts(arm)?;
-            let next = self.label("pinned_match_next");
-            let guard_failed = guard.map(|_| self.label("pinned_match_guard_failed"));
+            let next = self.label("borrowed_match_next");
+            let guard_failed = guard.map(|_| self.label("borrowed_match_guard_failed"));
             let is_fallback = matches!(pattern, Expr::Symbol(name) if name == "_");
             let mut clear_slots = Vec::new();
             if !is_fallback {
-                let Some((mutable, variant_pattern)) = crate::pinned_case::parts(pattern) else {
-                    return Err("invalid checked pinned match arm".into());
+                let Some((mode, variant_pattern)) = crate::borrow_case::parts(pattern) else {
+                    return Err("invalid checked borrowed match arm".into());
                 };
+                if mode.pinned != input_mode.pinned || mode.mutable && !input_mode.mutable {
+                    return Err("checked borrowed match mode is incompatible with its input".into());
+                }
                 let (variant_expr, binding_expr) = match variant_pattern {
                     Expr::Symbol(_) => (variant_pattern, None),
                     Expr::List(variant_parts) if !variant_parts.is_empty() => {
                         (&variant_parts[0], variant_parts.get(1))
                     }
-                    _ => return Err("pinned match variant pattern is malformed".into()),
+                    _ => return Err("borrowed match variant pattern is malformed".into()),
                 };
                 let Expr::Symbol(variant_name) = variant_expr else {
-                    return Err("pinned match variant has no name".into());
+                    return Err("borrowed match variant has no name".into());
                 };
                 let (owner, discriminant, fields) = self
                     .enum_variant_info(variant_expr, variant_name)?
                     .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
                 if owner != enum_name {
-                    return Err("checked pinned match variant owner changed".into());
+                    return Err("checked borrowed match variant owner changed".into());
                 }
                 self.output.push_str(&format!(
                     "    mov rcx, QWORD PTR [rsp]\n    btr rcx, 63\n    btr rcx, 62\n    mov r11, {}\n    cmp QWORD PTR [rcx], r11\n    jne {next}\n",
@@ -12393,10 +12414,10 @@ impl FunctionContext<'_> {
                 ));
                 if let Some(binding_expr) = binding_expr {
                     if fields.len() != 1 {
-                        return Err("pinned match binding requires a single payload field".into());
+                        return Err("borrowed match binding requires a single payload field".into());
                     }
                     let Expr::Symbol(binding_name) = binding_expr else {
-                        return Err("pinned match payload binding must be a symbol".into());
+                        return Err("borrowed match payload binding must be a symbol".into());
                     };
                     if binding_name == "_" {
                         // Wildcard payloads require no local binding or address projection.
@@ -12405,19 +12426,20 @@ impl FunctionContext<'_> {
                             self.checked_pattern_binding_id(binding_expr, binding_name)?;
                         let slots = self.local_slots_for_binding(binding_id, binding_name)?;
                         if slots.len() != 1 {
-                            return Err("pinned match reference binding has invalid storage".into());
+                            return Err(
+                                "borrowed match reference binding has invalid storage".into()
+                            );
                         }
-                        let expected_type = Type::PinnedReference {
-                            mutable,
-                            target: Box::new(fields[0].clone()),
-                        };
+                        let expected_type = mode.reference(fields[0].clone());
                         let binding_type = self
                             .expression_types
                             .binding_types
                             .get(binding_id.0)
-                            .ok_or_else(|| "pinned match binding has no checked type".to_owned())?;
+                            .ok_or_else(|| {
+                                "borrowed match binding has no checked type".to_owned()
+                            })?;
                         if binding_type != &expected_type {
-                            return Err("checked pinned match binding type changed".into());
+                            return Err("checked borrowed match binding type changed".into());
                         }
                         self.output.push_str("    mov rax, QWORD PTR [rsp]\n");
                         self.offset_reference_field_address(1, true);
@@ -12426,7 +12448,7 @@ impl FunctionContext<'_> {
                         clear_slots.extend(slots);
                     }
                 } else if !fields.is_empty() {
-                    return Err("pinned match payload arm has no binding".into());
+                    return Err("borrowed match payload arm has no binding".into());
                 }
             }
             if let Some(guard) = guard {
@@ -12452,7 +12474,7 @@ impl FunctionContext<'_> {
             }
             self.output.push_str(&format!("{next}:\n"));
             if self.stack_depth != base_depth {
-                return Err("pinned match arm changed stack depth".into());
+                return Err("borrowed match arm changed stack depth".into());
             }
         }
         self.output
@@ -12460,7 +12482,7 @@ impl FunctionContext<'_> {
         self.stack_depth = self
             .stack_depth
             .checked_sub(1)
-            .ok_or_else(|| "pinned match stack underflow".to_owned())?;
+            .ok_or_else(|| "borrowed match stack underflow".to_owned())?;
         Ok(())
     }
 

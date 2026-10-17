@@ -26,6 +26,7 @@ for [s:token, s:group] in [
       \ ['#ref-mut', 'limTypeForm'], ['#slice', 'limTypeForm'],
       \ ['#pin', 'limPin'], ['#pin-shared', 'limPin'],
       \ ['#pin-ref', 'limTypeForm'], ['#pin-ref-mut', 'limTypeForm'],
+      \ ['#case-ref', 'limConditional'], ['#case-ref-mut', 'limConditional'],
       \ ['#pin-own', 'limTypeForm'], ['#pin-borrow', 'limKeyword'],
       \ ['#pin-borrow-mut', 'limKeyword'], ['#pin-custom', 'limKeyword'],
       \ ['#u64.+.wrap', 'limOperator'], ['#u128./', 'limOperator'],
