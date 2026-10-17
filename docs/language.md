@@ -2353,8 +2353,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ptr-offset` | `(#ptr-offset pointer usize-index)` | `(#unsafe (#ptr-offset p 2usize))` (expression) | Advances by pointee elements with checked address arithmetic; requires unsafe context and does not check allocation bounds. |
 | `#ptr-read` | `(#ptr-read pointer)` | `(#unsafe (#ptr-read p))` (expression) | Reads the pointee value without bounds/validity checks. |
 | `#ptr-write` | `(#ptr-write mutable-pointer value)` | `(#unsafe (#ptr-write p 7u8))` (statement) | Writes the pointee without bounds/validity checks. |
-| `#range` | `(#range lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in a half-open interval. |
-| `#range-inclusive` | `(#range-inclusive lower upper)` | `(#case (#range-inclusive 1u32 4u32) 1u64)` (pattern) | Matches both endpoints of an integer/character interval. |
+| `#range` | `(#range lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in an inclusive interval: both endpoints match. |
 | `#ref` | `(#ref TargetType)` | `(#let r (#ref #u64) (#borrow value))` (type/binding) | Shared-reference type. |
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
@@ -2622,7 +2621,12 @@ Recursive calls are rejected.  Mutual recursion is rejected as well.
 
 ## Patterns and matching
 
-`#match` is exhaustive for enums and scalar booleans; `_` supplies a wildcard.
+`#match` requires exhaustive coverage. Enums require every variant; scalar
+booleans require both values. Integer literals and inclusive `#range` patterns
+are combined to check coverage of the complete scrutinee type, including
+`#u128` and `#i128`. Patterns may overlap or appear in any order; the first
+matching arm wins. `_` supplies a wildcard. Character matches still require
+a wildcard. Guarded arms do not contribute unconditional coverage.
 Every arm must be explicitly introduced with `#case`. Enum payloads are
 written as constructor patterns:
 
@@ -2640,6 +2644,19 @@ supported. Guards are placed between the pattern and body, using `#when`:
   (#case (Some payload) (#when (#u64.> payload 40u64)) payload)
   (#case (Some _) 0u64)
   (#case None 0u64))
+```
+
+No wildcard is needed when integer patterns cover the entire domain. This
+example tests the inclusive boundary between two ranges:
+
+```lim run=42
+(#fn classify (: value #u8) #u64
+  (#return (#match value
+    (#case (#range 0u8 127u8) 0u64)
+    (#case (#range 128u8 255u8) 42u64))))
+(#fn main () #u64
+  (#assert (#u64.== (#call classify (: value 127u8)) 0u64))
+  (#return (#call classify (: value 128u8))))
 ```
 
 Destructuring uses the same aggregate pattern shapes:

@@ -1,0 +1,4 @@
+(#fn classify (: value #bool) #u64
+  (#return (#match value
+    (#case true (#when false) 0u64)
+    (#case false (#when false) 1u64))))

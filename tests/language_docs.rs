@@ -72,7 +72,6 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
         "#array-of",
         "#gn-length",
         "#let-mut",
-        "#range-inclusive",
         "#struct-literal",
         "#syntax",
         "#distributed-enum",

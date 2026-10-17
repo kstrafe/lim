@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "integer-match-coverage-gap",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value",
+            line_number: 2,
+        },
+        Case {
+            name: "guarded-boolean-match-not-exhaustive",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value",
+            line_number: 2,
+        },
+        Case {
             name: "borrowed-case-requires-mut",
             diagnostic_code: "E4100",
             offending_line: "    (#case-ref-mut (Full value) (#deref value)))))",
@@ -1283,6 +1295,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "variant-is-borrowed-parent" => Some("#variant-is"),
             "unknown-match-variant" => Some("Missing"),
             "non-exhaustive-match" => Some("#match"),
+            "integer-match-coverage-gap" | "guarded-boolean-match-not-exhaustive" => Some("#match"),
             "unknown-let-else-variant" => Some("Missing"),
             "async-let-else-await" => Some("#u32"),
             "duplicate-enum-match-pattern" => Some("Ready"),

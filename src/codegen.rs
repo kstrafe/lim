@@ -12499,26 +12499,16 @@ impl FunctionContext<'_> {
                 if matches!(ty, Type::I128) {
                     return self.emit_wide_scalar_range(lower as u128, upper as u128, true, next);
                 }
-                self.output.push_str(&format!(
-                    "    cmp {operand}, {lower}\n    jl {next}\n    cmp {operand}, {upper}\n    jg {next}\n"
-                ));
+                self.emit_word_range_pattern(operand, lower as u64, upper as u64, true, next);
             }
             ScalarRange::Unsigned(lower, upper) => {
                 if matches!(ty, Type::U128) {
                     return self.emit_wide_scalar_range(lower, upper, false, next);
                 }
-                self.output.push_str(&format!(
-                    "    cmp {operand}, {}\n    jb {next}\n    cmp {operand}, {}\n    ja {next}\n",
-                    asm_u64_immediate(lower as u64),
-                    asm_u64_immediate(upper as u64)
-                ));
+                self.emit_word_range_pattern(operand, lower as u64, upper as u64, false, next);
             }
             ScalarRange::Char(lower, upper) => {
-                self.output.push_str(&format!(
-                    "    cmp {operand}, {}\n    jb {next}\n    cmp {operand}, {}\n    ja {next}\n",
-                    asm_u64_immediate(lower),
-                    asm_u64_immediate(upper)
-                ));
+                self.emit_word_range_pattern(operand, lower, upper, false, next);
             }
         }
         Ok(())
@@ -12580,17 +12570,36 @@ impl FunctionContext<'_> {
     /// x86-64 memory comparisons sign-extend their 32-bit immediate.
     /// Larger constants must be materialized, not silently truncated.
     fn emit_word_pattern_test(&mut self, operand: &str, bits: u64, next: &str) {
+        self.emit_word_pattern_comparison(operand, bits);
+        self.output.push_str(&format!("    jne {next}\n"));
+    }
+
+    fn emit_word_pattern_comparison(&mut self, operand: &str, bits: u64) {
         if bits == (bits as i32 as i64 as u64) {
-            self.output.push_str(&format!(
-                "    cmp {operand}, {}\n    jne {next}\n",
-                bits as i32
-            ));
+            self.output
+                .push_str(&format!("    cmp {operand}, {}\n", bits as i32));
         } else {
             self.output.push_str(&format!(
-                "    mov r11, {}\n    cmp {operand}, r11\n    jne {next}\n",
+                "    mov r11, {}\n    cmp {operand}, r11\n",
                 asm_u64_immediate(bits)
             ));
         }
+    }
+
+    fn emit_word_range_pattern(
+        &mut self,
+        operand: &str,
+        lower: u64,
+        upper: u64,
+        signed: bool,
+        next: &str,
+    ) {
+        let lower_jump = if signed { "jl" } else { "jb" };
+        let upper_jump = if signed { "jg" } else { "ja" };
+        self.emit_word_pattern_comparison(operand, lower);
+        self.output.push_str(&format!("    {lower_jump} {next}\n"));
+        self.emit_word_pattern_comparison(operand, upper);
+        self.output.push_str(&format!("    {upper_jump} {next}\n"));
     }
 
     fn emit_enum_scalar_pattern_test(
@@ -12636,23 +12645,25 @@ impl FunctionContext<'_> {
                     );
                 }
                 ScalarRange::Signed(lower, upper) => {
-                    self.output.push_str(&format!(
-                        "    cmp {low_operand}, {lower}\n    jl {next}\n    cmp {low_operand}, {upper}\n    jg {next}\n"
-                    ));
+                    self.emit_word_range_pattern(
+                        low_operand,
+                        lower as u64,
+                        upper as u64,
+                        true,
+                        next,
+                    );
                 }
                 ScalarRange::Unsigned(lower, upper) => {
-                    self.output.push_str(&format!(
-                        "    cmp {low_operand}, {}\n    jb {next}\n    cmp {low_operand}, {}\n    ja {next}\n",
-                        asm_u64_immediate(lower as u64),
-                        asm_u64_immediate(upper as u64)
-                    ));
+                    self.emit_word_range_pattern(
+                        low_operand,
+                        lower as u64,
+                        upper as u64,
+                        false,
+                        next,
+                    );
                 }
                 ScalarRange::Char(lower, upper) => {
-                    self.output.push_str(&format!(
-                        "    cmp {low_operand}, {}\n    jb {next}\n    cmp {low_operand}, {}\n    ja {next}\n",
-                        asm_u64_immediate(lower),
-                        asm_u64_immediate(upper)
-                    ));
+                    self.emit_word_range_pattern(low_operand, lower, upper, false, next);
                 }
             }
             return Ok(());
@@ -12763,13 +12774,20 @@ impl FunctionContext<'_> {
         let upper_ok = self.label("payload_range_upper_ok");
         let low_jump = if signed { "jl" } else { "jb" };
         let high_jump = if signed { "jg" } else { "ja" };
+        self.emit_word_pattern_comparison(high_operand, (lower >> 64) as u64);
         self.output.push_str(&format!(
-            "    cmp {high_operand}, {}\n    {low_jump} {next}\n    {high_jump} {lower_ok}\n    cmp {low_operand}, {}\n    jb {next}\n{lower_ok}:\n    cmp {high_operand}, {}\n    {high_jump} {next}\n    {low_jump} {upper_ok}\n    cmp {low_operand}, {}\n    ja {next}\n{upper_ok}:\n",
-            asm_u64_immediate((lower >> 64) as u64),
-            asm_u64_immediate(lower as u64),
-            asm_u64_immediate((upper >> 64) as u64),
-            asm_u64_immediate(upper as u64),
+            "    {low_jump} {next}\n    {high_jump} {lower_ok}\n"
         ));
+        self.emit_word_pattern_comparison(low_operand, lower as u64);
+        self.output
+            .push_str(&format!("    jb {next}\n{lower_ok}:\n"));
+        self.emit_word_pattern_comparison(high_operand, (upper >> 64) as u64);
+        self.output.push_str(&format!(
+            "    {high_jump} {next}\n    {low_jump} {upper_ok}\n"
+        ));
+        self.emit_word_pattern_comparison(low_operand, upper as u64);
+        self.output
+            .push_str(&format!("    ja {next}\n{upper_ok}:\n"));
         Ok(())
     }
 
@@ -12784,13 +12802,20 @@ impl FunctionContext<'_> {
         let upper_ok = self.label("range_upper_ok");
         let low_jump = if signed { "jl" } else { "jb" };
         let high_jump = if signed { "jg" } else { "ja" };
+        self.emit_word_pattern_comparison("QWORD PTR [rsp+8]", (lower >> 64) as u64);
         self.output.push_str(&format!(
-            "    cmp QWORD PTR [rsp+8], {}\n    {low_jump} {next}\n    {high_jump} {lower_ok}\n    cmp QWORD PTR [rsp], {}\n    jb {next}\n{lower_ok}:\n    cmp QWORD PTR [rsp+8], {}\n    {high_jump} {next}\n    {low_jump} {upper_ok}\n    cmp QWORD PTR [rsp], {}\n    ja {next}\n{upper_ok}:\n",
-            asm_u64_immediate((lower >> 64) as u64),
-            asm_u64_immediate(lower as u64),
-            asm_u64_immediate((upper >> 64) as u64),
-            asm_u64_immediate(upper as u64),
+            "    {low_jump} {next}\n    {high_jump} {lower_ok}\n"
         ));
+        self.emit_word_pattern_comparison("QWORD PTR [rsp]", lower as u64);
+        self.output
+            .push_str(&format!("    jb {next}\n{lower_ok}:\n"));
+        self.emit_word_pattern_comparison("QWORD PTR [rsp+8]", (upper >> 64) as u64);
+        self.output.push_str(&format!(
+            "    {high_jump} {next}\n    {low_jump} {upper_ok}\n"
+        ));
+        self.emit_word_pattern_comparison("QWORD PTR [rsp]", upper as u64);
+        self.output
+            .push_str(&format!("    ja {next}\n{upper_ok}:\n"));
         Ok(())
     }
 

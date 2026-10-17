@@ -9423,6 +9423,7 @@ fn check_scalar_match(
     let mut seen_integers = HashSet::new();
     let mut seen_unsigned_integers = HashSet::new();
     let mut seen_chars = HashSet::new();
+    let mut coverage = Vec::new();
     let mut result_type = None;
     for arm in &items[2..] {
         let (pattern, guard, body) = match_arm_parts(arm)?;
@@ -9448,13 +9449,15 @@ fn check_scalar_match(
                             && matches!(name.as_str(), "true" | "false")
                         {
                             let index = usize::from(name == "true");
-                            if seen_bool[index] {
+                            if guard.is_none() && seen_bool[index] {
                                 return Err(semantic_at!(
                                     ErrorSite::PatternSymbol(name.to_string()),
                                     "duplicate boolean match pattern '{name}'"
                                 ));
                             }
-                            seen_bool[index] = true;
+                            if guard.is_none() {
+                                seen_bool[index] = true;
+                            }
                         }
                     }
                 }
@@ -9482,13 +9485,15 @@ fn check_scalar_match(
                     "true" => 1,
                     _ => return Err("boolean match pattern must be true, false, or _".into()),
                 };
-                if seen_bool[index] {
+                if guard.is_none() && seen_bool[index] {
                     return Err(semantic_at!(
                         ErrorSite::PatternSymbol(pattern.to_string()),
                         "duplicate boolean match pattern '{pattern}'"
                     ));
                 }
-                seen_bool[index] = true;
+                if guard.is_none() {
+                    seen_bool[index] = true;
+                }
             }
             Expr::Integer(value) if is_integer(scrutinee) => {
                 if !fits_integer(*value, scrutinee) {
@@ -9497,7 +9502,7 @@ fn check_scalar_match(
                         "integer match pattern {value} does not fit in {scrutinee:?}"
                     ));
                 }
-                if !seen_integers.insert(*value) {
+                if guard.is_none() && !seen_integers.insert(*value) {
                     return Err(semantic_at!(
                         ErrorSite::PatternInteger(*value as u128),
                         "duplicate integer match pattern {value}"
@@ -9511,7 +9516,7 @@ fn check_scalar_match(
                         "unsigned integer match pattern {value} does not fit in {scrutinee:?}"
                     ));
                 }
-                if !seen_unsigned_integers.insert(*value) {
+                if guard.is_none() && !seen_unsigned_integers.insert(*value) {
                     return Err(semantic_at!(
                         ErrorSite::PatternInteger(*value as u128),
                         "duplicate integer match pattern {value}"
@@ -9519,7 +9524,7 @@ fn check_scalar_match(
                 }
             }
             Expr::Char(value) if matches!(scrutinee, Type::Char) => {
-                if !seen_chars.insert(*value) {
+                if guard.is_none() && !seen_chars.insert(*value) {
                     return Err(semantic_at!(
                         ErrorSite::PatternCharacter,
                         "duplicate character match pattern {value:?}"
@@ -9540,6 +9545,8 @@ fn check_scalar_match(
                 Some(&Type::Bool),
             )?;
             require_type(&guard_type, &Type::Bool, "match guard")?;
+        } else {
+            collect_scalar_coverage(pattern, scrutinee, &mut coverage)?;
         }
         let arm_type = expression(
             body,
@@ -9563,13 +9570,119 @@ fn check_scalar_match(
             result_type = Some(arm_type);
         }
     }
-    if !wildcard && !(matches!(scrutinee, Type::Bool) && seen_bool.iter().all(|seen| *seen)) {
+    if !wildcard && !scalar_coverage_is_complete(scrutinee, &mut coverage) {
         return Err(semantic_at!(
             ErrorSite::Operator("match".into()),
             "match is not exhaustive; add '_' arm"
         ));
     }
     Ok(result_type.unwrap_or(Type::Unit))
+}
+
+/// Ordered, inclusive coordinates avoid signed overflow and also represent the
+/// complete u128 domain without needing an unrepresentable exclusive endpoint.
+fn scalar_coverage_domain(ty: &Type) -> Option<(u128, u128)> {
+    if matches!(ty, Type::Bool) {
+        return Some((0, 1));
+    }
+    let width = integer_width(ty)? as u32;
+    if matches!(
+        ty,
+        Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::Isize
+    ) {
+        let (lower, upper) = if width == 128 {
+            (i128::MIN, i128::MAX)
+        } else {
+            let magnitude = 1i128 << (width - 1);
+            (-magnitude, magnitude - 1)
+        };
+        Some((
+            (lower as u128) ^ (1u128 << 127),
+            (upper as u128) ^ (1u128 << 127),
+        ))
+    } else {
+        Some((
+            0,
+            if width == 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            },
+        ))
+    }
+}
+
+fn scalar_coverage_coordinate(value: &Expr, ty: &Type) -> Result<u128, SemanticError> {
+    if matches!(ty, Type::Bool) {
+        return match value {
+            Expr::Symbol(name) if name == "false" => Ok(0),
+            Expr::Symbol(name) if name == "true" => Ok(1),
+            _ => Err("checked boolean coverage has no boolean literal".into()),
+        };
+    }
+    let value = range_bound_expression(value, ty)?;
+    if matches!(
+        ty,
+        Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::Isize
+    ) {
+        Ok((signed_range_bound(value)? as u128) ^ (1u128 << 127))
+    } else {
+        unsigned_range_bound(value)
+    }
+}
+
+fn collect_scalar_coverage(
+    pattern: &Expr,
+    ty: &Type,
+    intervals: &mut Vec<(u128, u128)>,
+) -> Result<(), SemanticError> {
+    let Some(domain) = scalar_coverage_domain(ty) else {
+        // Character-domain coverage is not yet inferred; it still needs '_'.
+        return Ok(());
+    };
+    if matches!(pattern, Expr::Symbol(name) if name == "_") {
+        intervals.push(domain);
+    } else if let Expr::List(parts) = pattern {
+        match parts.first() {
+            Some(Expr::Symbol(head)) if head == "or" => {
+                for alternative in &parts[1..] {
+                    collect_scalar_coverage(alternative, ty, intervals)?;
+                }
+            }
+            Some(Expr::Symbol(head)) if head == "range" => intervals.push((
+                scalar_coverage_coordinate(&parts[1], ty)?,
+                scalar_coverage_coordinate(&parts[2], ty)?,
+            )),
+            _ => {
+                let value = scalar_coverage_coordinate(pattern, ty)?;
+                intervals.push((value, value));
+            }
+        }
+    } else {
+        let value = scalar_coverage_coordinate(pattern, ty)?;
+        intervals.push((value, value));
+    }
+    Ok(())
+}
+
+fn scalar_coverage_is_complete(ty: &Type, intervals: &mut [(u128, u128)]) -> bool {
+    let Some((mut next, maximum)) = scalar_coverage_domain(ty) else {
+        return false;
+    };
+    intervals.sort_unstable();
+    for &(lower, upper) in intervals.iter() {
+        if lower > next {
+            return false;
+        }
+        if upper >= maximum {
+            return true;
+        }
+        if upper >= next {
+            // upper < maximum, so even a u128::MAX domain cannot overflow.
+            next = upper + 1;
+        }
+    }
+    false
 }
 
 fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), SemanticError> {
