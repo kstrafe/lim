@@ -9,10 +9,10 @@ Subprocess output is captured in diagnostic notes.
 Schema version 1 has these fields:
 
 - `schema_version`: integer 1.
-- `severity`: `error`.
-- `code`: stable high-level code, such as `E4000`.
+- `severity`: `error` or `warning`. Warnings do not change a successful exit status.
+- `code`: stable high-level code, such as `E4000` or `W8000` (unused type).
 - `category`: `lex`, `parse`, `generator`, `type`, `borrow`, `linear`,
-  `unsafe`, `codegen`, `link`, or `cli` (`E7000`).
+  `unsafe`, `codegen`, `link`, `cli` (`E7000`), or `unused_type` (`W8000`).
 - `message`: explanatory prose; do not use it as a machine identifier.
 - `path`: source path, or an empty string when no source applies.
 - `location`: a location object, or null for failures without source ranges.

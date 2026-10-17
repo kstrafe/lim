@@ -57,6 +57,7 @@ mod typed_flow;
 mod typed_ir;
 mod typed_place;
 mod unsafecheck;
+mod warnings;
 mod word_loans;
 use generator::builtins::normalize_builtin_generator_invocation;
 use generator::frontend::*;
@@ -72,6 +73,7 @@ pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
+pub use warnings::{unused_type_warnings, with_warnings};
 
 /// CPU architecture descriptions understood by the native backend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,11 +169,28 @@ pub enum DiagnosticCode {
     Codegen = 5000,
     Link = 6000,
     Cli = 7000,
+    UnusedType = 8000,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+}
+
+impl DiagnosticSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
 }
 
 /// Structured diagnostic data for editor and tooling integrations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
+    pub severity: DiagnosticSeverity,
     pub code: DiagnosticCode,
     pub message: String,
     pub span: Option<Span>,
@@ -193,6 +212,7 @@ pub struct DiagnosticLabel {
 impl Diagnostic {
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
         Self {
+            severity: DiagnosticSeverity::Error,
             code,
             message: message.into(),
             span: None,
@@ -221,7 +241,11 @@ impl Diagnostic {
     }
 
     pub fn code_string(&self) -> String {
-        format!("E{:04}", self.code as u16)
+        let prefix = match self.severity {
+            DiagnosticSeverity::Error => 'E',
+            DiagnosticSeverity::Warning => 'W',
+        };
+        format!("{prefix}{:04}", self.code as u16)
     }
 }
 
@@ -230,7 +254,8 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, source: &str, filename: &str) 
     let source = diagnostic.source_text.as_deref().unwrap_or(source);
     let filename = diagnostic.source_name.as_deref().unwrap_or(filename);
     let mut output = format!(
-        "error[{}]: {}",
+        "{}[{}]: {}",
+        diagnostic.severity.as_str(),
         diagnostic.code_string(),
         diagnostic.message
     );
@@ -2149,6 +2174,7 @@ pub fn check_source_with_generated_sources(
     owned.validate().map_err(|(message, code, span, labels)| {
         analysis_diagnostic(message, code, span, labels, owned.program())
     })?;
+    warnings::record_program(owned.program());
     if let Some(summaries) = summaries {
         summaries.publish();
     }
@@ -2241,6 +2267,7 @@ fn compile_source_with_artifacts(
         }
     }
     let _stage = timing::stage("native_emission");
+    warnings::record_program(owned.program());
     owned.with_checked(|checked| {
         let assembly = if executable {
             codegen::generate_checked_executable_assembly(checked, target)

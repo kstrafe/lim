@@ -173,6 +173,7 @@ pub(crate) fn program_in_context(
                         crate::analysis_diagnostic(message, code, span, labels, &program)
                     },
                 )?;
+                crate::warnings::record_program(&program);
             }
             Ok(program)
         },

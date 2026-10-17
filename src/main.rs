@@ -24,6 +24,26 @@ macro_rules! eprintln {
 }
 
 fn main() -> ExitCode {
+    // Artifact lookup is an introspection command, not an unused-code check.
+    // The LSP owns its warning sessions so stdout remains protocol-only.
+    let command = env::args()
+        .skip(1)
+        .find(|arg| !arg.starts_with("--diagnostic-format=") && arg != "--timings");
+    if matches!(command.as_deref(), Some("lsp" | "--lsp"))
+        || env::args().skip(1).any(|arg| arg == "--locate-generated")
+    {
+        return run_command();
+    }
+    let (status, warnings) = lim::with_warnings(run_command);
+    if status == ExitCode::SUCCESS {
+        for warning in warnings {
+            emit_diagnostic(&warning, "", "");
+        }
+    }
+    status
+}
+
+fn run_command() -> ExitCode {
     let mut arguments: Vec<String> = env::args().skip(1).collect();
     let timings = arguments.iter().any(|arg| arg == "--timings");
     arguments.retain(|arg| arg != "--timings");

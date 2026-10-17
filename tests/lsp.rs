@@ -97,6 +97,47 @@ fn artifact_paths(messages: &[Json], id: i64) -> Vec<std::path::PathBuf> {
 }
 
 #[test]
+fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
+    let uri = "file:///tmp/lim-lsp-unused-types.lim";
+    let source = "(#enum Unused () (Only))";
+    let updated =
+        format!("{source}\n(#fn consume (: value Unused) () (#forget value) (#return ()))");
+    let mut messages = start();
+    messages.push(open(uri, 1, source));
+    messages.push(change(uri, 2, &updated));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let reports = publications(&replies);
+    assert_eq!(reports.len(), 2);
+    let diagnostics = reports[0].get("diagnostics").unwrap().array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].get("severity").and_then(Json::integer),
+        Some(2)
+    );
+    assert_eq!(
+        diagnostics[0].get("code").and_then(Json::string),
+        Some("W8000")
+    );
+    assert_eq!(
+        diagnostics[0]
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("character")
+            .and_then(Json::integer),
+        Some(7)
+    );
+    assert!(reports[1]
+        .get("diagnostics")
+        .unwrap()
+        .array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-at-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();

@@ -80,6 +80,17 @@ imports. See `cargo run -- --help` for the CLI options.
 Editors can request `--diagnostic-format=json`; the versioned schema is
 described in [docs/diagnostics.md](docs/diagnostics.md).
 
+All declared struct fields, enum payloads, and aliases are checked, even when
+unused. Unknown types and infinitely sized by-value cycles are errors; forward
+references and cycles broken by references or pointers are supported.
+
+Compilation and `--check` report `warning[W8000]` for unused structs, enums, and
+type aliases, underlining the declaration name. A type is used when referenced
+by a function signature/body or a global, following type dependencies; all
+functions are considered entry points for this warning, including library and
+generated functions. Self-references alone do not count. Warnings are nonfatal,
+also appear in JSON/LSP diagnostics, and are not emitted by artifact lookup.
+
 Executable builds emit only functions reachable from `main`, including thread
 workers and symbols referenced by inline assembly. Every imported definition
 is still type-, borrow-, and linearity-checked. `--emit-asm` retains all functions
@@ -123,7 +134,7 @@ An explicit type mismatch is rejected (this example is tested as `E4000`):
 
 Run `lim --explain-cache INPUT [--cfg KEY=VALUE]...` to check the program and
 print a versioned JSON cache report to stdout without linking a binary. Errors
-stay on stderr; `--diagnostic-format=json` still applies to errors only. Each
+stay on stderr; `--diagnostic-format=json` applies to diagnostics, not cache-report events. Each
 event identifies a syntax or inspectable-source artifact, its key digest,
 full key material (including invocation/dependency inputs), and `hit`,
 `missing-entry`, `invalid-entry`, or `key-collision` decision.

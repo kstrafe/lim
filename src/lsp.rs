@@ -284,13 +284,20 @@ impl Server<'_> {
         let mut docs = self.documents.iter().collect::<Vec<_>>();
         docs.sort_by_key(|(uri, _)| *uri);
         for (root_uri, doc) in docs {
-            if let Err(diagnostic) = crate::editor::checked_program_in_context(
-                &doc.text,
-                &doc.path,
-                self.config,
-                &overlays,
-                self.context_file(doc).as_deref(),
-            ) {
+            let (result, warnings) = crate::with_warnings(|| {
+                crate::editor::checked_program_in_context(
+                    &doc.text,
+                    &doc.path,
+                    self.config,
+                    &overlays,
+                    self.context_file(doc).as_deref(),
+                )
+            });
+            let diagnostics = match result {
+                Ok(_) => warnings,
+                Err(error) => vec![error],
+            };
+            for diagnostic in diagnostics {
                 let (path, source, span) = primary_location(&diagnostic, doc, &overlays);
                 let uri = self
                     .documents
@@ -799,7 +806,11 @@ fn diagnostic_json(
         .chain(d.notes.iter().map(String::as_str))
         .collect::<Vec<_>>()
         .join("\n");
-    format!("{{\"range\":{location},\"severity\":1,\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]}}", quoted(&d.code_string()), quoted(&message), related.join(","))
+    let severity = match d.severity {
+        crate::DiagnosticSeverity::Error => 1,
+        crate::DiagnosticSeverity::Warning => 2,
+    };
+    format!("{{\"range\":{location},\"severity\":{severity},\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]}}", quoted(&d.code_string()), quoted(&message), related.join(","))
 }
 
 struct Declaration {

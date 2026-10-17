@@ -40,6 +40,7 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         DiagnosticCode::Codegen => "codegen",
         DiagnosticCode::Link => "link",
         DiagnosticCode::Cli => "cli",
+        DiagnosticCode::UnusedType => "unused_type",
     };
     let mut labels = Vec::new();
     if let Some(span) = diagnostic.span {
@@ -62,8 +63,8 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         .map(|label| location(label.source_name.as_deref().unwrap_or(path), label.span))
         .collect::<Vec<_>>()
         .join(",");
-    format!("{{\"schema_version\":1,\"severity\":\"error\",\"code\":{},\"category\":{},\"message\":{},\"path\":{},\"location\":{},\"labels\":[{}],\"expansion_provenance\":[{}],\"notes\":[{}]}}",
-        quoted(&diagnostic.code_string()), quoted(phase), quoted(&diagnostic.message), quoted(path),
+    format!("{{\"schema_version\":1,\"severity\":{},\"code\":{},\"category\":{},\"message\":{},\"path\":{},\"location\":{},\"labels\":[{}],\"expansion_provenance\":[{}],\"notes\":[{}]}}",
+        quoted(diagnostic.severity.as_str()), quoted(&diagnostic.code_string()), quoted(phase), quoted(&diagnostic.message), quoted(path),
         diagnostic.span.map(|span| location(path, span)).unwrap_or_else(|| "null".into()),
         labels.join(","), expansion, diagnostic.notes.iter().map(|note| quoted(note)).collect::<Vec<_>>().join(","))
 }
