@@ -190,6 +190,31 @@ resulting binary. Assembly builds report output writing separately. Nested
 top-level stages are included in their outer stage and are not reported as an
 overlapping event. Failed commands report stages reached before the failure.
 
+### Finding a generator's output
+
+Use the compilation entry point and a location in any of its imported files:
+
+```sh
+lim main.lim --locate-generated path/to/file.lim:42
+lim main.lim --locate-generated path/to/file.lim:42:5
+lim main.lim --locate-generated path/to/file.lim:42:5-45:2
+```
+
+Lines and columns are one-based; columns count Unicode characters, and explicit
+range ends are exclusive. A line, position, or range overlapping any
+part of a generator invocation selects its output; the selection need not
+start on `@`. A whole-line range such as `file.lim:42-45` also works. The
+command prints the current generated source paths, one per line, without
+building a native binary. Multiple selected invocations and nested expansions
+can produce multiple paths; duplicate paths are printed only once, in sorted
+order. A selection with no active invocation produces no paths.
+
+The entry point determines the import graph. Supply the same `--cfg`,
+`--target`, and `--module-path` options as for compilation. Lookup uses the
+current expansion and its content-addressed cache, not historical source
+locations in cached file headers. Changed generator inputs therefore resolve
+to the new artifact even when older files remain in `.lim/generated`.
+
 ## Language server
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
@@ -201,6 +226,10 @@ unsaved buffers. Ordinary declarations remain navigable despite unrelated
 type errors. Generated call/type definitions are also supported.
 Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
 snapshots on demand, including expansions from unsaved buffers.
+Go-to-definition on an invocation's `@` opens its current generated source
+artifact, using the same lookup as `--locate-generated` and the editor's
+compilation context. Navigation on the generator name instead opens its
+declaration.
 It discovers project module paths
 and accepts `--cfg KEY=VALUE` and `--module-path PATH` for session settings.
 Checks do not write source files or generator caches. See the

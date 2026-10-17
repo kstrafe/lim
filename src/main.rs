@@ -104,6 +104,14 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
     };
     let mut settings = arguments.clone();
     settings.retain(|arg| !arg.starts_with("--diagnostic-format="));
+    if let Some(index) = settings.iter().position(|arg| arg == "--locate-generated") {
+        settings.remove(index);
+        if index >= settings.len() || settings[index].starts_with('-') {
+            eprintln!("lim: --locate-generated requires a source selection");
+            return ExitCode::FAILURE;
+        }
+        settings.remove(index);
+    }
     match settings.first().map(String::as_str) {
         Some("--check") => {
             settings.remove(0);
@@ -177,7 +185,14 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server.");
+        println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints one artifact path per line without producing a binary.");
         return ExitCode::SUCCESS;
+    }
+    if arguments
+        .iter()
+        .any(|argument| argument == "--locate-generated")
+    {
+        return locate_generated_command(arguments);
     }
     if matches!(
         arguments.first().map(String::as_str),
@@ -403,6 +418,161 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
         }
     };
     compile_with_links(&input_path, &output_path, false, &config, target, &links)
+}
+
+#[derive(Debug, PartialEq)]
+enum GeneratedSelection {
+    Lines(usize, usize),
+    Range((usize, usize), (usize, usize)),
+}
+
+fn selection_number(value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .ok()
+        .filter(|number| *number > 0 && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or_else(|| "selection lines and columns must be positive integers".to_owned())
+}
+
+fn parse_generated_selection(value: &str) -> Result<(PathBuf, GeneratedSelection), String> {
+    let usage = "--locate-generated requires FILE:LINE, FILE:LINE:COLUMN, FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL, or FILE:STARTLINE-ENDLINE";
+    let (prefix, last) = value.rsplit_once(':').ok_or(usage)?;
+    let (path, selection) = if let Some((start, end)) = last.split_once('-') {
+        (
+            prefix,
+            GeneratedSelection::Lines(selection_number(start)?, selection_number(end)?),
+        )
+    } else if let Some((path, previous)) = prefix.rsplit_once(':') {
+        if let Some((start_column, end_line)) = previous
+            .split_once('-')
+            .filter(|(start, end)| selection_number(start).is_ok() && selection_number(end).is_ok())
+        {
+            let (path, start_line) = path.rsplit_once(':').ok_or(usage)?;
+            (
+                path,
+                GeneratedSelection::Range(
+                    (
+                        selection_number(start_line)?,
+                        selection_number(start_column)?,
+                    ),
+                    (selection_number(end_line)?, selection_number(last)?),
+                ),
+            )
+        } else if previous.bytes().all(|byte| byte.is_ascii_digit()) {
+            let point = (selection_number(previous)?, selection_number(last)?);
+            (path, GeneratedSelection::Range(point, point))
+        } else {
+            let line = selection_number(last)?;
+            (prefix, GeneratedSelection::Lines(line, line))
+        }
+    } else {
+        let line = selection_number(last)?;
+        (prefix, GeneratedSelection::Lines(line, line))
+    };
+    if path.is_empty() {
+        return Err(usage.to_owned());
+    }
+    Ok((PathBuf::from(path), selection))
+}
+
+impl GeneratedSelection {
+    fn byte_offsets(&self, source: &str) -> Result<(usize, usize), String> {
+        // Keep a final empty line and exclude CRLF terminators from column counts.
+        let mut offset = 0;
+        let lines: Vec<_> = source
+            .split('\n')
+            .map(|line| {
+                let start = offset;
+                offset += line.len() + 1;
+                (start, line.strip_suffix('\r').unwrap_or(line))
+            })
+            .collect();
+        let line_at = |number: usize| {
+            number
+                .checked_sub(1)
+                .and_then(|index| lines.get(index))
+                .copied()
+                .ok_or_else(|| format!("selection line {number} is outside the selected file"))
+        };
+        let position = |(line, column): (usize, usize)| -> Result<usize, String> {
+            let (start, text) = line_at(line)?;
+            let byte = column.checked_sub(1).and_then(|index| {
+                text.char_indices()
+                    .map(|(byte, _)| byte)
+                    .chain(std::iter::once(text.len()))
+                    .nth(index)
+            });
+            byte.map(|byte| start + byte).ok_or_else(|| {
+                format!("selection column {column} is outside line {line} of the selected file")
+            })
+        };
+        let (start, end) = match *self {
+            Self::Lines(start, end) => {
+                let (start, _) = line_at(start)?;
+                let (end_start, end_text) = line_at(end)?;
+                if start > end_start {
+                    return Err("selection end precedes its start".into());
+                }
+                let end = lines
+                    .get(end)
+                    .map_or(end_start + end_text.len(), |(start, _)| *start);
+                (start, end)
+            }
+            Self::Range(start, end) => (position(start)?, position(end)?),
+        };
+        if end < start {
+            return Err("selection end precedes its start".into());
+        }
+        Ok((start, end))
+    }
+}
+
+fn locate_generated_command(mut arguments: Vec<String>) -> ExitCode {
+    let index = arguments
+        .iter()
+        .position(|argument| argument == "--locate-generated")
+        .expect("locate command has its option");
+    arguments.remove(index);
+    if index >= arguments.len() || arguments[index].starts_with('-') {
+        eprintln!("lim: --locate-generated requires a source selection");
+        return ExitCode::FAILURE;
+    }
+    let selection = arguments.remove(index);
+    let result = (|| {
+        let (selected_path, selection) = parse_generated_selection(&selection)?;
+        let (entry, _, config, _, _) = binary_arguments(&arguments)?;
+        let selected_source = fs::read_to_string(&selected_path)
+            .map_err(|error| format!("{}: {error}", selected_path.display()))?;
+        let (start, end) = selection.byte_offsets(&selected_source)?;
+        let source = fs::read_to_string(&entry).map_err(|error| format!("{entry}: {error}"))?;
+        Ok::<_, String>((entry, config, selected_path, start, end, source))
+    })();
+    let (entry, config, selected_path, start, end, source) = match result {
+        Ok(selection) => selection,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match lim::locate_generated(
+        &source,
+        Path::new(&entry),
+        &config,
+        &selected_path,
+        start,
+        end,
+    ) {
+        Ok(paths) => {
+            for path in paths {
+                println!("{}", path.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(diagnostic) => {
+            emit_diagnostic(&diagnostic, &source, &entry);
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn check_command(arguments: &[String]) -> ExitCode {
@@ -982,6 +1152,82 @@ mod tests {
     use std::process::Command;
 
     use super::test_process as process;
+
+    #[test]
+    fn generated_selections_preserve_colons_and_hyphens_in_paths() {
+        for path in ["main.lim", "/tmp/ns:foo-bar.lim", "C:\\some-dir\\main.lim"] {
+            for (suffix, expected) in [
+                ("42", GeneratedSelection::Lines(42, 42)),
+                ("4-8", GeneratedSelection::Lines(4, 8)),
+                ("4:2", GeneratedSelection::Range((4, 2), (4, 2))),
+                ("4:2-8:3", GeneratedSelection::Range((4, 2), (8, 3))),
+            ] {
+                let (actual_path, selection) =
+                    parse_generated_selection(&format!("{path}:{suffix}")).unwrap();
+                assert_eq!(actual_path, PathBuf::from(path));
+                assert_eq!(selection, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn generated_selection_offsets_use_unicode_scalars_and_handle_crlf_and_eof() {
+        let source = "é😀x\r\nlast\n";
+        assert_eq!(
+            GeneratedSelection::Lines(1, 1)
+                .byte_offsets(source)
+                .unwrap(),
+            (0, 9)
+        );
+        assert_eq!(
+            GeneratedSelection::Lines(1, 2)
+                .byte_offsets(source)
+                .unwrap(),
+            (0, 14)
+        );
+        assert_eq!(
+            GeneratedSelection::Lines(3, 3)
+                .byte_offsets(source)
+                .unwrap(),
+            (14, 14)
+        );
+        assert_eq!(
+            GeneratedSelection::Range((1, 2), (1, 3))
+                .byte_offsets(source)
+                .unwrap(),
+            (2, 6)
+        );
+        assert_eq!(
+            GeneratedSelection::Range((1, 4), (1, 4))
+                .byte_offsets(source)
+                .unwrap(),
+            (7, 7)
+        );
+        assert_eq!(
+            GeneratedSelection::Lines(1, 1).byte_offsets("").unwrap(),
+            (0, 0)
+        );
+        for selection in [
+            GeneratedSelection::Lines(2, 1),
+            GeneratedSelection::Lines(1, 4),
+            GeneratedSelection::Range((1, 0), (1, 1)),
+            GeneratedSelection::Range((1, 5), (1, 5)),
+            GeneratedSelection::Range((2, 2), (1, 2)),
+        ] {
+            assert!(selection.byte_offsets(source).is_err(), "{selection:?}");
+        }
+        for selection in [
+            "file",
+            ":1",
+            "file:0",
+            "file:1:0",
+            "file:1-x",
+            "file:1:2-3:0",
+            "file:999999999999999999999999",
+        ] {
+            assert!(parse_generated_selection(selection).is_err(), "{selection}");
+        }
+    }
 
     mod elf_fixture {
         include!("../tests/support/elf_fixture.rs");

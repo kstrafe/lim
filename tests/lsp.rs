@@ -76,6 +76,322 @@ fn definition(id: i64, uri: &str, text: &str, needle: &str) -> String {
     ))
 }
 
+fn artifact_paths(messages: &[Json], id: i64) -> Vec<std::path::PathBuf> {
+    let result = reply(messages, id).get("result").unwrap();
+    let locations = result.array().unwrap_or_else(|| panic!("{id}: {result:?}"));
+    assert!(!locations.is_empty(), "{id}: no artifacts");
+    locations
+        .iter()
+        .map(|location| {
+            let path = lsp::uri_to_path(location.get("uri").unwrap().string().unwrap()).unwrap();
+            assert!(path.is_file(), "{}", path.display());
+            assert!(path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("generated-"));
+            path
+        })
+        .collect()
+}
+
+#[test]
+fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-at-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let path = base.join("main.lim");
+    let uri = lsp::path_to_uri(&path).unwrap();
+    let source = "; 😀 UTF-16 position\n(#gn emit (name) `((#type ,name #u64)))\n(\n  @emit First\n)\n(#type Emoji😀 #u8) (@emit Second)";
+    std::fs::write(&path, source).unwrap();
+    let updated = source.replace("#u64", "#u32");
+    let mut messages = start();
+    messages.push(open(&uri, 1, source));
+    messages.push(definition(2, &uri, source, "@emit First"));
+    messages.push(definition(3, &uri, source, "@emit First"));
+    messages.push(definition(4, &uri, source, "@emit Second"));
+    messages.push(change(&uri, 2, &updated));
+    messages.push(definition(5, &uri, &updated, "@emit First"));
+    messages.push(definition(6, &uri, &updated, "emit First"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let first = artifact_paths(&replies, 2);
+    assert_eq!(first, artifact_paths(&replies, 3));
+    let second = artifact_paths(&replies, 4);
+    assert_ne!(first, second);
+    assert!(std::fs::read_to_string(&first[0])
+        .unwrap()
+        .contains("(#type First #u64)"));
+    assert!(std::fs::read_to_string(&second[0])
+        .unwrap()
+        .contains("(#type Second #u64)"));
+    let changed = artifact_paths(&replies, 5);
+    assert_ne!(first, changed);
+    assert!(std::fs::read_to_string(&changed[0])
+        .unwrap()
+        .contains("(#type First #u32)"));
+    let declaration = reply(&replies, 6).get("result").unwrap();
+    assert_eq!(
+        declaration.get("uri").and_then(Json::string),
+        Some(uri.as_str())
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("line")
+            .and_then(Json::integer),
+        Some(1)
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-context-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("modules")).unwrap();
+    let entry = base.join("main.lim");
+    let child = base.join("child.lim");
+    let generator = base.join("modules/generator.lim");
+    // Both entry and imported declaration are invalid on disk.
+    std::fs::write(&entry, ")").unwrap();
+    std::fs::write(&generator, ")").unwrap();
+    let entry_source = "(#import \"generator.lim\") (#import \"child.lim\")";
+    let generator_source = "\n(#cfg-if (#cfg-is #feature selected) (#gn emit (name) `((#type ,name #u32))) (#cfg-else (#gn emit (name) `((#type ,name #u64)))))";
+    let child_source = "(\n @emit Number\n)";
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    config.add_module_path(base.join("modules"));
+    lim::lsp_context::LspContext {
+        entry: entry.clone(),
+        config,
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let entry_uri = lsp::path_to_uri(&entry).unwrap();
+    let uri = lsp::path_to_uri(&child).unwrap();
+    let generator_uri = lsp::path_to_uri(&generator).unwrap();
+    let mut messages = start();
+    messages.push(open(&entry_uri, 1, entry_source));
+    messages.push(open(&generator_uri, 1, generator_source));
+    messages.push(open(&uri, 1, child_source));
+    messages.push(definition(2, &uri, child_source, "@"));
+    messages.push(definition(3, &uri, child_source, "emit"));
+    messages.push(change(
+        &generator_uri,
+        2,
+        &generator_source.replace("#u32", "#u16"),
+    ));
+    messages.push(definition(4, &uri, child_source, "@"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let before = artifact_paths(&replies, 2);
+    assert!(before
+        .iter()
+        .all(|path| path.starts_with(base.join(".lim/generated"))));
+    assert!(!child.parent().unwrap().join("modules/.lim").exists());
+    assert!(std::fs::read_to_string(&before[0])
+        .unwrap()
+        .contains("(#type Number #u32)"));
+    let after = artifact_paths(&replies, 4);
+    assert_ne!(before, after);
+    assert!(std::fs::read_to_string(&after[0])
+        .unwrap()
+        .contains("(#type Number #u16)"));
+    let declaration = reply(&replies, 3).get("result").unwrap();
+    assert_eq!(
+        declaration.get("uri").and_then(Json::string),
+        Some(generator_uri.as_str())
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("character")
+            .and_then(Json::integer),
+        Some(
+            generator_source
+                .lines()
+                .nth(1)
+                .unwrap()
+                .find("emit")
+                .unwrap() as i64
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&entry).unwrap(), ")");
+    assert_eq!(std::fs::read_to_string(&generator).unwrap(), ")");
+    assert!(!child.exists());
+    // A subsequent session must not inherit scoped buffers.
+    let mut messages = start();
+    messages.push(open(&uri, 1, child_source));
+    messages.push(definition(2, &uri, child_source, "@"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null));
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn generator_name_resolves_original_span_through_external_prefixes_and_duplicate_imports() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-prefix-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let entry = base.join("main.lim");
+    let child = base.join("child.lim");
+    // The same source is loaded under two prefixes; its name token has two
+    // semantic names, both referring to exactly the same declaration span.
+    let source = "(#import-external \"child.lim\" a-) (#import-external \"child.lim\" b-)";
+    std::fs::write(&entry, source).unwrap();
+    lim::lsp_context::LspContext {
+        entry: entry.clone(),
+        config: CompileConfig::default(),
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let child_source =
+        "; unsaved generator\n(#gn emit (name) `((#type ,name #u64)))\n(@emit Number)";
+    let uri = lsp::path_to_uri(&child).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, child_source));
+    messages.push(definition(2, &uri, child_source, "emit Number"));
+    messages.push(definition(3, &uri, child_source, "@"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let declaration = reply(&replies, 2).get("result").unwrap();
+    assert_eq!(
+        declaration.get("uri").and_then(Json::string),
+        Some(uri.as_str())
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("line")
+            .and_then(Json::integer),
+        Some(1)
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("character")
+            .and_then(Json::integer),
+        Some(5)
+    );
+    let paths = artifact_paths(&replies, 3);
+    let contents = paths
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(contents.contains("a-Number"), "{contents}");
+    assert!(contents.contains("b-Number"), "{contents}");
+    assert!(!child.exists());
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn builtin_macro_at_navigates_but_builtin_name_and_noninvocations_do_not() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-builtin-{}", std::process::id()));
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    let source = "(@#optional (: type #u64 : name Maybe))";
+    let mut messages = start();
+    messages.push(open(&uri, 1, source));
+    messages.push(definition(2, &uri, source, "#optional"));
+    messages.push(definition(3, &uri, source, "@"));
+    messages.push(definition(4, &uri, source, "Maybe"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null));
+    assert_eq!(reply(&replies, 4).get("result"), Some(&Json::Null));
+    assert!(artifact_paths(&replies, 3)
+        .iter()
+        .any(|path| std::fs::read_to_string(path)
+            .unwrap()
+            .contains("Maybe-construct")));
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn imported_generator_name_navigation_needs_no_valid_expansion_or_artifacts() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-name-only-{}", std::process::id()));
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    let generator_uri = lsp::path_to_uri(&base.join("generator.lim")).unwrap();
+    let source = "(#import-external \"generator.lim\" ext-)\n(@ext-emit)";
+    let generator = "; unsaved\n(#gn emit () (#gn-error \"not implemented\"))";
+    let mut messages = start();
+    messages.push(open(&generator_uri, 1, generator));
+    messages.push(open(&uri, 1, source));
+    messages.push(definition(2, &uri, source, "ext-emit"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let declaration = reply(&replies, 2).get("result").unwrap();
+    assert_eq!(
+        declaration.get("uri").and_then(Json::string),
+        Some(generator_uri.as_str())
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("line")
+            .and_then(Json::integer),
+        Some(1)
+    );
+    assert_eq!(
+        declaration
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("character")
+            .and_then(Json::integer),
+        Some(5)
+    );
+    assert!(!base.exists(), "declaration navigation created artifacts");
+}
+
+#[test]
+fn macro_navigation_returns_no_artifact_for_inactive_invalid_or_quoted_calls() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-macro-invalid-{}", std::process::id()));
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    for source in [
+        "(#gn emit () `((#type Number #u64))) (#cfg-if (#cfg-is #feature never-enabled) (@emit))",
+        "(#gn bad () `((#fn broken () #u64 (#return false)))) (@bad)",
+        "(#gn bad () (#gn-error \"failed\")) (@bad)",
+        "(#gn template () `((@missing)))",
+        "(@unknown)",
+    ] {
+        let mut messages = start();
+        messages.push(open(&uri, 1, source));
+        messages.push(definition(2, &uri, source, "@"));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        assert_eq!(
+            reply(&replies, 2).get("result"),
+            Some(&Json::Null),
+            "{source}"
+        );
+    }
+    // The API may create its publication directory while validating, but
+    // failed/inactive invocations must never yield navigable targets.
+    if base.exists() {
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
 #[test]
 fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors() {
     let base =

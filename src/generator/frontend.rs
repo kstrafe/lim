@@ -345,7 +345,10 @@ fn graph_generated_owned_program(
                 missing = true;
                 Err("async graph output is staged until program validation".into())
             }) {
-                Ok(source) => Some(source),
+                Ok(source) => {
+                    record_generated_artifact(prepared, invocation, directory, &key)?;
+                    Some(source)
+                }
                 Err(_) if missing => None,
                 Err(error) => return Err(error.into()),
             }
@@ -435,6 +438,7 @@ fn graph_generated_owned_program(
                 generator::cached_generated_source_with_origins(directory, &key, &origins, || {
                     Ok(output.source.clone())
                 })?;
+            record_generated_artifact(prepared, invocations[index], directory, &key)?;
             // A concurrent publisher may have installed this key after the
             // probe. Require identical ordinary declarations rather than use
             // unchecked replacement text or validate the whole program twice.
@@ -1057,6 +1061,27 @@ pub(crate) fn write_prepared_expanded_sources(
     )
 }
 
+fn record_generated_artifact(
+    prepared: &PreparedProgramSyntax,
+    expression: &SpannedExpr,
+    directory: &Path,
+    key: &str,
+) -> Result<(), String> {
+    if !crate::generated_lookup::enabled() {
+        return Ok(());
+    }
+    let invocation = expression_source(&expression.expr)?;
+    let spans = prepared.generator_origins.builtins.get(&invocation);
+    let spans = spans
+        .map(Vec::as_slice)
+        .unwrap_or(std::slice::from_ref(&expression.span));
+    let path = generator::cached_generated_source_path(directory, key);
+    for &span in spans {
+        crate::generated_lookup::record(span, &prepared.generator_origins.source_paths, &path);
+    }
+    Ok(())
+}
+
 fn write_prepared_generated_sources_reusing_graph(
     prepared: &PreparedProgramSyntax,
     directory: &Path,
@@ -1132,6 +1157,7 @@ fn write_prepared_generated_sources_reusing_graph(
                 &origins,
                 || Ok(generated.source.clone()),
             )?;
+            record_generated_artifact(prepared, expression, &generated_cache, &key)?;
             continue;
         }
         let original = normalize_builtin_generator_invocation(&expression.expr)?;
@@ -1165,6 +1191,7 @@ fn write_prepared_generated_sources_reusing_graph(
             &builtin_origins[&invocation],
             || materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types),
         )?;
+        record_generated_artifact(prepared, expression, &generated_cache, &key)?;
     }
     Ok(())
 }

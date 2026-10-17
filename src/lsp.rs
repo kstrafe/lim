@@ -390,6 +390,66 @@ impl Server<'_> {
             .ok_or((-32602, "Invalid params"))?;
         let byte = position_byte(&doc.text, line as usize, character as usize)
             .ok_or((-32602, "Invalid position"))?;
+        if let Some((span, name)) = crate::parse(&doc.text)
+            .ok()
+            .and_then(|tree| generator_reference(&tree, byte))
+        {
+            let overlays = self
+                .documents
+                .values()
+                .map(|d| (d.path.clone(), d.text.clone()))
+                .collect();
+            let context = self.context_file(doc);
+            if name.is_some() {
+                let target = crate::editor::generator_definition_in_context(
+                    &doc.text,
+                    &doc.path,
+                    self.config,
+                    &overlays,
+                    context.as_deref(),
+                    byte,
+                )
+                .ok()
+                .flatten();
+                return Ok(target
+                    .and_then(|(path, source, span)| {
+                        // Builtins without a physical declaration have no definition target.
+                        let uri = path_to_uri(&file_source_path(&path.to_string_lossy())?)?;
+                        Some(format!(
+                            "{{\"uri\":{},\"range\":{}}}",
+                            quoted(&uri),
+                            span_range(&source, Some(span))
+                        ))
+                    })
+                    .unwrap_or_else(|| "null".into()));
+            }
+            let paths = crate::editor::locate_generated_in_context(
+                &doc.text,
+                &doc.path,
+                self.config,
+                &overlays,
+                context.as_deref(),
+                span.start,
+                span.end,
+            )
+            .unwrap_or_default();
+            let locations = paths
+                .iter()
+                .filter_map(|path| path_to_uri(path))
+                .map(|uri| {
+                    format!(
+                        "{{\"uri\":{},\"range\":{}}}",
+                        quoted(&uri),
+                        range(0, 0, 0, 0)
+                    )
+                })
+                .collect::<Vec<_>>();
+            return Ok(if locations.is_empty() {
+                "null".into()
+            } else {
+                format!("[{}]", locations.join(","))
+            });
+        }
         if let Some(name) = crate::parse(&doc.text)
             .ok()
             .and_then(|tree| import_reference(&tree, byte))
@@ -577,7 +637,11 @@ impl Server<'_> {
     }
 }
 
-fn semantic_symbol(source: &SpannedExpr, semantic: &Expr, byte: usize) -> Option<String> {
+pub(crate) fn semantic_symbol(
+    source: &SpannedExpr,
+    semantic: &Expr,
+    byte: usize,
+) -> Option<String> {
     if byte < source.span.start || byte >= source.span.end {
         return None;
     }
@@ -751,6 +815,43 @@ fn declaration_name_index(expression: &SpannedExpr) -> usize {
     } else {
         1
     }
+}
+// The @ token and generator name have distinct navigation roles. Use token
+// spans rather than the containing list: @ may occur on a later line.
+fn generator_reference(expressions: &[SpannedExpr], byte: usize) -> Option<(Span, Option<String>)> {
+    for expression in expressions {
+        if byte < expression.span.start || byte >= expression.span.end {
+            continue;
+        }
+        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            continue;
+        }
+        if matches!(expression.children.first().map(|child| &child.expr), Some(Expr::Symbol(head)) if head == "#gn" || head == "#gn-fn")
+        {
+            continue;
+        }
+        if let Some(at) = expression
+            .children
+            .first()
+            .filter(|child| matches!(child.expr, Expr::At))
+        {
+            if at.span.start <= byte && byte < at.span.end {
+                return Some((at.span, None));
+            }
+            if let Some(name) = expression.children.get(1) {
+                if name.span.start <= byte && byte < name.span.end {
+                    if let Expr::Symbol(name) = &name.expr {
+                        return Some((at.span, Some(name.clone())));
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(reference) = generator_reference(&expression.children, byte) {
+            return Some(reference);
+        }
+    }
+    None
 }
 fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
     for expression in expressions {

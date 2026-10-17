@@ -124,6 +124,168 @@ pub(crate) fn program_in_context(
     context_file: Option<&Path>,
     validate: bool,
 ) -> Result<crate::Program, crate::Diagnostic> {
+    with_compilation_context(
+        source,
+        path,
+        config,
+        overlays,
+        context_file,
+        |entry_source, entry, config, has_context| {
+            let absolute = path_key(path);
+            let prepared = crate::prepare_program_syntax(
+                entry_source,
+                entry.parent().unwrap_or(Path::new(".")),
+                Some(entry),
+                config,
+                None,
+            )
+            .map_err(|error| crate::generator_diagnostic(error, entry, entry_source))?;
+            let program = crate::expand_prepared_program(&prepared)
+                .map_err(|error| crate::generator_diagnostic(error, entry, entry_source))?;
+            if has_context
+                && !program
+                    .source_files
+                    .iter()
+                    .any(|file| path_key(&file.path) == absolute)
+                && !(path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("editor-"))
+                    && path.parent().is_some_and(|parent| {
+                        parent.file_name().is_some_and(|name| name == "generated")
+                    })
+                    && program.generated_source_invocations.keys().any(|id| {
+                        crate::lsp::generated_snapshot(&program, *id)
+                            .is_some_and(|(text, _)| text == source)
+                    }))
+            {
+                return Err(crate::Diagnostic::new(
+                    crate::DiagnosticCode::Cli,
+                    format!(
+                        "file is not included by LSP entry '{}' under the selected cfg",
+                        entry.display()
+                    ),
+                )
+                .with_source(path.display().to_string(), source.to_owned()));
+            }
+            if validate {
+                crate::CheckedProgram::validate_with_span(&program).map_err(
+                    |(message, code, span, labels)| {
+                        crate::analysis_diagnostic(message, code, span, labels, &program)
+                    },
+                )?;
+            }
+            Ok(program)
+        },
+    )
+}
+
+/// Resolve and publish artifacts using the same entry, cfg, and buffer scope as checking.
+pub(crate) fn locate_generated_in_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    start: usize,
+    end: usize,
+) -> Result<Vec<PathBuf>, crate::Diagnostic> {
+    with_compilation_context(
+        source,
+        path,
+        config,
+        overlays,
+        context_file,
+        |source, entry, config, _| {
+            crate::locate_generated(source, entry, config, &path_key(path), start, end)
+        },
+    )
+}
+
+pub(crate) fn generator_definition_in_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    byte: usize,
+) -> Result<Option<(PathBuf, String, crate::Span)>, crate::Diagnostic> {
+    with_compilation_context(
+        source,
+        path,
+        config,
+        overlays,
+        context_file,
+        |source, entry, config, _| {
+            let (forms, files) = crate::load_imports_with_sources(
+                source,
+                entry.parent().unwrap_or(Path::new(".")),
+                Some(entry),
+                config,
+            )
+            .map_err(|error| crate::generator_diagnostic(error, entry, source))?;
+            if !files
+                .iter()
+                .any(|file| path_key(&file.path) == path_key(path))
+            {
+                return Ok(None);
+            }
+            // External imports rewrite names while preserving source spans. Recover
+            // the invocation's compilation name from those forms, not buffer text.
+            let names = forms
+                .iter()
+                .filter(|form| {
+                    files
+                        .get(form.span.source_id as usize)
+                        .is_some_and(|file| path_key(&file.path) == path_key(path))
+                })
+                .filter_map(|form| crate::lsp::semantic_symbol(form, &form.expr, byte))
+                .collect::<std::collections::BTreeSet<_>>();
+            if names.is_empty() {
+                return Ok(None);
+            }
+            let mut seen = std::collections::HashSet::new();
+            let mut matches = forms.iter().filter_map(|form| {
+                let crate::Expr::Symbol(head) = &form.children.first()?.expr else {
+                    return None;
+                };
+                if head != "#gn" {
+                    return None;
+                }
+                let declaration = form.children.get(1)?;
+                let crate::Expr::Symbol(name) = &declaration.expr else {
+                    return None;
+                };
+                if !names.contains(name) {
+                    return None;
+                }
+                let file = files.get(declaration.span.source_id as usize)?;
+                if !seen.insert((
+                    path_key(&file.path),
+                    declaration.span.start,
+                    declaration.span.end,
+                )) {
+                    return None;
+                }
+                Some((file.path.clone(), file.source.clone(), declaration.span))
+            });
+            let first = matches.next();
+            Ok(if matches.next().is_none() {
+                first
+            } else {
+                None
+            })
+        },
+    )
+}
+
+fn with_compilation_context<T>(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    operation: impl FnOnce(&str, &Path, &crate::CompileConfig, bool) -> Result<T, crate::Diagnostic>,
+) -> Result<T, crate::Diagnostic> {
     let mut overlays: HashMap<PathBuf, String> = overlays
         .iter()
         .map(|(path, text)| (path_key(path), text.clone()))
@@ -176,49 +338,7 @@ pub(crate) fn program_in_context(
                 .with_source(path.display().to_string(), source.to_owned())
             })?
     };
-    let prepared = crate::prepare_program_syntax(
-        &entry_source,
-        entry.parent().unwrap_or(Path::new(".")),
-        Some(&entry),
-        &config,
-        None,
-    )
-    .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
-    let program = crate::expand_prepared_program(&prepared)
-        .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
-    if context.is_some()
-        && !program
-            .source_files
-            .iter()
-            .any(|file| path_key(&file.path) == absolute)
-        && !(path
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().starts_with("editor-"))
-            && path
-                .parent()
-                .is_some_and(|parent| parent.file_name().is_some_and(|name| name == "generated"))
-            && program.generated_source_invocations.keys().any(|id| {
-                crate::lsp::generated_snapshot(&program, *id)
-                    .is_some_and(|(text, _)| text == source)
-            }))
-    {
-        return Err(crate::Diagnostic::new(
-            crate::DiagnosticCode::Cli,
-            format!(
-                "file is not included by LSP entry '{}' under the selected cfg",
-                entry.display()
-            ),
-        )
-        .with_source(path.display().to_string(), source.to_owned()));
-    }
-    if validate {
-        crate::CheckedProgram::validate_with_span(&program).map_err(
-            |(message, code, span, labels)| {
-                crate::analysis_diagnostic(message, code, span, labels, &program)
-            },
-        )?;
-    }
-    Ok(program)
+    operation(&entry_source, &entry, &config, context.is_some())
 }
 
 #[cfg(test)]

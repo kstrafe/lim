@@ -74,10 +74,16 @@ Navigation publishes the selected expanded source as a content-addressed
 invocation provenance and exact UTF-16 name ranges. Existing identical snapshots
 are not rewritten; diagnostic checks remain write-free and no generator-cache
 entries are created. Invalid expansions return no generated location.
+On a generator invocation, goto definition on `@` opens the current cached
+generated artifact instead; on the generator's name it opens the generator
+declaration. Artifact navigation uses the selected entry point, cfg settings,
+and unsaved buffers, and can materialize generator cache files on demand.
+The equivalent command-line lookup is
+`lim main.lim --locate-generated path/to/file.lim:42`.
 With a compilation context, imported calls and explicit types also navigate to
 their declaration files in the selected entry graph; files outside that graph
 must use a different entry in `lim.lsp`.
-Other references, generator invocation names, locals, fields, quoted templates,
+Other references, locals, fields, quoted templates,
 and ambiguous duplicate functions return no location.
 Generated diagnostics point to file-backed invocation provenance;
 expansion provenance is also included as related diagnostic locations.

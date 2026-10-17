@@ -741,6 +741,12 @@ fn flush_invocation_artifacts(context: &ExpansionContext<'_>) -> Result<(), Stri
     };
     let mut created_directories = false;
     for artifact in context.invocation_artifacts.values() {
+        if crate::generated_lookup::enabled() {
+            let (path, _) = generated_expansion_paths(directory, &artifact.key);
+            for &span in &artifact.origins {
+                crate::generated_lookup::record(span, &context.origins.source_paths, &path);
+            }
+        }
         let origins = artifact
             .origins
             .iter()
@@ -1407,6 +1413,11 @@ pub(crate) fn cached_generated_source_with_origins(
         "generated-source cache digest",
     )?;
     Ok(source)
+}
+
+pub(crate) fn cached_generated_source_path(directory: &Path, key: &str) -> PathBuf {
+    let digest = stable_hash(format!("lim-generated-source-format-v1\n{key}").as_bytes());
+    generated_source_directory(directory).join(format!("generated-{digest:032x}.lim"))
 }
 
 const GENERATED_ORIGINS_HEADER: &str = "; Generated from:\n";
