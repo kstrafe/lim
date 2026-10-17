@@ -1076,8 +1076,25 @@ fn record_generated_artifact(
         .map(Vec::as_slice)
         .unwrap_or(std::slice::from_ref(&expression.span));
     let path = generator::cached_generated_source_path(directory, key);
+    let Expr::List(items) = &expression.expr else {
+        return Err("generated artifact requires an invocation".into());
+    };
+    let Some(Expr::Symbol(name)) = items.get(1) else {
+        return Err("generated artifact requires a generator name".into());
+    };
     for &span in spans {
-        crate::generated_lookup::record(span, &prepared.generator_origins.source_paths, &path);
+        let nested = prepared
+            .generator_origins
+            .source_invocation_names
+            .get(&span)
+            .is_none_or(|caller| caller != name);
+        crate::generated_lookup::record(
+            span,
+            &prepared.generator_origins.source_paths,
+            &path,
+            name,
+            nested,
+        );
     }
     Ok(())
 }

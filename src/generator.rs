@@ -207,6 +207,7 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
 pub(crate) struct Origins {
     pub user: HashSet<Span>,
     pub builtins: HashMap<String, Vec<Span>>,
+    pub source_invocation_names: HashMap<Span, String>,
     pub source_paths: Vec<PathBuf>,
     pub standard_declarations: HashSet<Span>,
     pub generation: crate::generator_provenance::Registry,
@@ -499,6 +500,16 @@ fn expand_with_hits_and_origins(
             continue;
         }
         context.invocation_span = Some(expression.span);
+        if crate::generated_lookup::enabled() {
+            if let Expr::List(items) = &expression.expr {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    context
+                        .origins
+                        .source_invocation_names
+                        .insert(expression.span, name.clone());
+                }
+            }
+        }
         let is_user_invocation = match &expression.expr {
             Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
                 .get(1)
@@ -688,6 +699,8 @@ struct InvocationArtifact {
     key: String,
     source: String,
     origins: HashSet<Span>,
+    generator: Option<String>,
+    direct_origins: HashSet<Span>,
     needs_publication: bool,
 }
 
@@ -720,6 +733,11 @@ fn record_invocation_origins(key: &str, context: &mut ExpansionContext<'_>) {
     let Some(span) = context.invocation_span else {
         return;
     };
+    if crate::generated_lookup::enabled() && context.active_invocations.is_empty() {
+        if let Some(artifact) = context.invocation_artifacts.get_mut(key) {
+            artifact.direct_origins.insert(span);
+        }
+    }
     let mut pending = vec![key.to_owned()];
     let mut visited = HashSet::new();
     while let Some(key) = pending.pop() {
@@ -744,7 +762,13 @@ fn flush_invocation_artifacts(context: &ExpansionContext<'_>) -> Result<(), Stri
         if crate::generated_lookup::enabled() {
             let (path, _) = generated_expansion_paths(directory, &artifact.key);
             for &span in &artifact.origins {
-                crate::generated_lookup::record(span, &context.origins.source_paths, &path);
+                crate::generated_lookup::record(
+                    span,
+                    &context.origins.source_paths,
+                    &path,
+                    artifact.generator.as_deref().unwrap_or_default(),
+                    !artifact.direct_origins.contains(&span),
+                );
             }
         }
         let origins = artifact
@@ -1025,6 +1049,14 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 key: cache_key,
                 source,
                 origins: context.invocation_span.into_iter().collect(),
+                generator: crate::generated_lookup::enabled().then(|| name.clone()),
+                direct_origins: if crate::generated_lookup::enabled()
+                    && context.active_invocations.len() == 1
+                {
+                    context.invocation_span.into_iter().collect()
+                } else {
+                    HashSet::new()
+                },
                 needs_publication,
             },
         );

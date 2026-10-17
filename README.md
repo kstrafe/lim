@@ -204,10 +204,19 @@ Lines and columns are one-based; columns count Unicode characters, and explicit
 range ends are exclusive. A line, position, or range overlapping any
 part of a generator invocation selects its output; the selection need not
 start on `@`. A whole-line range such as `file.lim:42-45` also works. The
-command prints the current generated source paths, one per line, without
-building a native binary. Multiple selected invocations and nested expansions
-can produce multiple paths; duplicate paths are printed only once, in sorted
-order. A selection with no active invocation produces no paths.
+command prints each current generated source path with its generator name and
+relationship to the selection, without building a native binary:
+
+```text
+direct @#pin-box -> /project/examples/.lim/generated/generated-<hash>.lim
+nested @#allocator-for -> /project/examples/.lim/generated/generated-<hash>.lim
+```
+
+`direct` identifies output from a selected invocation; `nested` identifies
+output from a generator called during its expansion. Direct results come first,
+then nested results; paths within each group are sorted. Duplicate paths are
+printed only once, with direct selection taking precedence. A selection with
+no active invocation produces no paths.
 
 The entry point determines the import graph. Supply the same `--cfg`,
 `--target`, and `--module-path` options as for compilation. Lookup uses the

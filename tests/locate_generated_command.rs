@@ -38,7 +38,13 @@ fn locates_points_and_overlapping_ranges_without_native_output() {
         let (success, stdout, stderr) = run(&[entry, "--locate-generated", &selection]);
         assert!(success, "{suffix}: {stderr}");
         assert!(stderr.is_empty(), "{stderr}");
-        let paths: Vec<_> = stdout.lines().map(PathBuf::from).collect();
+        let paths: Vec<_> = stdout
+            .lines()
+            .map(|line| {
+                assert!(line.starts_with("direct @"), "{line}");
+                PathBuf::from(line.split_once(" -> ").unwrap().1)
+            })
+            .collect();
         assert_eq!(paths.len(), expected, "{suffix}: {stdout}");
         for path in &paths {
             assert!(path.is_file(), "{}", path.display());
@@ -88,7 +94,8 @@ fn imported_selection_uses_cfg_target_module_paths_and_writes_lsp_context() {
     let context = lim::lsp_context::LspContext::read(&context).unwrap();
     assert_eq!(context.entry, input);
     assert_eq!(context.target, lim::TargetDescription::AARCH64_LINUX);
-    assert!(fs::read_to_string(stdout.trim()).unwrap().contains("First"));
+    let path = stdout.trim().split_once(" -> ").unwrap().1;
+    assert!(fs::read_to_string(path).unwrap().contains("First"));
     assert!(!input.with_extension("").exists());
 }
 
@@ -145,4 +152,46 @@ fn reports_current_entry_errors_even_when_selection_has_no_invocation() {
     assert!(stdout.is_empty());
     assert!(stderr.contains("\"category\":\"type\""), "{stderr}");
     assert!(!input.with_extension("").exists());
+}
+
+#[test]
+fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() {
+    let scratch = support::Scratch::new("locate-command-nested-labels");
+    let input = scratch.path().join("main.lim");
+    fs::write(
+        &input,
+        "(#gn inner () `((#type Value #u64)))\n(#gn outer () `((@inner)))\n(@outer)\n(@inner)\n",
+    )
+    .unwrap();
+    let selection = format!("{}:3", input.display());
+    let arguments = [input.to_str().unwrap(), "--locate-generated", &selection];
+    let (success, cold, stderr) = run(&arguments);
+    assert!(success, "{stderr}");
+    let lines = cold.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "{cold}");
+    assert!(lines[0].starts_with("direct @outer -> "), "{cold}");
+    assert!(lines[1].starts_with("nested @inner -> "), "{cold}");
+    for line in &lines {
+        assert!(std::path::Path::new(line.split_once(" -> ").unwrap().1).is_file());
+    }
+    let (success, warm, stderr) = run(&arguments);
+    assert!(success, "{stderr}");
+    assert_eq!(cold, warm);
+
+    let selection = format!("{}:4", input.display());
+    let (success, stdout, stderr) =
+        run(&[input.to_str().unwrap(), "--locate-generated", &selection]);
+    assert!(success, "{stderr}");
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(stdout.starts_with("direct @inner -> "), "{stdout}");
+
+    let selection = format!("{}:3-4", input.display());
+    let (success, stdout, stderr) =
+        run(&[input.to_str().unwrap(), "--locate-generated", &selection]);
+    assert!(success, "{stderr}");
+    assert_eq!(stdout.lines().count(), 2, "{stdout}");
+    assert!(
+        stdout.lines().all(|line| line.starts_with("direct @")),
+        "{stdout}"
+    );
 }

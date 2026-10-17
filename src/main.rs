@@ -185,7 +185,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server.");
-        println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints one artifact path per line without producing a binary.");
+        println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
         return ExitCode::SUCCESS;
     }
     if arguments
@@ -554,7 +554,7 @@ fn locate_generated_command(mut arguments: Vec<String>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match lim::locate_generated(
+    match lim::locate_generated_details(
         &source,
         Path::new(&entry),
         &config,
@@ -562,9 +562,14 @@ fn locate_generated_command(mut arguments: Vec<String>) -> ExitCode {
         start,
         end,
     ) {
-        Ok(paths) => {
-            for path in paths {
-                println!("{}", path.display());
+        Ok(artifacts) => {
+            for artifact in artifacts {
+                let relationship = if artifact.nested { "nested" } else { "direct" };
+                println!(
+                    "{relationship} @{} -> {}",
+                    artifact.generator,
+                    artifact.path.display()
+                );
             }
             ExitCode::SUCCESS
         }

@@ -67,7 +67,7 @@ pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use diagnostic_json::render_diagnostic_json;
 pub use editor::check_source_for_editor;
-pub use generated_lookup::locate_generated;
+pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
