@@ -54,8 +54,12 @@ fn run(
     .unwrap();
     let mut allocator = include_str!("../library/system_allocator.lim").to_owned();
     if fail_realloc {
-        allocator = replace_call(&allocator, "realloc", "stdin-failing-realloc");
-        allocator.push_str("\n(#fn stdin-failing-realloc ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)\n  (#return (#ptr-null (#ptr-mut #u8))))\n");
+        allocator = replace_call(
+            &allocator,
+            "system-heap-reallocate",
+            "stdin-failing-reallocate",
+        );
+        allocator.push_str("\n(#fn stdin-failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)\n  (#return (#ptr-null (#ptr-mut #u8))))\n");
     }
     fs::write(scratch.path().join("system_allocator.lim"), allocator).unwrap();
     let source = format!(

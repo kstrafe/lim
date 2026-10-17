@@ -39,7 +39,7 @@ fn allocator_with_calls(replacements: &[(&str, &str)]) -> String {
 
 // Substitute only allocator calls in a scratch copy of the actual library.
 // This exercises its real error branches without huge allocations or relying
-// on platform overcommit policy. The real malloc/free still own successful
+// on platform overcommit policy. The native allocator owns successful
 // allocations; a failing realloc must not release or mutate the original.
 fn execute(allocator: &str, body: &str, label: &str) {
     let scratch = support::Scratch::new(label);
@@ -77,10 +77,13 @@ fn execute(allocator: &str, body: &str, label: &str) {
 fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
     let allocator = format!(
         "{}\n{}",
-        allocator_with_calls(&[("malloc", "failing-malloc"), ("free", "unexpected-free")]),
-        "(#fn failing-malloc (: size #usize) (#ptr-mut #u8)
+        allocator_with_calls(&[
+            ("system-heap-allocate", "failing-allocate"),
+            ("system-heap-deallocate", "unexpected-deallocate")
+        ]),
+        "(#fn failing-allocate (: size #usize) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))
-         (#fn unexpected-free (: pointer (#ptr-mut #u8)) ()
+         (#fn unexpected-deallocate (: pointer (#ptr-mut #u8)) ()
            (#panic) (#return ()))"
     );
     execute(
@@ -114,8 +117,8 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
 fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
     let allocator = format!(
         "{}\n{}",
-        allocator_with_calls(&[("realloc", "failing-realloc")]),
-        "(#fn failing-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
+        "(#fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -148,8 +151,8 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
 fn failed_string_append_preserves_both_owners() {
     let allocator = format!(
         "{}\n{}",
-        allocator_with_calls(&[("realloc", "failing-realloc")]),
-        "(#fn failing-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
+        "(#fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
           (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -181,10 +184,10 @@ fn failed_string_append_preserves_both_owners() {
 fn failed_deep_clone_preserves_the_original_owner() {
     let allocator = format!(
         "{}\n{}",
-        allocator_with_calls(&[("malloc", "selective-malloc")]),
-        "(#fn selective-malloc (: size #usize) (#ptr-mut #u8)
+        allocator_with_calls(&[("system-heap-allocate", "selective-allocate")]),
+        "(#fn selective-allocate (: size #usize) (#ptr-mut #u8)
            (#return (#if (#usize.== size 8usize)
-             (#ptr-null (#ptr-mut #u8)) (#unsafe (#call malloc (: size size))))))"
+             (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate (: size size))))))"
     );
     execute(
         &allocator,
@@ -208,16 +211,16 @@ fn failed_deep_clone_preserves_the_original_owner() {
 }
 
 #[test]
-fn zero_and_oversize_raw_requests_are_rejected_before_libc() {
+fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[
-            ("malloc", "unexpected-malloc"),
-            ("realloc", "unexpected-realloc")
+            ("system-heap-allocate", "unexpected-allocate"),
+            ("system-heap-reallocate", "unexpected-reallocate")
         ]),
-        "(#fn unexpected-malloc (: size #usize) (#ptr-mut #u8)
+        "(#fn unexpected-allocate (: size #usize) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))
-         (#fn unexpected-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+         (#fn unexpected-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(

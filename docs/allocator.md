@@ -6,12 +6,14 @@ pointers, closures, methods, or implicit allocators.
 
 ## Standard system allocator and String
 
-`library/system_allocator.lim` supplies byte-oriented wrappers around the
-process's standard C allocator on Linux x86-64. `system-allocate (: size #usize)`
+`library/system_allocator.lim` implements a native Lim process heap on Linux
+x86-64. It uses raw `mmap`, `mremap`, and `munmap` syscalls, not libc, FFI,
+external allocator code, or thread-local runtime state.
+`system-allocate (: size #usize)`
 returns `SystemAllocated` with a raw pointer, or `SystemAllocationFailed` with
 `SystemAllocationOutOfMemory` or `SystemAllocationInvalidSize`. Zero-size
 requests and sizes above `SYSTEM-ALLOCATION-MAX` (PTRDIFF_MAX) are rejected
-before calling libc. Empty owners therefore keep a null pointer without
+before accessing the heap. Empty owners therefore keep a null pointer without
 requesting a zero-size allocation.
 
 `system-reallocate (: pointer (#ptr-mut #u8) : size #usize)` and
@@ -19,7 +21,30 @@ requesting a zero-size allocation.
 must supply live storage from this allocator, ensure unique access, and stop
 using the old pointer after successful reallocation or deallocation. Failed
 reallocation leaves the original allocation valid. Reallocation never uses a
-zero size. Deallocation is explicit; there is no implicit destructor.
+zero size. A null input to reallocation allocates fresh storage; null
+deallocation is a no-op. Deallocation is explicit; there is no implicit destructor.
+
+Allocations are aligned to `SYSTEM-ALLOCATION-ALIGNMENT` (16 bytes). Sizes
+up to 4080 bytes use power-of-two block classes in 64 KiB slabs; a 16-byte
+header precedes each payload. Partially occupied slabs maintain per-class
+free lists under an acquire/release atomic lock. One empty slab per class
+is cached (at most 512 KiB of mapped space); additional empty slabs are
+unmapped. Large allocations use dedicated page-rounded mappings.
+
+Reallocation within the existing capacity updates the requested size in
+place. Growth out of a small class allocates, copies the old requested bytes,
+and frees the old block only after success. Large growth uses `mremap` with
+movement permitted; failure preserves the original mapping and bytes.
+Successful reallocation invalidates the old pointer for further use, even
+when its numeric address is unchanged. Never reallocate live pinned storage.
+
+The heap supports concurrent calls, including generated raw kernel workers.
+It is not async-signal-safe, and fork children must not use a lock inherited
+while held by a different thread. It has no over-aligned allocation interface.
+Invalid pointers, double frees, concurrent accesses to a freed/resized block,
+and mixing this heap with a foreign `malloc`/`free` pair violate the unsafe
+caller contract. Implementation entry points use `system-heap-*` names;
+the library does not define or replace C `malloc`, `realloc`, or `free`.
 
 `library/string.lim` builds an opaque, linear `String` from these functions.
 Its length and capacity are UTF-8 byte counts. Constructors and deep cloning
@@ -30,7 +55,7 @@ invalid continuation bytes, overlong encodings, surrogate code points, and
 scalars above U+10FFFF. Interior NUL is permitted; no terminating NUL is added.
 Borrowed `StringBytes` views retain an owner borrow; byte indexing copies a
 `#u8` and no mutable byte access is public. `String-free` consumes the owner
-and calls `free` exactly once for an allocation. `String-clear` retains
+and returns its allocation to the native heap exactly once. `String-clear` retains
 allocated capacity; an empty
 string with retained capacity still needs freeing.
 
@@ -48,11 +73,12 @@ by a call or borrowed from a temporary allocator instance. It is a
 process-wide allocator with process lifetime. Collections using user-defined
 allocators continue to retain the instance borrow described below.
 
-This library adds no Rust crate dependencies and does not invoke external
-linker tools: Lim's native linker resolves the libc imports. Libc calls are
-not allowed in generated raw kernel-worker call graphs, which do not have
-libc thread-local state. The String library does not override structural
-Send/Sync checks or promise worker compatibility.
+This library adds no Rust crate dependencies, invokes no external linker
+tools, and introduces no dynamic-library dependency. String-only programs
+link as native static executables. Other explicitly imported FFI functions
+can still require dynamic libraries. The String library does not override
+structural Send/Sync checks: removing libc does not authorize transferring
+an otherwise non-Send owner or reference between threads.
 
 ## Allocator identity
 

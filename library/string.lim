@@ -1,4 +1,4 @@
-; Opaque, linear UTF-8 text backed by the process's standard system allocator.
+; Opaque, linear UTF-8 text backed by the native Lim process heap (no libc).
 ; Length/capacity are bytes, not characters. Strings are not NUL-terminated;
 ; embedded NUL is valid text. No safe mutable byte access or shallow clone exists.
 ; Allocation is fallible, moves do not allocate, and String-free is explicit.

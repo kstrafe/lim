@@ -1423,8 +1423,9 @@ must not reach a normal return.  A void function returns explicitly with
 
 Import `library/string.lim` for the concrete, opaque, linear `String` type.
 String literals remain fixed character arrays; conversion is explicit. The
-standard process allocator (`malloc`, `realloc`, `free`) owns the bytes. This
-is an ordinary library, not a new builtin or an implicit allocation.
+native Lim process allocator owns the bytes. It pools small allocations and
+uses Linux memory-mapping syscalls for backing storage, without libc or FFI.
+This is an ordinary library, not a new builtin or an implicit allocation.
 
 ```lisp run=42
 (#import "../library/string.lim")
