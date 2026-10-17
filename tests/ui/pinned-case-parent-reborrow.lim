@@ -1,0 +1,10 @@
+(#enum Choice () ((Full #u64)))
+(#fn touch (: input (#pin-ref-mut Choice)) #u64
+  (#return (#match input
+    (#case-pin-mut (Full value) (#deref value)))))
+(#fn inspect (: choice (#pin-ref-mut Choice)) #u64
+  (#return (#match choice
+    (#case-pin-mut (Full value)
+      (#block
+        (#call touch (: input choice))
+        (#deref value))))))

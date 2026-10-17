@@ -37,6 +37,7 @@ mod native_linker;
 mod output;
 mod pin_access;
 mod pin_ownership;
+mod pinned_case;
 mod reachability;
 mod semantic_cache;
 mod source_error;
@@ -1418,7 +1419,7 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
         "#gn" | "#gn-fn" => Some(3),
         "#for" | "#for-range" => Some(4),
         "#while" | "#if" | "#match" | "#gn-if" => Some(2),
-        "#case" => Some(
+        "#case" | "#case-pin" | "#case-pin-mut" => Some(
             if matches!(items.get(2), Some(Expr::List(guard))
             if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when"))
             {
@@ -2961,7 +2962,7 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
                     .and_then(|value| source_value_symbol_span(value, name))
             })
         }),
-        Some("#case") => children
+        Some("#case" | "#case-pin" | "#case-pin-mut") => children
             .iter()
             .skip(2)
             .rev()
@@ -3779,6 +3780,17 @@ pub(crate) fn function_shadowing_span(
                 }
                 children[2..].iter().find_map(|arm| {
                     let mut inner = *bound;
+                    if matches!(head(arm), "#case-pin" | "#case-pin-mut") {
+                        let pattern = arm.children.get(1)?;
+                        if let Expr::List(parts) = &pattern.expr {
+                            if parts.len() == 2 {
+                                let binder = pattern.children.get(1)?;
+                                return declare(binder, name, &mut inner)
+                                    .or_else(|| sequence(&arm.children[2..], name, &mut inner));
+                            }
+                        }
+                        return sequence(&arm.children[2..], name, &mut inner);
+                    }
                     if head(arm) != "#case" {
                         return None;
                     }
@@ -4257,7 +4269,8 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
         | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
-        "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" => {
+        "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
+        | "#case-pin-mut" => {
             if let Some(value) = items.get(1) {
                 pattern(value)?;
             }
@@ -4332,6 +4345,50 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
             }
         }
     }
+    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#enum") {
+        // Variant names are identifiers, not executable keywords. Validate
+        // payload types, but don't interpret a variant
+        // such as `case-pin` as a missing `#` prefix.
+        if let Some(Expr::List(variants)) = items.get(3) {
+            for variant in variants {
+                if let Expr::List(parts) = variant {
+                    for payload_type in parts.iter().skip(1) {
+                        validate_prefixed_forms_inner(payload_type)?;
+                    }
+                }
+            }
+        }
+        for item in items.iter().skip(1).take(2) {
+            validate_prefixed_forms_inner(item)?;
+        }
+        for item in items.iter().skip(4) {
+            validate_prefixed_forms_inner(item)?;
+        }
+        return Ok(());
+    }
+    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#match") {
+        if let Some(scrutinee) = items.get(1) {
+            validate_prefixed_forms_inner(scrutinee)?;
+        }
+        for arm in items.iter().skip(2) {
+            let Expr::List(parts) = arm else {
+                validate_prefixed_forms_inner(arm)?;
+                continue;
+            };
+            if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#case" | "#case-pin" | "#case-pin-mut"))
+            {
+                if let Some(pattern) = parts.get(1) {
+                    validate_match_pattern_prefixes(pattern)?;
+                }
+                for part in parts.iter().skip(2) {
+                    validate_prefixed_forms_inner(part)?;
+                }
+            } else {
+                validate_prefixed_forms_inner(arm)?;
+            }
+        }
+        return Ok(());
+    }
     if matches!(items.first(), Some(Expr::At)) {
         let normalized = normalize_builtin_generator_invocation(expression)?;
         if normalized != *expression {
@@ -4404,6 +4461,29 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_match_pattern_prefixes(pattern: &Expr) -> Result<(), String> {
+    let Expr::List(parts) = pattern else {
+        return validate_prefixed_forms_inner(pattern);
+    };
+    let Some(Expr::Symbol(head)) = parts.first() else {
+        for part in parts {
+            validate_match_pattern_prefixes(part)?;
+        }
+        return Ok(());
+    };
+    if head.starts_with('#') {
+        validate_prefixed_forms_inner(&parts[0])?;
+    } else if matches!(head.as_str(), "or" | "range" | "tuple") {
+        return Err(format!(
+            "builtin '{head}' must use its '#' prefix in prefixed syntax"
+        ));
+    }
+    for part in parts.iter().skip(1) {
+        validate_match_pattern_prefixes(part)?;
+    }
+    Ok(())
+}
+
 fn is_primitive_type_name(name: &str) -> bool {
     matches!(
         name,
@@ -4458,6 +4538,24 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
             if let Expr::List(parts) = arm {
                 if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "case") {
                     parts.remove(0);
+                } else if matches!(parts.first(), Some(Expr::Symbol(head))
+                    if matches!(head.as_str(), "#case-pin" | "#case-pin-mut"))
+                {
+                    let mutable = matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case-pin-mut");
+                    if parts.len() >= 2 {
+                        parts[0] = Expr::List(vec![
+                            Expr::Symbol(
+                                if mutable {
+                                    "#case-pin-mut"
+                                } else {
+                                    "#case-pin"
+                                }
+                                .into(),
+                            ),
+                            parts[1].clone(),
+                        ]);
+                        parts.remove(1);
+                    }
                 }
                 for part in parts {
                     normalize_match_cases_expr(part);
@@ -4485,9 +4583,15 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
         Some(Expr::Symbol(name)) => name.as_str(),
         _ => "",
     };
-    if head == "#case" || head == "case" {
+    if matches!(head, "#case" | "case") {
         return Err((
             "#case is only valid as an arm of #match".to_owned(),
+            expression.span,
+        ));
+    }
+    if matches!(head, "#case-pin" | "#case-pin-mut") {
+        return Err((
+            "#case-pin is only valid as an arm of #match".to_owned(),
             expression.span,
         ));
     }
@@ -4503,22 +4607,85 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
             let Expr::List(parts) = &arm.expr else {
                 return Err(("#match arms must use (#case pattern body)".into(), arm.span));
             };
-            if !matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case") {
-                return Err(("each #match arm must use #case".into(), arm.span));
+            let pin_case = matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#case-pin" | "#case-pin-mut"));
+            if !matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#case") && !pin_case {
+                return Err((
+                    "each #match arm must use #case or #case-pin".into(),
+                    arm.span,
+                ));
             }
             if !matches!(parts.len(), 3 | 4) {
                 return Err((
-                    "#case must have a pattern and body, with an optional #when guard".into(),
+                    "match case must have a pattern and body, with an optional #when guard".into(),
                     arm.span,
                 ));
             }
             let Expr::List(normalized_parts) = &mut arm.expr else {
                 unreachable!();
             };
-            normalized_parts.remove(0);
-            arm.children.remove(0);
-            for child in &mut arm.children {
-                normalize_match_case_forms(child)?;
+            let source_case = if pin_case {
+                Some(normalized_parts.remove(0))
+            } else {
+                None
+            };
+            let source_case_node = if pin_case {
+                Some(arm.children.remove(0))
+            } else {
+                None
+            };
+            if pin_case {
+                let pattern = normalized_parts[0].clone();
+                let pattern_node = arm.children[0].clone();
+                let mutable =
+                    matches!(source_case, Some(Expr::Symbol(ref head)) if head == "#case-pin-mut");
+                let mut source_case_node =
+                    source_case_node.expect("pin case marker has a source node");
+                source_case_node.expr = Expr::Symbol(
+                    if mutable {
+                        "#case-pin-mut"
+                    } else {
+                        "#case-pin"
+                    }
+                    .into(),
+                );
+                normalized_parts[0] = Expr::List(vec![
+                    Expr::Symbol(
+                        if mutable {
+                            "#case-pin-mut"
+                        } else {
+                            "#case-pin"
+                        }
+                        .into(),
+                    ),
+                    pattern,
+                ]);
+                arm.children[0] = SpannedExpr {
+                    expr: normalized_parts[0].clone(),
+                    span: Span {
+                        start: source_case_node.span.start,
+                        end: pattern_node.span.end,
+                        line: source_case_node.span.line,
+                        column: source_case_node.span.column,
+                        source_id: source_case_node.span.source_id,
+                    },
+                    children: vec![source_case_node, pattern_node],
+                };
+            } else {
+                normalized_parts.remove(0);
+                arm.children.remove(0);
+            }
+            if pin_case {
+                let wrapper = &mut arm.children[0];
+                for child in wrapper.children.iter_mut().skip(1) {
+                    normalize_match_case_forms(child)?;
+                }
+                for child in arm.children.iter_mut().skip(1) {
+                    normalize_match_case_forms(child)?;
+                }
+            } else {
+                for child in &mut arm.children {
+                    normalize_match_case_forms(child)?;
+                }
             }
         }
         return Ok(());
@@ -4570,6 +4737,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "block"
             | "match"
             | "case"
+            | "case-pin"
+            | "case-pin-mut"
             | "when"
             | "range"
             | "or"
@@ -4785,6 +4954,11 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
         // New intrinsic spelling stays distinct from a user function with
         // the same unprefixed name throughout ordinary call lowering.
         Expr::Symbol(name) if name == "#variant-is" => Expr::Symbol(name),
+        // Pinned-match wrappers are internal pattern markers. Preserve their
+        // prefixed spelling so they cannot collide with enum variant names.
+        Expr::Symbol(name) if matches!(name.as_str(), "#case-pin" | "#case-pin-mut") => {
+            Expr::Symbol(name)
+        }
         Expr::Symbol(name) => Expr::Symbol(if let Some(keyword) = name.strip_prefix('#') {
             keyword.to_owned()
         } else {
@@ -11145,6 +11319,51 @@ mod tests {
         assert!(check_types(&unsafe_boundary)
             .unwrap_err()
             .contains("call to external function 'abs' requires"));
+    }
+
+    #[test]
+    fn parses_ordinary_and_pinned_match_arms() {
+        let source = "(#enum Choice () ((Full #u64) Empty))
+            (#fn ordinary () #u64 (#return (#match true (#case true 42u64) (#case false 0u64))))
+            (#fn pinned ((choice (#pin-ref Choice))) #u64
+              (#return (#match choice
+                (#case-pin (Full payload) (#deref payload))
+                (#case-pin Empty 0u64))))";
+        let program = parse_program(source).unwrap();
+        let checked = check_types(&program);
+        assert!(checked.is_ok(), "{checked:?}");
+
+        let internal_spelling = "(#enum Choice () ((Full #u64) Empty))
+            (#fn pinned ((choice (#pin-ref Choice))) #u64
+              (#return (#match choice
+                ((case-pin (Full payload)) (#deref payload))
+                (#case-pin Empty 0u64))))";
+        let error = parse_program(internal_spelling).unwrap_err();
+        assert!(
+            error.contains("builtin 'case-pin' must use its '#' prefix"),
+            "{error}"
+        );
+
+        let keyword_variants = "(#enum KeywordCases () ((case-pin #u64) (case-pin-mut #u64)))
+            (#fn ordinary ((choice KeywordCases)) #u64
+              (#return (#match choice
+                (#case (case-pin _) 1u64)
+                (#case (case-pin-mut _) 2u64))))";
+        let program = parse_program(keyword_variants).unwrap();
+        let checked = check_types(&program);
+        assert!(checked.is_ok(), "{checked:?}");
+    }
+
+    #[test]
+    fn pinned_mutability_diagnostic_points_at_the_variant_pattern() {
+        let source = "(#enum Choice () ((Full #u64)))
+            (#fn bad ((choice (#pin-ref Choice))) #u64
+              (#return (#match choice
+                (#case-pin-mut (Full payload) (#deref payload)))))";
+        let program = parse_program(source).unwrap();
+        let diagnostic = structured_type_error(&program);
+        let span = diagnostic.span.expect("pinned case has a source span");
+        assert_eq!(&source[span.start..span.end], "Full");
     }
 
     #[test]

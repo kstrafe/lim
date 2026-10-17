@@ -1,0 +1,307 @@
+mod support;
+
+use std::{process::Command, time::Duration};
+
+fn compile(source: &str) -> Result<String, lim::Diagnostic> {
+    let scratch = support::Scratch::new("pinned-cases");
+    lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("input.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+}
+
+fn run(source: &str, expected: i32) {
+    let scratch = support::Scratch::new("pinned-cases-native");
+    let target = lim::TargetDescription::X86_64_SYSTEM_V;
+    let assembly = compile(source).unwrap_or_else(|error| panic!("{error:?}\n{source}"));
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(&assembly, &binary, &[], &[], target).unwrap();
+    let (status, stdout, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
+    assert_eq!(
+        status.code(),
+        Some(expected),
+        "status={status:?} stderr={stderr:?}\n{source}"
+    );
+    assert!(stdout.is_empty());
+    assert!(stderr.is_empty());
+}
+
+fn reject(source: &str, expected: &str) {
+    let program = lim::parse_program(source).unwrap_or_else(|error| {
+        panic!("fixture must parse before semantic rejection: {error}\n{source}")
+    });
+    let error = lim::check_types(&program).expect_err("fixture should fail semantic checking");
+    assert!(
+        error.contains(expected),
+        "expected {expected:?}, got {error}\n{source}"
+    );
+}
+
+fn reject_any(source: &str) {
+    let program = lim::parse_program(source).unwrap_or_else(|error| {
+        panic!("fixture must parse before semantic rejection: {error}\n{source}")
+    });
+    let error = lim::check_types(&program).err().unwrap_or_else(|| {
+        panic!("fixture should be rejected during semantic checking:\n{source}")
+    });
+    assert!(
+        !error.is_empty(),
+        "semantic rejection needs a diagnostic\n{source}"
+    );
+}
+
+fn reject_program(source: &str, expected: &str) {
+    lim::parse(source).unwrap_or_else(|error| panic!("fixture must parse: {error}\n{source}"));
+    let error = lim::parse_program(source).expect_err("program should fail semantic validation");
+    assert!(
+        error.contains(expected),
+        "expected {expected:?}, got {error}\n{source}"
+    );
+}
+
+#[test]
+fn shared_and_exclusive_payload_projection_runs_on_stack_and_heap() {
+    let source = include_str!("../examples/pinned_cases.lim");
+    run(source, 83);
+
+    let heap = source
+        .replace(
+            "(#let-mut choice Choice (Full (#struct-literal Payload (: value 41u64))))",
+            "(#let allocation (#ptr-mut Choice) (#unsafe (#linux-syscall (#ptr-mut Choice) 9usize\n            (0usize (#size-of Choice) 3usize 34usize -1i64 0usize))))\n  (#let-mut choice (#pin-own Choice) (#unsafe (#pin-own-of allocation\n    (Full (#struct-literal Payload (: value 41u64))))))",
+        )
+        .replace("(#pin choice)", "(#pin-own-borrow-mut choice)")
+        .replace(
+            "(#forget choice)",
+            "(#let released (#ptr-mut Choice) (#unsafe (#pin-release choice)))\n  (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Choice)))) 0i64))",
+        );
+    run(&heap, 83);
+}
+
+#[test]
+fn pinned_match_evaluates_input_once_and_supports_guards_and_nested_projection() {
+    run(
+        "(#struct Payload () (: value #u64))
+         (#enum Inner () ((Empty) (Full Payload)))
+         (#enum Outer () ((Nested Inner) (Other)))
+         (#fn select (: choice (#pin-ref-mut Outer) : count (#ref-mut #u64)) #u64
+           (#return (#match (#block (#deref-set count (#u64.+.wrap (#deref count) 1u64)) choice)
+             (#case-pin-mut (Nested inner)
+               (#match inner
+                 (#case-pin-mut (Full guarded) (#when (#u64.== (#get guarded value) 0u64)) 0u64)
+                 (#case-pin-mut (Full payload) (#get payload value))
+                 (#case-pin-mut Empty 0u64)))
+             (#case-pin-mut Other 0u64))))
+         (#fn main () #u64
+           (#let-mut count #u64 0u64)
+           (#let-mut value Outer (Nested (Full (#struct-literal Payload (: value 42u64)))))
+           (#let pin (#pin-ref-mut Outer) (#pin value))
+           (#let answer #u64 (#call select (: choice (#pin-borrow-mut (#deref pin)) : count (#borrow-mut count))))
+           (#assert (#u64.== count 1u64)) (#forget pin) (#forget value) (#return answer))",
+        42,
+    );
+}
+
+#[test]
+fn exclusive_pinned_match_requires_exclusive_input_and_local_escape_is_rejected() {
+    reject(
+        "(#enum Choice () ((Full #u64)))
+         (#fn bad (: choice (#pin-ref Choice)) #u64
+           (#return (#match choice (#case-pin-mut (Full payload) (#deref payload)))))",
+        "mutable",
+    );
+    let local_escape = "(#enum Choice () ((Full #u64)))
+         (#fn bad () (#pin-ref #u64)
+           (#let-mut choice Choice (Full 42u64))
+           (#let pin (#pin-ref-mut Choice) (#pin choice))
+           (#return (#match pin (#case-pin (Full payload) payload))))";
+    reject(local_escape, "local");
+    reject(
+        &local_escape.replace("(#match pin", "(#match (#block pin)"),
+        "local",
+    );
+}
+
+#[test]
+fn pinned_match_keeps_standard_exhaustiveness_and_pattern_restrictions() {
+    let prefix = "(#struct Pair () (: left #u64 : right #u64)) (#enum Choice () ((Full Pair) Empty)) (#fn bad (: choice (#pin-ref Choice)) #u64 ";
+    reject_any(&format!(
+        "{prefix}(#return (#match choice (#case-pin (Full (Pair left right)) left) (#case-pin Empty 0u64))))"
+    ));
+    reject_any(&format!(
+        "{prefix}(#return (#match choice (#case-pin (Full payload) 1u64) (#case-pin (Full again) 2u64) (#case-pin Empty 0u64))))"
+    ));
+    reject_any(&format!(
+        "{prefix}(#return (#match choice (#case-pin (Full payload) (#get payload left)))))"
+    ));
+    reject_any(&format!(
+        "{prefix}(#return (#match choice (#case (Full payload) (#get payload left)) (#case _ 0u64))))"
+    ));
+    reject_program(
+        "(#enum Choice () ((Full #u64) Empty))
+         (#fn bad (: choice (#pin-ref Choice)) #u64
+           (#return (#match choice
+             (#case-pin (Full choice) (#deref choice))
+             (#case-pin Empty 0u64))))",
+        "shadows",
+    );
+    reject_any(
+        "(#struct Payload () (: value #u64))
+         (#enum Choice () ((Full Payload) Empty))
+         (#fn bad (: choice (#pin-ref Choice)) #u64
+           (#return (#match choice
+             (#case-pin (Full payload)
+               (#block (#pin-set-field payload value 0u64) (#get payload value)))
+             (#case-pin Empty 0u64))))",
+    );
+}
+
+#[test]
+fn returned_payload_reference_keeps_the_callers_lifetime() {
+    let source = "(#enum Choice () ((Full #u64)))
+         (#fn payload (: choice (#pin-ref Choice)) (#pin-ref #u64)
+           (#return (#match choice
+             (#case-pin (Full value) value)
+             (#case _ (#unreachable)))))
+         (#fn main () #u64
+           (#let value Choice (Full 42u64))
+           (#let pin (#pin-ref Choice) (#pin-borrow value))
+           (#let result (#pin-ref #u64) (#call payload (: choice pin)))
+           (#let answer #u64 (#deref result)) (#forget result) (#forget pin) (#forget value)
+           (#return answer))";
+    run(source, 42);
+    run(
+        &source.replace("(#match choice", "(#match (#block choice)"),
+        42,
+    );
+    let computed = format!(
+        "(#fn identity (: input (#pin-ref Choice)) (#pin-ref Choice) (#return input))\n{}",
+        source.replace(
+            "(#match choice",
+            "(#match (#call identity (: input choice))"
+        )
+    );
+    run(&computed, 42);
+}
+
+#[test]
+fn pinned_payload_match_handles_large_discriminants_and_early_return() {
+    run(
+        "(#enum Wide () ((Empty 4294967295) (Full 4294967296 #u64)))
+         (#fn result (: value (#pin-ref Wide)) #u64
+           (#return (#match value
+             (#case-pin (Full payload) (#block (#return (#deref payload)) (#unreachable)))
+             (#case-pin Empty 0u64))))
+         (#fn main () #u64
+           (#let value Wide (Full 42u64))
+           (#let pin (#pin-ref Wide) (#pin-borrow value))
+           (#let answer #u64 (#call result (: value pin)))
+           (#forget pin) (#forget value) (#return answer))",
+        42,
+    );
+}
+
+#[test]
+fn mutable_payload_reborrow_conflicts_with_parent_reborrow() {
+    let source = "(#enum Choice () ((Full #u64) Empty))
+         (#fn touch (: choice (#pin-ref-mut Choice)) #u64
+           (#return (#match choice
+             (#case-pin-mut (Full value) (#deref value))
+             (#case-pin-mut Empty 0u64))))
+         (#fn bad (: choice (#pin-ref-mut Choice)) #u64
+           (#return (#match choice
+             (#case-pin-mut (Full payload)
+               (#block (#call touch (: choice choice)) (#deref payload)))
+             (#case-pin-mut Empty 0u64))))";
+    reject_any(source);
+    reject_any(&source.replace("(#match choice", "(#match (#block choice)"));
+    let computed =
+        format!(
+        "(#fn identity (: input (#pin-ref-mut Choice)) (#pin-ref-mut Choice) (#return input))\n{}",
+        source.replace("(#match choice", "(#match (#call identity (: input choice))")
+    );
+    reject_any(&computed);
+}
+
+#[test]
+fn async_generator_body_can_match_a_pinned_enum_payload() {
+    let source = "(#enum Choice () ((Full #u64) Empty))
+         (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+         (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+         (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+           (#return (#match task
+             (#case (Start value) (Pending (Resume value)))
+             (#case (Resume value) (Ready value)))))
+         (#syntax StepAwait (#u64 Child Pending Ready child-poll))
+         (@#async-fn (: protocol WorkAwait : waker #u64
+           : function (#fn work (: choice (#pin-ref-mut Choice) : seed #u64) #u64
+             (#let selected #u64 (#match choice
+               (#case-pin-mut (Full payload) (#when (#u64.== (#deref payload) 42u64)) (#deref payload))
+               (#case _ 0u64)))
+             (#forget choice)
+             (#return (#await StepAwait (Start selected))))))
+         (#fn main () #u64
+           (#let-mut choice Choice (Full 42u64))
+           (#let pin (#pin-ref-mut Choice) (#pin choice))
+           (#let waker #u64 0u64)
+           (#let first Work::Poll (#call Work::poll
+             (: task (#call work (: choice (#pin-borrow-mut (#deref pin)) : seed 42u64)) : waker (#borrow waker))))
+           (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+           (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+             (#case (Work::Ready value) value)
+             (#case (Work::Pending child) (#block (#forget child) (#unreachable)))))
+           (#forget pin) (#forget choice)
+           (#return answer))";
+    run(source, 42);
+    run(&source.replace("(Full 42u64)", "(Full 41u64)"), 0);
+    run(&source.replace("(Full 42u64)", "Empty"), 0);
+    let shared = source
+        .replace("#pin-ref-mut Choice", "#pin-ref Choice")
+        .replace("#case-pin-mut", "#case-pin")
+        .replace("(#pin choice)", "(#pin-shared choice)")
+        .replace(
+            "(#pin-borrow-mut (#deref pin))",
+            "(#pin-borrow (#deref pin))",
+        );
+    run(&shared, 42);
+}
+
+#[test]
+fn byte_payload_write_and_aggregate_match_result_run_on_stack_and_heap() {
+    let source = "(#struct Payload () (: wide #u64 : narrow #u8))
+         (#struct Summary () (: narrow #u8 : wide #u64))
+         (#enum Choice () ((Byte #u8) (Wide Payload) Empty))
+         (#fn summarize (: choice (#pin-ref-mut Choice)) Summary
+           (#return (#match choice
+             (#case-pin-mut (Byte byte)
+               (#block
+                 (#unsafe (#pin-write byte 201u8))
+                 (#struct-literal Summary (: narrow (#deref byte) : wide 42u64))))
+             (#case-pin-mut (Wide payload)
+               (#struct-literal Summary (: narrow (#get payload narrow) : wide (#get payload wide))))
+             (#case-pin-mut Empty
+               (#struct-literal Summary (: narrow 0u8 : wide 0u64))))))
+         (#fn main () #u64
+           (#let-mut choice Choice (Byte 17u8))
+           (#let pin (#pin-ref-mut Choice) (#pin choice))
+           (#let result Summary (#call summarize (: choice (#pin-borrow-mut (#deref pin)))))
+           (#assert (#u8.== (#get result narrow) 201u8))
+           (#assert (#u64.== (#get result wide) 42u64))
+           (#forget pin) (#forget choice) (#return 42u64))";
+    run(source, 42);
+
+    let heap = source
+        .replace(
+            "(#let-mut choice Choice (Byte 17u8))",
+            "(#let allocation (#ptr-mut Choice) (#unsafe (#linux-syscall (#ptr-mut Choice) 9usize\n            (0usize (#size-of Choice) 3usize 34usize -1i64 0usize))))\n  (#let-mut choice (#pin-own Choice) (#unsafe (#pin-own-of allocation (Byte 17u8))))",
+        )
+        .replace("(#pin choice)", "(#pin-own-borrow-mut choice)")
+        .replace(
+            "(#forget choice)",
+            "(#let released (#ptr-mut Choice) (#unsafe (#pin-release choice)))\n  (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Choice)))) 0i64))",
+        );
+    run(&heap, 42);
+}

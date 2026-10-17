@@ -2610,7 +2610,7 @@ impl FlowGraph {
                     if !possible.contains(&literal) {
                         possible.push(literal);
                         if possible.len() > 16 {
-                            return None;
+                            return None
                         }
                     }
                 }
@@ -2814,7 +2814,7 @@ impl FlowGraph {
         let mut record = |targets: Vec<LoanOrigin>| -> Option<()> {
             for mut target in targets {
                 if !target.has_concrete_address() || !target.storage.is_empty() {
-                    return None;
+                    return None
                 }
                 // This is a possible byte-write address, not a typed-value
                 // initialization, ownership, or consumption permission.
@@ -4426,7 +4426,7 @@ impl FlowGraph {
                         FlowAction::Clone { value, .. }
                             if !scalar::scalar_clone_is_pure(body, *value) =>
                         {
-                            return None
+                            return None;
                         }
                         FlowAction::Borrow { place, .. } if place.overlaps(&target) => return None,
                         FlowAction::Evaluate(value)
@@ -10321,7 +10321,7 @@ impl FlowGraph {
                     return None;
                 }
                 FlowAction::Write { .. } | FlowAction::Clone { .. } | FlowAction::Entry => {
-                    return None
+                    return None;
                 }
                 FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
                 FlowAction::Evaluate(value)
@@ -19553,12 +19553,36 @@ impl Builder<'_> {
             NodeKind::Match { value, arms, .. } => {
                 // Try arms in source order. A failed pattern or guard resumes
                 // at the next arm; only the successful edge binds its pattern.
+                let snapshot = self.body.pinned_match_receivers.get(&id).copied();
+                let match_next = if let Some((binding, _)) = snapshot {
+                    self.push(FlowAction::ScopeExit(vec![binding]), span, vec![next])
+                } else {
+                    next
+                };
+                if let Some((binding, _)) = snapshot {
+                    self.active_scopes.push(vec![binding]);
+                }
                 let mut entry = self.push(FlowAction::Diverge, span, vec![]);
                 for arm in arms.iter().rev() {
-                    entry = self.match_arm(*arm, *value, next, entry, targets)?;
+                    entry = self.match_arm(*arm, *value, match_next, entry, targets)?;
+                }
+                if snapshot.is_some() {
+                    self.active_scopes.pop();
                 }
                 let decision = self.push(FlowAction::Branch(id), span, vec![entry]);
-                self.expression(*value, decision, targets, None)
+                if let Some((binding, receiver)) = snapshot {
+                    let bind = self.push(
+                        FlowAction::Bind {
+                            binding,
+                            value: receiver,
+                        },
+                        self.body.nodes[receiver.0].span,
+                        vec![decision],
+                    );
+                    self.expression(*value, bind, targets, None)
+                } else {
+                    self.expression(*value, decision, targets, None)
+                }
             }
             NodeKind::MatchArm { .. } => Err("typed match arm has no dispatch".into()),
             NodeKind::Block(body) => self.scoped_instructions(body, next, targets),
@@ -19862,14 +19886,36 @@ impl Builder<'_> {
             body_entry
         };
         self.active_scopes.pop();
-        let bound = self.push(
-            FlowAction::Pattern {
-                pattern,
-                value: source,
-            },
-            span,
-            vec![success],
-        );
+        let bound = if let Some(projection) = self.body.pinned_cases.get(&id) {
+            if let Some((binding, value)) = *projection {
+                let bind = self.push(FlowAction::Bind { binding, value }, span, vec![success]);
+                let place = Place::from_expression(self.body, value).ok_or_else(|| {
+                    "pinned payload projection has no addressable provenance source".to_owned()
+                })?;
+                let action = FlowAction::Borrow {
+                    value,
+                    place,
+                    mutable: matches!(
+                        self.body.nodes[value.0].ty,
+                        Some(Type::PinnedReference { mutable: true, .. })
+                    ),
+                };
+                // The match already evaluated the receiver. Only project its
+                // saved reference here; never repeat call/index side effects.
+                self.push(action, self.body.nodes[value.0].span, vec![bind])
+            } else {
+                success
+            }
+        } else {
+            self.push(
+                FlowAction::Pattern {
+                    pattern,
+                    value: source,
+                },
+                span,
+                vec![success],
+            )
+        };
         Ok(self.push(FlowAction::Branch(pattern), span, vec![bound, failure]))
     }
 }
@@ -19877,6 +19923,93 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pinned_cases_bind_checked_payload_borrows_without_moving_the_enum() {
+        let program = crate::parse_program(
+            "(#enum Choice () ((Full #u64) Empty))
+             (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
+               (#return (#match choice
+                 (#case-pin-mut (Full value) (#deref value))
+                 (#case _ 0u64))))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        assert_eq!(body.pinned_cases.len(), 2);
+        let (binding, projection) = body
+            .pinned_cases
+            .values()
+            .flatten()
+            .copied()
+            .next()
+            .unwrap();
+        assert!(flow.nodes.iter().any(|node| matches!(node.action,
+            FlowAction::Borrow { value, mutable: true, .. } if value == projection)));
+        assert!(flow.nodes.iter().any(|node| matches!(node.action,
+            FlowAction::Bind { binding: actual, value } if actual == binding && value == projection)));
+        assert!(!flow
+            .nodes
+            .iter()
+            .any(|node| matches!(node.action, FlowAction::Pattern { .. })));
+        assert!(body.nodes[projection.0].expression_id.is_none());
+    }
+
+    #[test]
+    fn computed_pinned_match_snapshots_receiver_before_binding_payload() {
+        let program = crate::parse_program(
+            "(#enum Choice () ((Full #u64) Empty))
+             (#fn identity (: input (#pin-ref-mut Choice)) (#pin-ref-mut Choice)
+               (#return input))
+             (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
+               (#return (#match (#call identity (: input choice))
+                 (#case-pin-mut (Full value) (#deref value))
+                 (#case _ 0u64))))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let (match_id, (snapshot, receiver)) = body
+            .pinned_match_receivers
+            .iter()
+            .next()
+            .expect("computed pinned match has an analysis snapshot");
+        assert!(body.analysis_only_bindings.contains(snapshot));
+
+        let evaluate = flow
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Evaluate(value) if value == *receiver),
+            )
+            .expect("computed receiver is evaluated in the flow graph");
+        let [bind] = flow.nodes[evaluate].successors.as_slice() else {
+            panic!("receiver evaluation must flow directly into its snapshot bind")
+        };
+        let FlowAction::Bind {
+            binding,
+            value: bound_value,
+        } = flow.nodes[bind.0].action
+        else {
+            panic!("receiver evaluation must precede the hidden binding")
+        };
+        assert_eq!(binding, *snapshot);
+        assert_eq!(bound_value, *receiver);
+        assert!(matches!(
+            flow.nodes[flow.nodes[bind.0].successors[0].0].action,
+            FlowAction::Branch(value) if value == *match_id
+        ));
+        assert!(flow.nodes.iter().any(|node| matches!(
+            &node.action,
+            FlowAction::Borrow {
+                place: Place { root: PlaceRoot::Local(binding), .. },
+                mutable: true,
+                ..
+            } if binding == snapshot
+        )));
+    }
 
     #[test]
     fn word_metadata_cannot_grant_extra_internal_alias_permissions() {
@@ -20686,7 +20819,10 @@ mod tests {
             }
             let old = samples[0][samples[0].len() / 2];
             let new = samples[1][samples[1].len() / 2];
-            println!("entry facts, pins={count}, median 11 alternating samples: independent={old:.3}ms reused={new:.3}ms reduction={:.1}%", (old - new) * 100.0 / old);
+            println!(
+                "entry facts, pins={count}, median 11 alternating samples: independent={old:.3}ms reused={new:.3}ms reduction={:.1}%",
+                (old - new) * 100.0 / old
+            );
         }
     }
 
@@ -21240,17 +21376,57 @@ mod tests {
         let cases = [
             ("", "1u64", vec![0, 2]),
             ("(#let selector #u64 1u64)", "selector", vec![0, 2]),
-            ("(#let source #u64 1u64) (#let selector #u64 source)", "selector", vec![0, 2]),
-            ("(#let-mut selector #u64 0u64) (#set selector 1u64)", "selector", vec![0, 2]),
-            ("(#let-mut selector #u64 0u64) (#if condition (#block (#set selector 1u64) ()) (#block (#set selector 2u64) ()))", "selector", vec![0]),
-            ("(#let-mut selector #u64 1u64) (#if condition (#block (#set selector other) ()) ())", "selector", vec![]),
+            (
+                "(#let source #u64 1u64) (#let selector #u64 source)",
+                "selector",
+                vec![0, 2],
+            ),
+            (
+                "(#let-mut selector #u64 0u64) (#set selector 1u64)",
+                "selector",
+                vec![0, 2],
+            ),
+            (
+                "(#let-mut selector #u64 0u64) (#if condition (#block (#set selector 1u64) ()) (#block (#set selector 2u64) ()))",
+                "selector",
+                vec![0],
+            ),
+            (
+                "(#let-mut selector #u64 1u64) (#if condition (#block (#set selector other) ()) ())",
+                "selector",
+                vec![],
+            ),
             ("(#let selector #u64 other)", "selector", vec![]),
-            ("(#let selector #u64 (#u64.+.wrap other 1u64))", "selector", vec![]),
-            ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![0, 1]),
-            ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![0, 1]),
-            ("(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))", "selector", vec![]),
-            ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![1, 2]),
-            ("(#let-mut selector #u64 0u64) (#while condition (#set selector 1u64))", "selector", vec![2]),
+            (
+                "(#let selector #u64 (#u64.+.wrap other 1u64))",
+                "selector",
+                vec![],
+            ),
+            (
+                "(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)",
+                "selector",
+                vec![0, 1],
+            ),
+            (
+                "(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))",
+                "selector",
+                vec![0, 1],
+            ),
+            (
+                "(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))",
+                "selector",
+                vec![],
+            ),
+            (
+                "(#let-mut selector #u64 0u64) (#while condition (#set selector selector))",
+                "selector",
+                vec![1, 2],
+            ),
+            (
+                "(#let-mut selector #u64 0u64) (#while condition (#set selector 1u64))",
+                "selector",
+                vec![2],
+            ),
         ];
         for (setup, scrutinee, expected) in cases {
             let source = format!(
@@ -25951,11 +26127,20 @@ mod tests {
     fn owned_result_replacements_trace_current_values_not_original_effect_receivers() {
         for (replacement, expected) in [
             ("(#set saved (#call second ()))", Some(1)),
-            ("(#set saved (#call second ())) (#let view (#ref Outcome) (#borrow saved)) (#drop view)", None),
+            (
+                "(#set saved (#call second ())) (#let view (#ref Outcome) (#borrow saved)) (#drop view)",
+                None,
+            ),
             ("(#set saved (#call second ())) (#call touch ())", Some(1)),
             ("(#set saved (#call second ())) (#call opaque ())", None),
-            ("(#if selected (#block (#set saved (#call first ())) ()) (#block (#set saved (#call second ())) ()))", Some(2)),
-            ("(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Pending) ()))", None),
+            (
+                "(#if selected (#block (#set saved (#call first ())) ()) (#block (#set saved (#call second ())) ()))",
+                Some(2),
+            ),
+            (
+                "(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Pending) ()))",
+                None,
+            ),
             ("(#set saved Pending)", None),
         ] {
             let source = format!("(#enum Outcome () (Ready Pending))
@@ -25980,11 +26165,22 @@ mod tests {
                     predecessors[successor.0].push(FlowNodeId(index));
                 }
             }
-            let (event, value) = graph.nodes.iter().enumerate().find_map(|(index, node)| {
-                let FlowAction::Pattern { value, .. } = node.action else { return None; };
-                Some((FlowNodeId(index), value))
-            }).unwrap();
-            assert!(graph.call_result_producers(body, value, event, &predecessors).is_none());
+            let (event, value) = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let FlowAction::Pattern { value, .. } = node.action else {
+                        return None;
+                    };
+                    Some((FlowNodeId(index), value))
+                })
+                .unwrap();
+            assert!(
+                graph
+                    .call_result_producers(body, value, event, &predecessors)
+                    .is_none()
+            );
             let result = graph.owned_call_result_producers(body, value, event, &predecessors, true);
             assert_eq!(result.as_ref().map(Vec::len), expected, "{replacement}");
             if replacement == "(#set saved (#call second ()))" {
@@ -26003,7 +26199,11 @@ mod tests {
                     panic!("expected the match scrutinee read");
                 };
                 graph.nodes[read.0].action = FlowAction::Release { place, value };
-                assert!(graph.owned_call_result_producers(body, value, event, &predecessors, true).is_none());
+                assert!(
+                    graph
+                        .owned_call_result_producers(body, value, event, &predecessors, true)
+                        .is_none()
+                );
             }
         }
     }

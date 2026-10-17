@@ -1,0 +1,24 @@
+(#struct Payload () (: value #u64))
+(#enum Choice () ((Empty) (Full Payload)))
+
+(#fn inspect (: choice (#pin-ref Choice)) #u64
+  (#return (#match choice
+    (#case-pin (Full payload) (#get payload value))
+    (#case-pin Empty 0u64))))
+
+(#fn update (: choice (#pin-ref-mut Choice)) #u64
+  (#return (#match choice
+    (#case-pin-mut (Full payload)
+      (#block
+        (#pin-set-field payload value 42u64)
+        (#get payload value)))
+    (#case-pin-mut Empty 0u64))))
+
+(#fn main () #u64
+  (#let-mut choice Choice (Full (#struct-literal Payload (: value 41u64))))
+  (#let pin (#pin-ref-mut Choice) (#pin choice))
+  (#let observed #u64 (#call inspect (: choice (#pin-borrow (#deref pin)))))
+  (#let changed #u64 (#call update (: choice (#pin-borrow-mut (#deref pin)))))
+  (#forget pin)
+  (#forget choice)
+  (#return (#u64.+.wrap observed changed)))

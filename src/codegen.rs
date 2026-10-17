@@ -91,6 +91,17 @@ fn asm_u64_immediate(value: u64) -> String {
     }
 }
 
+fn asm_store_frame_u64(offset: usize, value: u64) -> String {
+    if value <= i32::MAX as u64 {
+        format!("    mov QWORD PTR [rbp-{offset}], {value}\n")
+    } else {
+        format!(
+            "    mov rax, {}\n    mov QWORD PTR [rbp-{offset}], rax\n",
+            asm_u64_immediate(value)
+        )
+    }
+}
+
 fn low_register(register: &str) -> &str {
     match register {
         "rax" => "eax",
@@ -9086,11 +9097,8 @@ impl FunctionContext<'_> {
                 if variant_owner != enum_name {
                     return Err("internal error: checked enum value owner changed".into());
                 }
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {}\n",
-                    discriminant * 8,
-                    variant_discriminant
-                ));
+                self.output
+                    .push_str(&asm_store_frame_u64(discriminant * 8, variant_discriminant));
                 for slot in &payload {
                     self.output
                         .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
@@ -9153,11 +9161,8 @@ impl FunctionContext<'_> {
         if items.len() - 1 != variant_fields.len() {
             return Err(format!("variant '{variant_name}' has wrong payload count"));
         }
-        self.output.push_str(&format!(
-            "    mov QWORD PTR [rbp-{}], {}\n",
-            discriminant * 8,
-            variant_discriminant
-        ));
+        self.output
+            .push_str(&asm_store_frame_u64(discriminant * 8, variant_discriminant));
         let mut offset = 0;
         for (index, field_type) in variant_fields.iter().enumerate() {
             let field_words = storage_word_count(field_type, &self.structs, &self.enums)?;
@@ -11822,6 +11827,18 @@ impl FunctionContext<'_> {
             // would erase numeric, callee, and binding identities in its arms.
             scrutinee = strip_unsafe_wrappers(&clone[1]);
         }
+        if matches!(
+            self.expression_type(scrutinee),
+            Some(Type::PinnedReference { .. })
+        ) {
+            return self.pinned_reference_match_expression(
+                items,
+                scrutinee,
+                float_type,
+                result_type,
+                destination,
+            );
+        }
         if let Some(Type::Tuple(fields)) = self.expression_type(scrutinee) {
             return self.aggregate_match_expression(
                 items,
@@ -12323,6 +12340,127 @@ impl FunctionContext<'_> {
         if held_enum_temporary {
             self.aggregate_projection_depth -= 1;
         }
+        Ok(())
+    }
+
+    fn pinned_reference_match_expression(
+        &mut self,
+        items: &[Expr],
+        scrutinee: &Expr,
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
+    ) -> Result<(), String> {
+        let Some(Type::PinnedReference { target, .. }) = self.expression_type(scrutinee) else {
+            return Err("pinned match has no checked reference type".into());
+        };
+        let Type::Named(enum_name) = *target else {
+            return Err("pinned match requires a pinned reference to an enum".into());
+        };
+        self.expression(scrutinee)?;
+        self.push_rax();
+        let end = self.label("pinned_match_end");
+        let base_depth = self.stack_depth;
+        for arm in &items[2..] {
+            let (pattern, guard, body) = match_arm_parts(arm)?;
+            let next = self.label("pinned_match_next");
+            let guard_failed = guard.map(|_| self.label("pinned_match_guard_failed"));
+            let is_fallback = matches!(pattern, Expr::Symbol(name) if name == "_");
+            let mut clear_slots = Vec::new();
+            if !is_fallback {
+                let Some((mutable, variant_pattern)) = crate::pinned_case::parts(pattern) else {
+                    return Err("invalid checked pinned match arm".into());
+                };
+                let (variant_expr, binding_expr) = match variant_pattern {
+                    Expr::Symbol(_) => (variant_pattern, None),
+                    Expr::List(variant_parts) if !variant_parts.is_empty() => {
+                        (&variant_parts[0], variant_parts.get(1))
+                    }
+                    _ => return Err("pinned match variant pattern is malformed".into()),
+                };
+                let Expr::Symbol(variant_name) = variant_expr else {
+                    return Err("pinned match variant has no name".into());
+                };
+                let (owner, discriminant, fields) = self
+                    .enum_variant_info(variant_expr, variant_name)?
+                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+                if owner != enum_name {
+                    return Err("checked pinned match variant owner changed".into());
+                }
+                self.output.push_str(&format!(
+                    "    mov rcx, QWORD PTR [rsp]\n    btr rcx, 63\n    btr rcx, 62\n    mov r11, {}\n    cmp QWORD PTR [rcx], r11\n    jne {next}\n",
+                    asm_u64_immediate(discriminant)
+                ));
+                if let Some(binding_expr) = binding_expr {
+                    if fields.len() != 1 {
+                        return Err("pinned match binding requires a single payload field".into());
+                    }
+                    let Expr::Symbol(binding_name) = binding_expr else {
+                        return Err("pinned match payload binding must be a symbol".into());
+                    };
+                    if binding_name == "_" {
+                        // Wildcard payloads require no local binding or address projection.
+                    } else {
+                        let binding_id =
+                            self.checked_pattern_binding_id(binding_expr, binding_name)?;
+                        let slots = self.local_slots_for_binding(binding_id, binding_name)?;
+                        if slots.len() != 1 {
+                            return Err("pinned match reference binding has invalid storage".into());
+                        }
+                        let expected_type = Type::PinnedReference {
+                            mutable,
+                            target: Box::new(fields[0].clone()),
+                        };
+                        let binding_type = self
+                            .expression_types
+                            .binding_types
+                            .get(binding_id.0)
+                            .ok_or_else(|| "pinned match binding has no checked type".to_owned())?;
+                        if binding_type != &expected_type {
+                            return Err("checked pinned match binding type changed".into());
+                        }
+                        self.output.push_str("    mov rax, QWORD PTR [rsp]\n");
+                        self.offset_reference_field_address(1, true);
+                        self.output
+                            .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slots[0] * 8));
+                        clear_slots.extend(slots);
+                    }
+                } else if !fields.is_empty() {
+                    return Err("pinned match payload arm has no binding".into());
+                }
+            }
+            if let Some(guard) = guard {
+                self.expression(guard)?;
+                self.output.push_str(&format!(
+                    "    test rax, rax\n    jz {}\n",
+                    guard_failed.as_deref().expect("guard has failure label")
+                ));
+            }
+            self.emit_match_result(body, float_type, result_type, destination)?;
+            for slot in &clear_slots {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
+            }
+            self.output.push_str(&format!("    jmp {end}\n"));
+            if let Some(guard_failed) = guard_failed {
+                self.output.push_str(&format!("{guard_failed}:\n"));
+                for slot in clear_slots {
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
+                }
+                self.output.push_str(&format!("    jmp {next}\n"));
+            }
+            self.output.push_str(&format!("{next}:\n"));
+            if self.stack_depth != base_depth {
+                return Err("pinned match arm changed stack depth".into());
+            }
+        }
+        self.output
+            .push_str(&format!("    ud2\n{end}:\n    add rsp, 8\n"));
+        self.stack_depth = self
+            .stack_depth
+            .checked_sub(1)
+            .ok_or_else(|| "pinned match stack underflow".to_owned())?;
         Ok(())
     }
 
@@ -15761,11 +15899,8 @@ impl FunctionContext<'_> {
                             "internal error: checked indirect enum value owner changed".into()
                         );
                     }
-                    self.output.push_str(&format!(
-                        "    mov QWORD PTR [rbp-{}], {}\n",
-                        slots[0] * 8,
-                        discriminant
-                    ));
+                    self.output
+                        .push_str(&asm_store_frame_u64(slots[0] * 8, discriminant));
                     for slot in &slots[1..] {
                         self.output
                             .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
@@ -15889,11 +16024,8 @@ impl FunctionContext<'_> {
                         "large enum variant '{constructor}' has the wrong payload count"
                     ));
                 }
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {}\n",
-                    slots[0] * 8,
-                    discriminant
-                ));
+                self.output
+                    .push_str(&asm_store_frame_u64(slots[0] * 8, discriminant));
                 let mut offset = 1;
                 for (item, field) in items[1..].iter().zip(&fields) {
                     let field_words = storage_word_count(field, &self.structs, &self.enums)?;

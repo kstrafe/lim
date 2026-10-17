@@ -166,7 +166,9 @@ impl Solver<'_> {
                 }
             }
             Action::Commit(pattern) => {
-                self.value(states, pattern.scrutinee, true);
+                if !pattern.pinned {
+                    self.value(states, pattern.scrutinee, true);
+                }
                 for binding in &pattern.bindings {
                     if let Some(index) = self.bindings[binding.0] {
                         states[index] = State::Full;

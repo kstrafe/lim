@@ -33,6 +33,7 @@ for [s:token, s:group] in [
       \ ['#u64.==', 'limOperator'], ['#u32.&', 'limOperator'],
       \ ['#bool.||', 'limOperator'], ['#fn', 'limDeclaration'],
       \ ['#let-mut', 'limDeclaration'], ['#case', 'limConditional'],
+      \ ['#case-pin', 'limConditional'], ['#case-pin-mut', 'limConditional'],
       \ ['#let-else', 'limConditional'], ['#while', 'limRepeat'],
       \ ['#return', 'limControl'], ['#unsafe', 'limUnsafe'],
       \ ['#gn', 'limGeneratorKeyword'], ['#gn-for-each', 'limGeneratorKeyword'],

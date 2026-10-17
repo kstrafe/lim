@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "pinned-case-requires-exclusive",
+            diagnostic_code: "E4100",
+            offending_line: "    (#case-pin-mut (Full value) (#deref value)))))",
+            line_number: 4,
+        },
+        Case {
+            name: "pinned-case-parent-reborrow",
+            diagnostic_code: "E4100",
+            offending_line: "        (#call touch (: input choice))",
+            line_number: 9,
+        },
+        Case {
             name: "earlier-argument-write",
             diagnostic_code: "E4100",
             offending_line: "          (#deref-set (#get held value) 99u64)",
@@ -1327,6 +1339,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-reference-replacement" => Some("pinned"),
             "pinned-reference-escape" => Some("(#return (#pin-borrow owner))"),
             "pinned-self-reference-conflict" => Some("#pin-set-field"),
+            "pinned-case-requires-exclusive" => Some("Full"),
+            "pinned-case-parent-reborrow" => Some("choice"),
             "call-self-loan-owner-mutation" => Some("running"),
             "call-self-loan-owner-borrow" => Some("running"),
             "reordered-named-argument-error" => Some("1u64"),

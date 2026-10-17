@@ -171,6 +171,10 @@ pub(crate) struct Pattern {
     /// Match payload bindings are immutable; destructuring declarations retain
     /// their checked Control::Destructure mutability, including unused names.
     pub mutable: bool,
+    /// The scrutinee belongs to a pinned match. Wildcard fallback arms are
+    /// pinned too, but have no pinned arm mutability of their own.
+    pub pinned: bool,
+    pub pin_mutable: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -656,6 +660,8 @@ impl Builder<'_> {
             scrutinee,
             bindings,
             mutable,
+            pinned: false,
+            pin_mutable: None,
         })
     }
 
@@ -1371,7 +1377,46 @@ impl Builder<'_> {
                 }
                 _ => return Err(error(Some(arm), "unsupported match arm sequence")),
             };
-            let pattern = self.pattern(pattern, value, false)?;
+            let mut pattern = self.pattern(pattern, value, false)?;
+            if let Some(projection) = self.body.pinned_cases.get(&arm) {
+                let source_pattern = self.body.syntax(pattern.source, false);
+                let pin_mutable =
+                    crate::pinned_case::parts(&source_pattern).map(|(mutable, _)| mutable);
+                if pin_mutable.is_none() && source_pattern != Expr::Symbol("_".into()) {
+                    return Err(error(
+                        Some(pattern.source),
+                        "checked pinned match has an unsupported fallback pattern",
+                    ));
+                }
+                if let Some((binding, _)) = projection {
+                    let Some(mutable) = pin_mutable else {
+                        return Err(error(
+                            Some(pattern.source),
+                            "checked pinned fallback unexpectedly binds a payload",
+                        ));
+                    };
+                    if !pattern.bindings.contains(binding) {
+                        return Err(error(
+                            Some(pattern.source),
+                            "checked pinned payload binding is absent from the arm scope",
+                        ));
+                    }
+                    let expected = match self.body.bindings.get(binding.0).map(|b| &b.ty) {
+                        Some(Type::PinnedReference {
+                            mutable: actual, ..
+                        }) if *actual == mutable => true,
+                        _ => false,
+                    };
+                    if !expected {
+                        return Err(error(
+                            Some(pattern.source),
+                            "checked pinned payload binding mode changed",
+                        ));
+                    }
+                }
+                pattern.pinned = true;
+                pattern.pin_mutable = pin_mutable;
+            }
             let success = self.block(Vec::new());
             let failure = self.block(Vec::new());
             self.graph.blocks[test.0].terminator = Terminator::PatternTest {
@@ -2074,6 +2119,18 @@ impl Graph {
 
     fn check_pattern(&self, pattern: &Pattern) -> Result<(), Error> {
         self.value_type(pattern.scrutinee)?;
+        if pattern.pin_mutable.is_some() && !pattern.pinned {
+            return Err(error(
+                Some(pattern.source),
+                "ordinary graph pattern carries pinned arm mutability",
+            ));
+        }
+        if pattern.pinned && pattern.pin_mutable.is_none() && !pattern.bindings.is_empty() {
+            return Err(error(
+                Some(pattern.source),
+                "pinned wildcard fallback carries lexical bindings",
+            ));
+        }
         if !self.metadata.contains_key(&pattern.source) {
             return Err(error(
                 Some(pattern.source),

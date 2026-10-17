@@ -1302,6 +1302,16 @@ pub(crate) type OutputVariantMap<T> =
 
 #[derive(Default)]
 pub(crate) struct Body {
+    /// Pin cases bind through ordinary checked payload borrows, not moves of
+    /// an enum value. The synthetic value is analysis-only: emission retains
+    /// the explicit source pattern and evaluates its scrutinee once.
+    pub pinned_cases: HashMap<NodeId, Option<(BindingId, NodeId)>>,
+    /// Computed pinned-match receivers get an analysis-only local snapshot so
+    /// payload borrows have an addressable provenance root in flow analysis.
+    pub pinned_match_receivers: HashMap<NodeId, (BindingId, NodeId)>,
+    /// Synthetic bindings are appended after source bindings and omitted from
+    /// source-emission metadata.
+    pub analysis_only_bindings: std::collections::HashSet<BindingId>,
     /// Flat-word offsets of typed memory operations. A schema describes where
     /// existing loans may be stored or loaded; it never initializes a loan.
     pub word_layouts: HashMap<NodeId, crate::word_loans::Layout>,
@@ -1584,12 +1594,16 @@ impl Body {
         emission.binding_names = self
             .bindings
             .iter()
-            .map(|binding| binding.name.clone())
+            .enumerate()
+            .filter(|(index, _)| !self.analysis_only_bindings.contains(&BindingId(*index)))
+            .map(|(_, binding)| binding.name.clone())
             .collect();
         emission.binding_types = self
             .bindings
             .iter()
-            .map(|binding| binding.ty.clone())
+            .enumerate()
+            .filter(|(index, _)| !self.analysis_only_bindings.contains(&BindingId(*index)))
+            .map(|(_, binding)| binding.ty.clone())
             .collect();
         let mut pending = vec![self.instructions.as_slice()];
         for node in &self.nodes {
@@ -2028,8 +2042,76 @@ impl Body {
             builder.expression_order.is_empty(),
             "typed body traversal left source expressions unlowered"
         );
+        builder.body.prepare_pinned_match_receivers();
         builder.body.emission_nodes = builder.body.emission_node_order();
         builder.body
+    }
+
+    fn prepare_pinned_match_receivers(&mut self) {
+        let mut matches = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.kind {
+                NodeKind::Match { value, arms, .. }
+                    if arms
+                        .iter()
+                        .any(|arm| self.pinned_cases.get(arm).is_some_and(Option::is_some)) =>
+                {
+                    Some((NodeId(index), *value, arms.clone()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|(id, _, _)| id.0);
+
+        for (match_id, receiver, arms) in matches {
+            let needs_snapshot = arms.iter().any(|arm| {
+                self.pinned_cases
+                    .get(arm)
+                    .and_then(|projection| *projection)
+                    .is_some_and(|(_, value)| {
+                        crate::typed_place::Place::from_expression(self, value).is_none()
+                    })
+            });
+            if !needs_snapshot {
+                continue;
+            }
+            let Some(receiver_type) = self.nodes[receiver.0].ty.clone() else {
+                continue;
+            };
+            let binding = BindingId(self.bindings.len());
+            let name = format!("\0lim-pinned-match-receiver:{}", match_id.0);
+            self.bindings.push(Binding {
+                name,
+                ty: receiver_type.clone(),
+                span: self.nodes[receiver.0].span,
+            });
+            self.analysis_only_bindings.insert(binding);
+            let snapshot = NodeId(self.nodes.len());
+            self.nodes.push(Node {
+                expression_id: None,
+                ty: Some(receiver_type),
+                span: self.nodes[receiver.0].span,
+                kind: NodeKind::Symbol {
+                    name: self.bindings[binding.0].name.clone(),
+                    binding: Some(binding),
+                },
+            });
+            self.pinned_match_receivers
+                .insert(match_id, (binding, receiver));
+            for arm in arms {
+                let Some(Some((_, projection))) = self.pinned_cases.get(&arm).copied() else {
+                    continue;
+                };
+                let NodeKind::Form { children, .. } = &mut self.nodes[projection.0].kind else {
+                    continue;
+                };
+                if children.len() == 3 {
+                    children[1] = snapshot;
+                }
+            }
+        }
     }
 }
 
@@ -2392,7 +2474,7 @@ impl Builder<'_> {
         }
     }
 
-    fn match_arm(&mut self, arm: &Expr, ty: &Type) -> NodeId {
+    fn match_arm(&mut self, arm: &Expr, ty: &Type, source: NodeId) -> NodeId {
         let expression_id = self
             .expression_order
             .pop_front()
@@ -2403,17 +2485,115 @@ impl Builder<'_> {
             unreachable!("checked match arm");
         };
         let pattern = self.expression(&parts[0]);
-        self.pattern_bindings(&parts[0], pattern, ty, true);
+        let resolved = resolve_type(ty, &self.declarations.aliases).expect("checked match type");
+        let pinned = matches!(resolved, Type::PinnedReference { .. });
+        let projection = if let Some((mutable, inner)) = crate::pinned_case::parts(&parts[0]) {
+            self.pinned_case_binding(pattern, inner, &resolved, source, mutable)
+        } else {
+            self.pattern_bindings(&parts[0], pattern, ty, true);
+            None
+        };
         let values = parts[1..]
             .iter()
             .map(|part| self.expression(part))
             .collect();
         self.names = saved;
-        self.record(
+        let arm = self.record(
             expression_id,
             expression_type,
             NodeKind::MatchArm { pattern, values },
-        )
+        );
+        if pinned {
+            self.body.pinned_cases.insert(arm, projection);
+        }
+        arm
+    }
+
+    fn pinned_case_binding(
+        &mut self,
+        wrapper: NodeId,
+        pattern: &Expr,
+        ty: &Type,
+        source: NodeId,
+        mutable: bool,
+    ) -> Option<(BindingId, NodeId)> {
+        let Type::PinnedReference { target, .. } = ty else {
+            unreachable!("checked pin case receiver");
+        };
+        let NodeKind::Form { children, .. } = &self.body.nodes[wrapper.0].kind else {
+            unreachable!("checked pin case wrapper");
+        };
+        let inner = children[1];
+        let (variant_name, variant_node, binding) = match pattern {
+            Expr::Symbol(name) if name == "_" => return None,
+            Expr::Symbol(name) => (name, inner, None),
+            Expr::List(items) => {
+                let Expr::Symbol(name) = &items[0] else {
+                    unreachable!()
+                };
+                let NodeKind::Form { children, .. } = &self.body.nodes[inner.0].kind else {
+                    unreachable!("checked pin case variant");
+                };
+                (
+                    name,
+                    children[0],
+                    items.get(1).zip(children.get(1)).map(|(p, n)| (p, *n)),
+                )
+            }
+            _ => unreachable!("checked pin case pattern"),
+        };
+        let variant = self
+            .declarations
+            .variant_id(target, variant_name)
+            .expect("checked pin case variant identity");
+        self.resolve_node(variant_node, DeclarationId::Variant(variant));
+        let (name, binding_node) = binding?;
+        if matches!(name, Expr::Symbol(name) if name == "_") {
+            return None;
+        }
+        let payload = self.declarations.variant(variant).fields[0].clone();
+        let reference = Type::PinnedReference {
+            mutable,
+            target: Box::new(payload),
+        };
+        self.pattern_bindings(name, binding_node, &reference, false);
+        let NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } = self.body.nodes[binding_node.0].kind
+        else {
+            unreachable!("checked pin case binding");
+        };
+        let operator = if mutable {
+            "pin-get-payload-mut"
+        } else {
+            "pin-get-payload"
+        };
+        let span = self.body.nodes[binding_node.0].span;
+        let head = NodeId(self.body.nodes.len());
+        self.body.nodes.push(Node {
+            expression_id: None,
+            ty: None,
+            span,
+            kind: NodeKind::Symbol {
+                name: operator.into(),
+                binding: None,
+            },
+        });
+        let borrow = NodeId(self.body.nodes.len());
+        self.body.nodes.push(Node {
+            expression_id: None,
+            ty: Some(reference),
+            span,
+            kind: NodeKind::Form {
+                head: operator.into(),
+                children: vec![head, source, variant_node],
+                numeric: None,
+                callee: None,
+                argument_source_order: None,
+            },
+        });
+        Some((binding, borrow))
     }
 
     fn resolve_form(&mut self, items: &[Expr], children: &[NodeId], ty: Option<&Type>) {
@@ -2540,7 +2720,7 @@ impl Builder<'_> {
                         .expect("checked match scrutinee type");
                     let arms = items[2..]
                         .iter()
-                        .map(|arm| self.match_arm(arm, &ty))
+                        .map(|arm| self.match_arm(arm, &ty, value))
                         .collect();
                     NodeKind::Match { head, value, arms }
                 } else if matches!(items.first(), Some(Expr::Symbol(head)) if head == "if") {

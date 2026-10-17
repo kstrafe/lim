@@ -2890,6 +2890,50 @@ impl<'a> Emitter<'a> {
         Ok(self.value(pattern.scrutinee, false))
     }
 
+    fn pinned_pattern_value(
+        &self,
+        pattern: &crate::generator::async_exec::Pattern,
+    ) -> Result<String, Error> {
+        let value = pattern.scrutinee;
+        let mutable = match crate::typed_ir::resolve_type(
+            &self.function.graph.values[value.0].ty,
+            &self.planning.declarations.aliases,
+        ) {
+            Ok(Type::PinnedReference { mutable, .. }) => mutable,
+            _ => {
+                return Err(fail(
+                    self.function,
+                    "pinned graph pattern has a non-pinned scrutinee",
+                ))
+            }
+        };
+        let stored_handle = if self.leases.get(value).is_some() {
+            // A lease reads the checked binding in place and already preserves
+            // its frame cell; reborrow the referent below without transferring
+            // the pinned handle.
+            self.value(value, false)
+        } else if let Some(slot) = self.values.get(&value).copied() {
+            if self.slots[slot].raw {
+                // Raw internal cells have a non-consuming peek/materialization
+                // path in read(false).
+                self.read(slot, false)
+            } else {
+                // Access the pinned-reference value through its occupied slot,
+                // then use it only to establish a fresh borrow of the enum.
+                format!("(#deref {})", self.payload_ref(&self.slots[slot], true))
+            }
+        } else {
+            return Err(fail(
+                self.function,
+                "pinned graph scrutinee has no retained storage",
+            ));
+        };
+        Ok(format!(
+            "(#pin-borrow{} (#deref {stored_handle}))",
+            if mutable { "-mut" } else { "" }
+        ))
+    }
+
     fn pattern_source(
         &self,
         pattern: &crate::generator::async_exec::Pattern,
@@ -2905,11 +2949,85 @@ impl<'a> Emitter<'a> {
         crate::expression_source(&rendered).map_err(|message| fail(self.function, message))
     }
 
+    fn pinned_pattern_arm(
+        &self,
+        source: &str,
+        body: &str,
+        expected_mutable: bool,
+    ) -> Result<String, Error> {
+        let pattern = crate::parse(source)
+            .map_err(|error| fail(self.function, error.to_string()))?
+            .remove(0)
+            .expr;
+        let Some((mutable, inner)) = crate::pinned_case::parts(&pattern) else {
+            return Err(fail(
+                self.function,
+                "pinned graph pattern lost its case wrapper",
+            ));
+        };
+        if mutable != expected_mutable {
+            return Err(fail(self.function, "pinned graph pattern mode changed"));
+        }
+        let Expr::List(parts) = &pattern else {
+            return Err(fail(
+                self.function,
+                "pinned graph case wrapper is malformed",
+            ));
+        };
+        let Some(Expr::Symbol(head)) = parts.first() else {
+            return Err(fail(
+                self.function,
+                "pinned graph case wrapper has no keyword",
+            ));
+        };
+        if !head.starts_with('#') {
+            return Err(fail(
+                self.function,
+                "pinned graph case wrapper lost its '#' prefix",
+            ));
+        }
+        let keyword = head.clone();
+        let inner =
+            crate::expression_source(inner).map_err(|message| fail(self.function, message))?;
+        Ok(format!("({keyword} {inner} {body})"))
+    }
+
     fn pattern_bind(
         &mut self,
         pattern: &crate::generator::async_exec::Pattern,
         commit: bool,
     ) -> Result<String, Error> {
+        if pattern.pinned {
+            let Some(mutable) = pattern.pin_mutable else {
+                if pattern.bindings.is_empty() {
+                    return Ok(String::new());
+                }
+                return Err(fail(
+                    self.function,
+                    "pinned wildcard unexpectedly has bindings",
+                ));
+            };
+            if pattern.bindings.is_empty() {
+                return Ok(String::new());
+            }
+            let value = self.pinned_pattern_value(pattern)?;
+            let mut names = HashMap::new();
+            let mut stores = Vec::new();
+            for &binding in &pattern.bindings {
+                let name = self.fresh("pinned-pattern");
+                if self.bindings.contains_key(&binding) {
+                    stores.push(self.put_binding(binding, &name));
+                }
+                names.insert(binding, name);
+            }
+            let source = self.pattern_source(pattern, &names)?;
+            let arm = self.pinned_pattern_arm(
+                &source,
+                &format!("(#block {} ())", stores.join("\n")),
+                mutable,
+            )?;
+            return Ok(format!("(#match {value} {arm} (#case _ (#unreachable)))"));
+        }
         // Repetition is allowed only by the ordinary checked type. A shared
         // reference snapshot keeps its pointee loan; it is not a borrow of the
         // scrutinee cell, including inside Copy aggregates. Exclusive handles
@@ -5992,7 +6110,20 @@ impl<'a> Emitter<'a> {
                     .collect();
                 let source = self.pattern_source(pattern, &names)?;
                 let ty = self.function.graph.values[pattern.scrutinee.0].ty.clone();
-                let test = if self.types.can_repeat(&ty) {
+                let test = if pattern.pinned {
+                    if let Some(mutable) = pattern.pin_mutable {
+                        let value = self.pinned_pattern_value(pattern)?;
+                        let arm = self.pinned_pattern_arm(&source, "true", mutable)?;
+                        format!("(#match {value} {arm} (#case _ false))")
+                    } else if source == "_" && pattern.bindings.is_empty() {
+                        "true".into()
+                    } else {
+                        return Err(fail(
+                            self.function,
+                            "pinned wildcard fallback has an invalid pattern",
+                        ));
+                    }
+                } else if self.types.can_repeat(&ty) {
                     let value = self.pattern_value(pattern)?;
                     if source == "_" {
                         "true".into()

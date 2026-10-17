@@ -1,0 +1,4 @@
+(#enum Choice () ((Full #u64)))
+(#fn inspect (: choice (#pin-ref Choice)) #u64
+  (#return (#match choice
+    (#case-pin-mut (Full value) (#deref value)))))

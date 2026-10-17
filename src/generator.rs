@@ -1468,7 +1468,7 @@ pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
         };
         let prefix = match head {
             "#fn" | "#unsafe-fn" => 4,
-            "#case" | "#call" | "#match" | "#if" => 2,
+            "#case" | "#case-pin" | "#case-pin-mut" | "#call" | "#match" | "#if" => 2,
             "#enum" | "#struct" => 3,
             "#struct-literal" => 2,
             "#let" | "#let-mut" => 3,
