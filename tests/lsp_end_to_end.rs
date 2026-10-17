@@ -672,6 +672,56 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
 }
 
 #[test]
+fn watched_multi_entry_contexts_add_and_remove_definition_candidates() {
+    let fixture = Fixture::new("multi-context-reload");
+    let text = "(#fn read-value () #u64 (#return (#call provide ())))";
+    let library = fixture.write("library.lim", text);
+    let app_text = "(#import \"library.lim\")\n(#fn provide () #u64 (#return 1u64))";
+    let test_text = app_text.replace("1u64", "2u64");
+    let app = fixture.write("app.lim", app_text);
+    let test = fixture.write("test.lim", &test_text);
+    let contexts = [app.clone(), test.clone()].map(|entry| LspContext {
+        entry,
+        target: TargetDescription::X86_64_SYSTEM_V,
+        config: CompileConfig::default(),
+    });
+    let path = fixture.0.join("lim.lsp");
+    LspContext::write_all(&contexts, &path).unwrap();
+    let mut client = Client::start(&fixture.0);
+    client.open(&library, text);
+    assert_eq!(
+        client
+            .definition(&library, text, "provide")
+            .array()
+            .unwrap()
+            .len(),
+        2
+    );
+    LspContext::write_all(&contexts[..1], &path).unwrap();
+    client.watch(&path);
+    assert_location(
+        &client.definition(&library, text, "provide"),
+        &app,
+        app_text,
+        "#fn provide",
+        "provide",
+    );
+    LspContext::write_all(&contexts, &path).unwrap();
+    client.watch(&path);
+    assert_eq!(
+        client
+            .definition(&library, text, "provide")
+            .array()
+            .unwrap()
+            .len(),
+        2
+    );
+    client.clear(&library);
+    assert!(!fixture.0.join(".lim").exists());
+    client.shutdown();
+}
+
+#[test]
 fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
     let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(@#optional (: type Number : name Maybe))\n";

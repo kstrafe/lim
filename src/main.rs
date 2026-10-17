@@ -187,7 +187,7 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        if let Err(error) = context.write(&destination) {
+        if let Err(error) = context.record(&destination) {
             eprintln!("lim: {error}");
             return ExitCode::FAILURE;
         }
@@ -204,7 +204,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
-        println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server.");
+        println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
         return ExitCode::SUCCESS;
     }

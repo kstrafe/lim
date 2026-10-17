@@ -96,6 +96,370 @@ fn artifact_paths(messages: &[Json], id: i64) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
+fn context(entry: &Path, config: CompileConfig) -> lim::lsp_context::LspContext {
+    lim::lsp_context::LspContext {
+        entry: entry.to_owned(),
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+        config,
+    }
+}
+
+fn definition_locations(messages: &[Json], id: i64) -> Vec<&Json> {
+    let result = reply(messages, id).get("result").unwrap();
+    match result {
+        Json::Array(locations) => locations.iter().collect(),
+        Json::Null => vec![],
+        location => vec![location],
+    }
+}
+
+#[test]
+fn shared_library_navigation_returns_definitions_from_each_including_entry_only() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-entries-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let app = base.join("app.lim");
+    let test = base.join("test.lim");
+    let bench = base.join("bench.lim");
+    let unrelated = base.join("unrelated.lim");
+    let library_text = "(#fn read-value () Value (#return (#call provide ())))";
+    let app_text = "(#import \"library.lim\")\n(#type Value #u64)\n(#fn provide () Value (#return 10u64))\n(#fn main () #u64 (#return (#call read-value ())))";
+    let test_text = app_text.replace("10u64", "20u64");
+    let bench_text = app_text.replace("10u64", "30u64");
+    for (path, text) in [
+        (&library, library_text),
+        (&app, app_text),
+        (&test, &test_text),
+        (&bench, &bench_text),
+        (&unrelated, "(#fn provide () #u64 (#return 99u64))"),
+    ] {
+        std::fs::write(path, text).unwrap();
+    }
+    lim::lsp_context::LspContext::write_all(
+        &[
+            context(&app, CompileConfig::default()),
+            context(&test, CompileConfig::default()),
+            context(&bench, CompileConfig::default()),
+            context(&unrelated, CompileConfig::default()),
+        ],
+        &base.join("lim.lsp"),
+    )
+    .unwrap();
+    let library_uri = lsp::path_to_uri(&library).unwrap();
+    let app_uri = lsp::path_to_uri(&app).unwrap();
+    let mut messages = start();
+    messages.push(open(&library_uri, 1, library_text));
+    messages.push(open(&app_uri, 1, app_text));
+    messages.push(definition(2, &library_uri, library_text, "provide"));
+    messages.push(definition(3, &library_uri, library_text, "Value"));
+    messages.push(definition(4, &app_uri, app_text, "read-value"));
+    messages.push(definition(5, &library_uri, library_text, "read-value"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for id in [2, 3] {
+        let locations = definition_locations(&replies, id);
+        assert_eq!(locations.len(), 3, "{locations:?}");
+        let uris = locations
+            .iter()
+            .map(|location| location.get("uri").unwrap().string().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            uris,
+            [
+                lsp::path_to_uri(&app).unwrap(),
+                lsp::path_to_uri(&test).unwrap(),
+                lsp::path_to_uri(&bench).unwrap(),
+            ]
+            .iter()
+            .map(String::as_str)
+            .collect()
+        );
+        for location in locations {
+            let start = location.get("range").unwrap().get("start").unwrap();
+            assert_eq!(
+                start.get("line").and_then(Json::integer),
+                Some(if id == 2 { 2 } else { 1 })
+            );
+            assert_eq!(
+                start.get("character").and_then(Json::integer),
+                Some(if id == 2 { 5 } else { 7 })
+            );
+        }
+    }
+    for id in [4, 5] {
+        let locations = definition_locations(&replies, id);
+        assert_eq!(locations.len(), 1);
+        assert_eq!(
+            locations[0].get("uri").unwrap().string(),
+            Some(library_uri.as_str())
+        );
+    }
+    assert!(!base.join(".lim").exists());
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn multi_context_cfg_and_unsaved_buffers_select_distinct_definitions_in_one_entry() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-cfg-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let entry = base.join("main.lim");
+    let library = base.join("library.lim");
+    let library_text = "(#fn read-value () #u64 (#return (#call provide ())))";
+    let entry_text = "(#import \"library.lim\")\n(#cfg-if (#cfg-is #mode app)\n (#fn provide () #u64 (#return 10u64))\n (#cfg-else (#fn provide () #u64 (#return 20u64))))\n(#fn main () #u64 (#return (#call read-value ())))";
+    std::fs::write(&entry, ")").unwrap();
+    std::fs::write(&library, ")").unwrap();
+    let mut app = CompileConfig::default();
+    app.set("mode", "app");
+    let mut test = CompileConfig::default();
+    test.set("mode", "test");
+    lim::lsp_context::LspContext::write_all(
+        &[context(&entry, app), context(&entry, test)],
+        &base.join("lim.lsp"),
+    )
+    .unwrap();
+    let entry_uri = lsp::path_to_uri(&entry).unwrap();
+    let library_uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&entry_uri, 1, entry_text));
+    messages.push(open(&library_uri, 1, library_text));
+    messages.push(definition(2, &library_uri, library_text, "provide"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let locations = definition_locations(&replies, 2);
+    assert_eq!(locations.len(), 2, "{locations:?}");
+    let lines = locations
+        .iter()
+        .map(|location| {
+            assert_eq!(
+                location.get("uri").unwrap().string(),
+                Some(entry_uri.as_str())
+            );
+            location
+                .get("range")
+                .unwrap()
+                .get("start")
+                .unwrap()
+                .get("line")
+                .unwrap()
+                .integer()
+                .unwrap()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(lines, [2, 3].into_iter().collect());
+    assert_eq!(std::fs::read_to_string(&entry).unwrap(), ")");
+    assert!(!base.join(".lim").exists());
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn multi_context_generated_calls_macro_names_and_artifacts_keep_both_producers() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-generated-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let library_text = "(@emit)\n(#fn read-value () #u64 (#return (#call provide ())))";
+    std::fs::write(&library, library_text).unwrap();
+    let mut contexts = Vec::new();
+    for (name, value) in [("app", 10), ("test", 20)] {
+        let entry = base.join(format!("{name}.lim"));
+        let text = format!("(#import \"library.lim\")\n(#gn emit () `((#fn provide () #u64 (#return {value}u64))))\n(#fn main () #u64 (#return (#call read-value ())))");
+        std::fs::write(&entry, text).unwrap();
+        contexts.push(context(&entry, CompileConfig::default()));
+    }
+    lim::lsp_context::LspContext::write_all(&contexts, &base.join("lim.lsp")).unwrap();
+    let uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, library_text));
+    messages.push(definition(2, &uri, library_text, "provide"));
+    messages.push(definition(3, &uri, library_text, "emit"));
+    messages.push(definition(4, &uri, library_text, "@"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert_eq!(definition_locations(&replies, 2).len(), 2);
+    let producers = definition_locations(&replies, 3);
+    assert_eq!(producers.len(), 2);
+    for location in producers {
+        assert!(
+            location
+                .get("uri")
+                .unwrap()
+                .string()
+                .unwrap()
+                .ends_with("app.lim")
+                || location
+                    .get("uri")
+                    .unwrap()
+                    .string()
+                    .unwrap()
+                    .ends_with("test.lim")
+        );
+    }
+    let artifacts = artifact_paths(&replies, 4);
+    assert_eq!(artifacts.len(), 2);
+    let sources = artifacts
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        sources
+            .iter()
+            .any(|source| source.contains("#literal #u64 10")),
+        "{sources:?}"
+    );
+    assert!(
+        sources
+            .iter()
+            .any(|source| source.contains("#literal #u64 20")),
+        "{sources:?}"
+    );
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn multi_context_import_paths_and_external_names_follow_each_entries_module_paths() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-modules-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let text =
+        "(#import \"dependency.lim\")\n(#fn read-value () #u64 (#return (#call provide ())))";
+    std::fs::write(&library, text).unwrap();
+    let mut contexts = Vec::new();
+    let mut expected = std::collections::BTreeSet::new();
+    for (name, prefix) in [("app", ""), ("test", "Ext-")] {
+        let modules = base.join(format!("{name}-modules"));
+        std::fs::create_dir(&modules).unwrap();
+        let dependency = modules.join("dependency.lim");
+        std::fs::write(&dependency, "(#fn provide () #u64 (#return 42u64))").unwrap();
+        expected.insert(lsp::path_to_uri(&dependency).unwrap());
+        let entry = base.join(format!("{name}.lim"));
+        let import = if prefix.is_empty() {
+            "(#import \"library.lim\")"
+        } else {
+            "(#import-external \"library.lim\" Ext-)"
+        };
+        std::fs::write(
+            &entry,
+            format!("{import}\n(#fn main () #u64 (#return (#call {prefix}read-value ())))"),
+        )
+        .unwrap();
+        let mut config = CompileConfig::default();
+        config.add_module_path(modules);
+        contexts.push(context(&entry, config));
+    }
+    lim::lsp_context::LspContext::write_all(&contexts, &base.join("lim.lsp")).unwrap();
+    let uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    messages.push(definition(2, &uri, text, "provide"));
+    messages.push(definition(3, &uri, text, "dependency.lim"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for id in [2, 3] {
+        let locations = definition_locations(&replies, id);
+        let actual = locations
+            .iter()
+            .map(|location| location.get("uri").unwrap().string().unwrap().to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(actual, expected, "{id}: {locations:?}");
+    }
+    assert!(!base.join(".lim").exists());
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn multi_context_diagnostics_identify_failing_entry_and_do_not_block_other_definitions() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-errors-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let text = "(#fn read-value () #u64 (#return (#call provide ())))";
+    std::fs::write(&library, text).unwrap();
+    let app = base.join("app.lim");
+    let test = base.join("test.lim");
+    let broken = base.join("broken.lim");
+    std::fs::write(
+        &app,
+        "(#import \"library.lim\") (#fn provide () #u64 (#return 42u64))",
+    )
+    .unwrap();
+    std::fs::write(
+        &test,
+        "(#import \"library.lim\") (#fn provide () #bool (#return false))",
+    )
+    .unwrap();
+    std::fs::write(&broken, ")").unwrap();
+    lim::lsp_context::LspContext::write_all(
+        &[
+            context(&app, CompileConfig::default()),
+            context(&test, CompileConfig::default()),
+            context(&broken, CompileConfig::default()),
+        ],
+        &base.join("lim.lsp"),
+    )
+    .unwrap();
+    let uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    messages.push(definition(2, &uri, text, "provide"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert_eq!(definition_locations(&replies, 2).len(), 2);
+    let reports = publications(&replies);
+    let report = reports
+        .iter()
+        .find(|report| report.get("uri").unwrap().string() == Some(uri.as_str()))
+        .unwrap();
+    let diagnostics = report.get("diagnostics").unwrap().array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    let message = diagnostics[0].get("message").unwrap().string().unwrap();
+    assert!(message.contains(test.to_str().unwrap()), "{message}");
+    assert!(!message.contains(app.to_str().unwrap()), "{message}");
+    assert!(reports
+        .iter()
+        .all(|report| report.get("uri").unwrap().string()
+            != Some(lsp::path_to_uri(&broken).unwrap().as_str())));
+    assert!(!base.join(".lim").exists());
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn cfg_excluded_calls_do_not_add_another_entries_matching_name() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-inactive-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let text =
+        "(#cfg-if (#cfg-is #mode app) (#fn read-value () #u64 (#return (#call provide ()))))";
+    std::fs::write(&library, text).unwrap();
+    let mut contexts = Vec::new();
+    let mut app_uri = String::new();
+    for mode in ["app", "test"] {
+        let entry = base.join(format!("{mode}.lim"));
+        std::fs::write(
+            &entry,
+            "(#import \"library.lim\") (#fn provide () #u64 (#return 42u64))",
+        )
+        .unwrap();
+        let mut config = CompileConfig::default();
+        config.set("mode", mode);
+        if mode == "app" {
+            app_uri = lsp::path_to_uri(&entry).unwrap();
+        }
+        contexts.push(context(&entry, config));
+    }
+    lim::lsp_context::LspContext::write_all(&contexts, &base.join("lim.lsp")).unwrap();
+    let uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    messages.push(definition(2, &uri, text, "provide"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let locations = definition_locations(&replies, 2);
+    assert_eq!(locations.len(), 1, "{locations:?}");
+    assert_eq!(
+        locations[0].get("uri").unwrap().string(),
+        Some(app_uri.as_str())
+    );
+    std::fs::remove_dir_all(base).unwrap();
+}
+
 #[test]
 fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
     let uri = "file:///tmp/lim-lsp-unused-types.lim";

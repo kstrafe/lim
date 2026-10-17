@@ -57,7 +57,7 @@ pub(crate) fn import_target(
         .map(Path::to_owned)
         .or_else(|| crate::lsp_context::discover(path))
     {
-        config = crate::lsp_context::LspContext::read(&context).ok()?.config;
+        config = crate::lsp_context::selected(&context).ok()?.config;
     } else {
         for directory in path.parent()?.ancestors() {
             let manifest = directory.join("lim.project");
@@ -94,7 +94,84 @@ pub fn check_source_for_editor(
     config: &crate::CompileConfig,
     overlays: &HashMap<PathBuf, String>,
 ) -> Result<(), crate::Diagnostic> {
+    if let Some(manifest) = crate::lsp_context::discover(path) {
+        let contexts = crate::lsp_context::LspContext::read_all(&manifest).map_err(|message| {
+            crate::Diagnostic::new(crate::DiagnosticCode::Cli, message)
+                .with_source(path.display().to_string(), source)
+        })?;
+        if contexts.len() == 1 {
+            return crate::lsp_context::with_selected(&contexts[0], || {
+                checked_program_in_context(source, path, config, overlays, Some(&manifest))
+                    .map(|_| ())
+            });
+        }
+        let mut included = false;
+        for context in contexts {
+            crate::lsp_context::with_selected(&context, || {
+                if context_includes_file(source, path, config, overlays, Some(&manifest)) {
+                    included = true;
+                    checked_program_in_context(source, path, config, overlays, Some(&manifest))
+                        .map(|_| ())
+                } else {
+                    Ok(())
+                }
+            })?;
+        }
+        if included {
+            return Ok(());
+        }
+        return Err(crate::Diagnostic::new(
+            crate::DiagnosticCode::Cli,
+            "file is not included by any LSP entry under the selected cfg",
+        )
+        .with_source(path.display().to_string(), source));
+    }
     checked_program_for_editor(source, path, config, overlays).map(|_| ())
+}
+
+/// Import membership does not require successful type checking or generation.
+/// Broken/unrelated entries must not add definitions to another entry's graph.
+pub(crate) fn context_includes_file(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+) -> bool {
+    with_compilation_context(
+        source,
+        path,
+        config,
+        overlays,
+        context_file,
+        |entry_source, entry, config, _| {
+            if path_key(entry) == path_key(path) {
+                return Ok(true);
+            }
+            match crate::load_imports_with_sources(
+                entry_source,
+                entry.parent().unwrap_or(Path::new(".")),
+                Some(entry),
+                config,
+            ) {
+                Ok((_, files)) => Ok(files
+                    .iter()
+                    .any(|file| path_key(&file.path) == path_key(path))),
+                Err(error) => {
+                    let diagnostic = crate::generator_diagnostic(error, entry, entry_source);
+                    Ok(diagnostic
+                        .source_name
+                        .as_deref()
+                        .is_some_and(|name| path_key(Path::new(name)) == path_key(path)))
+                }
+            }
+        },
+    )
+    .unwrap_or(false)
+        || (path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("editor-"))
+            && program_in_context(source, path, config, overlays, context_file, false).is_ok())
 }
 
 pub(crate) fn checked_program_for_editor(
@@ -299,7 +376,7 @@ fn with_compilation_context<T>(
         .map(Path::to_owned)
         .or_else(|| crate::lsp_context::discover(path))
         .map(|manifest| {
-            crate::lsp_context::LspContext::read(&manifest).map_err(|message| {
+            crate::lsp_context::selected(&manifest).map_err(|message| {
                 crate::Diagnostic::new(crate::DiagnosticCode::Cli, message)
                     .with_source(path.display().to_string(), source.to_owned())
             })

@@ -284,19 +284,7 @@ impl Server<'_> {
         let mut docs = self.documents.iter().collect::<Vec<_>>();
         docs.sort_by_key(|(uri, _)| *uri);
         for (root_uri, doc) in docs {
-            let (result, warnings) = crate::with_warnings(|| {
-                crate::editor::checked_program_in_context(
-                    &doc.text,
-                    &doc.path,
-                    self.config,
-                    &overlays,
-                    self.context_file(doc).as_deref(),
-                )
-            });
-            let diagnostics = match result {
-                Ok(_) => warnings,
-                Err(error) => vec![error],
-            };
+            let diagnostics = self.context_diagnostics(doc, &overlays);
             for diagnostic in diagnostics {
                 let (path, source, span) = primary_location(&diagnostic, doc, &overlays);
                 let uri = self
@@ -335,7 +323,154 @@ impl Server<'_> {
         }
         Ok(())
     }
+
+    fn context_diagnostics(
+        &self,
+        doc: &Document,
+        overlays: &HashMap<PathBuf, String>,
+    ) -> Vec<Diagnostic> {
+        let manifest = self.context_file(doc);
+        let check = || {
+            let (result, warnings) = crate::with_warnings(|| {
+                crate::editor::checked_program_in_context(
+                    &doc.text,
+                    &doc.path,
+                    self.config,
+                    overlays,
+                    manifest.as_deref(),
+                )
+            });
+            match result {
+                Ok(_) => warnings,
+                Err(error) => vec![error],
+            }
+        };
+        let Some(manifest) = manifest.as_deref() else {
+            return check();
+        };
+        let contexts = match crate::lsp_context::LspContext::read_all(manifest) {
+            Ok(contexts) => contexts,
+            Err(message) => {
+                return vec![Diagnostic::new(crate::DiagnosticCode::Cli, message)
+                    .with_source(doc.path.display().to_string(), &doc.text)]
+            }
+        };
+        let multiple = contexts.len() > 1;
+        let mut matched = false;
+        let mut diagnostics = Vec::new();
+        for context in contexts {
+            crate::lsp_context::with_selected(&context, || {
+                if multiple
+                    && !crate::editor::context_includes_file(
+                        &doc.text,
+                        &doc.path,
+                        self.config,
+                        overlays,
+                        Some(manifest),
+                    )
+                {
+                    return;
+                }
+                matched = true;
+                let mut current = check();
+                if multiple {
+                    for diagnostic in &mut current {
+                        diagnostic
+                            .notes
+                            .push(format!("compilation context: {}", context.label()));
+                    }
+                }
+                diagnostics.extend(current);
+            });
+        }
+        if !matched {
+            diagnostics.push(
+                Diagnostic::new(
+                    crate::DiagnosticCode::Cli,
+                    "file is not included by any LSP entry under the selected cfg",
+                )
+                .with_source(doc.path.display().to_string(), &doc.text),
+            );
+        }
+        diagnostics
+    }
+
     fn request(&self, method: &str, params: &Json) -> Result<String, (i32, &'static str)> {
+        if method != "textDocument/definition" {
+            return self.request_single(method, params);
+        }
+        let uri = text_document(params)
+            .filter(|uri| uri_to_path(uri).is_some())
+            .ok_or((-32602, "Invalid params"))?;
+        let doc = self
+            .documents
+            .get(uri)
+            .ok_or((-32602, "Document is not open"))?;
+        let position = params.get("position").ok_or((-32602, "Invalid params"))?;
+        let line = position
+            .get("line")
+            .and_then(Json::integer)
+            .filter(|n| *n >= 0)
+            .ok_or((-32602, "Invalid params"))?;
+        let character = position
+            .get("character")
+            .and_then(Json::integer)
+            .filter(|n| *n >= 0)
+            .ok_or((-32602, "Invalid params"))?;
+        position_byte(&doc.text, line as usize, character as usize)
+            .ok_or((-32602, "Invalid position"))?;
+        let Some(manifest) = self.context_file(doc) else {
+            return self.request_single(method, params);
+        };
+        let contexts = match crate::lsp_context::LspContext::read_all(&manifest) {
+            Ok(contexts) => contexts,
+            Err(_) => return Ok("null".into()),
+        };
+        if contexts.len() == 1 {
+            return crate::lsp_context::with_selected(&contexts[0], || {
+                self.request_single(method, params)
+            });
+        }
+        let overlays = self
+            .documents
+            .values()
+            .map(|document| (document.path.clone(), document.text.clone()))
+            .collect();
+        let mut locations = BTreeSet::new();
+        let mut array_result = false;
+        for context in contexts {
+            crate::lsp_context::with_selected(&context, || -> Result<(), (i32, &'static str)> {
+                if !crate::editor::context_includes_file(
+                    &doc.text,
+                    &doc.path,
+                    self.config,
+                    &overlays,
+                    Some(&manifest),
+                ) {
+                    return Ok(());
+                }
+                let result = self.request_single(method, params)?;
+                match json::parse(&result).map_err(|_| (-32603, "Invalid definition result"))? {
+                    Json::Array(values) => {
+                        array_result = true;
+                        locations.extend(values.iter().map(Json::render));
+                    }
+                    Json::Null => {}
+                    location => {
+                        locations.insert(location.render());
+                    }
+                }
+                Ok(())
+            })?;
+        }
+        Ok(match locations.len() {
+            0 => "null".into(),
+            1 if !array_result => locations.into_iter().next().unwrap(),
+            _ => format!("[{}]", locations.into_iter().collect::<Vec<_>>().join(",")),
+        })
+    }
+
+    fn request_single(&self, method: &str, params: &Json) -> Result<String, (i32, &'static str)> {
         if !matches!(
             method,
             "textDocument/formatting" | "textDocument/documentSymbol" | "textDocument/definition"
@@ -569,6 +704,31 @@ impl Server<'_> {
             }
         }
         if names.is_empty() {
+            // A file can belong to this entry while the queried declaration is
+            // cfg-excluded. Do not bind that inactive use to an unrelated name.
+            // Original async bodies and published snapshots have generated
+            // source identities rather than ordinary declaration trees.
+            let generated = program.generated_source_invocations.values().any(|span| {
+                span.start <= byte
+                    && byte < span.end
+                    && program
+                        .source_files
+                        .get(span.source_id as usize)
+                        .is_some_and(|file| path_key(&file.path) == doc.path)
+            });
+            let snapshot = doc
+                .path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("editor-"))
+                && doc.path.parent().is_some_and(|parent| {
+                    parent.file_name().is_some_and(|name| name == "generated")
+                })
+                && program.generated_source_invocations.keys().any(|id| {
+                    generated_snapshot(&program, *id).is_some_and(|(source, _)| source == doc.text)
+                });
+            if !generated && !snapshot {
+                return None;
+            }
             names.insert(name.to_owned());
         }
         let mut locations = BTreeSet::new();

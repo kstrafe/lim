@@ -43,9 +43,13 @@ and module directories, just like the build CLI.
 
 For application-aware checks, generate `lim.lsp` at the project root using
 `lim --check src/main.lim --cfg KEY=VALUE --write-lsp-config lim.lsp`.
-It records the effective entry, target, cfg values and module paths. A discovered
-context replaces session settings and checks the entry's full import graph with
-unsaved overlays, rather than treating each open module as an independent root.
+It records the effective entry, target, cfg values and module paths. Repeat the
+command for application and test entries: their contexts accumulate in the same
+file without merging their symbol tables. Each context replaces session settings
+and checks its full import graph with unsaved overlays. Shared-library lookups
+return all distinct definitions, including functions supplied by different entry
+points. Context-specific diagnostics identify the entry and flags. Remove stale
+`[[context]]` blocks manually when they are no longer wanted.
 Use `lim.lsp` alongside `lim.project` and `.git` as an lspconfig root marker.
 Clients supporting dynamic watched-file registration (including Neovim) receive
 a watcher for `lim.lsp`; changes recheck open documents. Otherwise the next buffer
@@ -80,9 +84,10 @@ declaration. Artifact navigation uses the selected entry point, cfg settings,
 and unsaved buffers, and can materialize generator cache files on demand.
 The equivalent command-line lookup is
 `lim main.lim --locate-generated path/to/file.lim:42`.
-With a compilation context, imported calls and explicit types also navigate to
-their declaration files in the selected entry graph; files outside that graph
-must use a different entry in `lim.lsp`.
+With compilation contexts, imported calls and explicit types navigate across
+every entry graph containing the current file. Add another entry to `lim.lsp`
+for files outside the existing graphs. Identical locations are deduplicated;
+multiple distinct locations use Neovim's normal multi-definition selection UI.
 Other references, locals, fields, quoted templates,
 and ambiguous duplicate functions return no location.
 Generated diagnostics point to file-backed invocation provenance;

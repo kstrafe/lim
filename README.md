@@ -262,34 +262,54 @@ defaults), and project/CLI module paths after a successful compilation or check:
 
 ```sh
 lim --check src/main.lim --cfg feature=logging --write-lsp-config lim.lsp
+lim --check tests/main.lim --cfg feature=testing --write-lsp-config lim.lsp
 ```
 
-The same flag works with native compilation and `--emit-asm`. Failed commands
-leave the previous context intact; identical settings do not rewrite the file.
+The same flag works with native compilation and `--emit-asm`. Each successful
+invocation adds an independent compilation context; it does not replace existing
+entries. Different flags or targets for the same entry are distinct contexts.
+Failed commands leave the previous contexts intact; identical effective settings
+do not rewrite the file. Parallel builds serialize their read/merge/publication
+using an OS-released lock in `.lim/cache`, so entries are not lost.
 Generated paths are absolute. Handwritten relative paths resolve beside `lim.lsp`:
 
 ```text
-schema-version = 1
+schema-version = 2
+
+[[context]]
 entry = "src/main.lim"
 target = "x86_64-sysv"
-cfg = "platform=linux"
-cfg = "arch=x86_64"
 cfg = "feature=logging"
+module-path = "src"
+
+[[context]]
+entry = "tests/main.lim"
+target = "x86_64-sysv"
+cfg = "feature=testing"
 module-path = "src"
 ```
 
 The server discovers the nearest `lim.lsp` to the document, falling back to its
 initialized workspace root for imported files outside that directory. This file
-is authoritative: it replaces session cfg/module-path settings rather than
-merging incompatible configurations. Checks and definition navigation use the
-entry's complete import graph, overlaid with unsaved buffers. Files outside the
-selected graph produce an explicit diagnostic. Malformed contexts do not silently
+is authoritative: each context replaces session cfg/module-path settings rather
+than merging incompatible configurations. Contexts never share a symbol table.
+For an open file, the server checks every entry whose active import graph includes
+it, overlaid with all unsaved buffers. Definition navigation returns all distinct
+locations across those contexts. Thus a library call to a function supplied by
+both the application and test binary offers both implementations; a definition
+shared by both graphs is shown only once. This applies to imported functions and
+types, generator declarations, generated definitions, and navigation on `@`.
+Context-specific diagnostics identify the entry and settings that produced them.
+An invalid entry does not discard definition results from other valid contexts.
+Files outside every selected graph produce an explicit diagnostic. Malformed contexts do not silently
 fall back to isolated checking. Without `lim.lsp`, the existing per-file behavior
 and `lim.project` module-path discovery remain available.
 
-One file selects one active compilation context. Regenerate it to change entry
-points or flags. The server requests `lim.lsp` file watching when the client
+Remove obsolete `[[context]]` blocks explicitly when changing configurations;
+recording new settings intentionally preserves existing configurations. The file
+is limited to 128 contexts and 1 MiB. The server requests `lim.lsp` file watching when the client
 supports dynamic watcher registration, rechecking open documents on changes;
 otherwise settings are reread on the next buffer event or definition request.
 The file stores settings only: no shell commands, linker commands, or executable
-hooks are run by the server. The current native target remains Linux x86-64 SysV.
+hooks are run by the server. Ordinary checks remain free of source/cache writes;
+generated-definition navigation materializes inspectable sources on demand.
