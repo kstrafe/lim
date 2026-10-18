@@ -20,27 +20,27 @@ fn bundles_expand_parameters_calls_and_nested_forward_references() {
 fn rejects_invalid_bundles_even_when_unused() {
     for (source, expected) in [
         (
-            "(#syntax A ((#syntax-splice B))) (#syntax B ((#syntax-splice A)))",
+            "(#syntax a ((#syntax-splice B))) (#syntax B ((#syntax-splice a)))",
             "recursive syntax bundle",
         ),
         (
-            "(#syntax A ((#syntax-splice Missing)))",
+            "(#syntax a ((#syntax-splice missing)))",
             "unknown syntax bundle",
         ),
-        ("(#syntax A 42)", "literal list"),
-        ("(#syntax A ()) (#syntax A ())", "duplicate syntax bundle"),
-        ("(#syntax-splice A)", "surrounding list"),
-        ("(#syntax A ((#syntax-splice)))", "exactly one"),
+        ("(#syntax a 42)", "literal list"),
+        ("(#syntax a ()) (#syntax a ())", "duplicate syntax bundle"),
+        ("(#syntax-splice a)", "surrounding list"),
+        ("(#syntax a ((#syntax-splice)))", "exactly one"),
         (
-            "(#syntax A ()) (#fn A () () (#return ()))",
+            "(#syntax a ()) (#fn a () () (#return ()))",
             "conflicts with a syntax bundle",
         ),
         (
-            "(#fn main () () (#syntax A ()) (#return ()))",
+            "(#fn main () () (#syntax a ()) (#return ()))",
             "only allowed at top level",
         ),
         (
-            "(#syntax Value ()) (#fn main ((Value #u64)) #u64 (#return Value))",
+            "(#syntax value ()) (#fn main ((value #u64)) #u64 (#return value))",
             "shadowing is not allowed",
         ),
     ] {
@@ -53,9 +53,9 @@ fn rejects_invalid_bundles_even_when_unused() {
 fn generated_templates_can_emit_bundles() {
     parse_program(
         r#"
-      (#gn emit () `((#syntax Value (42u64))
-        (#fn generated () #u64 (#return (#syntax-splice Value)))))
-      (@emit)
+      (#gn emit () `((#syntax value (42u64))
+        (#fn generated () #u64 (#return (#syntax-splice value)))))
+      (#generate emit)
       (#fn main () #u64 (#return (#call generated ())))
     "#,
     )
@@ -68,7 +68,7 @@ fn bundles_expand_literal_generator_arguments() {
         r#"
       (#syntax Arguments (Answer #u64))
       (#gn make (name ty) `((#type ,name ,ty)))
-      (@make (#syntax-splice Arguments))
+      (#generate make (#syntax-splice Arguments))
       (#fn main () #u64 (#return 42u64))
     "#,
     )
@@ -80,10 +80,10 @@ fn imported_bundles_are_prefixed_and_checked_at_the_use() {
     let scratch = support::Scratch::new("syntax-bundles");
     std::fs::write(
         scratch.path().join("library.lim"),
-        "(#syntax Value (42u64)) (#fn answer () #u64 (#return (#syntax-splice Value)))",
+        "(#syntax value (42u64)) (#fn answer () #u64 (#return (#syntax-splice value)))",
     )
     .unwrap();
-    let source = "(#import-external \"library.lim\" ext-)\n(#fn main () #u64 (#return (#syntax-splice ext-Value)))";
+    let source = "(#import-external \"library.lim\" ext)\n(#fn main () #u64 (#return (#syntax-splice ext@value)))";
     lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let source = "(#syntax Bad (false))\n(#fn main () #u64 (#return (#syntax-splice Bad)))";
     let error = lim::compile_source_to_assembly(
@@ -130,9 +130,9 @@ fn changing_a_bundle_invalidates_generated_code_cache() {
     let compile = |value| {
         let source = format!(
             r#"
-          (#syntax Value ({value}u64))
+          (#syntax value ({value}u64))
           (#gn emit (value) `((#fn answer () #u64 (#return ,value))))
-          (@emit (#syntax-splice Value))
+          (#generate emit (#syntax-splice value))
           (#fn main () #u64 (#return (#call answer ())))
         "#
         );
@@ -157,9 +157,9 @@ fn cfg_selection_precedes_bundle_collection() {
     lim::parse_program_with_config(
         r#"
       (#cfg-if (#cfg-is #backend asm)
-        (#syntax Value (42u64))
-        (#cfg-else (#syntax Value ((#syntax-splice Missing)))))
-      (#fn main () #u64 (#return (#syntax-splice Value)))
+        (#syntax value (42u64))
+        (#cfg-else (#syntax value ((#syntax-splice missing)))))
+      (#fn main () #u64 (#return (#syntax-splice value)))
     "#,
         &config,
     )

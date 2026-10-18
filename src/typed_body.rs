@@ -11,9 +11,9 @@ mod tests {
     fn emission_order_is_reconstructed_from_stable_nodes() {
         let source = "(#fn main () #u64
           (#let-mut total #u64 0u64)
-          (#for (#let-mut i #u64 0u64) (#u64.< i 3u64)
-            (#set i (#u64.+.wrap i 1u64))
-            (#set total (#u64.+.wrap total i)))
+          (#for (#let-mut i #u64 0u64) (#u64::lt i 3u64)
+            (#set i (#u64::add-wrap i 1u64))
+            (#set total (#u64::add-wrap total i)))
           (#return (#if true total 0u64)))";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
@@ -73,8 +73,8 @@ mod tests {
 
     #[test]
     fn emission_metadata_retains_resolved_global_declaration_ids() {
-        let source = "(#const Answer #u64 42u64)
-          (#fn main () #u64 (#return Answer))";
+        let source = "(#const answer #u64 42u64)
+          (#fn main () #u64 (#return answer))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -87,7 +87,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let global = declarations.global_id("Answer").unwrap();
+        let global = declarations.global_id("answer").unwrap();
         let declaration = DeclarationId::Global(global);
         let node = body
             .nodes
@@ -97,7 +97,7 @@ mod tests {
         let expression_id = node.expression_id.unwrap();
 
         let emission = body.emission_types(function).unwrap();
-        assert_eq!(emission.global_names[&global], "Answer");
+        assert_eq!(emission.global_names[&global], "answer");
         assert_eq!(
             emission.by_id[&expression_id].declaration,
             Some(declaration)
@@ -106,8 +106,8 @@ mod tests {
 
     #[test]
     fn emission_metadata_retains_enum_variant_owner_and_identity() {
-        let source = "(#enum Maybe () ((Some #u64) None))
-          (#fn main () Maybe (#return None))";
+        let source = "(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
+          (#fn main () Maybe (#return Maybe.None))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -121,7 +121,7 @@ mod tests {
             })
             .unwrap();
         let variant = declarations
-            .variant_id(&Type::Named("Maybe".into()), "None")
+            .variant_id(&Type::Named("Maybe".into()), "Maybe.None")
             .unwrap();
         let declaration = DeclarationId::Variant(variant);
         let node = body
@@ -141,12 +141,12 @@ mod tests {
 
     #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
-        let source = "(#enum Choice () ((Value #u64) Empty))
+        let source = "(#enum Choice () ((Choice.Value #u64) Choice.Empty))
           (#fn main () #u64
-            (#let choice Choice (Value 42u64))
+            (#let choice Choice (Choice.Value 42u64))
             (#return (#match choice
-              (#case (Value payload) payload)
-              (#case Empty 0u64))))";
+              (#case (Choice.Value payload) payload)
+              (#case Choice.Empty 0u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -286,7 +286,7 @@ mod tests {
           (#let item #u64 1u64)
           (#block (#let nested-item #u64 2u64) nested-item)
           (#let outer #u64 (#block (#let inner #u64 3u64) inner))
-          (#return (#u64.+.wrap item outer)))";
+          (#return (#u64::add-wrap item outer)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let bindings = &checked.declarations().bodies["main"].bindings;
@@ -302,14 +302,14 @@ mod tests {
 
     #[test]
     fn colliding_calls_keep_declaration_identity_and_reject_builtin_head_drift() {
-        let source = "(#fn u64.+.wrap ((left #u64) (right #u64)) #u64 (#return left))
-          (#fn main () #u64 (#return (#u64.+.wrap
-            (#call u64.+.wrap (: right 99u64 : left 42u64)) 0u64)))";
+        let source = "(#fn u64-add-wrap ((left #u64) (right #u64)) #u64 (#return left))
+          (#fn main () #u64 (#return (#u64::add-wrap
+            (#call u64-add-wrap (: right 99u64 : left 42u64)) 0u64)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
         let body = &declarations.bodies["main"];
-        let target = declarations.function_id("u64.+.wrap").unwrap();
+        let target = declarations.function_id("u64-add-wrap").unwrap();
         let call = body
             .nodes
             .iter()
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source =
-            "(#fn add ((left #u32) (right #u32)) #u32 (#return (#u32.+.saturate left right)))
+            "(#fn add ((left #u32) (right #u32)) #u32 (#return (#u32::add-saturate left right)))
           (#fn main () #u32 (#let x #u32 40) (#return (#call add (: right 2 : left x))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn generated_function_body_nodes_retain_generated_source_spans() {
         let source = "(#gn make (name) `((#fn ,name () #u64 (#return 5u64))))
-          (@make generated)
+          (#generate make generated)
           (#fn main () #u64 (#return (#call generated (:))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -539,10 +539,10 @@ mod tests {
             }
         }
 
-        let source = "(#fn increment ((value #u32)) #u32 (#return (#u32.+.wrap value 1u32)))\n\
+        let source = "(#fn increment ((value #u32)) #u32 (#return (#u32::add-wrap value 1u32)))\n\
           (#fn main () #u32\n\
             (#let value #u32 40)\n\
-            (#return (#call increment (: value (#u32.+.wrap value 2)))))";
+            (#return (#call increment (: value (#u32::add-wrap value 2)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let function = program
@@ -622,11 +622,11 @@ mod tests {
     #[test]
     fn emission_statement_targets_distinguish_an_initializer_pattern_from_its_destination() {
         let program = crate::parse_program(
-            "(#enum Maybe () ((Some #u64) None))
+            "(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
           (#fn main () #u64
-            (#let answer #u64 (#match (Some 41u64)
-              (#case (Some answer) answer) (#case None 0u64)))
-            (#return (#u64.+.wrap answer 1u64)))",
+            (#let answer #u64 (#match (Maybe.Some 41u64)
+              (#case (Maybe.Some answer) answer) (#case Maybe.None 0u64)))
+            (#return (#u64::add-wrap answer 1u64)))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn checked_node_metadata_survives_unsafe_wrapper_lowering() {
         let source = "(#fn main () #u64\n\
-          (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
+          (#return (#unsafe (#u64::add-wrap 40u64 2u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let original = program
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn emission_bridge_rejects_reordered_literals_with_the_same_node_count() {
         let source = "(#fn main () #u64
-          (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
+          (#return (#unsafe (#u64::add-wrap 40u64 2u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -789,7 +789,7 @@ mod tests {
     #[test]
     fn emission_bridge_rejects_form_head_drift() {
         let source = "(#fn main () #u64
-          (#return (#u64.+.wrap 40u64 2u64)))";
+          (#return (#u64::add-wrap 40u64 2u64)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
-            "(#fn main () #u64 (#let-mut value #u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
+            "(#fn main () #u64 (#let-mut value #u64 0u64) (#while (#u64::lt value 2u64) (#set value (#u64::add-wrap value 1u64))) (#return value))",
             "(#struct Pair () ((a #u64) (b #u64))) (#fn main () #u64 (#let-mut value Pair (#struct-literal Pair ((a 1u64) (b 2u64)))) (#set-field value b 42u64) (#return (#get value b)))",
         ];
         for source in sources {
@@ -840,10 +840,10 @@ mod tests {
 
     #[test]
     fn expression_branches_and_match_scopes_are_explicit_in_the_body_ir() {
-        let source = "(#enum Maybe () ((Some #u64) None))\n\
+        let source = "(#enum Maybe () ((Maybe.Some #u64) Maybe.None))\n\
           (#fn choose ((flag #bool) (input Maybe)) #u64\n\
             (#return (#if flag\n\
-              (#match input (#case (Some payload) payload) (#case None 0u64))\n\
+              (#match input (#case (Maybe.Some payload) payload) (#case Maybe.None 0u64))\n\
               1u64)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();

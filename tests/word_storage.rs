@@ -189,7 +189,7 @@ fn scalar_loop_field_bounds_exclude_only_proven_unreachable_word_readers() {
 fn clone_hook_writes_cannot_leave_stale_scalar_reader_bounds() {
     let source = "(#struct Holder () (: value (#ref #u64)))
       (#struct Payload () (: target (#ptr-mut #u64)))
-      (#fn Payload-clone (: value Payload) Payload
+      (#fn Payload::clone (: value Payload) Payload
         (#unsafe (#ptr-write (#get value target) 1u64)) (#return value))
       (#fn main () #u64
         (#let-mut selector #u64 0u64)
@@ -443,7 +443,7 @@ fn returned_state_guarantees_initialize_only_the_corresponding_owned_cells() {
 fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
     let source = "(#struct Stored () (: view (#ref #u64)))
       (#struct Frame () (: pc #u64 : source (#ref #u64) : kept (#array #u64 1) : temporary (#array #u64 1)))
-      (#enum Poll () ((Pending Frame) (Ready #u64)))
+      (#enum Poll () ((Poll.Pending Frame) (Poll.Ready #u64)))
       (#fn read (: value Stored) #u64 (#return (#deref (#get value view))))
       (#fn step (: input Frame) Poll
         (#let-mut frame Frame input)
@@ -453,21 +453,21 @@ fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
             (#unsafe (#word-write Stored (#borrow-slice-mut (#get frame kept))
               (#struct-literal Stored (: view view))))
             (#set-field frame pc 1u64)
-            (#return (Pending (#unsafe (#pin-read (#pin-borrow-mut frame))))) (#unreachable)))
+            (#return (Poll.Pending (#unsafe (#pin-read (#pin-borrow-mut frame))))) (#unreachable)))
           (#case 1 (#block
             (#let restored Stored (#unsafe (#word-read Stored (#borrow-slice (#get frame kept)))))
             (#unsafe (#word-write Stored (#borrow-slice-mut (#get frame temporary)) restored))
             (#let answer #u64 (#call read (: value (#unsafe (#word-read Stored (#borrow-slice (#get frame temporary)))))))
-            (#forget frame) (#return (Ready answer)) (#unreachable)))
+            (#forget frame) (#return (Poll.Ready answer)) (#unreachable)))
           (#case _ (#unreachable)))) (#forget frame) (#return (#unreachable)))
       (#fn main () #u64
         (#let-mut value #u64 42u64)
         (#let frame Frame (#struct-literal Frame
           (: pc 0u64 : source (#borrow value) : kept (#array-repeat 0u64) : temporary (#array-repeat 0u64))))
         (#let first Poll (#call step (: input frame)))
-        (#let-else (Pending resumed) Poll first (#unreachable))
+        (#let-else (Poll.Pending resumed) Poll first (#unreachable))
         (#return (#match (#call step (: input resumed))
-          (#case (Ready answer) answer) (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+          (#case (Poll.Ready answer) answer) (#case (Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
     run(source);
     let missing = source.replace(": pc 0u64", ": pc 1u64");
     assert_eq!(compile(&missing).unwrap_err().code, DiagnosticCode::Linear);
@@ -479,7 +479,7 @@ fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
         compile(&invalidated).unwrap_err().code,
         DiagnosticCode::Borrow
     );
-    let retired = source.replace("(Pending resumed)", "(Pending saved)")
+    let retired = source.replace("(Poll.Pending resumed)", "(Poll.Pending saved)")
         .replace("(#return (#match (#call step", "(#let-mut resumed Frame saved) (#unsafe (#word-forget Stored (#borrow-slice-mut (#get resumed kept)))) (#return (#match (#call step");
     assert_eq!(compile(&retired).unwrap_err().code, DiagnosticCode::Linear);
 }
@@ -585,7 +585,7 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
         "{constructor}\n{forwarded_constructor}\n{}",
         constructed.replace("(#call make-frame", "(#call make-forward")
     ));
-    let clone_hook = "(#fn Frame-clone (: source Frame) Frame
+    let clone_hook = "(#fn Frame::clone (: source Frame) Frame
       (#let owner (#ref #u64) (#get source source)) (#forget source)
       (#return (#struct-literal Frame
         (: pc 1u64 : source owner : words (#array-repeat 0u64)))))";
@@ -727,7 +727,7 @@ fn run(source: &str) {
 const SOURCE: &str = "
 (#struct Pair () (: left #u8 : right #u64))
 (#fn inspect (: pair (#ref Pair)) #u64
-  (#return (#u64.+.wrap (#as (#get pair left) #u64) (#get pair right))))
+  (#return (#u64::add-wrap (#as (#get pair left) #u64) (#get pair right))))
 (#fn main () #u64
   (#let-mut words (#array #u64 2) (#array-repeat 0u64))
   (#unsafe (#word-write Pair (#borrow-slice-mut words)
@@ -742,37 +742,37 @@ fn flat_word_views_preserve_stack_layout() {
 }
 
 const EMPTY_REFERENCE_CELL: &str = "
-(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
 (#fn main () #u64
   (#let-mut words (#array #u64 2) (#array-repeat 0u64))
-  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))
   (#let cell Cell (#unsafe (#word-take Cell (#borrow-slice-mut words))))
   (#forget cell) (#return 42u64))";
 
 const OPTIONAL_WORD_READER: &str = "
-(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
 (#fn inspect (: words (#slice #u64)) #u64
   (#let cell Cell (#unsafe (#word-read Cell words)))
   (#return (#match cell
-    (#case (Vacant) 42u64)
-    (#case (Occupied value) (#deref value)))))
+    (#case (Cell.Vacant) 42u64)
+    (#case (Cell.Occupied value) (#deref value)))))
 (#fn main () #u64
   (#let amount #u64 42u64)
   (#let-mut words (#array #u64 2) (#array-repeat 0u64))
-  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))
   (#let answer #u64 (#call inspect (: words (#borrow-slice words))))
   (#forget words) (#return answer))";
 
 #[test]
 fn typed_view_cleanup_publishes_empty_tags_and_retires_actual_word_loans() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
-        (#unsafe (#pin-write slot (Vacant))) (#return ()))
+        (#unsafe (#pin-write slot (Cell.Vacant))) (#return ()))
       (#fn main () #u64
         (#let-mut amount #u64 40u64)
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Occupied (#borrow amount))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Cell.Occupied (#borrow amount))))
         (#call clear (: slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut words 1usize 3usize)))))
         (#set amount 42u64)
         (#let value Cell (#unsafe (#word-read Cell (#borrow-slice words 1usize 3usize))))
@@ -782,46 +782,46 @@ fn typed_view_cleanup_publishes_empty_tags_and_retires_actual_word_loans() {
 
 #[test]
 fn typed_view_writers_export_real_loans_at_nested_physical_offsets() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#struct Buffer () (: prefix #u64 : cell Cell : suffix #u64))
       (#fn install (: buffer (#pin-ref-mut Buffer) : value (#ref #u64)) ()
         (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get buffer cell)))))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get buffer cell)) (Occupied value))) (#return ()))
+        (#unsafe (#pin-write (#pin-borrow-mut (#get buffer cell)) (Cell.Occupied value))) (#return ()))
       (#fn clear (: buffer (#pin-ref-mut Buffer)) ()
         (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get buffer cell)))))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get buffer cell)) (Vacant))) (#return ()))
+        (#unsafe (#pin-write (#pin-borrow-mut (#get buffer cell)) (Cell.Vacant))) (#return ()))
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
         (#let-mut words (#array #u64 6) (#array-repeat 0u64))
         (#unsafe (#word-write Buffer (#borrow-slice-mut words 1usize 5usize)
-          (#struct-literal Buffer (: prefix 40u64 : cell (Vacant) : suffix 2u64))))
+          (#struct-literal Buffer (: prefix 40u64 : cell (Cell.Vacant) : suffix 2u64))))
         (#call install (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize))) : value (#borrow amount)))
         (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice words 2usize 4usize))))
-        (#let answer #u64 (#match cell (#case (Vacant) 0u64) (#case (Occupied view) (#deref view))))
+        (#let answer #u64 (#match cell (#case (Cell.Vacant) 0u64) (#case (Cell.Occupied view) (#deref view))))
         (#call clear (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)))))
         (#set amount 0u64)
-        (#assert (#u64.== (#unsafe (#word-read #u64 (#borrow-slice words 1usize 2usize))) 40u64))
-        (#assert (#u64.== (#unsafe (#word-read #u64 (#borrow-slice words 4usize 5usize))) 2u64))
+        (#assert (#u64::eq (#unsafe (#word-read #u64 (#borrow-slice words 1usize 2usize))) 40u64))
+        (#assert (#u64::eq (#unsafe (#word-read #u64 (#borrow-slice words 4usize 5usize))) 2u64))
         (#forget words) (#return answer))";
     run(source);
     let invalid = source.replace("(#let cell Cell", "(#set amount 0u64) (#let cell Cell");
     assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
-    let escaped = source.replace("(#let answer #u64", "(#let escaped (#ref #u64) (#match (#unsafe (#word-read Cell (#borrow-slice words 2usize 4usize))) (#case (Vacant) (#borrow amount)) (#case (Occupied view) view))) (#let answer #u64")
+    let escaped = source.replace("(#let answer #u64", "(#let escaped (#ref #u64) (#match (#unsafe (#word-read Cell (#borrow-slice words 2usize 4usize))) (#case (Cell.Vacant) (#borrow amount)) (#case (Cell.Occupied view) view))) (#let answer #u64")
         .replace("(#forget words) (#return answer)", "(#forget escaped) (#forget words) (#return answer)");
     assert_eq!(compile(&escaped).unwrap_err().code, DiagnosticCode::Borrow);
 }
 
 #[test]
 fn typed_view_mutation_footprints_preserve_neighboring_empty_cells() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
-        (#unsafe (#pin-write slot (Vacant))) (#return ()))
+        (#unsafe (#pin-write slot (Cell.Vacant))) (#return ()))
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words 0usize 2usize) (Occupied (#borrow amount))))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words 2usize 4usize) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words 0usize 2usize) (Cell.Occupied (#borrow amount))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words 2usize 4usize) (Cell.Vacant)))
         (#call clear (: slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut words)))))
         (#let neighbor Cell (#unsafe (#word-read Cell (#borrow-slice words 2usize 4usize))))
         (#forget neighbor) (#forget words) (#return 42u64))";
@@ -864,8 +864,8 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
         );
     run(&source);
     for invalid in [
-        source.replace("(Vacant)))\n  (#call", "(Occupied (#borrow amount))))\n  (#call"),
-        source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))", ""),
+        source.replace("(Cell.Vacant)))\n  (#call", "(Cell.Occupied (#borrow amount))))\n  (#call"),
+        source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))", ""),
         source.replace("(#call forward-retire", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#call forward-retire"),
     ] {
         assert_ne!(invalid, source);
@@ -893,7 +893,7 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
         (#let view (#pin-ref Holder) (#pin-own-borrow (#borrow owner)))
         (#let answer #u64 (#deref (#get view link))) (#forget view)
         (#let retired (#ptr-mut Holder) (#unsafe (#pin-release owner)))
-        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64))
+        (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64))
         (#forget storage) (#return answer))";
     run(source);
     let owned = source.replace(
@@ -929,32 +929,32 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
 
 #[test]
 fn optional_owned_word_results_require_their_allocation_pointer() {
-    let source = "(#enum Input () ((NoInput) (HasInput (#pin-own #u64))))
-      (#enum Output () ((NoOutput) (HasOutput (#pin-own #u64))))
+    let source = "(#enum Input () ((Input.NoInput) (Input.HasInput (#pin-own #u64))))
+      (#enum Output () ((Output.NoOutput) (Output.HasOutput (#pin-own #u64))))
       (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
-        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+        (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput owner) (Output.HasOutput owner)))))
       (#fn forward (: storage (#ref-mut Words)) Output
         (#return (#call convert (: storage storage))))
       (#fn main () #u64
         (#let pointer (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
-        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
         (#let output Output (#call forward (: storage (#borrow-mut storage))))
         (#let answer #u64 (#match output
-          (#case (NoOutput) (#block
-            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64)) 42u64))
-          (#case (HasOutput owner) (#block
+          (#case (Output.NoOutput) (#block
+            (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64)) 42u64))
+          (#case (Output.HasOutput owner) (#block
             (#let view (#pin-ref #u64) (#pin-own-borrow (#borrow owner)))
             (#let answer #u64 (#deref view)) (#forget view)
             (#let retired (#ptr-mut #u64) (#unsafe (#pin-release owner)))
-            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64)) answer))))
+            (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64)) answer))))
         (#forget storage) (#return answer))";
     let occupied = source.replace(
-        "(NoInput)))",
-        "(HasInput (#unsafe (#pin-own-of pointer 42u64)))))",
+        "(Input.NoInput)))",
+        "(Input.HasInput (#unsafe (#pin-own-of pointer 42u64)))))",
     );
     lim::parse(&occupied).expect("occupied owned-input fixture parses");
     run(source);
@@ -978,23 +978,23 @@ fn optional_owned_word_results_require_their_allocation_pointer() {
 
 #[test]
 fn optional_word_outputs_preserve_absent_concrete_input_sources() {
-    let source = "(#enum Input () ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+    let source = "(#enum Input () ((Input.NoInput) (Input.HasInput (#ref #u64))))
+      (#enum Output () ((Output.NoOutput) (Output.HasOutput (#ref #u64))))
       (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
-        (#return (#match input (#case (NoInput) (NoOutput))
-          (#case (HasInput view) (HasOutput view)))))
+        (#return (#match input (#case (Input.NoInput) (Output.NoOutput))
+          (#case (Input.HasInput view) (Output.HasOutput view)))))
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
-        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
         (#let output Output (#call convert (: storage (#borrow-mut storage))))
-        (#let answer #u64 (#match output (#case (NoOutput) 42u64)
-          (#case (HasOutput view) (#deref view))))
+        (#let answer #u64 (#match output (#case (Output.NoOutput) 42u64)
+          (#case (Output.HasOutput view) (#deref view))))
         (#forget storage) (#return answer))";
     run(source);
-    let occupied = source.replace("(NoInput)))", "(HasInput (#borrow amount))))");
+    let occupied = source.replace("(Input.NoInput)))", "(Input.HasInput (#borrow amount))))");
     run(&occupied);
     run(&source.replace("(#let answer", "(#set amount 0u64) (#let answer"));
     assert_eq!(
@@ -1005,7 +1005,7 @@ fn optional_word_outputs_preserve_absent_concrete_input_sources() {
     );
     for invalid in [
         source.replace(
-            "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))",
+            "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))",
             "",
         ),
         occupied.replace(
@@ -1024,15 +1024,15 @@ fn optional_word_outputs_preserve_absent_concrete_input_sources() {
 
 #[test]
 fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
-    let source = "(#enum Input () ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+    let source = "(#enum Input () ((Input.NoInput) (Input.HasInput (#ref #u64))))
+      (#enum Output () ((Output.NoOutput) (Output.HasOutput (#ref #u64))))
       (#struct Words () (: state #u64 : words (#array #u64 2)))
       (#fn convert (: storage Words) Output
         (#let output Output (#match (#get storage state)
-          (#case 0 (NoOutput))
+          (#case 0 (Output.NoOutput))
           (#case _ (#match (#unsafe (#word-read Input (#borrow-slice (#get storage words))))
-            (#case (NoInput) (NoOutput))
-            (#case (HasInput view) (HasOutput view))))))
+            (#case (Input.NoInput) (Output.NoOutput))
+            (#case (Input.HasInput view) (Output.HasOutput view))))))
         (#forget storage) (#return output))
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
@@ -1040,12 +1040,12 @@ fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
           (: state 0u64 : words (#array-repeat 0u64))))
         (#let output Output (#call convert (: storage storage)))
         (#set amount 42u64)
-        (#return (#match output (#case (NoOutput) 42u64)
-          (#case (HasOutput view) (#deref view)))))";
+        (#return (#match output (#case (Output.NoOutput) 42u64)
+          (#case (Output.HasOutput view) (#deref view)))))";
     run(source);
     let occupied = source
         .replace(": state 0u64", ": state 1u64")
-        .replace("(#let output Output (#call convert", "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (HasInput (#borrow amount)))) (#let output Output (#call convert")
+        .replace("(#let output Output (#call convert", "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.HasInput (#borrow amount)))) (#let output Output (#call convert")
         .replace("(#set amount 42u64)", "");
     run(&occupied);
     assert_eq!(
@@ -1071,11 +1071,11 @@ fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
 fn absent_owned_mutation_payloads_preserve_disjoint_word_selectors() {
     let source = "(#struct Holder () (: value (#ref #u64)))
       (#struct Frame () (: state #u64 : words (#array #u64 1)))
-      (#enum Handle () ((Empty) (Full (#ref-mut #u64))))
-      (#fn empty () Handle (#return (Empty)))
+      (#enum Handle () ((Handle.Empty) (Handle.Full (#ref-mut #u64))))
+      (#fn empty () Handle (#return (Handle.Empty)))
       (#fn mutate (: handle Handle) ()
-        (#match handle (#case (Empty) ())
-          (#case (Full target) (#block (#deref-set target 1u64) (#forget target) ())))
+        (#match handle (#case (Handle.Empty) ())
+          (#case (Handle.Full target) (#block (#deref-set target 1u64) (#forget target) ())))
         (#return ()))
       (#fn read (: frame (#ref Frame)) #u64
         (#return (#match (#get frame state)
@@ -1091,7 +1091,7 @@ fn absent_owned_mutation_payloads_preserve_disjoint_word_selectors() {
     run(source);
     let invalid = source.replace(
         "(#call empty ())",
-        "(Full (#borrow-mut (#get frame state)))",
+        "(Handle.Full (#borrow-mut (#get frame state)))",
     );
     let error = compile(&invalid).unwrap_err();
     assert!(
@@ -1142,12 +1142,12 @@ fn helper_retirement_does_not_hide_later_byte_mutations() {
         .replace(
             "(#fn main",
             "(#fn prepare (: words (#slice-mut #u64)) ()
-           (#unsafe (#word-write Cell (#slice-mut-range words 0usize 2usize) (Vacant)))
+           (#unsafe (#word-write Cell (#slice-mut-range words 0usize 2usize) (Cell.Vacant)))
            (#unsafe (#word-forget Cell words)) (#return ()))
          (#fn main",
         )
         .replace(
-            "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+            "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))",
             "(#call prepare (: words (#borrow-slice-mut words)))",
         );
     run(&source);
@@ -1173,12 +1173,12 @@ fn helper_retirement_does_not_hide_later_byte_mutations() {
 fn word_reader_entry_loans_are_conditional_on_actual_payload_tags() {
     run(OPTIONAL_WORD_READER);
     let occupied = OPTIONAL_WORD_READER.replace(
-        "#word-write Cell (#borrow-slice-mut words) (Vacant)",
-        "#word-write Cell (#borrow-slice-mut words) (Occupied (#borrow amount))",
+        "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
+        "#word-write Cell (#borrow-slice-mut words) (Cell.Occupied (#borrow amount))",
     );
     run(&occupied);
     for invalid in [
-        OPTIONAL_WORD_READER.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))", ""),
+        OPTIONAL_WORD_READER.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))", ""),
         occupied.replace("(#let answer", "(#unsafe (#word-forget Cell (#borrow-slice-mut words))) (#let answer"),
         OPTIONAL_WORD_READER.replace("(#let answer", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#let answer"),
     ] {
@@ -1197,7 +1197,7 @@ fn word_writer_may_aliases_preserve_disjoint_constructor_facts() {
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
         (#let-mut second (#array #u64 1) (#array-repeat 0u64))
         (#let-mut third (#array #u64 1) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))
         (#call write-other (: words (#if flag (#borrow-slice-mut second) (#borrow-slice-mut third))))
         (#let discard #u64 0u64) (#forget discard)
         (#let answer #u64 (#call inspect (: words (#borrow-slice words))))
@@ -1217,7 +1217,7 @@ fn word_reader_forwards_payload_conditions_through_checked_helpers() {
         .replace("#call inspect (: words (#borrow-slice words))", "#call forward (: words (#borrow-slice words))");
     run(&source);
     let invalid = source.replace(
-        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))",
         "",
     );
     assert!(compile(&invalid).is_err());
@@ -1232,8 +1232,8 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
         (#let amount #u64 42u64)
         (#let-mut first (#array #u64 2) (#array-repeat 0u64))
         (#let-mut second (#array #u64 2) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Vacant)))
-        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Cell.Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))
         (#let words (#slice #u64) (#if flag (#borrow-slice first) (#borrow-slice second)))
         (#let answer #u64 (#call inspect (: words words)))
         (#forget words) (#forget first) (#forget second) (#return answer))
@@ -1241,11 +1241,11 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
     );
     run(&source);
     let unknown = source.replace(
-        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))",
         "",
     );
     assert!(compile(&unknown).is_err());
-    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
+    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
     assert!(compile(&occupied).is_err());
     let wrong_type = OPTIONAL_WORD_READER
         .replace(
@@ -1253,7 +1253,7 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
             "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
         )
         .replace(
-            "#word-write Cell (#borrow-slice-mut words) (Vacant)",
+            "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
             "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
         );
     assert!(compile(&wrong_type).is_err());
@@ -1297,9 +1297,9 @@ fn disjoint_metadata_writes_preserve_entry_tag_conditions() {
         (#return (#call inspect (: words (#borrow-slice (#get buffer words))))))
       (#fn main () #u64
         (#let-mut buffer Buffer (#struct-literal Buffer (: counter 0u64 : words (#array-repeat 0u64))))
-        (#unsafe (#word-write Cell (#borrow-slice-mut (#get buffer words)) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#get buffer words)) (Cell.Vacant)))
         (#let answer #u64 (#call update-and-read (: buffer (#borrow-mut buffer))))
-        (#assert (#u64.== (#get buffer counter) 1u64))
+        (#assert (#u64::eq (#get buffer counter) 1u64))
         (#forget buffer) (#return answer))");
     run(&source);
     let invalid = source.replace(
@@ -1353,7 +1353,7 @@ fn numeric_zero_is_not_an_empty_constructor_witness() {
             "#word-view (#ref Cell) (#borrow-slice words)",
         );
     let no_write = source.replace(
-        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))",
         "",
     );
     let error = compile(&no_write).unwrap_err();
@@ -1376,15 +1376,15 @@ fn numeric_zero_is_not_an_empty_constructor_witness() {
 
 #[test]
 fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
-      (#enum Outer () ((Absent) (Present Cell)))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
+      (#enum Outer () ((Outer.Absent) (Outer.Present Cell)))
       (#struct Holder () (: prefix #u64 : cell Outer : suffix #u64))
       (#fn main () #u64
         (#let-mut words (#array #u64 7) (#array-repeat 0u64))
         (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 6usize)
-          (#struct-literal Holder (: prefix 40u64 : cell (Present (Vacant)) : suffix 2u64))))
+          (#struct-literal Holder (: prefix 40u64 : cell (Outer.Present (Cell.Vacant)) : suffix 2u64))))
         (#let value Holder (#unsafe (#word-take Holder (#borrow-slice-mut words 1usize 6usize))))
-        (#let answer #u64 (#u64.+.wrap (#get value prefix) (#get value suffix)))
+        (#let answer #u64 (#u64::add-wrap (#get value prefix) (#get value suffix)))
         (#forget value) (#return answer))";
     run(source);
     let lost_outer = source.replace("(#let value Holder", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 2usize 3usize) 1u64)) (#let value Holder");
@@ -1398,7 +1398,7 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
             "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
         )
         .replace(
-            "#word-write Cell (#borrow-slice-mut words) (Vacant)",
+            "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
             "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
         );
     assert!(compile(&wrong_type)
@@ -1409,11 +1409,11 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
 
 #[test]
 fn occupied_word_cells_need_real_reference_provenance_after_retirement() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Occupied (#borrow amount))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Occupied (#borrow amount))))
         (#let view (#ref Cell) (#unsafe (#word-view (#ref Cell) (#borrow-slice words))))
         (#forget view)
         (#unsafe (#word-forget Cell (#borrow-slice-mut words)))
@@ -1426,34 +1426,34 @@ fn occupied_word_cells_need_real_reference_provenance_after_retirement() {
         .contains("missing slot provenance"));
     let cleared = retired.replace(
         "(#let invalid",
-        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant))) (#let invalid",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant))) (#let invalid",
     );
     run(&cleared);
 }
 
 #[test]
 fn constructor_facts_are_per_cell_and_required_on_every_reaching_address() {
-    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn choose (: flag #bool) #u64
         (#let amount #u64 42u64)
         (#let-mut first (#array #u64 2) (#array-repeat 0u64))
         (#let-mut second (#array #u64 2) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Vacant)))
-        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Cell.Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))
         (#let words (#slice #u64) (#if flag (#borrow-slice first) (#borrow-slice second)))
         (#let view (#ref Cell) (#unsafe (#word-view (#ref Cell) words)))
         (#forget view) (#forget words) (#return 42u64))
       (#fn main () #u64 (#return (#call choose (: flag true))))";
     run(source);
     let unknown = source.replace(
-        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))",
         "",
     );
     assert!(compile(&unknown)
         .unwrap_err()
         .message
         .contains("missing slot provenance"));
-    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
+    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Cell.Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
     assert!(compile(&occupied)
         .unwrap_err()
         .message
@@ -1494,12 +1494,12 @@ const REFERENCE_WORDS: &str = "
   (#let target (#pin-ref-mut Pair)
     (#unsafe (#word-view (#pin-ref-mut Pair) (#borrow-slice-mut words))))
   (#let raw (#slice-mut #u64) (#call expose (: value target)))
-  (#assert (#usize.== (#slice-mut-len raw) 2usize))
+  (#assert (#usize::eq (#slice-mut-len raw) 2usize))
   (#unsafe (#word-write Pair raw (#struct-literal Pair (: left 20u8 : right 22u64))))
   (#let raw-read (#slice #u64) (#unsafe (#word-view (#slice #u64) target)))
   (#let result Pair (#unsafe (#word-read Pair raw-read)))
   (#forget raw-read) (#forget target)
-  (#let answer #u64 (#u64.+.wrap (#as (#get result left) #u64) (#get result right)))
+  (#let answer #u64 (#u64::add-wrap (#as (#get result left) #u64) (#get result right)))
   (#forget result) (#return answer))";
 
 #[test]
@@ -1531,7 +1531,7 @@ fn reference_word_views_preserve_heap_layout_and_owner_lifetimes() {
             "(#forget raw-read) (#forget target)",
             "(#forget raw-read) (#forget target)
          (#let pointer-out (#ptr-mut (#array #u64 2)) (#unsafe (#pin-release owner)))
-         (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer-out 16usize))) 0i64))",
+         (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer-out 16usize))) 0i64))",
         );
     run(&source);
     let invalid = source.replace("(#forget raw-read) (#forget target)", "");
@@ -1564,9 +1564,9 @@ fn reference_word_views_check_unsafe_mutability_types_and_escapes() {
 #[test]
 fn word_staging_preserves_observable_clone_hooks() {
     let source = "(#struct Value () (: number #u64 : count (#ptr-mut #u64)))
-      (#fn Value-clone (: value Value) Value
+      (#fn Value::clone (: value Value) Value
         (#unsafe (#ptr-write (#get value count)
-          (#u64.+.wrap (#ptr-read (#get value count)) 1u64))) (#return value))
+          (#u64::add-wrap (#ptr-read (#get value count)) 1u64))) (#return value))
       (#fn main () #u64
         (#let-mut count #u64 0u64)
         (#let pointer (#ptr-mut #u64) (#ref-ptr (#borrow-mut count)))
@@ -1577,9 +1577,9 @@ fn word_staging_preserves_observable_clone_hooks() {
         (#let copied Value (#block (#let nested Value source) (#clone nested)))
         (#unsafe (#word-write Value (#borrow-slice-mut words)
           (#block (#let staged Value copied) (#clone staged))))
-        (#assert (#u64.== count 2u64))
+        (#assert (#u64::eq count 2u64))
         (#let result Value (#unsafe (#word-read Value (#borrow-slice words))))
-        (#return (#u64.+.wrap (#get result number) count)))";
+        (#return (#u64::add-wrap (#get result number) count)))";
     run(source);
     let large = source
         .replace(
@@ -1748,7 +1748,7 @@ fn nested_word_view_field_addresses_keep_external_pointees_separate() {
 fn typed_reference_holder_lends_its_word_view_without_duplicating_the_loan() {
     let source = "(#struct Holder () (: view (#ref-mut #u64)))
       (#fn touch (: target (#ref-mut #u64)) ()
-        (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
+        (#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return ()))
       (#fn main () #u64
         (#let-mut words (#array #u64 1) (#array-of (#array #u64 1) 40u64))
         (#let view (#ref-mut #u64) (#unsafe (#word-view (#ref-mut #u64)
@@ -1794,7 +1794,7 @@ fn word_view_outlives_temporary_anchor_but_not_its_parameter() {
           (#let anchor (#ref (#array #u64 2)) (#borrow (#deref words)))
           (#borrow-slice (#deref anchor) 0usize 1usize)))))
       (#let again (#ref #u64) selected)
-      (#return (#u64.+.wrap (#deref selected) (#deref again))))
+      (#return (#u64::add-wrap (#deref selected) (#deref again))))
       (#fn main () #u64
         (#let-mut words (#array #u64 2) (#array-of (#array #u64 2) 21u64 0u64))
         (#return (#call read (: words (#borrow-mut words)))))";
@@ -1919,7 +1919,7 @@ fn heap_word_views_preserve_flat_not_packed_layout() {
         .replace("(#forget view) (#return result)",
           "(#forget view) (#forget readable)
            (#let raw (#ptr-mut (#array #u64 2)) (#unsafe (#pin-release owner)))
-           (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw 16usize))) 0i64))
+           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw 16usize))) 0i64))
            (#return result)");
     run(&source);
     let invalid = source.replace("(#forget view) ", "");
@@ -1933,7 +1933,7 @@ fn disjoint_word_ranges_keep_a_sibling_address_live() {
       (#let kept (#ref #u64) (#unsafe (#word-view (#ref #u64) (#borrow-slice words 0usize 1usize))))
       (#unsafe (#word-write #u64 (#borrow-slice-mut words 1usize 2usize) 2u64))
       (#let other #u64 (#unsafe (#word-read #u64 (#borrow-slice words 1usize 2usize))))
-      (#let result #u64 (#u64.+.wrap (#deref kept) other))
+      (#let result #u64 (#u64::add-wrap (#deref kept) other))
       (#forget kept) (#return result))";
     run(source);
     let invalid = source.replace(
@@ -1962,22 +1962,22 @@ fn returned_views_retain_their_callers_storage_lifetime() {
 #[test]
 fn typed_word_view_maps_callee_consumption_to_actual_backing_regions() {
     let source = "(#struct Token (#linear) (: amount #u64))
-      (#enum Slot (#linear) ((Empty) (Full Token)))
+      (#enum Slot (#linear) ((Slot.Empty) (Slot.Full Token)))
       (#struct Buffer () (: prefix #u64 : slot Slot : suffix #u64))
       (#fn clear (: slot (#pin-ref-mut Slot)) ()
         (#unsafe (#forget (#pin-read slot)))
-        (#unsafe (#pin-write slot (Empty))) (#return ()))
+        (#unsafe (#pin-write slot (Slot.Empty))) (#return ()))
       (#fn clear-buffer (: buffer (#pin-ref-mut Buffer)) ()
         (#call clear (: slot (#pin-borrow-mut (#get buffer slot)))) (#return ()))
       (#fn main () #u64
         (#let-mut words (#array #u64 6) (#array-repeat 0u64))
         (#unsafe (#word-write Buffer (#borrow-slice-mut words 1usize 5usize)
-          (#struct-literal Buffer (: prefix 40u64 : slot (Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
+          (#struct-literal Buffer (: prefix 40u64 : slot (Slot.Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
         (#call clear-buffer (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)))))
         (#let prefix #u64 (#unsafe (#word-read #u64 (#borrow-slice words 1usize 2usize))))
         (#let suffix #u64 (#unsafe (#word-read #u64 (#borrow-slice words 4usize 5usize))))
-        (#assert (#u64.== (#unsafe (#word-read #u64 (#borrow-slice words 2usize 3usize))) 0u64))
-        (#forget words) (#return (#u64.+.wrap prefix suffix)))";
+        (#assert (#u64::eq (#unsafe (#word-read #u64 (#borrow-slice words 2usize 3usize))) 0u64))
+        (#forget words) (#return (#u64::add-wrap prefix suffix)))";
     run(source);
     let short = source.replace(
         "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)",
@@ -2029,7 +2029,7 @@ fn word_forget_retires_loans_without_loading_or_zeroing_memory() {
       (#unsafe (#word-forget (#ref-mut #u64) (#borrow-slice-mut words)))
       (#unsafe (#word-forget (#ref-mut #u64) (#borrow-slice-mut words)))
       (#let after #u64 (#unsafe (#word-read #u64 (#borrow-slice words))))
-      (#assert (#u64.== before after))
+      (#assert (#u64::eq before after))
       (#set seed 42u64) (#forget words) (#return seed))";
     run(source);
     let missing = source.replace(
@@ -2141,7 +2141,7 @@ fn typed_word_writes_preserve_contained_reference_provenance() {
         .replace("#borrow-slice words", "#borrow-slice (#deref writable)")
         .replace("(#forget words)", "(#forget writable) (#forget anchor)
           (#let released (#ptr-mut (#array #u64 1)) (#unsafe (#pin-release owner)))
-          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released 8usize))) 0i64))");
+          (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (released 8usize))) 0i64))");
     run(&heap);
     let invalid = source.replace("(#let result", "(#set seed 0u64) (#let result");
     let error = compile(&invalid).unwrap_err();
@@ -2157,7 +2157,7 @@ fn typed_word_reference_slots_use_real_flat_offsets() {
         (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 5usize)
           (#struct-literal Holder (: prefix 0u128 : value (#borrow seed) : suffix 2u64))))
         (#let view (#ref Holder) (#unsafe (#word-view (#ref Holder) (#borrow-slice words 1usize 5usize))))
-        (#let result #u64 (#u64.+.wrap (#deref (#get view value)) (#get view suffix)))
+        (#let result #u64 (#u64::add-wrap (#deref (#get view value)) (#get view suffix)))
         (#forget view) (#forget words) (#set seed 0u64) (#return result))";
     run(source);
     let invalid = source.replace(
@@ -2184,7 +2184,7 @@ fn owned_nested_word_slots_preserve_tuple_and_array_reference_origins() {
               (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))))))
         (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words))))
         (#let refs (#array (#ref #u64) 2) (#get (#get restored nested) 1))
-        (#let answer #u64 (#u64.+.wrap (#deref (#index refs 0usize)) (#deref (#index refs 1usize))))
+        (#let answer #u64 (#u64::add-wrap (#deref (#index refs 0usize)) (#deref (#index refs 1usize))))
         (#forget refs) (#forget restored) (#forget words)
         (#set left 0u64) (#set right 0u64) (#return answer))";
     run(source);
@@ -2423,7 +2423,7 @@ fn a_running_thread_retains_by_value_word_input_loans_until_join() {
         (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice (#get saved words)))))
         (#let answer #u64 (#deref (#get restored value)))
         (#forget restored) (#forget saved) (#return answer))
-      (@#thread-spawn (: task WordTask : worker read))
+      (#generate #thread-spawn (: task WordTask : worker read))
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -2431,22 +2431,22 @@ fn a_running_thread_retains_by_value_word_input_loans_until_join() {
           (#struct-literal Holder (: value (#borrow seed)))))
         (#let storage Storage (#struct-literal Storage (: words words))) (#forget words)
         (#let answer #u64
-          (#match (#call WordTask-spawn (: incoming storage))
-            (#case (WordTask-spawn-ok handle)
-              (#match (#call WordTask-join (: task handle))
-                (#case (WordTask-join-ok value) value)
-                (#case (WordTask-join-error (#tuple retry error)) (#panic))))
-            (#case (WordTask-spawn-error error) (#panic))))
+          (#match (#call WordTask::spawn (: incoming storage))
+            (#case (WordTask::SpawnResult.Ok handle)
+              (#match (#call WordTask::join (: task handle))
+                (#case (WordTask::JoinResult.Ok value) value)
+                (#case (WordTask::JoinResult.Error (#tuple retry error)) (#panic))))
+            (#case (WordTask::SpawnResult.Error error) (#panic))))
         (#set seed 0u64) (#return answer))";
     run(source);
     let invalid = source
         .replace(
-            "(#case (WordTask-spawn-ok handle)\n              (#match",
-            "(#case (WordTask-spawn-ok handle) (#block (#set seed 0u64)\n              (#match",
+            "(#case (WordTask::SpawnResult.Ok handle)\n              (#match",
+            "(#case (WordTask::SpawnResult.Ok handle) (#block (#set seed 0u64)\n              (#match",
         )
         .replace(
-            "(#case (WordTask-spawn-error error)",
-            ") (#case (WordTask-spawn-error error)",
+            "(#case (WordTask::SpawnResult.Error error)",
+            ") (#case (WordTask::SpawnResult.Error error)",
         );
     assert_ne!(source, invalid);
     let error = compile(&invalid).expect_err("running captures must keep the pointee borrowed");
@@ -2546,7 +2546,7 @@ fn contiguous_partial_ownership_restoration_keeps_the_whole_address() {
     run("(#struct Token (#linear) (: value #u64))
       (#struct Owner () (: kept #u64 : item Token))
       (#fn inspect (: owner (#ref Owner)) #u64
-        (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
+        (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value))))
       (#fn main () #u64
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
         (#unsafe (#word-write Owner (#borrow-slice-mut words)
@@ -2559,7 +2559,7 @@ fn contiguous_partial_ownership_restoration_keeps_the_whole_address() {
           (#struct-literal Token (: value 2u64))))
         (#let whole (#ref Owner) (#unsafe (#word-view (#ref Owner) (#borrow-slice words))))
         (#let selected (#ref #u64) (#borrow (#get whole kept)))
-        (#assert (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+        (#assert (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
         (#let answer #u64 (#call inspect (: owner whole)))
         (#forget selected) (#forget whole) (#forget kept)
         (#let remaining Owner (#unsafe (#word-read Owner (#borrow-slice words))))
@@ -2571,7 +2571,7 @@ fn contiguous_reference_owner_restoration_keeps_address_and_real_caller_loan() {
     let source = "(#struct Token (#linear) (: value #u64))
       (#struct Owner () (: kept (#ref #u64) : item Token))
       (#fn inspect (: owner (#ref Owner)) #u64
-        (#return (#u64.+.wrap (#deref (#get owner kept)) (#get (#get owner item) value))))
+        (#return (#u64::add-wrap (#deref (#get owner kept)) (#get (#get owner item) value))))
       (#fn main () #u64
         (#let-mut seed #u64 40u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
@@ -2585,7 +2585,7 @@ fn contiguous_reference_owner_restoration_keeps_address_and_real_caller_loan() {
           (#struct-literal Token (: value 2u64))))
         (#let whole (#ref Owner) (#unsafe (#word-view (#ref Owner) (#borrow-slice words))))
         (#let selected (#ref (#ref #u64)) (#borrow (#get whole kept)))
-        (#assert (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+        (#assert (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
         (#let answer #u64 (#call inspect (: owner whole)))
         (#forget selected) (#forget whole) (#forget kept) (#forget words)
         (#set seed 0u64) (#return answer))";

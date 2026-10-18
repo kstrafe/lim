@@ -16,8 +16,8 @@ fn check(source: &str) -> Result<(), lim::Diagnostic> {
 #[test]
 fn unused_unknown_payloads_and_aliases_fail_at_the_missing_type_token() {
     for declaration in [
-        "(#enum Broken () ((Bad MissingType)))",
-        "(#enum Broken () ((Bad 42 (#ref MissingType))))",
+        "(#enum Broken () ((Broken.Bad MissingType)))",
+        "(#enum Broken () ((Broken.Bad 42 (#ref MissingType))))",
         "(#struct Broken () ((payload (#tuple #u64 (#ref MissingType)))))",
         "(#type Broken (#ptr MissingType))",
         "(#struct Broken () ((payload Alias))) (#type Alias MissingType)",
@@ -38,8 +38,8 @@ fn unused_unknown_payloads_and_aliases_fail_at_the_missing_type_token() {
 #[test]
 fn forward_references_and_indirected_cycles_remain_valid() {
     for source in [
-        "(#struct First () ((payload Second))) (#enum Second () ((Value Alias))) (#type Alias #u64)",
-        "(#struct First () ((next (#ptr Second)))) (#enum Second () ((Back (#ptr First))))",
+        "(#struct First () ((payload Second))) (#enum Second () ((Second.Value Alias))) (#type Alias #u64)",
+        "(#struct First () ((next (#ptr Second)))) (#enum Second () ((Second.Back (#ptr First))))",
         "(#struct First () ((next (#ref Second)))) (#struct Second () ((back (#ref First))))",
     ] { check(source).unwrap_or_else(|error| panic!("{error:?}")); }
 }
@@ -48,9 +48,9 @@ fn forward_references_and_indirected_cycles_remain_valid() {
 fn unused_by_value_cycles_are_rejected_without_layout_recursion() {
     for source in [
         "(#struct A () ((payload A)))",
-        "(#enum A () ((Again A)))",
-        "(#enum A () ((Again 42 A)))",
-        "(#struct A () ((payload (#tuple #u64 (#array B 1))))) (#enum B () ((Back A)))",
+        "(#enum A () ((A.Again A)))",
+        "(#enum A () ((A.Again 42 A)))",
+        "(#struct A () ((payload (#tuple #u64 (#array B 1))))) (#enum B () ((B.Back A)))",
         "(#type Alias A) (#struct A () ((payload Alias)))",
         "(#type A B) (#type B A)",
     ] {
@@ -73,7 +73,7 @@ fn imported_and_generated_unused_payload_errors_keep_exact_sources() {
     let scratch = support::Scratch::new("declaration-wellformedness-import");
     let entry = scratch.path().join("main.lim");
     let module = scratch.path().join("types.lim");
-    let declaration = "(#enum Broken () ((Bad MissingType)))";
+    let declaration = "(#enum Broken () ((Broken.Bad MissingType)))";
     fs::write(&module, declaration).unwrap();
     let source = "(#import \"types.lim\") (#fn main () #u64 (#return 0u64))";
     let error = lim::check_source_with_generated_sources(
@@ -88,7 +88,7 @@ fn imported_and_generated_unused_payload_errors_keep_exact_sources() {
     let span = error.span.unwrap();
     assert_eq!(&declaration[span.start..span.end], "MissingType");
 
-    let source = format!("(#gn emit () `({declaration}))\n(@emit)");
+    let source = format!("(#gn emit () `({declaration}))\n(#generate emit)");
     for _ in 0..2 {
         let error = lim::check_source_with_generated_sources(
             &source,

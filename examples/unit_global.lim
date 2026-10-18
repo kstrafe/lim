@@ -1,7 +1,7 @@
-(#let UNIT () ())
+(#let uNIT () ())
 
 (#fn consume ((value ())) #u64
   (#return 41))
 
 (#fn main () #u64
-  (#return (#call consume (: value UNIT))))
+  (#return (#call consume (: value uNIT))))

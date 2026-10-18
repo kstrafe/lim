@@ -2,7 +2,7 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let action-initialized ()
     (#unsafe
@@ -20,7 +20,7 @@
     (#unsafe (#ptr-read (#ptr-offset memory 8usize))))
   (#let requested-mask-set ()
     (#unsafe (#ptr-write (#ptr-offset memory 9usize)
-      (#as (#u64.| (#as original-mask #u64) 512u64) #i64))))
+      (#as (#u64::bit-or (#as original-mask #u64) 512u64) #i64))))
   (#let mask-blocked #i64
     (#unsafe (#unsafe-call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-offset memory 9usize) : old-set (#ptr-null (#ptr-mut #i64)) : sigset-size 8usize))))
   (#let current-mask-query #i64
@@ -38,17 +38,17 @@
   (#let action-restored #i64
     (#unsafe (#unsafe-call linux-rt-sigaction (: signal 10i64 : action (#ptr-offset memory 4usize) : old-action (#ptr-null (#ptr-mut #i64)) : sigset-size 8usize))))
   (#let unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let signals-ok #bool
-    (#bool.&& (#i64.== action-installed 0i64)
-      (#bool.&& (#i64.== mask-initial-query 0i64)
-        (#bool.&& (#i64.== mask-blocked 0i64)
-          (#bool.&& (#i64.== current-mask-query 0i64)
-            (#bool.&& (#u64.== (#u64.& current-mask 512u64) 512u64)
-              (#bool.&& (#i64.== pending-query 0i64)
-                (#bool.&& (#i64.== mask-restored 0i64)
-                  (#bool.&& (#i64.== restored-mask-query 0i64)
-                    (#bool.&& (#i64.== restored-mask original-mask)
-                      (#bool.&& (#i64.== action-restored 0i64)
-                        (#i64.== unmapped 0i64))))))))))))
+    (#bool::and (#i64::eq action-installed 0i64)
+      (#bool::and (#i64::eq mask-initial-query 0i64)
+        (#bool::and (#i64::eq mask-blocked 0i64)
+          (#bool::and (#i64::eq current-mask-query 0i64)
+            (#bool::and (#u64::eq (#u64::bit-and current-mask 512u64) 512u64)
+              (#bool::and (#i64::eq pending-query 0i64)
+                (#bool::and (#i64::eq mask-restored 0i64)
+                  (#bool::and (#i64::eq restored-mask-query 0i64)
+                    (#bool::and (#i64::eq restored-mask original-mask)
+                      (#bool::and (#i64::eq action-restored 0i64)
+                        (#i64::eq unmapped 0i64))))))))))))
   (#return (#if signals-ok 42u64 1u64)))

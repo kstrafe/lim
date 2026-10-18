@@ -17,16 +17,17 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 
 " Lim forms, operators, and generator operations use a leading #.
 syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
-syn match limGenerated +@#\?[[:alpha:]_][^[:space:]();"'`,@#]*+
+syn match limGenerated +#generate\ze\%($\|[[:space:]();"'`,#]\)+
+syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:]();"'`,#]\++
 " Type properties are declaration annotations, not callable forms.
 syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:]();"'`,@#]\)+
 
 " Match complete tokens, including the sigil. In particular, #u64 is a type
-" but #u64.+.wrap is an operator and an unprefixed u64 is a user identifier.
+" but #u64::add-wrap is an operator and an unprefixed u64 is a user identifier.
 syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\.[^[:space:]();"'`,@#]\++
-syn match limDeclaration +#\%(fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:]();"'`,@#]\++
+syn match limDeclaration +#\%(fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
@@ -45,7 +46,7 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn cluster limForms contains=limKeyword,limGenerated,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limKeyword,limGenerated,limExternal,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
@@ -59,6 +60,7 @@ hi def link limEscape SpecialChar
 hi def link limCharacter Character
 hi def link limKeyword Keyword
 hi def link limGenerated Special
+hi def link limExternal Identifier
 hi def link limTypeProperty Keyword
 hi def link limType Type
 hi def link limTypeForm Type

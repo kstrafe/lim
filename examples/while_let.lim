@@ -1,4 +1,4 @@
-(@#optional (: type #u64 : name Maybe?))
+(#generate #optional (: type #u64 : name Maybe?))
 
 (
   #fn
@@ -9,19 +9,19 @@
     #let-mut
     value
     Maybe?
-    (#call Maybe?-construct (: value 42))
+    (#call Maybe?::construct (: value 42))
   )
   (#let-mut total #u64 0)
   (
     #while-let
-    (Maybe?-some payload)
+    (Maybe?.Some payload)
     value
     (
       #set
       total
-      (#u64.+.wrap  total payload)
+      (#u64::add-wrap  total payload)
     )
-    (#set value Maybe?-none)
+    (#set value Maybe?.None)
   )
   (#return total)
 )

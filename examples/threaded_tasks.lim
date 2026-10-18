@@ -1,20 +1,20 @@
 (#import "../library/tasks.lim")
 
-(@#task (NumberTask NumberPoll NumberPending NumberReady) #u64
-  ((Number #u64)))
+(#generate #task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
+  ((NumberTask.Number #u64)))
 
 (#fn number-poll ((task NumberTask)) NumberPoll
-  (#return (#match task (#case (Number value) (NumberReady value)))))
+  (#return (#match task (#case (NumberTask.Number value) (NumberPoll.NumberReady value)))))
 
-(@#threaded-executor run-worker WorkerResults
-  ((number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input))
+(#generate #threaded-executor run-worker WorkerResults
+  ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input))
   Worker)
 
 (#fn main () #u64
   (#return
-    (#match (#call Worker-spawn (: number-input (Number 42u64)))
-      (#case (Worker-spawn-ok thread)
-        (#match (#call Worker-join (: task thread))
-          (#case (Worker-join-ok results) (#get results number))
-          (#case (Worker-join-error (#tuple retry error)) (#panic))))
-      (#case (Worker-spawn-error error) (#panic)))))
+    (#match (#call Worker::spawn (: number-input (NumberTask.Number 42u64)))
+      (#case (Worker::SpawnResult.Ok thread)
+        (#match (#call Worker::join (: task thread))
+          (#case (Worker::JoinResult.Ok results) (#get results number))
+          (#case (Worker::JoinResult.Error (#tuple retry error)) (#panic))))
+      (#case (Worker::SpawnResult.Error error) (#panic)))))

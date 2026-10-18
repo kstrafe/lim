@@ -1,7 +1,7 @@
 ; Compile with --cfg async-lowering=graph.
 ; Access is explicit, source-named, and only available after completion or
 ; cleanup. Replacement changes the same stationary frame, not a new future.
-(@
+(#generate
   #async-fn-pinned
   (: protocol WorkAwait : waker #u64
   : access (: amount amount-access)
@@ -14,13 +14,13 @@
     result
     #u64
     (#match (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
-      (#case (Work::Ready value)
+      (#case (Work::Poll.Ready value)
         value)
-      (#case (Work::Pending unexpected)
+      (#case (Work::Poll.Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable)))))
-  (#assert (#u64.== result 40u64))
+  (#assert (#u64::eq result 40u64))
   (#call amount-access-replace (: task (#pin-borrow-mut frame) : value 42u64))
   (#let restored #u64 (#call amount-access-read (: task (#pin-borrow frame))))
   (#forget frame)

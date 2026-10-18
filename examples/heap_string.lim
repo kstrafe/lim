@@ -17,11 +17,11 @@
       #match
       (
         #call
-        String-from-chars
+        String::from-chars
         (: text (#borrow-slice chars))      )
       (
         #case
-        (StringCreated text)
+        (StringCreateResult.StringCreated text)
         (
           #block
           (
@@ -33,25 +33,25 @@
           (
             #while
             (
-              #usize.<
+              #usize::lt
               index
               (
                 #call
-                String-len
+                String::len
                 (: string (#borrow text))              )            )
             (
               #match
               (
                 #call
-                String-byte-at
+                String::byte-at
                 (: string (#borrow text) : index index)              )
               (
                 #case
-                (StringByte byte)
+                (StringByteResult.StringByte byte)
                 (
                   #assert
                   (
-                    #i64.==
+                    #i64::eq
                     (
                       #call
                       linux-write-byte
@@ -59,21 +59,21 @@
                     (#literal #i64 1)                  )                )              )
               (
                 #case
-                StringByteOutOfBounds
+                StringByteResult.StringByteOutOfBounds
                 (#assert false)
               )            )
             (
               #set
               index
               (
-                #usize.+.wrap
+                #usize::add-wrap
                 index
                 (#literal #usize 1)
               )
             )          )
           (
             #call
-            String-free
+            String::free
             (: string text)          )
           42        )      )
       (#case _ 1)    )  ))

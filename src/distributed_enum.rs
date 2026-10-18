@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn properties_are_not_variants_and_contributions_sort_after_declaration() {
         let forms = merged(
-            "(#enum-contribute E (Zulu #u64))\n(#distributed-enum E (#linear #repr-c))\n(#enum-contribute E (Alpha))",
+            "(#enum-contribute E (E.Zulu #u64))\n(#distributed-enum E (#linear #repr-c))\n(#enum-contribute E (E.Alpha))",
         );
         let (xs, _) = enum_form(&forms);
         assert_eq!(
@@ -211,9 +211,9 @@ mod tests {
         assert_eq!(
             xs[3],
             Expr::List(vec![
-                Expr::List(vec![Expr::Symbol("Alpha".into())]),
+                Expr::List(vec![Expr::Symbol("E.Alpha".into())]),
                 Expr::List(vec![
-                    Expr::Symbol("Zulu".into()),
+                    Expr::Symbol("E.Zulu".into()),
                     Expr::Symbol("#u64".into())
                 ]),
             ])
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn identical_variants_deduplicate_and_keep_variant_source() {
         let forms = merged(
-            "(#enum-contribute E (A #u64))\n(#distributed-enum E ())\n(#enum-contribute E (A #u64))",
+            "(#enum-contribute E (E.A #u64))\n(#distributed-enum E ())\n(#enum-contribute E (E.A #u64))",
         );
         let (xs, form) = enum_form(&forms);
         let Expr::List(variants) = &xs[3] else {
@@ -232,7 +232,10 @@ mod tests {
         assert_eq!(variants.len(), 1);
         assert_eq!(
             variants[0],
-            Expr::List(vec![Expr::Symbol("A".into()), Expr::Symbol("#u64".into())])
+            Expr::List(vec![
+                Expr::Symbol("E.A".into()),
+                Expr::Symbol("#u64".into())
+            ])
         );
         assert_eq!(form.children[3].children[0].expr, variants[0]);
     }
@@ -240,24 +243,25 @@ mod tests {
     #[test]
     fn conflicting_variant_reports_later_span_and_previous_label() {
         let parsed = parse(
-            "(#distributed-enum E ())\n(#enum-contribute E (A #u64))\n(#enum-contribute E (A #i64))",
+            "(#distributed-enum E ())\n(#enum-contribute E (E.A #u64))\n(#enum-contribute E (E.A #i64))",
         );
         let later_span = parsed[2].children[2].span;
         let error = merge(parsed).expect_err("different payloads conflict");
         assert_eq!(error.span, Some(later_span));
         assert!(error
             .message
-            .contains("conflicting definitions of enum variant 'A'"));
+            .contains("conflicting definitions of enum variant 'E.A'"));
     }
 
     #[test]
     fn contribution_can_precede_declaration_but_missing_enum_fails() {
-        let forms = merged("(#enum-contribute E (Empty))\n(#distributed-enum E ())");
+        let forms = merged("(#enum-contribute E (E.Empty))\n(#distributed-enum E ())");
         assert_eq!(
             enum_form(&forms).0[3],
-            Expr::List(vec![Expr::List(vec![Expr::Symbol("Empty".into())])])
+            Expr::List(vec![Expr::List(vec![Expr::Symbol("E.Empty".into())])])
         );
-        let error = merge(parse("(#enum-contribute Missing (Empty))")).expect_err("missing target");
-        assert!(error.message.contains("missing distributed enum 'Missing'"));
+        let error =
+            merge(parse("(#enum-contribute missing (Missing.Empty))")).expect_err("missing target");
+        assert!(error.message.contains("missing distributed enum 'missing'"));
     }
 }

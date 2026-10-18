@@ -4,4 +4,4 @@
 (#fn main () #u64
   (#let (Outer (Inner left right) tail) Outer
     (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30))))
-  (#return (#u64.+.wrap right tail)))
+  (#return (#u64::add-wrap right tail)))

@@ -1,17 +1,17 @@
 (
   #const
-  Scale
+  scale
   #f32
-  (#f32.*  Base 2.0)
+  (#f32::mul  base 2.0)
 )
 
-(#const Base #f32 1.5)
+(#const base #f32 1.5)
 
 (
   #const
-  Pi
+  pi
   #f64
-  (#f64.+  3.0 0.25)
+  (#f64::add  3.0 0.25)
 )
 
 (
@@ -23,9 +23,9 @@
     #return
     (
       #if
-      (#bool.&&
-        (#f32.>  Scale 2.9)
-        (#f64.>  Pi 3.2)
+      (#bool::and
+        (#f32::gt  scale 2.9)
+        (#f64::gt  pi 3.2)
       )
       42
       0

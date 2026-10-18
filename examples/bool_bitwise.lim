@@ -7,8 +7,8 @@
     #return
     (
       #if
-      (#bool.^
-        (#bool.&  true true)
+      (#bool::bit-xor
+        (#bool::bit-and  true true)
         false
       )
       42

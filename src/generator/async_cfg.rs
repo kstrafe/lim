@@ -1016,7 +1016,7 @@ mod tests {
         let source = "(#fn work ((saved #u64)) #u64
           (#let answer #u64 (#await #u64 Child Pending Ready poll
             (#call make (: value saved))))
-          (#return (#u64.+.wrap saved answer)))";
+          (#return (#u64::add-wrap saved answer)))";
         let parsed = parsed(source);
         let environment = AsyncTypeEnvironment::default();
         let graph = build(&parsed[0], &environment).unwrap().unwrap();
@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn captures_computed_operands_but_keeps_unread_storage_separate() {
         let source = "(#fn work ((saved #u64) (unread Resource)) #u64
-          (#let answer #u64 (#u64.+.wrap (#clone saved)
+          (#let answer #u64 (#u64::add-wrap (#clone saved)
             (#await #u64 Child Pending Ready poll ())))
           (#forget unread)
           (#return answer))";
@@ -1181,12 +1181,12 @@ mod tests {
 
     #[test]
     fn match_and_if_let_keep_declared_pattern_types_and_guard_paths() {
-        let source = "(#enum Choice () ((Some (#tuple #u64 #bool)) (None)))
+        let source = "(#enum Choice () ((Choice.Some (#tuple #u64 #bool)) (Choice.None)))
           (#fn work ((choice Choice)) #u64
             (#return (#match choice
-              (#case (Some (#tuple amount enabled)) (#when enabled)
+              (#case (Choice.Some (#tuple amount enabled)) (#when enabled)
                 (#await #u64 Child Pending Ready poll amount))
-              (#case _ (#if-let (Some (#tuple fallback _)) choice fallback 0u64)))))";
+              (#case _ (#if-let (Choice.Some (#tuple fallback _)) choice fallback 0u64)))))";
         let mut parsed = parsed(source);
         let environment = crate::generator::frontend::async_type_environment(&parsed);
         // Production sees #case-normalized source children; verify both forms.

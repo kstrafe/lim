@@ -16,7 +16,7 @@
     #return
     (
       #as
-      (#usize.+.wrap
+      (#usize::add-wrap
         (#size-of Point)
         (
           #size-of

@@ -1,7 +1,7 @@
 (#fn main () #u64
   (#let value #u32 2)
   (#return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#match value
         (#case (#or 1 2 3) 42)
         (#case _ 0))

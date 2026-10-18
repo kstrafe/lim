@@ -30,10 +30,10 @@
     (
       #while
       (
-        #bool.&&
-        (#usize.< offset length)
+        #bool::and
+        (#usize::lt offset length)
         (
-          #i64.==
+          #i64::eq
           error
           (#literal #i64 0)
         )
@@ -42,7 +42,7 @@
         #let
         remaining
         #usize
-        (#usize.-.wrap length offset)
+        (#usize::sub-wrap length offset)
       )
       (
         #let
@@ -65,7 +65,7 @@
       (
         #if
         (
-          #i64.>
+          #i64::gt
           written
           (#literal #i64 0)
         )
@@ -79,13 +79,13 @@
           )
           (
             #if
-            (#usize.<= count remaining)
+            (#usize::le count remaining)
             (
               #block
               (
                 #set
                 offset
-                (#usize.+.wrap offset count)
+                (#usize::add-wrap offset count)
               )
               ()
             )
@@ -104,7 +104,7 @@
         (
           #if
           (
-            #i64.==
+            #i64::eq
             written
             (#literal #i64 -4)
           )
@@ -117,7 +117,7 @@
               (
                 #if
                 (
-                  #i64.==
+                  #i64::eq
                   written
                   (#literal #i64 0)
                 )
@@ -136,7 +136,7 @@
     std-print
     (: text (#ref String))
     #i64
-    ; String-data-pointer is unsafe: text's shared borrow keeps both the
+    ; String::data-pointer is unsafe: text's shared borrow keeps both the
     ; owner and its allocation live and immutable until the write completes.
     (
       #return
@@ -145,8 +145,8 @@
         (
           #unsafe-call
           std-write-all
-          (: pointer (#unsafe-call String-data-pointer (: string text))
-       : length (#call String-len (: string text)))        )      )    )  )
+          (: pointer (#unsafe-call String::data-pointer (: string text))
+       : length (#call String::len (: string text)))        )      )    )  )
   (
     #fn
     std-println
@@ -171,7 +171,7 @@
       (
         #if
         (
-          #i64.==
+          #i64::eq
           result
           (#literal #i64 0)
         )

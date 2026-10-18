@@ -13,19 +13,20 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 
 #[test]
 fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
-    compile("(@#optional (: type #u64 : name Maybe)) (#fn main () #u64 (#return 42u64))").unwrap();
-    let error = compile("(@optional (: type #u64 : name Maybe))").unwrap_err();
+    compile("(#generate #optional (: type #u64 : name Maybe)) (#fn main () #u64 (#return 42u64))")
+        .unwrap();
+    let error = compile("(#generate optional (: type #u64 : name Maybe))").unwrap_err();
     assert!(error.message.contains("unknown"), "{error:?}");
     // Unprefixed names genuinely belong to users, even if a reserved builtin
     // has the same suffix. There is no ambiguity or special-case dispatch.
     compile(
-        "(#gn optional () `((#type UserWord #u64))) (@optional)
-      (@#optional (: type UserWord : name Maybe))
+        "(#gn optional () `((#type UserWord #u64))) (#generate optional)
+      (#generate #optional (: type UserWord : name Maybe))
       (#fn main () #u64 (#return 42u64))",
     )
     .unwrap();
     compile(
-        "(#gn cell () `((#type UserCell #u64))) (@cell)
+        "(#gn cell () `((#type UserCell #u64))) (#generate cell)
       (#fn main () #u64 (#return 42u64))",
     )
     .unwrap();
@@ -48,9 +49,9 @@ fn users_and_generated_output_cannot_declare_reserved_names() {
         "(#fn ordinary ((#argument #u64)) () (#return ()))",
         "(#fn ordinary () () (#let #local #u64 1u64) (#return ()))",
         "(#fn ordinary () () (#for-range (#local #usize) 0usize 1usize ()) (#return ()))",
-        "(#gn emit () (#gn-for-each #local () ())) (@emit)",
-        "(#gn emit () `((#struct #Future () ()))) (@emit)",
-        "(@#optional (: type #u64 : name #Maybe))",
+        "(#gn emit () (#gn-for-each #local () ())) (#generate emit)",
+        "(#gn emit () `((#struct #Future () ()))) (#generate emit)",
+        "(#generate #optional (: type #u64 : name #Maybe))",
     ] {
         let error = compile(source).unwrap_err();
         assert!(error.message.contains("reserved"), "{source}: {error:?}");
@@ -63,11 +64,11 @@ fn standard_generators_keep_reserved_names_through_internal_and_external_imports
     let library = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("library/cell.lim");
     for import in [
         format!("(#import \"{}\")", library.display()),
-        format!("(#import-external \"{}\" lib.)", library.display()),
+        format!("(#import-external \"{}\" lib)", library.display()),
     ] {
         compile(&format!(
             "{import}
-          (@#cell #u64 Cell create-cell get-cell set-cell)
+          (#generate #cell #u64 Cell create-cell get-cell set-cell)
           (#fn main () #u64 (#return 42u64))"
         ))
         .unwrap();
@@ -77,7 +78,7 @@ fn standard_generators_keep_reserved_names_through_internal_and_external_imports
 #[test]
 fn bundled_standard_generator_uses_the_same_reserved_spelling() {
     compile(
-        "(#std) (@#utf8-view (: name ByteView : owner (#slice #u8)))
+        "(#std) (#generate #utf8-view (: name ByteView : owner (#slice #u8)))
       (#fn main () #u64 (#return 42u64))",
     )
     .unwrap();

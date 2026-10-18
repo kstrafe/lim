@@ -6,23 +6,23 @@ const HEAP: &str = include_str!("../library/system_allocator.lim");
 const HELPERS: &str = r#"
 (#fn allocate-required (: size #usize) (#ptr-mut #u8)
   (#return (#match (#call system-allocate (: size size))
-    (#case (SystemAllocated pointer) pointer)
-    (#case (SystemAllocationFailed error) (#panic)))))
+    (#case (SystemAllocationResult.SystemAllocated pointer) pointer)
+    (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic)))))
 (#unsafe-fn resize-required (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
   (#return (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size size)))
-    (#case (SystemAllocated resized) resized)
-    (#case (SystemAllocationFailed error) (#panic)))))
+    (#case (SystemAllocationResult.SystemAllocated resized) resized)
+    (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic)))))
 (#unsafe-fn fill (: pointer (#ptr-mut #u8) : size #usize) ()
   (#let-mut index #usize 0usize)
-  (#while (#usize.< index size)
-    (#unsafe (#ptr-write (#ptr-offset pointer index) (#as (#usize.%.wrap index 251usize) #u8)))
-    (#set index (#usize.+.wrap index 1usize)))
+  (#while (#usize::lt index size)
+    (#unsafe (#ptr-write (#ptr-offset pointer index) (#as (#usize::rem-wrap index 251usize) #u8)))
+    (#set index (#usize::add-wrap index 1usize)))
   (#return ()))
 (#unsafe-fn verify (: pointer (#ptr-mut #u8) : size #usize) ()
   (#let-mut index #usize 0usize)
-  (#while (#usize.< index size)
-    (#assert (#u8.== (#unsafe (#ptr-read (#ptr-offset pointer index))) (#as (#usize.%.wrap index 251usize) #u8)))
-    (#set index (#usize.+.wrap index 1usize)))
+  (#while (#usize::lt index size)
+    (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset pointer index))) (#as (#usize::rem-wrap index 251usize) #u8)))
+    (#set index (#usize::add-wrap index 1usize)))
   (#return ()))
 "#;
 
@@ -119,15 +119,15 @@ fn kernel_error_pointers_and_invalid_resize_sizes_preserve_ownership() {
         (#assert (#ptr-is-null (#call system-allocator-map (: length 0usize))))
         (#assert (#ptr-is-null (#unsafe (#unsafe-call system-allocator-remap
           (: pointer (#ptr-null (#ptr-mut #u8)) : old-length 4096usize : length 8192usize)))))
-        (#assert (#match (#call system-allocate (: size SYSTEM-ALLOCATION-MAX))
-          (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
+        (#assert (#match (#call system-allocate (: size sYSTEM-ALLOCATION-MAX))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 10000usize)))
         (#unsafe (#unsafe-call fill (: pointer pointer : size 10000usize)))
         (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size 0usize)))
-          (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#unsafe (#unsafe-call verify (: pointer pointer : size 10000usize)))
-        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size SYSTEM-ALLOCATION-MAX)))
-          (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
+        (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size sYSTEM-ALLOCATION-MAX)))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#unsafe (#unsafe-call verify (: pointer pointer : size 10000usize)))
         (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
         (#return 42u64))"#,
@@ -143,12 +143,12 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
       (#extern-fn #abi-c free (: pointer (#ptr-mut #u8)) ())
       (#fn main () #u64
         (#let foreign (#ptr-mut #u8) (#unsafe (#unsafe-call malloc (: size 64usize))))
-        (#assert (#bool.! (#ptr-is-null foreign)))
+        (#assert (#bool::not (#ptr-is-null foreign)))
         (#let native (#ptr-mut #u8) (#call allocate-required (: size 64usize)))
-        (#assert (#usize.!= (#ptr-address foreign) (#ptr-address native)))
+        (#assert (#usize::ne (#ptr-address foreign) (#ptr-address native)))
         (#unsafe (#ptr-write foreign 21u8))
         (#unsafe (#ptr-write native 21u8))
-        (#let answer #u64 (#u64.+.wrap (#as (#unsafe (#ptr-read foreign)) #u64)
+        (#let answer #u64 (#u64::add-wrap (#as (#unsafe (#ptr-read foreign)) #u64)
           (#as (#unsafe (#ptr-read native)) #u64)))
         (#unsafe (#unsafe-call free (: pointer foreign)))
         (#unsafe (#unsafe-call system-deallocate (: pointer native)))
@@ -169,12 +169,12 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
     {
         body.push_str(&format!(r#"
           (#let pointer{index} (#ptr-mut #u8) (#call allocate-required (: size {size}usize)))
-          (#assert (#usize.== (#usize.%.wrap (#ptr-address pointer{index}) 16usize) 0usize))
+          (#assert (#usize::eq (#usize::rem-wrap (#ptr-address pointer{index}) 16usize) 0usize))
           (#unsafe (#unsafe-call fill (: pointer pointer{index} : size {size}usize)))
           (#let grown{index} (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer pointer{index} : size {}usize))))
           (#unsafe (#unsafe-call verify (: pointer grown{index} : size {size}usize)))
           (#let shrunk{index} (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer grown{index} : size 1usize))))
-          (#assert (#usize.== (#ptr-address shrunk{index}) (#ptr-address grown{index})))
+          (#assert (#usize::eq (#ptr-address shrunk{index}) (#ptr-address grown{index})))
           (#unsafe (#unsafe-call verify (: pointer shrunk{index} : size 1usize)))
           (#unsafe (#unsafe-call system-deallocate (: pointer shrunk{index})))
         "#, size * 3 + 1));
@@ -182,18 +182,18 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
     body.push_str(r#"
       (#let first (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
       (#let second (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
-      (#assert (#usize.!= (#ptr-address first) (#ptr-address second)))
+      (#assert (#usize::ne (#ptr-address first) (#ptr-address second)))
       (#unsafe (#unsafe-call fill (: pointer second : size 17usize)))
       (#unsafe (#unsafe-call system-deallocate (: pointer first)))
       (#let recycled (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
-      (#assert (#usize.== (#ptr-address first) (#ptr-address recycled)))
+      (#assert (#usize::eq (#ptr-address first) (#ptr-address recycled)))
       (#unsafe (#unsafe-call verify (: pointer second : size 17usize)))
       (#unsafe (#unsafe-call system-deallocate (: pointer second)))
       (#unsafe (#unsafe-call system-deallocate (: pointer recycled)))
       (#let in-place (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
       (#unsafe (#unsafe-call fill (: pointer in-place : size 17usize)))
       (#let extended (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer in-place : size 47usize))))
-      (#assert (#usize.== (#ptr-address in-place) (#ptr-address extended)))
+      (#assert (#usize::eq (#ptr-address in-place) (#ptr-address extended)))
       (#unsafe (#unsafe-call verify (: pointer extended : size 17usize)))
       (#unsafe (#unsafe-call system-deallocate (: pointer extended)))
       (#let null-growth (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required
@@ -205,13 +205,13 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
 }
 
 const COUNT_OS_CALLS: &str = r#"
-(#static Mapped (#atomic #u64) (#atomic-init #u64 0u64))
-(#static Unmapped (#atomic #u64) (#atomic-init #u64 0u64))
+(#static mapped (#atomic #u64) (#atomic-init #u64 0u64))
+(#static unmapped (#atomic #u64) (#atomic-init #u64 0u64))
 (#fn counted-map (: length #usize) (#ptr-mut #u8)
-  (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow Mapped) 1u64 #memory-relaxed)))
+  (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow mapped) 1u64 #memory-relaxed)))
   (#return (#call system-allocator-map (: length length))))
 (#unsafe-fn counted-unmap (: pointer (#ptr-mut #u8) : length #usize) ()
-  (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow Unmapped) 1u64 #memory-relaxed)))
+  (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow unmapped) 1u64 #memory-relaxed)))
   (#unsafe (#unsafe-call system-allocator-unmap (: pointer pointer : length length)))
   (#return ()))
 "#;
@@ -237,22 +237,22 @@ fn full_slabs_reenter_free_lists_and_empty_cache_is_bounded() {
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 4080usize)))
           (#unsafe (#unsafe-call fill (: pointer pointer : size 4080usize)))
           (#set-index pointers slot pointer))
-        (#assert (#u64.== (#unsafe (#atomic-load (#borrow Mapped) #memory-relaxed)) 7u64))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow mapped) #memory-relaxed)) 7u64))
         (#for-range (pass #usize) 0usize 2usize
           (#let-mut index #usize pass)
-          (#while (#usize.< index 96usize)
+          (#while (#usize::lt index 96usize)
             (#let pointer (#ptr-mut #u8) (#index pointers index))
             (#unsafe (#unsafe-call verify (: pointer pointer : size 4080usize)))
             (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
-            (#set index (#usize.+.wrap index 2usize))))
-        (#assert (#u64.== (#unsafe (#atomic-load (#borrow Unmapped) #memory-relaxed)) 6u64))
+            (#set index (#usize::add-wrap index 2usize))))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow unmapped) #memory-relaxed)) 6u64))
         (#for-range (iteration #usize) 0usize 100usize
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 4080usize)))
           (#unsafe (#unsafe-call system-deallocate (: pointer pointer))))
-        (#assert (#u64.== (#unsafe (#atomic-load (#borrow Mapped) #memory-relaxed)) 7u64))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow mapped) #memory-relaxed)) 7u64))
         (#let large (#ptr-mut #u8) (#call allocate-required (: size 100000usize)))
         (#unsafe (#unsafe-call system-deallocate (: pointer large)))
-        (#assert (#u64.== (#unsafe (#atomic-load (#borrow Unmapped) #memory-relaxed)) 7u64))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow unmapped) #memory-relaxed)) 7u64))
         (#return 42u64))"#,
     );
 }
@@ -269,9 +269,9 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
             ]
         ),
         r#"
-      (#static FailMapping (#atomic #u32) (#atomic-init #u32 1u32))
+      (#static failMapping (#atomic #u32) (#atomic-init #u32 1u32))
       (#fn gated-map (: length #usize) (#ptr-mut #u8)
-        (#return (#if (#u32.== (#unsafe (#atomic-load (#borrow FailMapping) #memory-relaxed)) 1u32)
+        (#return (#if (#u32::eq (#unsafe (#atomic-load (#borrow failMapping) #memory-relaxed)) 1u32)
           (#ptr-null (#ptr-mut #u8)) (#call system-allocator-map (: length length)))))
       (#unsafe-fn failed-remap (: pointer (#ptr-mut #u8) : old-length #usize : length #usize) (#ptr-mut #u8)
         (#return (#ptr-null (#ptr-mut #u8))))
@@ -282,29 +282,29 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
         r#"
       (#fn main () #u64
         (#assert (#match (#call system-allocate (: size 17usize))
-          (#case (SystemAllocationFailed error) true)
-          (#case (SystemAllocated unexpected) (#panic))))
-        (#unsafe (#atomic-store (#borrow FailMapping) 0u32 #memory-relaxed))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true)
+          (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
+        (#unsafe (#atomic-store (#borrow failMapping) 0u32 #memory-relaxed))
         (#let pointer (#ptr-mut #u8) (#call allocate-required (: size 17usize)))
         (#unsafe (#unsafe-call fill (: pointer pointer : size 17usize)))
-        (#unsafe (#atomic-store (#borrow FailMapping) 1u32 #memory-relaxed))
+        (#unsafe (#atomic-store (#borrow failMapping) 1u32 #memory-relaxed))
         (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer pointer : size 10000usize)))
-          (#case (SystemAllocationFailed error) true)
-          (#case (SystemAllocated unexpected) (#panic))))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true)
+          (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#unsafe (#unsafe-call verify (: pointer pointer : size 17usize)))
         (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
-        (#unsafe (#atomic-store (#borrow FailMapping) 0u32 #memory-relaxed))
+        (#unsafe (#atomic-store (#borrow failMapping) 0u32 #memory-relaxed))
         (#let large (#ptr-mut #u8) (#call allocate-required (: size 10000usize)))
         (#unsafe (#unsafe-call fill (: pointer large : size 10000usize)))
         (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer large : size 100000usize)))
-          (#case (SystemAllocationFailed error) true)
-          (#case (SystemAllocated unexpected) (#panic))))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true)
+          (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#unsafe (#unsafe-call verify (: pointer large : size 10000usize)))
         (#unsafe (#unsafe-call system-deallocate (: pointer large)))
         (#assert (#match (#call system-allocate (: size 0usize))
-          (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#assert (#match (#call system-allocate (: size 18446744073709551615usize))
-          (#case (SystemAllocationFailed error) true) (#case (SystemAllocated unexpected) (#panic))))
+          (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
         (#return 42u64))"#,
     );
 }
@@ -328,10 +328,10 @@ fn embedded_standard_string_module_has_no_foreign_allocator_dependency() {
       (#std)
       (#fn main () #u64
         (#let text (#array #char 2) "hi")
-        (#let string String (#match (#call String-from-chars (: text (#borrow-slice text)))
-          (#case (StringCreated owner) owner) (#case (StringCreateFailed error) (#panic))))
-        (#assert (#usize.== (#call String-len (: string (#borrow string))) 2usize))
-        (#call String-free (: string string))
+        (#let string String (#match (#call String::from-chars (: text (#borrow-slice text)))
+          (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+        (#assert (#usize::eq (#call String::len (: string (#borrow string))) 2usize))
+        (#call String::free (: string string))
         (#return 42u64))"#,
     );
 }
@@ -344,18 +344,18 @@ fn standard_strings_can_allocate_and_free_inside_a_raw_worker() {
       (#std)
       (#fn worker () #u64
         (#let characters (#array #char 2) "hi")
-        (#let string String (#match (#call String-from-chars (: text (#borrow-slice characters)))
-          (#case (StringCreated owner) owner) (#case (StringCreateFailed error) (#panic))))
-        (#let size #usize (#call String-len (: string (#borrow string))))
-        (#call String-free (: string string))
-        (#return (#u64.+.wrap (#as size #u64) 40u64)))
-      (@#thread-spawn (: task StringWorker : worker worker))
+        (#let string String (#match (#call String::from-chars (: text (#borrow-slice characters)))
+          (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+        (#let size #usize (#call String::len (: string (#borrow string))))
+        (#call String::free (: string string))
+        (#return (#u64::add-wrap (#as size #u64) 40u64)))
+      (#generate #thread-spawn (: task StringWorker : worker worker))
       (#fn main () #u64
-        (#let task StringWorker (#match (#call StringWorker-spawn (:))
-          (#case (StringWorker-spawn-ok handle) handle) (#case _ (#panic))))
-        (#return (#match (#call StringWorker-join (: task task))
-          (#case (StringWorker-join-ok value) value)
-          (#case (StringWorker-join-error (#tuple retry error)) (#panic)))))"#,
+        (#let task StringWorker (#match (#call StringWorker::spawn (:))
+          (#case (StringWorker::SpawnResult.Ok handle) handle) (#case _ (#panic))))
+        (#return (#match (#call StringWorker::join (: task task))
+          (#case (StringWorker::JoinResult.Ok value) value)
+          (#case (StringWorker::JoinResult.Error (#tuple retry error)) (#panic)))))"#,
     );
 }
 
@@ -366,26 +366,26 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
         r#"
       (#fn worker () #u64
         (#for-range (iteration #usize) 0usize 200usize
-          (#let size #usize (#usize.+.wrap (#usize.%.wrap iteration 4080usize) 1usize))
+          (#let size #usize (#usize::add-wrap (#usize::rem-wrap iteration 4080usize) 1usize))
           (#let pointer (#ptr-mut #u8) (#call allocate-required (: size size)))
           (#unsafe (#unsafe-call fill (: pointer pointer : size size)))
           (#let resized (#ptr-mut #u8) (#unsafe (#unsafe-call resize-required (: pointer pointer : size 5000usize))))
           (#unsafe (#unsafe-call verify (: pointer resized : size size)))
           (#unsafe (#unsafe-call system-deallocate (: pointer resized))))
         (#return 21u64))
-      (@#thread-spawn (: task WorkerA : worker worker))
-      (@#thread-spawn (: task WorkerB : worker worker))
+      (#generate #thread-spawn (: task WorkerA : worker worker))
+      (#generate #thread-spawn (: task WorkerB : worker worker))
       (#fn main () #u64
-        (#let a WorkerA (#match (#call WorkerA-spawn (:))
-          (#case (WorkerA-spawn-ok handle) handle) (#case _ (#panic))))
-        (#let b WorkerB (#match (#call WorkerB-spawn (:))
-          (#case (WorkerB-spawn-ok handle) handle) (#case _ (#panic))))
-        (#let first #u64 (#match (#call WorkerA-join (: task a))
-          (#case (WorkerA-join-ok value) value)
-          (#case (WorkerA-join-error (#tuple retry error)) (#panic))))
-        (#let second #u64 (#match (#call WorkerB-join (: task b))
-          (#case (WorkerB-join-ok value) value)
-          (#case (WorkerB-join-error (#tuple retry error)) (#panic))))
-        (#return (#u64.+.wrap first second)))"#,
+        (#let a WorkerA (#match (#call WorkerA::spawn (:))
+          (#case (WorkerA::SpawnResult.Ok handle) handle) (#case _ (#panic))))
+        (#let b WorkerB (#match (#call WorkerB::spawn (:))
+          (#case (WorkerB::SpawnResult.Ok handle) handle) (#case _ (#panic))))
+        (#let first #u64 (#match (#call WorkerA::join (: task a))
+          (#case (WorkerA::JoinResult.Ok value) value)
+          (#case (WorkerA::JoinResult.Error (#tuple retry error)) (#panic))))
+        (#let second #u64 (#match (#call WorkerB::join (: task b))
+          (#case (WorkerB::JoinResult.Ok value) value)
+          (#case (WorkerB::JoinResult.Error (#tuple retry error)) (#panic))))
+        (#return (#u64::add-wrap first second)))"#,
     );
 }

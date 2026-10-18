@@ -35,9 +35,9 @@ fn full_and_partial_direct_views_run_natively() {
       (#let start #usize 1usize) (#let end #usize 3usize)
       (#let middle (#slice #u64) (#borrow-slice values start end))
       (#let empty (#slice #u64) (#borrow-slice values 4usize 4usize))
-      (#assert (#usize.== (#slice-len full) 4usize))
-      (#assert (#usize.== (#slice-len middle) 2usize))
-      (#assert (#usize.== (#slice-len empty) 0usize))
+      (#assert (#usize::eq (#slice-len full) 4usize))
+      (#assert (#usize::eq (#slice-len middle) 2usize))
+      (#assert (#usize::eq (#slice-len empty) 0usize))
       (#return (#deref (#slice-idx middle 1usize))))"
     );
     assert_eq!(run(&source).status.code(), Some(3));
@@ -49,7 +49,7 @@ fn constant_disjoint_mutable_borrows_can_coexist() {
       (#let right (#slice-mut #u64) (#borrow-slice-mut values 2usize 4usize))
       (#deref-set (#slice-mut-idx left 0usize) 17u64)
       (#deref-set (#slice-mut-idx right 0usize) 25u64)
-      (#let answer #u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize))))
+      (#let answer #u64 (#u64::add-wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize))))
       (#forget left) (#forget right) (#return answer)";
     checked(body).unwrap();
     assert_eq!(
@@ -120,7 +120,7 @@ fn nested_subslices_and_sibling_reborrows_preserve_physical_offsets() {
       (#deref-set (#slice-mut-idx left 0usize) 17u64)
       (#deref-set (#slice-mut-idx inner 0usize) 25u64)
       (#forget inner) (#forget right) (#forget left) (#forget parent)
-      (#return (#u64.+.wrap (#index values 0usize) (#index values 3usize)))";
+      (#return (#u64::add-wrap (#index values 0usize) (#index values 3usize)))";
     checked(body).unwrap();
     assert_eq!(
         run(&format!("(#fn main () #u64 {ARRAY} {body})"))
@@ -221,9 +221,9 @@ fn zero_length_and_zero_sized_element_arrays_can_be_borrowed() {
         let source = format!("(#fn main () #u64
           (#let-mut values (#array {element} {length}) (#array-of (#array {element} {length}) {values}))
           (#let view (#slice {element}) (#borrow-slice values))
-          (#assert (#usize.== (#slice-len view) {length}usize)) (#forget view)
+          (#assert (#usize::eq (#slice-len view) {length}usize)) (#forget view)
           (#let exclusive (#slice-mut {element}) (#borrow-slice-mut values 0usize {length}usize))
-          (#assert (#usize.== (#slice-mut-len exclusive) {length}usize)) (#forget exclusive)
+          (#assert (#usize::eq (#slice-mut-len exclusive) {length}usize)) (#forget exclusive)
           (#return 42u64))");
         assert_eq!(run(&source).status.code(), Some(42));
     }
@@ -233,14 +233,14 @@ fn zero_length_and_zero_sized_element_arrays_can_be_borrowed() {
 fn bounds_are_evaluated_once_in_start_end_order() {
     let source = format!("
       (#fn start (: counter (#ref-mut #u64)) #usize
-        (#deref-set counter (#u64.+.wrap (#u64.*.wrap (#deref counter) 10u64) 1u64)) (#return 1usize))
+        (#deref-set counter (#u64::add-wrap (#u64::mul-wrap (#deref counter) 10u64) 1u64)) (#return 1usize))
       (#fn end (: counter (#ref-mut #u64)) #usize
-        (#deref-set counter (#u64.+.wrap (#u64.*.wrap (#deref counter) 10u64) 2u64)) (#return 3usize))
+        (#deref-set counter (#u64::add-wrap (#u64::mul-wrap (#deref counter) 10u64) 2u64)) (#return 3usize))
       (#fn main () #u64 {ARRAY}
         (#let-mut count #u64 0u64)
         (#let view (#slice-mut #u64) (#borrow-slice-mut values
           (#call start (: counter (#borrow-mut count))) (#call end (: counter (#borrow-mut count)))))
-        (#assert (#u64.== count 12u64))
+        (#assert (#u64::eq count 12u64))
         (#let child (#slice-mut #u64) (#slice-mut-range view 1usize 2usize))
         (#let answer #u64 (#deref (#slice-mut-idx child 0usize)))
         (#forget child) (#forget view) (#return answer))");
@@ -274,7 +274,7 @@ fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
            (#deref-set (#slice-mut-idx child 0usize) 40u64)
            (#let other-child (#slice-mut #u64) (#slice-mut-range (#get holder other) 0usize 1usize))
            (#deref-set (#slice-mut-idx other-child 0usize) 2u64)
-           (#let answer #u64 (#u64.+.wrap (#deref (#slice-mut-idx child 0usize))
+           (#let answer #u64 (#u64::add-wrap (#deref (#slice-mut-idx child 0usize))
              (#deref (#slice-mut-idx other-child 0usize))))
            (#forget child) (#forget other-child) (#forget holder) (#return answer))"
     );
@@ -347,7 +347,7 @@ fn nested_tuple_slice_handles_reborrow_and_prevent_parent_moves() {
            (#let child (#slice-mut #u64) (#slice-mut-range (#get (#get holder pair) 1) 1usize 3usize))
            (#let sibling #u64 (#get (#get holder pair) 0))
            (#deref-set (#slice-mut-idx child 0usize) 35u64)
-           (#let answer #u64 (#u64.+.wrap sibling (#deref (#slice-mut-idx child 0usize))))
+           (#let answer #u64 (#u64::add-wrap sibling (#deref (#slice-mut-idx child 0usize))))
            (#forget child) (#forget holder) (#return answer))"
     );
     check_types(&parse_program(&source).unwrap()).unwrap();

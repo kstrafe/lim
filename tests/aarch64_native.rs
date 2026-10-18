@@ -47,20 +47,20 @@ fn scalar_arithmetic_width_signedness_and_control_flow_execute() {
     returns(
         "(#fn main () #u64
       (#let-mut sum #u64 0u64) (#let-mut i #u64 0u64)
-      (#while (#u64.< i 7u64) (#set sum (#u64.+.wrap sum i)) (#set i (#u64.+.wrap i 1u64)))
-      (#return (#u64.*.wrap sum 2u64)))",
+      (#while (#u64::lt i 7u64) (#set sum (#u64::add-wrap sum i)) (#set i (#u64::add-wrap i 1u64)))
+      (#return (#u64::mul-wrap sum 2u64)))",
         42,
     );
     returns(
         "(#fn main () #u64
-      (#assert (#i8.== (#i8.+.wrap 127i8 1i8) -128i8))
-      (#assert (#u8.== (#u8.+.wrap 255u8 1u8) 0u8))
-      (#assert (#i64.< -9i64 2i64))
-      (#assert (#u64.> 18446744073709551615u64 2u64))
-      (#assert (#i64.== (#i64./.wrap -21i64 2i64) -10i64))
-      (#assert (#i64.== (#i64.%.wrap -21i64 2i64) -1i64))
-      (#assert (#u64.== (#u64./.wrap 18446744073709551615u64 3u64) 6148914691236517205u64))
-      (#return (#if (#bool.&& true (#bool.! false)) 42u64 0u64)))",
+      (#assert (#i8::eq (#i8::add-wrap 127i8 1i8) -128i8))
+      (#assert (#u8::eq (#u8::add-wrap 255u8 1u8) 0u8))
+      (#assert (#i64::lt -9i64 2i64))
+      (#assert (#u64::gt 18446744073709551615u64 2u64))
+      (#assert (#i64::eq (#i64::div-wrap -21i64 2i64) -10i64))
+      (#assert (#i64::eq (#i64::rem-wrap -21i64 2i64) -1i64))
+      (#assert (#u64::eq (#u64::div-wrap 18446744073709551615u64 3u64) 6148914691236517205u64))
+      (#return (#if (#bool::and true (#bool::not false)) 42u64 0u64)))",
         42,
     );
 }
@@ -70,8 +70,8 @@ fn scalar_register_stack_boundaries_and_nested_calls_execute() {
     returns(
         "(#fn sum ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64)
       (f #u64) (g #u64) (h #u64) (i #u64) (j #u64)) #u64
-      (#return (#u64.+.wrap (#u64.+.wrap a i) j)))
-      (#fn add ((left #u64) (right #u64)) #u64 (#return (#u64.+.wrap left right)))
+      (#return (#u64::add-wrap (#u64::add-wrap a i) j)))
+      (#fn add ((left #u64) (right #u64)) #u64 (#return (#u64::add-wrap left right)))
       (#fn main () #u64 (#return (#call sum (: j (#call add (: left 10u64 : right 12u64))
         : i 19u64 : a 1u64 : b 2u64 : c 3u64 : d 4u64 : e 5u64 : f 6u64 : g 7u64 : h 8u64))))",
         42,
@@ -89,8 +89,8 @@ fn aggregates_functions_mutation_and_pattern_bindings_execute() {
       (#fn main () #u64
         (#let-mut value Value (#call pass (: value (#call make (: n 40u64)))))
         (#let (#tuple left right) (#tuple #u64 #u64) (#get value pair))
-        (#set-field value tag (#u64.+.wrap left right))
-        (#assert (#u64.== (#index (#get value items) 5usize) 6u64))
+        (#set-field value tag (#u64::add-wrap left right))
+        (#assert (#u64::eq (#index (#get value items) 5usize) 6u64))
         (#return (#get value tag)))",
         42,
     );
@@ -119,25 +119,25 @@ fn references_exclusive_moves_and_aggregate_reference_returns_execute() {
       (#fn replace ((target (#ref-mut Pair)) (value Pair)) () (#deref-set target value) (#return ()))
       (#fn main () #u64 (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#call replace (: target (#borrow-mut owner) : value (#struct-literal Pair ((left 40u64) (right 2u64)))))
-        (#return (#u64.+.wrap (#get owner left) (#get owner right))))",42);
+        (#return (#u64::add-wrap (#get owner left) (#get owner right))))",42);
 }
 
 #[test]
 fn enum_match_let_else_guards_and_loop_values_execute() {
     returns(
-        "(#enum Maybe () ((Some #u64) None))
+        "(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
       (#fn choose ((value Maybe)) #u64
-        (#return (#match value (#case (Some n) (#when (#u64.> n 40u64)) n)
-          (#case (Some _) 0u64) (#case None 0u64))))
+        (#return (#match value (#case (Maybe.Some n) (#when (#u64::gt n 40u64)) n)
+          (#case (Maybe.Some _) 0u64) (#case Maybe.None 0u64))))
       (#fn main () #u64
-        (#let-else (Some n) Maybe (Some 42u64) (#return 0u64))
-        (#return (#call choose (: value (Some n)))))",
+        (#let-else (Maybe.Some n) Maybe (Maybe.Some 42u64) (#return 0u64))
+        (#return (#call choose (: value (Maybe.Some n)))))",
         42,
     );
     returns(
         "(#fn main () #u64 (#let-mut n #u64 0u64)
-      (#return (#loop (#set n (#u64.+.wrap n 1u64))
-        (#if (#u64.== n 42u64) (#block (#break n)) ()))))",
+      (#return (#loop (#set n (#u64::add-wrap n 1u64))
+        (#if (#u64::eq n 42u64) (#block (#break n)) ()))))",
         42,
     );
 }
@@ -145,8 +145,8 @@ fn enum_match_let_else_guards_and_loop_values_execute() {
 #[test]
 fn invalid_runtime_operations_fault_instead_of_returning_a_value() {
     for source in [
-        "(#fn main () #u64 (#let zero #u64 0u64) (#return (#u64./.wrap 42u64 zero)))",
-        "(#fn main () #u64 (#let shift #u64 64u64) (#return (#u64.<< 1u64 shift)))",
+        "(#fn main () #u64 (#let zero #u64 0u64) (#return (#u64::div-wrap 42u64 zero)))",
+        "(#fn main () #u64 (#let shift #u64 64u64) (#return (#u64::shl 1u64 shift)))",
         "(#fn main () #u64 (#let i #usize 3usize) (#let a (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64)) (#return (#index a i)))",
         "(#fn main () #u64 (#assert false) (#return 42u64))",
     ] { assert_eq!(run(source).code(),None,"{source}"); }
@@ -174,7 +174,7 @@ fn unsupported_primitives_fail_closed_and_link_failures_preserve_output() {
     for source in [
         "(#fn main () #u64 (#let f #f64 1.0f64) (#return 42u64))",
         "(#fn main () #u64 (#let n #u128 1u128) (#return 42u64))",
-        "(#fn main () #u64 (#return (#u64.+.saturate 40u64 2u64)))",
+        "(#fn main () #u64 (#return (#u64::add-saturate 40u64 2u64)))",
         "(#fn main () #u64 (#return (#unsafe (#asm #u64 () \"mov x0, #42\"))))",
     ] {
         let program = lim::parse_program(source).unwrap();
@@ -255,7 +255,7 @@ fn unsupported_codegen_errors_include_the_offending_source_line() {
     let source = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
     for text in [
-        "(#fn main () #u64\n  (#return (#u64.+.saturate 40u64 2u64)))\n",
+        "(#fn main () #u64\n  (#return (#u64::add-saturate 40u64 2u64)))\n",
         "(#fn main () #u64\n  (#let f #f64 1.0f64)\n  (#return 42u64))\n",
     ] {
         fs::write(&source, text).unwrap();

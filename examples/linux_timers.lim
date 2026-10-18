@@ -2,13 +2,13 @@
 
 (#fn main () #u64
   (#let event-memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let timer-memory (#ptr-mut #i32)
-    (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let time-memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -33,7 +33,7 @@
   (#let timer-created #i64
     (#unsafe (#unsafe-call linux-timer-create (: clock-id 1i64 : event event-memory : timer-id timer-memory))))
   (#let timer-id #i64 (#as (#unsafe (#ptr-read timer-memory)) #i64))
-  (#assert (#i64.== (#call linux-timer-getoverrun (: timer-id timer-id)) 0i64))
+  (#assert (#i64::eq (#call linux-timer-getoverrun (: timer-id timer-id)) 0i64))
   (#let timer-armed #i64
     (#unsafe (#unsafe-call linux-timer-settime (: timer-id timer-id : flags 0i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
   (#let timer-read #i64
@@ -44,7 +44,7 @@
     (#unsafe (#ptr-read (#ptr-offset time-memory 7usize))))
   (#let timer-deleted #i64
     (#unsafe (#call linux-timer-delete (: timer-id timer-id))))
-  (#assert (#i64.== (#call linux-timer-getoverrun (: timer-id timer-id)) -22i64))
+  (#assert (#i64::eq (#call linux-timer-getoverrun (: timer-id timer-id)) -22i64))
   (#let deleted-timer-query #i64
     (#unsafe (#unsafe-call linux-timer-gettime (: timer-id timer-id : current-time (#ptr-offset time-memory 4usize)))))
   (#let invalid-timerfd-clock #i64
@@ -73,13 +73,13 @@
   (#let invalid-timerfd-settime #i64
     (#unsafe (#unsafe-call linux-timerfd-settime (: fd timer-fd : flags 8i32 : new-time time-memory : old-time (#ptr-null (#ptr-mut #i64))))))
   (#unsafe (#ptr-write (#ptr-offset time-memory 8usize)
-    (#as (#u64.| (#as timer-fd #u64) (#u64.<< 1u64 32u64)) #i64)))
+    (#as (#u64::bit-or (#as timer-fd #u64) (#u64::shl 1u64 32u64)) #i64)))
   (#let timerfd-ready #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-POLL
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-POLL
       ((#ptr-offset time-memory 8usize) 1usize 1000i32))))
   (#let timerfd-read #i64
-    (#if (#i64.== timerfd-ready 1i64)
-      (#unsafe (#linux-syscall #i64 LINUX-SYS-READ
+    (#if (#i64::eq timerfd-ready 1i64)
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
         (timer-fd (#ptr-offset time-memory 9usize) 8usize)))
       -1i64))
   (#let expirations #i64
@@ -95,41 +95,41 @@
   (#let closed-timerfd-query #i64
     (#unsafe (#unsafe-call linux-timerfd-gettime (: fd timer-fd : current-time (#ptr-offset time-memory 4usize)))))
   (#let event-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (event-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (event-memory 4096usize))))
   (#let timer-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (timer-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (timer-memory 4096usize))))
   (#let time-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (time-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (time-memory 4096usize))))
   (#let remaining-positive #bool
-    (#bool.|| (#i64.> remaining-seconds 0i64)
-      (#i64.> remaining-nanoseconds 0i64)))
+    (#bool::or (#i64::gt remaining-seconds 0i64)
+      (#i64::gt remaining-nanoseconds 0i64)))
   (#let timer-operations-ok #bool
-    (#bool.&& (#i64.== timer-created 0i64)
-      (#bool.&& (#i64.== timer-armed 0i64)
-        (#bool.&& (#i64.== timer-read 0i64)
-          (#bool.&& remaining-positive
-            (#bool.&& (#i64.== timer-deleted 0i64)
-              (#i64.== deleted-timer-query -22i64)))))))
+    (#bool::and (#i64::eq timer-created 0i64)
+      (#bool::and (#i64::eq timer-armed 0i64)
+        (#bool::and (#i64::eq timer-read 0i64)
+          (#bool::and remaining-positive
+            (#bool::and (#i64::eq timer-deleted 0i64)
+              (#i64::eq deleted-timer-query -22i64)))))))
   (#let timerfd-operations-ok #bool
-    (#bool.&& (#i64.== invalid-timerfd-clock -22i64)
-      (#bool.&& (#i64.== invalid-timerfd-flags -22i64)
-        (#bool.&& (#i64.>= timer-fd 0i64)
-          (#bool.&& (#i64.== initially-disarmed 0i64)
-            (#bool.&& (#i64.== initial-seconds 0i64)
-              (#bool.&& (#i64.== initial-nanoseconds 0i64)
-                (#bool.&& (#i64.== timerfd-armed 0i64)
-                  (#bool.&& (#i64.== timerfd-state 0i64)
-                    (#bool.&& (#i64.== invalid-timerfd-settime -22i64)
-                      (#bool.&& (#i64.== timerfd-ready 1i64)
-                        (#bool.&& (#i64.== timerfd-read 8i64)
-                          (#bool.&& (#i64.== expirations 1i64)
-                            (#bool.&& (#i64.== disarmed-state 0i64)
-                              (#bool.&& (#i64.== remaining-after-read-seconds 0i64)
-                                (#bool.&& (#i64.== remaining-after-read-nanoseconds 0i64)
-                                  (#bool.&& (#i64.== timerfd-closed 0i64)
-                                    (#i64.== closed-timerfd-query -9i64))))))))))))))))))
+    (#bool::and (#i64::eq invalid-timerfd-clock -22i64)
+      (#bool::and (#i64::eq invalid-timerfd-flags -22i64)
+        (#bool::and (#i64::ge timer-fd 0i64)
+          (#bool::and (#i64::eq initially-disarmed 0i64)
+            (#bool::and (#i64::eq initial-seconds 0i64)
+              (#bool::and (#i64::eq initial-nanoseconds 0i64)
+                (#bool::and (#i64::eq timerfd-armed 0i64)
+                  (#bool::and (#i64::eq timerfd-state 0i64)
+                    (#bool::and (#i64::eq invalid-timerfd-settime -22i64)
+                      (#bool::and (#i64::eq timerfd-ready 1i64)
+                        (#bool::and (#i64::eq timerfd-read 8i64)
+                          (#bool::and (#i64::eq expirations 1i64)
+                            (#bool::and (#i64::eq disarmed-state 0i64)
+                              (#bool::and (#i64::eq remaining-after-read-seconds 0i64)
+                                (#bool::and (#i64::eq remaining-after-read-nanoseconds 0i64)
+                                  (#bool::and (#i64::eq timerfd-closed 0i64)
+                                    (#i64::eq closed-timerfd-query -9i64))))))))))))))))))
   (#return
-    (#if (#bool.&& (#bool.&& timer-operations-ok timerfd-operations-ok)
-      (#bool.&& (#i64.== event-unmapped 0i64)
-        (#bool.&& (#i64.== timer-unmapped 0i64)
-          (#i64.== time-unmapped 0i64)))) 42u64 1u64)))
+    (#if (#bool::and (#bool::and timer-operations-ok timerfd-operations-ok)
+      (#bool::and (#i64::eq event-unmapped 0i64)
+        (#bool::and (#i64::eq timer-unmapped 0i64)
+          (#i64::eq time-unmapped 0i64)))) 42u64 1u64)))

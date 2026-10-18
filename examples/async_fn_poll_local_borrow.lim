@@ -2,20 +2,20 @@
 (#struct Counter (#linear) (: value #u64))
 
 (#fn increment (: target (#ref-mut #u64)) ()
-  (#deref-set target (#u64.+.wrap (#deref target) 1u64))
+  (#deref-set target (#u64::add-wrap (#deref target) 1u64))
   (#return ()))
-(#enum Step (#linear) (Start Resume))
+(#enum Step (#linear) (Step.Start Step.Resume))
 
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
-(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
+(#syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task
-      (#case Start
-        (StepPending Resume))
-      (#case Resume
-        (StepReady 0u64)))))
-(@
+      (#case Step.Start
+        (StepPoll.StepPending Step.Resume))
+      (#case Step.Resume
+        (StepPoll.StepReady 0u64)))))
+(#generate
   #async-fn
   (: protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
@@ -26,19 +26,19 @@
     (#forget view)
     (#let answer #u64 (#borrow counter (#get counter value)))
     (#forget counter)
-    (#let extra #u64 (#await StepAwait Start))
-    (#return (#u64.+.wrap answer extra)))))
+    (#let extra #u64 (#await StepAwait Step.Start))
+    (#return (#u64::add-wrap answer extra)))))
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
   (#forget waker)
   (#return
     (#match second
-      (#case (Work::Ready answer)
+      (#case (Work::Poll.Ready answer)
         answer)
-      (#case (Work::Pending unexpected)
+      (#case (Work::Poll.Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable))))))

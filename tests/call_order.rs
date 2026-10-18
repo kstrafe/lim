@@ -4,8 +4,8 @@ use std::{fs, process::Command, time::Duration};
 
 const NEXT: &str = "
   (#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
-    (#assert (#u64.== (#deref counter) expected))
-    (#deref-set counter (#u64.+.wrap expected 1u64))
+    (#assert (#u64::eq (#deref counter) expected))
+    (#deref-set counter (#u64::add-wrap expected 1u64))
     (#return expected))";
 
 fn run(source: &str) {
@@ -41,7 +41,7 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
             .collect::<Vec<_>>()
             .join(" ");
         let assertions = (0..count)
-            .map(|index| format!("(#assert (#u64.== p{index} {index}u64))"))
+            .map(|index| format!("(#assert (#u64::eq p{index} {index}u64))"))
             .collect::<Vec<_>>()
             .join("\n");
         // Written key order intentionally differs from declaration order.
@@ -60,7 +60,7 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
           (#fn main () #u64
             (#let-mut counter #u64 0u64)
             (#let result #u64 (#call check ({arguments})))
-            (#assert (#u64.== counter {count}u64))
+            (#assert (#u64::eq counter {count}u64))
             (#return result))"
         ));
     }
@@ -72,12 +72,12 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
         "{NEXT}
       (#struct Pair () (: first #u64 : second #u64))
       (#fn check ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64)) #u64
-        (#assert (#u128.== wide 18446744073709551624u128))
-        (#assert (#u64.== (#get pair first) 1u64))
-        (#assert (#u64.== (#get pair second) 2u64))
-        (#assert (#u64.== a 3u64))
-        (#assert (#u64.== b 4u64))
-        (#assert (#u64.== c 5u64))
+        (#assert (#u128::eq wide 18446744073709551624u128))
+        (#assert (#u64::eq (#get pair first) 1u64))
+        (#assert (#u64::eq (#get pair second) 2u64))
+        (#assert (#u64::eq a 3u64))
+        (#assert (#u64::eq b 4u64))
+        (#assert (#u64::eq c 5u64))
         (#return 42u64))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
@@ -86,12 +86,12 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
            : pair (#struct-literal Pair
              (: second (#call next (: counter (#borrow-mut counter) : expected 2u64))
               : first (#call next (: counter (#borrow-mut counter) : expected 1u64))))
-           : wide (#u128.+.wrap
+           : wide (#u128::add-wrap
              (#as (#call next (: counter (#borrow-mut counter) : expected 0u64)) #u128)
              18446744073709551624u128)
            : b (#call next (: counter (#borrow-mut counter) : expected 4u64))
            : a (#call next (: counter (#borrow-mut counter) : expected 3u64)))))
-        (#assert (#u64.== counter 6u64))
+        (#assert (#u64::eq counter 6u64))
         (#return result))"
     ));
 }

@@ -63,7 +63,7 @@ fn run(
     }
     fs::write(scratch.path().join("system_allocator.lim"), allocator).unwrap();
     let source = format!(
-        "(#import {:?})\n(#import {:?})\n(#fn main () #u64\n  (#let-mut text String (#call String-new ()))\n  {}\n  (#let-mut finished #bool false)\n  (#while (#bool.== finished false)\n    (#let before #usize (#call String-len (: string (#borrow text))))\n    (#match (#call std-read-line (: string (#borrow-mut text)))\n      (#case (StdLineRead count) (#block\n        (#assert (#usize.== (#usize.+.wrap before count) (#call String-len (: string (#borrow text)))))\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#call String-clear (: string (#borrow-mut text)))\n        ()))\n      (#case StdEndOfInput (#block (#set finished true) ()))\n      (#case (StdReadFailed error) (#block\n        (#assert {})\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#set finished true)\n        ()))))\n  (#call String-free (: string text))\n  (#return 42u64))",
+        "(#import {:?})\n(#import {:?})\n(#fn main () #u64\n  (#let-mut text String (#call String::new ()))\n  {}\n  (#let-mut finished #bool false)\n  (#while (#bool::eq finished false)\n    (#let before #usize (#call String::len (: string (#borrow text))))\n    (#match (#call std-read-line (: string (#borrow-mut text)))\n      (#case (StdReadResult.StdLineRead count) (#block\n        (#assert (#usize::eq (#usize::add-wrap before count) (#call String::len (: string (#borrow text)))))\n        (#assert (#i64::eq (#println (#borrow text)) 0i64))\n        (#call String::clear (: string (#borrow-mut text)))\n        ()))\n      (#case StdReadResult.StdEndOfInput (#block (#set finished true) ()))\n      (#case (StdReadResult.StdReadFailed error) (#block\n        (#assert {})\n        (#assert (#i64::eq (#println (#borrow text)) 0i64))\n        (#set finished true)\n        ()))))\n  (#call String::free (: string text))\n  (#return 42u64))",
         library.display(),
         stdio.display(),
         seed,
@@ -130,7 +130,7 @@ fn malformed_and_incomplete_utf8_returns_exact_text_error() {
         let (status, stdout, stderr) = run(
             input,
             "",
-            "(#match error (#case (StdTextError StringInvalidUtf8) true) (#case _ false))",
+            "(#match error (#case (StdReadError.StdTextError StringError.StringInvalidUtf8) true) (#case _ false))",
             false,
             false,
         );
@@ -142,11 +142,11 @@ fn malformed_and_incomplete_utf8_returns_exact_text_error() {
 
 #[test]
 fn invalid_utf8_preserves_existing_text_and_valid_prefix() {
-    let seed = "(#assert (#match (#call String-push-char (: string (#borrow-mut text) : value #\\P)) (#case StringOk true) (#case _ false)))";
+    let seed = "(#assert (#match (#call String::push-char (: string (#borrow-mut text) : value #\\P)) (#case StringStatus.StringOk true) (#case _ false)))";
     let (status, stdout, stderr) = run(
         b"x\xff",
         seed,
-        "(#match error (#case (StdTextError StringInvalidUtf8) true) (#case _ false))",
+        "(#match error (#case (StdReadError.StdTextError StringError.StringInvalidUtf8) true) (#case _ false))",
         false,
         false,
     );
@@ -167,7 +167,7 @@ fn closed_stdin_returns_exact_io_error() {
     let (status, stdout, stderr) = run(
         b"",
         "",
-        "(#match error (#case (StdIoError code) (#i64.== code -9i64)) (#case _ false))",
+        "(#match error (#case (StdReadError.StdIoError code) (#i64::eq code -9i64)) (#case _ false))",
         true,
         false,
     );
@@ -181,7 +181,7 @@ fn allocation_failure_preserves_appended_prefix() {
     let (status, stdout, stderr) = run(
         b"123456789\n",
         "",
-        "(#match error (#case (StdTextError StringOutOfMemory) true) (#case _ false))",
+        "(#match error (#case (StdReadError.StdTextError StringError.StringOutOfMemory) true) (#case _ false))",
         false,
         true,
     );

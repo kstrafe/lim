@@ -3,9 +3,9 @@
 When the failure payload is not needed, name only the success variant:
 
 ```lim
-(#let-else (Input-ok-value number) value
+(#let-else (Input.Ok number) value
   (#else
-    (#return (#call Output-err (: error 1u32)))))
+    (#return (#call Output::err (: error 1u32)))))
 ```
 
 The variant declares the expected enum type. The initializer is one expression
@@ -17,14 +17,14 @@ breaking a loop introduced inside the failure branch does not satisfy this.
 `#let-else` can bind the failure payload of its original value:
 
 ```lim
-(@#result (: ok #u64 : error #u32 : name Input))
-(@#result (: ok #bool : error #u32 : name Output))
+(#generate #result (: ok #u64 : error #u32 : name Input))
+(#generate #result (: ok #bool : error #u32 : name Output))
 
 (#fn convert (: value Input) Output
-  (#let-else (Input-ok-value number) Input value
-    (#else (Input-err-value error)
-      (#return (#call Output-err (: error error)))))
-  (#return (#call Output-ok (: value (#u64.== number 42u64)))))
+  (#let-else (Input.Ok number) Input value
+    (#else (Input.Err error)
+      (#return (#call Output::err (: error error)))))
+  (#return (#call Output::ok (: value (#u64::eq number 42u64)))))
 ```
 
 The general syntax is
@@ -51,7 +51,7 @@ their borrowing provenance through destructuring and rewrapping. There is no
 inferred propagation, conversion, or implicit destruction: explicitly construct
 the destination Result's error variant with a payload of the same error type.
 
-Built-in `@#result` and `@#optional` always generate their enum and constructors,
+Built-in `#generate #result` and `#generate #optional` always generate their enum and constructors,
 including for linear payloads. Their by-value predicates (`is-ok`, `is-some`)
 and fallback unwrap helpers are generated only when the enum and all payloads
 are Copy. These helpers discard payloads or fallbacks on some paths, so they

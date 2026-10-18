@@ -24,10 +24,10 @@
   (#return (#if (#call wake-table4-valid
           (: table (#borrow (#get queue table)) : token token))
     (#block
-      (#let mask #u64 (#u64.<< 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
+      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
       (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
       (#atomic-store cell
-        (#u64.| (#atomic-load (#clone cell) #memory-relaxed) mask)
+        (#u64::bit-or (#atomic-load (#clone cell) #memory-relaxed) mask)
         #memory-relaxed)
       true)
     false)))
@@ -36,12 +36,12 @@
   (#return (#if (#call wake-table4-valid
           (: table (#borrow (#get queue table)) : token token))
     (#block
-      (#let mask #u64 (#u64.<< 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
+      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
       (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
       (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
-      (#if (#u64.!= (#u64.& bits mask) 0u64)
+      (#if (#u64::ne (#u64::bit-and bits mask) 0u64)
         (#block
-          (#atomic-store cell (#u64.^ bits mask) #memory-relaxed)
+          (#atomic-store cell (#u64::bit-xor bits mask) #memory-relaxed)
           true)
         false))
     false)))
@@ -50,10 +50,10 @@
   (#return (#if (#call wake-table4-valid
           (: table (#borrow (#get queue table)) : token token))
     (#block
-      (#let mask #u64 (#u64.<< 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
+      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot (: token token)) #u64)))
       (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
       (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
-      (#atomic-store cell (#u64.& bits (#u64.! mask)) #memory-relaxed)
+      (#atomic-store cell (#u64::bit-and bits (#u64::not mask)) #memory-relaxed)
       (#call wake-table4-retire
         (: table (#borrow-mut (#get queue table)) : token token)))
-    WakeStale4)))
+    WakeRetire4.WakeStale4)))

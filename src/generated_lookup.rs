@@ -20,7 +20,7 @@ struct Artifact {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedArtifact {
     pub path: PathBuf,
-    /// The actual generating invocation's name, without `@` (including any `#`).
+    /// The actual generating invocation's name, without `#generate` (including any `#`).
     pub generator: String,
     pub nested: bool,
 }
@@ -200,9 +200,9 @@ mod tests {
     #[test]
     fn identical_invocations_keep_every_full_span_and_warm_files() {
         let scratch = Scratch::new();
-        let source = "(#gn make (name) `((#type ,name #u64)))\n(@make\n Shared) (@make\n Shared)";
-        let first = source.find("(@make").unwrap();
-        let second = source.rfind("(@make").unwrap();
+        let source = "(#gn make (name) `((#type ,name #u64)))\n(#generate make\n Shared) (#generate make\n Shared)";
+        let first = source.find("(#generate make").unwrap();
+        let second = source.rfind("(#generate make").unwrap();
         let paths = scratch.lookup(source, first, first);
         assert_eq!(paths.len(), 1);
         assert!(paths[0].starts_with(scratch.0.join(".lim/generated")));
@@ -215,9 +215,9 @@ mod tests {
             .set_times(fs::FileTimes::new().set_modified(timestamp))
             .unwrap();
         for start in [
-            first + "(@make\n ".len(),
+            first + "(#generate make\n ".len(),
             second,
-            second + "(@make\n ".len(),
+            second + "(#generate make\n ".len(),
         ] {
             assert_eq!(scratch.lookup(source, start, start), paths);
         }
@@ -235,16 +235,16 @@ mod tests {
     #[test]
     fn nested_reused_generators_include_all_child_artifacts() {
         let scratch = Scratch::new();
-        let source = "(#gn inner () `((@#optional (: type #u64 : name Shared))))\n\
-            (#gn outer () `((@inner) (@#optional (: type #u64 : name OuterOnly))))\n\
-            (#gn other () `((@inner)))\n(@outer)\n(@other)\n(@other)";
+        let source = "(#gn inner () `((#generate #optional (: type #u64 : name Shared))))\n\
+            (#gn outer () `((#generate inner) (#generate #optional (: type #u64 : name OuterOnly))))\n\
+            (#gn other () `((#generate inner)))\n(#generate outer)\n(#generate other)\n(#generate other)";
         for _ in 0..2 {
-            let outer = source.find("(@outer)").unwrap();
+            let outer = source.find("(#generate outer)").unwrap();
             let paths = scratch.lookup(source, outer, outer);
             assert_eq!(paths.len(), 4, "{paths:?}");
             for position in [
-                source.find("(@other)").unwrap(),
-                source.rfind("(@other)").unwrap(),
+                source.find("(#generate other)").unwrap(),
+                source.rfind("(#generate other)").unwrap(),
             ] {
                 let other = scratch.lookup(source, position, position);
                 assert_eq!(other.len(), 3, "{other:?}");
@@ -256,15 +256,18 @@ mod tests {
 
     #[test]
     fn details_track_user_names_and_direct_origins_through_reuse_and_cache() {
-        for calls in ["(@outer)\n(@inner)", "(@inner)\n(@outer)"] {
+        for calls in [
+            "(#generate outer)\n(#generate inner)",
+            "(#generate inner)\n(#generate outer)",
+        ] {
             let scratch = Scratch::new();
             let source = format!(
                 "(#gn inner () `((#type Shared #u64)))\n\
-                 (#gn outer () `((@inner)))\n{calls}"
+                 (#gn outer () `((#generate inner)))\n{calls}"
             );
             for _ in 0..2 {
-                let outer = source.rfind("(@outer)").unwrap();
-                let inner = source.rfind("(@inner)").unwrap();
+                let outer = source.rfind("(#generate outer)").unwrap();
+                let inner = source.rfind("(#generate inner)").unwrap();
                 let details = scratch.details(&source, outer, outer);
                 assert_eq!(details.len(), 2);
                 assert_eq!(
@@ -298,22 +301,22 @@ mod tests {
 
     #[test]
     fn details_track_builtin_origins_through_user_reuse_and_cache() {
-        let builtin = "(@#optional (: type #u64 : name Shared))";
+        let builtin = "(#generate #optional (: type #u64 : name Shared))";
         // Distinct inputs stay distinct even when both use the same builtin.
-        let direct_builtin = "(@#optional (: type #u64 : name Direct))";
+        let direct_builtin = "(#generate #optional (: type #u64 : name Direct))";
         for calls in [
-            format!("(@outer)\n(@other)\n(@other)\n{direct_builtin}"),
-            format!("{direct_builtin}\n(@outer)\n(@other)\n(@other)"),
+            format!("(#generate outer)\n(#generate other)\n(#generate other)\n{direct_builtin}"),
+            format!("{direct_builtin}\n(#generate outer)\n(#generate other)\n(#generate other)"),
         ] {
             let scratch = Scratch::new();
             let source = format!(
                 "(#gn inner () `({builtin}))\n\
-                 (#gn outer () `((@inner)))\n\
-                 (#gn other () `((@inner)))\n{calls}"
+                 (#gn outer () `((#generate inner)))\n\
+                 (#gn other () `((#generate inner)))\n{calls}"
             );
             for _ in 0..2 {
                 for caller in ["outer", "other"] {
-                    let position = source.rfind(&format!("(@{caller})")).unwrap();
+                    let position = source.rfind(&format!("(#generate {caller})")).unwrap();
                     let details = scratch.details(&source, position, position);
                     assert_eq!(details.len(), 3, "{details:?}");
                     assert_eq!(details[0].generator, caller);
@@ -351,8 +354,8 @@ mod tests {
     #[test]
     fn changed_input_does_not_return_old_artifacts() {
         let scratch = Scratch::new();
-        let old = "(@#optional (: type #u64 : name Old))";
-        let new = "(@#optional (: type #u64 : name New))";
+        let old = "(#generate #optional (: type #u64 : name Old))";
+        let new = "(#generate #optional (: type #u64 : name New))";
         let old_paths = scratch.lookup(old, 0, old.len());
         let new_paths = scratch.lookup(new, 0, new.len());
         assert_eq!(old_paths.len(), 1);
@@ -366,8 +369,8 @@ mod tests {
     fn cfg_excluded_invocations_have_no_matches() {
         let scratch = Scratch::new();
         let source =
-            "(#cfg-if (#cfg-is #platform lookup-excluded) (@#optional (: type #u64 : name Hidden)))";
-        let position = source.find("(@#optional").unwrap();
+            "(#cfg-if (#cfg-is #platform lookup-excluded) (#generate #optional (: type #u64 : name Hidden)))";
+        let position = source.find("(#generate #optional").unwrap();
         let entry = scratch.0.join("main.lim");
         let mut enabled = CompileConfig::default();
         enabled.set("platform", "lookup-excluded");

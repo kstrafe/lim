@@ -123,15 +123,15 @@ fn exceptional_values_casts_and_shift_failures_match_the_contract() {
           (#let nan #{ty} (#{ty}./ 0.0{ty} 0.0{ty}))
           (#let infinity #{ty} (#{ty}./ 1.0{ty} 0.0{ty}))
           (#assert (#{ty}.!= nan nan))
-          (#assert (#bool.== (#{ty}.< nan infinity) false))
-          (#assert (#bool.== (#{ty}.>= nan infinity) false))
+          (#assert (#bool::eq (#{ty}.< nan infinity) false))
+          (#assert (#bool::eq (#{ty}.>= nan infinity) false))
           (#assert (#{ty}.== -0.0{ty} 0.0{ty}))
           (#assert (#{ty}.> infinity 1.0{ty})) (#return 42u64))"
             ),
             None,
         );
     }
-    execute("(#fn main () #u64 (#assert (#u8.== (#as 511u64 #u8) 255u8)) (#assert (#i64.== (#as -128i8 #i64) -128i64)) (#assert (#u128.== (#as 18446744073709551615u64 #u128) 18446744073709551615u128)) (#return 42u64))", None);
+    execute("(#fn main () #u64 (#assert (#u8::eq (#as 511u64 #u8) 255u8)) (#assert (#i64::eq (#as -128i8 #i64) -128i64)) (#assert (#u128::eq (#as 18446744073709551615u64 #u128) 18446744073709551615u128)) (#return 42u64))", None);
     for ty in [
         "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
     ] {

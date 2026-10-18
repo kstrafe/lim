@@ -3,7 +3,7 @@
 
 (#struct Owner () (: kept #u64 : item Token))
 (#fn inspect (: owner (#ref Owner)) #u64
-  (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
+  (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value))))
 (#fn main () #u64
   (#let-mut owner Owner
     (#struct-literal Owner
@@ -15,7 +15,7 @@
   (#let whole (#ref Owner) (#borrow owner))
   (#let selected (#ref #u64) (#borrow (#get whole kept)))
   (#let equal #bool
-    (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+    (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
   (#let answer #u64 (#call inspect (: owner whole)))
   (#forget selected)
   (#forget whole)

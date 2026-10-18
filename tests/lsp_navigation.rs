@@ -1,5 +1,18 @@
 mod support;
 
+#[test]
+fn generated_variant_name_operations_navigate_syntax_parameters() {
+    run(
+        "(#gn make ([[binding|name]])
+      (#[[operation|gn-variant]] [[argument|name]] [[literal|\"Ready\"]]))",
+        &[
+            ("argument", &["binding"]),
+            ("operation", &[]),
+            ("literal", &[]),
+        ],
+    );
+}
+
 use lim::lsp::{
     self,
     json::{self, Json},
@@ -125,18 +138,18 @@ fn run(input: &str, expected: &[(&str, &[&str])]) {
 fn all_value_positions_use_lexical_bindings_and_not_global_spelling() {
     run(
         r#"
-      (#enum Choice () ((Full #u64) Empty))
+      (#enum Choice () ((Choice.Full #u64) Choice.Empty))
       (#const [[limit|LIMIT]] #u64 42u64)
       (#static [[count|COUNT]] #u64 1u64)
       (#fn first (: [[first-x|x]] Choice) #u64
         (#return (#match [[match-x|x]]
-          (#case (Full [[payload|value]])
+          (#case (Choice.Full [[payload|value]])
             (#let-mut [[local|answer]] #u64 [[payload-use|value]])
-            (#set [[set-use|answer]] (#u64.+.wrap [[arithmetic-use|answer]] [[limit-use|LIMIT]]))
+            (#set [[set-use|answer]] (#u64::add-wrap [[arithmetic-use|answer]] [[limit-use|LIMIT]]))
             (#let ref (#ref #u64) (#borrow [[borrow-use|answer]]))
             (#forget ref)
             (#return [[return-use|answer]]))
-          (#case Empty (#unsafe [[static-use|COUNT]])))))
+          (#case Choice.Empty (#unsafe [[static-use|COUNT]])))))
       (#fn second (: [[second-x|x]] #u64) #u64 (#return [[second-use|x]]))
     "#,
         &[
@@ -193,15 +206,15 @@ fn pattern_forms_bind_values_in_their_own_scopes_and_navigate_variants() {
     run(
         r#"
       (#struct Record () (: [[field|value]] #u64))
-      (#enum [[choice|Choice]] () (([[full|Full]] Record) [[empty|Empty]]))
+      (#enum [[choice|Choice]] () (([[full|Choice.Full]] Record) [[empty|Choice.Empty]]))
       (#fn inspect (: input Choice) #u64
-        (#let-else ([[let-variant|Full]] [[success|record]]) [[let-type|Choice]] input
-          (#else [[else-variant|Empty]] (#return 0u64)))
+        (#let-else ([[let-variant|Choice.Full]] [[success|record]]) [[let-type|Choice]] input
+          (#else [[else-variant|Choice.Empty]] (#return 0u64)))
         (#let n #u64 (#get [[success-use|record]] [[success-field|value]]))
-        (#if-let ([[if-variant|Full]] [[if-bind|inside]]) Choice (Full record)
+        (#if-let ([[if-variant|Choice.Full]] [[if-bind|inside]]) Choice (Choice.Full record)
           (#block (#forget [[if-use|inside]]) ())
           (#block (#forget [[not-in-else|inside]]) ()))
-        (#while-let ([[while-variant|Full]] [[while-bind|item]]) (Full record)
+        (#while-let ([[while-variant|Choice.Full]] [[while-bind|item]]) (Choice.Full record)
           (#forget [[while-use|item]]) (#break))
         (#forget [[not-after-loop|item]])
         (#return n))
@@ -234,8 +247,8 @@ fn destructuring_loop_and_label_scopes_do_not_leak_or_allow_forward_uses() {
         (#block (#let [[block|inner]] #u64 1u64) (#forget [[block-use|inner]]))
         (#forget [[block-leak|inner]])
         (#label [[label|outer]]
-          (#for (#let-mut [[index|i]] #usize 0usize) (#usize.< [[condition|i]] 3usize)
-            (#set [[step|i]] (#usize.+.wrap i 1usize))
+          (#for (#let-mut [[index|i]] #usize 0usize) (#usize::lt [[condition|i]] 3usize)
+            (#set [[step|i]] (#usize::add-wrap i 1usize))
             (#continue-to [[continue|outer]]) (#break-to [[break|outer]])))
         (#forget [[loop-leak|i]])
         (#for-range ([[range|j]] #usize) 0usize 3usize (#forget [[range-use|j]]))
@@ -267,7 +280,7 @@ fn explicit_type_positions_and_variant_operations_navigate() {
         r#"
       (#struct [[record|Record]] () (: [[field|value]] #u64))
       (#type [[alias|Number]] #u64)
-      (#enum Choice () (([[full|Full]] Record) Empty))
+      (#enum Choice () (([[full|Choice.Full]] Record) Choice.Empty))
       (#fn main () #u64
         (#let r Record (#struct-literal [[literal|Record]] (: value 42u64)))
         (#let size #usize (#size-of [[size|Record]]))
@@ -276,9 +289,9 @@ fn explicit_type_positions_and_variant_operations_navigate() {
         (#let n Number (#as 42u64 [[cast|Number]]))
         (#let array (#array Record 1) (#array-of (#array [[array|Record]] 1) r))
         (#let pointer (#ptr Record) (#ptr-null (#ptr [[pointer|Record]])))
-        (#let choice Choice ([[constructor|Full]] (#struct-literal Record (: value 42u64))))
-        (#assert (#variant-is choice [[is|Full]]))
-        (#let extracted Record (#get-payload choice [[payload|Full]] 0))
+        (#let choice Choice ([[constructor|Choice.Full]] (#struct-literal Record (: value 42u64))))
+        (#assert (#variant-is choice [[is|Choice.Full]]))
+        (#let extracted Record (#get-payload choice [[payload|Choice.Full]] 0))
         (#forget array) (#forget pointer) (#forget extracted)
         (#return n))
     "#,
@@ -309,7 +322,7 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
             `(([[literal|item]] ,[[unquoted|item]] ',[[quoted|item]])))))
       (#syntax [[bundle|Protocol]] (#u64))
       (#fn ordinary (: [[runtime|x]] #u64) #u64 (#return x))
-      (@emit [[argument-literal|ordinary]])
+      (#generate emit [[argument-literal|ordinary]])
     "#,
         &[
             ("param-use", &["param"]),
@@ -327,7 +340,7 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
 fn function_syntax_inside_generator_inputs_and_utf16_names_keep_local_roles() {
     run(
         r#"
-      (@unknown (: function
+      (#generate unknown (: function
         (#fn work (: [[param|名字]] #u64) #u64
           (#let [[local|résultat]] #u64 [[param-use|名字]])
           (#return [[local-use|résultat]]))))
@@ -340,10 +353,10 @@ fn function_syntax_inside_generator_inputs_and_utf16_names_keep_local_roles() {
 fn or_patterns_share_one_binding_but_invalid_duplicate_lets_are_ambiguous() {
     run(
         r#"
-      (#enum Choice () ((A #u64) (B #u64)))
+      (#enum Choice () ((Choice.A #u64) (Choice.B #u64)))
       (#fn choose (: input Choice) #u64
         (#return (#match input
-          (#case (#or (A [[a|value]]) (B [[b|value]])) [[use|value]]))))
+          (#case (#or (Choice.A [[a|value]]) (Choice.B [[b|value]])) [[use|value]]))))
       (#fn broken () #u64
         (#let repeated #u64 0u64)
         (#let repeated #u64 1u64)
@@ -360,7 +373,7 @@ fn syntax_bundles_and_nested_splices_have_explicit_reference_roles() {
       (#syntax [[base|Base]] (#u64))
       (#syntax [[combined|Combined]] ((#syntax-splice [[nested|Base]])))
       (#fn expanded () (#syntax-splice [[signature|Base]]) (#return 42u64))
-      (@unknown (: function (#fn work () #u64
+      (#generate unknown (: function (#fn work () #u64
         (#let result #u64 (#await [[protocol|Combined]] child))
         (#return result))))
     "#,
@@ -376,7 +389,7 @@ fn syntax_bundles_and_nested_splices_have_explicit_reference_roles() {
 fn raw_builtin_operands_are_values_but_register_and_cfg_names_are_metadata() {
     run(
         r#"
-      (#enum RegisterCollision () (rax))
+      (#enum RegisterCollision () (RegisterCollision.Rax))
       (#fn main (: [[param|value]] #usize) #u64
         (#let array (#array #usize 2) (#array-repeat [[repeat|value]]))
         (#let kernel #i64 (#unsafe (#linux-syscall #i64 [[number|value]]
@@ -454,12 +467,12 @@ fn borrowed_and_pinned_payload_members_keep_their_declared_type() {
         let source = format!(
             r#"
           (#struct Row () (: [[field|value]] #u64))
-          (#enum Choice () ((Full Row) Empty))
+          (#enum Choice () ((Choice.Full Row) Choice.Empty))
           (#fn read (: input {kind}) #u64 (#return (#match input
-            ({case} (Full [[payload|row]])
+            ({case} (Choice.Full [[payload|row]])
               (#let answer #u64 (#get [[receiver|row]] [[member|value]]))
               (#forget row) answer)
-            ({case} Empty 0u64))))
+            ({case} Choice.Empty 0u64))))
         "#
         );
         run(
@@ -492,30 +505,30 @@ fn internal_thread_signatures_and_worker_symbols_have_declaration_roles() {
 #[test]
 fn ordinary_operand_families_keep_value_roles_in_every_position() {
     for expression in [
-        "(#deref VALUE)",
-        "(#deref-set VALUE VALUE)",
-        "(#clone VALUE)",
-        "(#println VALUE)",
-        "(#assert VALUE)",
-        "(#debug-assert VALUE)",
-        "(#set-index VALUE VALUE VALUE)",
-        "(#pin-write VALUE VALUE)",
-        "(#ptr-offset VALUE VALUE)",
-        "(#ptr-write VALUE VALUE)",
-        "(#slice-range VALUE VALUE VALUE)",
-        "(#slice-mut-range VALUE VALUE VALUE)",
-        "(#slice-mut-split VALUE VALUE)",
-        "(#index VALUE VALUE)",
-        "(#atomic-load VALUE #memory-relaxed)",
-        "(#atomic-store VALUE VALUE #memory-release)",
-        "(#atomic-compare-exchange VALUE VALUE VALUE #memory-acq-rel #memory-acquire)",
-        "(#word-write Number VALUE VALUE)",
-        "(#word-forget Number VALUE)",
-        "(#u64.+.wrap VALUE VALUE)",
+        "(#deref vALUE)",
+        "(#deref-set vALUE vALUE)",
+        "(#clone vALUE)",
+        "(#println vALUE)",
+        "(#assert vALUE)",
+        "(#debug-assert vALUE)",
+        "(#set-index vALUE vALUE vALUE)",
+        "(#pin-write vALUE vALUE)",
+        "(#ptr-offset vALUE vALUE)",
+        "(#ptr-write vALUE vALUE)",
+        "(#slice-range vALUE vALUE vALUE)",
+        "(#slice-mut-range vALUE vALUE vALUE)",
+        "(#slice-mut-split vALUE vALUE)",
+        "(#index vALUE vALUE)",
+        "(#atomic-load vALUE #memory-relaxed)",
+        "(#atomic-store vALUE vALUE #memory-release)",
+        "(#atomic-compare-exchange vALUE vALUE vALUE #memory-acq-rel #memory-acquire)",
+        "(#word-write Number vALUE vALUE)",
+        "(#word-forget Number vALUE)",
+        "(#u64::add-wrap vALUE vALUE)",
     ] {
         let mut counter = 0;
         let mut expression = expression.to_owned();
-        while let Some(start) = expression.find("VALUE") {
+        while let Some(start) = expression.find("vALUE") {
             expression.replace_range(start..start + 5, &format!("[[use-{counter}|value]]"));
             counter += 1;
         }
@@ -537,7 +550,7 @@ fn optional_reference_projections_resolve_payload_members_and_branch_scopes() {
         let source = format!(
             r#"
           (#struct Row () (: [[field|value]] #u64))
-          (#enum [[enum|Projection]] () (([[full|Projection::Some]] (#{kind} Row)) Projection::None))
+          (#enum [[enum|Projection]] () (([[full|Projection::Some]] (#{kind} Row)) Projection.None))
           (#fn main (: [[input|input]] [[type|Projection]]) #u64
             (#let-else ([[variant|Projection::Some]] [[payload|payload]]) [[operand|input]]
               (#else
@@ -568,9 +581,9 @@ fn optional_reference_projections_resolve_payload_members_and_branch_scopes() {
 fn inconsistent_or_bindings_fail_closed_in_the_arm_body() {
     run(
         r#"
-      (#enum Choice () ((A #u64) (B #u64)))
+      (#enum Choice () ((Choice.A #u64) (Choice.B #u64)))
       (#fn main (: input Choice) #u64 (#return (#match input
-        (#case (#or (A x) (B y)) [[missing|x]]))))
+        (#case (#or (Choice.A x) (Choice.B y)) [[missing|x]]))))
     "#,
         &[("missing", &[])],
     );
@@ -581,9 +594,9 @@ fn compact_let_else_navigates_the_initializer_and_isolates_failure_scope() {
     run(
         r#"
       (#struct Row () (: [[field|value]] #u64))
-      (#enum Choice () (([[full|Full]] Row) Empty))
+      (#enum Choice () (([[full|Choice.Full]] Row) Choice.Empty))
       (#fn main (: [[input|input]] Choice : [[fallback|fallback]] #u64) #u64
-        (#let-else ([[variant|Full]] [[payload|payload]]) [[operand|input]]
+        (#let-else ([[variant|Choice.Full]] [[payload|payload]]) [[operand|input]]
           (#else
             (#forget [[missing|payload]])
             (#let [[failure-local|failure-local]] #u64 [[fallback-use|fallback]])
@@ -609,12 +622,12 @@ fn enum_literals_navigate_only_variants_and_runtime_payloads() {
     run(
         r#"
       (#struct Row () (: [[field|value]] #u64))
-      (#enum Choice () (([[full|Full]] Row) [[empty|Empty]]))
+      (#enum Choice () (([[full|Choice.Full]] Row) [[empty|Choice.Empty]]))
       (#fn main (: [[input|input]] Row) #u64
-        (#let choice Choice (#enum-literal [[variant|Full]] [[payload|input]]))
+        (#let choice Choice (#enum-literal [[variant|Choice.Full]] [[payload|input]]))
         (#let missing Choice (#enum-literal [[wrong-target|input]] input))
-        (#let none Choice (#enum-literal [[fieldless|Empty]]))
-        (#let-else ([[pattern|Full]] [[binding|row]]) choice (#else (#return 0u64)))
+        (#let none Choice (#enum-literal [[fieldless|Choice.Empty]]))
+        (#let-else ([[pattern|Choice.Full]] [[binding|row]]) choice (#else (#return 0u64)))
         (#return (#get [[use|row]] [[member|value]])))
     "#,
         &[

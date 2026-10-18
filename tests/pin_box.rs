@@ -134,7 +134,7 @@ fn mutable_native_heap_pin_reference_reads_in_place() {
             "(#drop value-reference)
           (#let-mut pin (#pin-ref-mut #u64) (#call PinU64Box::borrow-mut (: owner (#borrow-mut moved-owner))))
           (#let changed #u64 (#unsafe (#pin-read pin)))
-          (#assert (#u64.== changed 42u64)) (#forget pin)",
+          (#assert (#u64::eq changed 42u64)) (#forget pin)",
         );
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(

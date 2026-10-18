@@ -90,7 +90,7 @@ pub(crate) fn expression_ids_selected(
             | crate::Expr::Float(_)
             | crate::Expr::Char(_)
             | crate::Expr::String(_)
-            | crate::Expr::At => {}
+            | crate::Expr::Generate => {}
         }
     }
 
@@ -629,7 +629,7 @@ fn collect_expression_binding_spans(
         | E::Float(_)
         | E::Char(_)
         | E::String(_)
-        | E::At => {}
+        | E::Generate => {}
     }
 }
 
@@ -855,7 +855,7 @@ impl Declarations {
         }
         let ty = resolve_type(body.nodes[children[1].0].ty.as_ref()?, &self.aliases).ok()?;
         let Type::Named(owner) = ty else { return None };
-        let name = format!("{owner}-clone");
+        let name = format!("{owner}::clone");
         self.function_id(&name).map(|_| name)
     }
 
@@ -1137,7 +1137,7 @@ impl Declarations {
         // checked referent schema for entry obligations, never for join.
         for (task, captures) in &self.thread_capture_schemas {
             if self.bodies.contains_key(&captures.worker_name) {
-                if let Some(spawn) = self.function_id(&format!("{task}-spawn")) {
+                if let Some(spawn) = self.function_id(&format!("{task}::spawn")) {
                     names_by_id.insert(spawn, captures.worker_name.clone());
                 }
             }
@@ -1208,11 +1208,11 @@ impl Declarations {
                     ) = (
                         self.bodies.get(&captures.worker_name),
                         output_summaries.get(&captures.worker),
-                        self.function_id(&format!("{task}-join")),
+                        self.function_id(&format!("{task}::join")),
                         self.aggregate_id(&Type::Named(task.clone())),
                         self.variant_id(
-                            &Type::Named(format!("{task}-join-result")),
-                            &format!("{task}-join-ok"),
+                            &Type::Named(format!("{task}::JoinResult")),
+                            &format!("{task}::JoinResult.Ok"),
                         ),
                     )
                     else {
@@ -2168,15 +2168,15 @@ impl Declarations {
                     }
                     let (Some(owner), Some(spawn), Some(join), Some(join_ok), Some(join_error)) = (
                         self.aggregate_id(&Type::Named(task.clone())),
-                        self.function_id(&format!("{task}-spawn")),
-                        self.function_id(&format!("{task}-join")),
+                        self.function_id(&format!("{task}::spawn")),
+                        self.function_id(&format!("{task}::join")),
                         self.variant_id(
-                            &Type::Named(format!("{task}-join-result")),
-                            &format!("{task}-join-ok"),
+                            &Type::Named(format!("{task}::JoinResult")),
+                            &format!("{task}::JoinResult.Ok"),
                         ),
                         self.variant_id(
-                            &Type::Named(format!("{task}-join-result")),
-                            &format!("{task}-join-error"),
+                            &Type::Named(format!("{task}::JoinResult")),
+                            &format!("{task}::JoinResult.Error"),
                         ),
                     ) else {
                         continue;
@@ -2194,8 +2194,8 @@ impl Declarations {
                         retained.storage = vec![
                             crate::typed_place::Segment::Payload(
                                 self.variant_id(
-                                    &Type::Named(format!("{task}-spawn-result")),
-                                    &format!("{task}-spawn-ok"),
+                                    &Type::Named(format!("{task}::SpawnResult")),
+                                    &format!("{task}::SpawnResult.Ok"),
                                 )
                                 .unwrap(),
                                 0,
@@ -2379,24 +2379,24 @@ impl Declarations {
                 Some(join_ok),
                 Some(join_error),
             ) = (
-                self.function_id(&format!("{task}-spawn")),
-                self.function_id(&format!("{task}-join")),
+                self.function_id(&format!("{task}::spawn")),
+                self.function_id(&format!("{task}::join")),
                 self.aggregate_id(&Type::Named(task.clone())),
                 self.variant_id(
-                    &Type::Named(format!("{task}-spawn-result")),
-                    &format!("{task}-spawn-ok"),
+                    &Type::Named(format!("{task}::SpawnResult")),
+                    &format!("{task}::SpawnResult.Ok"),
                 ),
                 self.variant_id(
-                    &Type::Named(format!("{task}-spawn-result")),
-                    &format!("{task}-spawn-error"),
+                    &Type::Named(format!("{task}::SpawnResult")),
+                    &format!("{task}::SpawnResult.Error"),
                 ),
                 self.variant_id(
-                    &Type::Named(format!("{task}-join-result")),
-                    &format!("{task}-join-ok"),
+                    &Type::Named(format!("{task}::JoinResult")),
+                    &format!("{task}::JoinResult.Ok"),
                 ),
                 self.variant_id(
-                    &Type::Named(format!("{task}-join-result")),
-                    &format!("{task}-join-error"),
+                    &Type::Named(format!("{task}::JoinResult")),
+                    &format!("{task}::JoinResult.Error"),
                 ),
             )
             else {
@@ -2458,7 +2458,7 @@ impl Declarations {
             .iter()
             .flat_map(|(name, captures)| {
                 ["spawn", "join"].into_iter().filter_map(move |operation| {
-                    self.function_id(&format!("{name}-{operation}"))
+                    self.function_id(&format!("{name}::{operation}"))
                         .map(|id| (id, captures.worker))
                 })
             })
@@ -2490,13 +2490,13 @@ impl Declarations {
             };
             let mut spawned = Vec::new();
             let mut retried = Vec::new();
-            let spawn_type = Type::Named(format!("{name}-spawn-result"));
-            let join_type = Type::Named(format!("{name}-join-result"));
+            let spawn_type = Type::Named(format!("{name}::SpawnResult"));
+            let join_type = Type::Named(format!("{name}::JoinResult"));
             let (Some(spawn_ok), Some(spawn_error), Some(join_ok), Some(join_error)) = (
-                self.variant_id(&spawn_type, &format!("{name}-spawn-ok")),
-                self.variant_id(&spawn_type, &format!("{name}-spawn-error")),
-                self.variant_id(&join_type, &format!("{name}-join-ok")),
-                self.variant_id(&join_type, &format!("{name}-join-error")),
+                self.variant_id(&spawn_type, &format!("{name}::SpawnResult.Ok")),
+                self.variant_id(&spawn_type, &format!("{name}::SpawnResult.Error")),
+                self.variant_id(&join_type, &format!("{name}::JoinResult.Ok")),
+                self.variant_id(&join_type, &format!("{name}::JoinResult.Error")),
             ) else {
                 continue;
             };
@@ -2562,7 +2562,7 @@ impl Declarations {
                 ("spawn", spawned, HashSet::from([spawn_ok, spawn_error])),
                 ("join", retried, HashSet::from([join_ok, join_error])),
             ] {
-                if let Some(id) = self.function_id(&format!("{name}-{operation}")) {
+                if let Some(id) = self.function_id(&format!("{name}::{operation}")) {
                     origins.insert(id, loans);
                     bounds.insert(id, HashMap::from([(Vec::new(), alternatives)]));
                 }
@@ -2935,7 +2935,7 @@ mod tests {
     #[test]
     fn reference_variant_completion_skips_large_scalar_arrays_and_pointer_boundaries() {
         let program = crate::parse_program(
-            "(#enum Holder () ((Holding (#ref #u64)))) (#fn main () () (#return ()))",
+            "(#enum Holder () ((Holder.Holding (#ref #u64)))) (#fn main () () (#return ()))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2960,14 +2960,14 @@ mod tests {
     #[test]
     fn reference_variant_completion_keeps_all_alternatives_at_each_array_index() {
         let program = crate::parse_program(
-            "(#enum Holder () ((Holding (#ref #u64)) (Plain #u64)))
+            "(#enum Holder () ((Holder.Holding (#ref #u64)) (Holder.Plain #u64)))
              (#fn main () () (#return ()))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
         let holder = Type::Named("Holder".into());
-        let alternatives = ["Holding", "Plain"]
+        let alternatives = ["Holder.Holding", "Holder.Plain"]
             .into_iter()
             .map(|name| declarations.variant_id(&holder, name).unwrap())
             .collect::<HashSet<_>>();
@@ -2990,7 +2990,7 @@ mod tests {
     fn expression_ids_are_dense_and_stable_across_fresh_parses() {
         let source = "(#fn main () #u64
           (#let value #u64 1u64)
-          (#return (#u64.+.wrap value 2u64)))";
+          (#return (#u64::add-wrap value 2u64)))";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
         let first_ids = expression_ids(&first);
@@ -3020,7 +3020,7 @@ mod tests {
         let source = "(#fn main () #u64
           (#let value #u64 (#block (#let nested #u64 1u64) nested))
           (#let result #u64 (#label outer (#loop (#break-to outer 2u64))))
-          (#return (#u64.+.wrap value result)))";
+          (#return (#u64::add-wrap value result)))";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
         let first_ids = statement_ids(&first);
@@ -3052,22 +3052,22 @@ mod tests {
     fn declaration_ids_resolve_metadata_and_ignore_top_level_declaration_order() {
         let forms = [
             "(#struct Z () ((z #u64) (a #u32)))",
-            "(#struct A.Type () ((a #u8)))",
-            "(#enum M () ((Second #u16) First))",
-            "(#const Zed #u64 7u64)",
-            "(#const Alpha.answer #u64 42u64)",
+            "(#struct A::Type () ((a #u8)))",
+            "(#enum M () ((M.Second #u16) M.First))",
+            "(#const zed #u64 7u64)",
+            "(#const alpha-answer #u64 42u64)",
             "(#type ZAlias Z)",
         ];
         for forms in [forms.to_vec(), forms.into_iter().rev().collect()] {
             let source = format!(
-                "{} (#fn main () #u64 (#return Alpha.answer))",
+                "{} (#fn main () #u64 (#return alpha-answer))",
                 forms.join(" ")
             );
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();
             let declarations = checked.declarations();
-            assert_eq!(declarations.global_id("Alpha.answer"), Some(GlobalId(0)));
-            assert_eq!(declarations.global_id("Zed"), Some(GlobalId(1)));
+            assert_eq!(declarations.global_id("alpha-answer"), Some(GlobalId(0)));
+            assert_eq!(declarations.global_id("zed"), Some(GlobalId(1)));
             assert_eq!(declarations.global_type(GlobalId(0)), &Type::U64);
             let alias = Type::Reference {
                 mutable: true,
@@ -3087,12 +3087,12 @@ mod tests {
                 "a"
             );
             let other = declarations
-                .field_id(&Type::Named("A.Type".into()), "a")
+                .field_id(&Type::Named("A::Type".into()), "a")
                 .unwrap();
             assert_ne!(field, other);
             assert_eq!(declarations.field(other).ty, Type::U8);
             let variant = declarations
-                .variant_id(&Type::Named("M".into()), "Second")
+                .variant_id(&Type::Named("M".into()), "M.Second")
                 .unwrap();
             assert_eq!(
                 variant,
@@ -3104,7 +3104,7 @@ mod tests {
             assert_eq!(declarations.variant(variant).fields, vec![Type::U16]);
             assert_eq!(
                 declarations.declaration_name(DeclarationId::Variant(variant)),
-                "Second"
+                "M.Second"
             );
         }
     }
@@ -3139,8 +3139,8 @@ mod tests {
     fn aliases_resolve_inside_every_container_and_reject_nested_cycles() {
         let alias = Type::Named("Word".into());
         let aliases = HashMap::from([
-            ("Word".into(), Type::Named("Base".into())),
-            ("Base".into(), Type::U64),
+            ("Word".into(), Type::Named("base".into())),
+            ("base".into(), Type::U64),
         ]);
         for (input, expected) in containers(alias.clone()).iter().zip(containers(Type::U64)) {
             assert_eq!(resolve_type(input, &aliases).unwrap(), expected);
@@ -3158,13 +3158,13 @@ mod tests {
     fn checked_declarations_retain_types_spans_and_deterministic_function_ids() {
         let source = "(#type Word #u64)
             (#struct Pair () ((left Word) (right (#ref Word))))
-            (#const Answer Word 42u64)
+            (#const answer Word 42u64)
             (#fn z ((value (#ref Word))) Word (#return (#deref value)))
-            (#fn main () Word (#return Answer))";
+            (#fn main () Word (#return answer))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
-        assert_eq!(declarations.globals["Answer"], Type::U64);
+        assert_eq!(declarations.globals["answer"], Type::U64);
         assert_eq!(declarations.structs["Pair"][0].ty, Type::U64);
         assert_eq!(
             declarations.structs["Pair"][1].ty,

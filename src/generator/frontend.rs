@@ -5,7 +5,7 @@ use crate::*;
 
 pub(crate) fn is_async_invocation(expression: &SpannedExpr) -> bool {
     matches!(&expression.expr, Expr::List(items)
-        if matches!(items.first(), Some(Expr::At))
+        if matches!(items.first(), Some(Expr::Generate))
         && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned")))
 }
 
@@ -133,7 +133,7 @@ pub(crate) fn copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
             Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head))
                 if matches!(head.as_str(), "#type" | "#struct" | "#enum")))
             || matches!(&expression.expr, Expr::List(items)
-                if matches!(items.first(), Some(Expr::At))
+                if matches!(items.first(), Some(Expr::Generate))
                 && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
         })
         .filter_map(|expression| {
@@ -564,7 +564,7 @@ pub(crate) fn prepare_program_syntax(
     let mut builtin_invocations = HashMap::<String, String>::new();
     let mut unique = Vec::with_capacity(expressions.len());
     for expression in expressions {
-        if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate)))
         {
             let normalized =
                 normalize_builtin_generator_invocation(&expression.expr).map_err(|message| {
@@ -669,7 +669,7 @@ pub(crate) fn prepare_program_syntax(
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#syntax"))
         })
         .map(|form| {
-            if matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At))) {
+            if matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate))) {
                 expression_source(&form.expr).map(Some)
             } else {
                 Ok(None)
@@ -701,7 +701,7 @@ pub(crate) fn prepare_program_syntax(
     let needs_async = expressions.iter().any(is_async_invocation);
     let needs_copy_types = needs_async || expressions.iter().any(|expression| {
         matches!(&expression.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::At))
+            if matches!(items.first(), Some(Expr::Generate))
             && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
     });
     let async_copy_types = if needs_copy_types {
@@ -814,7 +814,7 @@ pub(crate) fn parse_prepared_program_items(
             .unwrap_or("")
             .trim_start();
         let is_generated_output =
-            expression.children.is_empty() && invocation_text.starts_with("(@");
+            expression.children.is_empty() && invocation_text.starts_with("(#generate ");
         if is_generated_output {
             let generated_text = expression_source(&expression.expr)?;
             let source_id = u32::try_from(source_files.len())
@@ -868,7 +868,7 @@ pub(crate) fn parse_prepared_program_items(
         normalize_match_cases_expr(&mut expression);
         let mut generated_declarations = HashMap::new();
         if let Expr::List(forms) = &expression {
-            if matches!(forms.first(), Some(Expr::At)) {
+            if matches!(forms.first(), Some(Expr::Generate)) {
                 let kind = forms.get(1).and_then(|form| match form {
                     Expr::Symbol(kind) => Some(kind.as_str()),
                     _ => None,
@@ -934,7 +934,7 @@ pub(crate) fn parse_prepared_program_items(
             }
         }
         let parsed_items = if let Expr::List(forms) = &expression {
-            if matches!(forms.first(), Some(Expr::At)) {
+            if matches!(forms.first(), Some(Expr::Generate)) {
                 parse_generated_items_with_copy_types(forms, &async_copy_types).map_err(
                     |error| {
                         attach_span_to_source_error_kind(
@@ -1075,7 +1075,7 @@ fn validate_generation_requirements(
     let mut registry = prepared.generator_origins.generation.clone();
     let mut async_output = async_output.iter();
     for expression in &prepared.expressions {
-        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate)))
         {
             continue;
         }
@@ -1242,7 +1242,7 @@ fn write_prepared_generated_sources_reusing_graph(
         .then(|| graph_source_key_context(prepared));
     let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
-        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate)))
         {
             continue;
         }
@@ -1276,7 +1276,7 @@ fn write_prepared_generated_sources_reusing_graph(
         let Expr::List(forms) = normalize_keywords(original.clone()) else {
             continue;
         };
-        if !matches!(forms.first(), Some(Expr::At)) {
+        if !matches!(forms.first(), Some(Expr::Generate)) {
             continue;
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
@@ -1314,17 +1314,17 @@ mod async_migration_tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     const CONTEXT: &str = "
-      (#enum Child (#linear) ((Start #u64) (Resume #u64)))
-      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
-          (#case (Start value) (ChildPending (Resume value)))
-          (#case (Resume value) (ChildReady value)))))";
+          (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+          (#case (Child.Resume value) (ChildPoll.ChildReady value)))))";
 
     fn source(body: &str) -> String {
         format!(
             "{CONTEXT}
-          (@#async-fn (: protocol WorkAwait : waker #u64 : function
+          (#generate #async-fn (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64 {body})))"
         )
     }
@@ -1339,7 +1339,7 @@ mod async_migration_tests {
         let text = format!(
             "{}\n{}",
             source("(#return seed)"),
-            source("(#return (#u64.+.wrap seed 1u64))")
+            source("(#return (#u64::add-wrap seed 1u64))")
                 .replace(CONTEXT, "")
                 .replace("WorkAwait", "OtherAwait")
                 .replace("#fn work", "#fn other")
@@ -1402,7 +1402,7 @@ mod async_migration_tests {
     fn graph_source_publication_checks_original_and_emitted_once() {
         let scratch = Scratch::new();
         let text =
-            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+            source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))");
         typecheck::SEMANTIC_PASSES.with(|count| count.set(0));
         write_generated_sources_in_directory(
             &text,
@@ -1426,7 +1426,7 @@ mod async_migration_tests {
     #[ignore = "manual source-publication benchmark; run in release with --ignored --nocapture"]
     fn graph_source_publication_cold_timing() {
         let text =
-            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+            source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))");
         let mut walls = Vec::new();
         let mut passes = Vec::new();
         for _ in 0..8 {
@@ -1461,7 +1461,7 @@ mod async_migration_tests {
     fn graph_owned_expansion_retains_validation_and_materializes_without_rechecking() {
         let scratch = Scratch::new();
         let text =
-            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+            source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))");
         let mut config = CompileConfig::default();
         config.set("async-lowering", "graph");
         let prepared =
@@ -1502,7 +1502,7 @@ mod async_migration_tests {
     fn graph_route_checks_and_publishes_the_same_ordinary_output_with_cache_and_headers() {
         let scratch = Scratch::new();
         let text =
-            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+            source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))");
         let prepared = syntax(&text, Some(&scratch.0));
         let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let program = expand_prepared_program(&prepared).unwrap();
@@ -1561,11 +1561,11 @@ mod async_migration_tests {
           (#struct Source (#linear) (: amount #u64))
           (#fn make (: amount #u64) Source (#return (#struct-literal Source (: amount amount))))
           (#fn consume (: owner Source : amount #u64) #u64
-            (#let result #u64 (#u64.+.wrap (#get owner amount) amount)) (#forget owner) (#return result))
-          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+            (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result))
+          (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64 (#return (#call consume
               (: owner (#call make (: amount seed))
-                 : amount (#await Child ChildPending ChildReady child-poll (Start 2u64))))))))");
+                 : amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))))))");
         let count = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let mut bodies = Vec::new();
         for (name, padding) in [("first.lim", ""), ("second.lim", "\n\n\n")] {
@@ -1581,7 +1581,7 @@ mod async_migration_tests {
             let program = expand_prepared_program(&prepared).unwrap();
             let output = &program.source_files.last().unwrap().source;
             assert!(
-                output.contains("Work::Frame::Cleanup::source-expression-"),
+                output.contains("Work::Frame::Cleanup::Source-expression-"),
                 "{output}"
             );
             bodies.push(output.split_once("\n\n").unwrap().1.to_owned());
@@ -1698,14 +1698,14 @@ mod async_migration_tests {
             (
                 "(#let owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) seed 2u64))
               (#let view (#ref #u64) (#borrow (#get owner 0)))
-              (#return (#u64.+.wrap (#deref view)
-                (#await Child ChildPending ChildReady child-poll (Start 2u64))))",
+              (#return (#u64::add-wrap (#deref view)
+                (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))",
                 "local references surviving suspension require a pinned async frame",
             ),
             (
                 "(#let owner #u64 seed)
                  (#return (#borrow owner
-                   (#await Child ChildPending ChildReady child-poll (Start 0u64))))",
+                   (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))))",
                 "local references surviving suspension require a pinned async frame",
             ),
         ] {
@@ -1725,8 +1725,8 @@ mod async_migration_tests {
     #[test]
     fn graph_route_accepts_checked_source_named_cancellation_dispatcher() {
         let text =
-            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))")
-                .replace("@#async-fn", "@#async-fn-pinned")
+            source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))")
+                .replace("#generate #async-fn", "#generate #async-fn-pinned")
                 .replace(
                     ": function",
                     ": cancel (work-cancel ((await-0 cancel-child))) : function",
@@ -1740,7 +1740,7 @@ mod async_migration_tests {
             output.contains("(#fn work-cancel ((task Work::Frame::Cleanup)) ()"),
             "{output}"
         );
-        assert!(output.contains("Work::Frame::Cleanup::await-0::Full"));
+        assert!(output.contains("Work::Frame::Cleanup::Await-0.Full"));
         typecheck::CheckedProgram::validate_with_span(&program).unwrap();
     }
 
@@ -1763,13 +1763,13 @@ mod async_migration_tests {
             (#let waker #u64 0u64)
             (#let first Work::Poll (#call Work::poll
               (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
-            (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+            (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
             (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
-              (#case (Work::Ready value) value)
-              (#case (Work::Pending bad) (#block (#forget bad) (#unreachable))))))",
+              (#case (Work::Poll.Ready value) value)
+              (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))",
             source(
-                "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
-              (#return (#u64.+.wrap answer 2u64))"
+                "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
+              (#return (#u64::add-wrap answer 2u64))"
             )
         );
         let prepared = syntax(&text, None);
@@ -1803,13 +1803,13 @@ mod async_migration_tests {
     fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
         let text = format!(
             "{CONTEXT}
-          (#gn produce () `((@#async-fn (: protocol WorkAwait : waker #u64 : function
+          (#gn produce () `((#generate #async-fn (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64
-              (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))))
-          (@produce)
-          (@#async-fn (: protocol SecondAwait : waker #u64 : function
+              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))))
+          (#generate produce)
+          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function
             (#fn second (: seed #u64) #u64
-              (#return (#await Work::Task Work::Pending Work::Ready Work::poll
+              (#return (#await Work::Task Work::Poll.Pending Work::Poll.Ready Work::poll
                 (#call work (: seed seed)))))))"
         );
         let scratch = Scratch::new();
@@ -1852,26 +1852,28 @@ mod async_migration_tests {
     fn obsolete_per_state_cancellation_patterns_are_not_supported() {
         let text = format!(
             "{}
-          (#fn cancel-frame (: task Work-frame-state) ()
+          (#fn cancel-frame (: task Work::frame-state) ()
             (#match task
               (#case (work-frame-start seed) (#forget seed))
               (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))
               (#case work-frame-done ()))
             (#return ()))",
             source(
-                "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
-              (#return (#u64.+.wrap answer seed))"
+                "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
+              (#return (#u64::add-wrap answer seed))"
             )
-            .replace("@#async-fn", "@#async-fn-pinned")
+            .replace("#generate #async-fn", "#generate #async-fn-pinned")
         );
         let prepared = syntax(&text, None);
         let error = expand_prepared_program(&prepared).err().unwrap();
         assert!(
-            error.message.contains("undeclared type 'Work-frame-state'"),
+            error
+                .message
+                .contains("undeclared type 'Work::frame-state'"),
             "{error}"
         );
         let span = error.span.unwrap();
-        assert_eq!(&text[span.start..span.end], "Work-frame-state");
+        assert_eq!(&text[span.start..span.end], "Work::frame-state");
     }
 
     #[test]

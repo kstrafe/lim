@@ -24,8 +24,8 @@
 ;; Jobs: (name Task Poll Pending Ready poll-function Result).
 ;; Capacity is precisely the number of jobs; every slot has a concrete type.
 (#gn-fn executor-name (job)
-  (#gn-if (#gn-equal (#gn-first job) lim.executor.waiting)
-    (#gn-error "executor slot name conflicts with lim.executor.waiting")
+  (#gn-if (#gn-equal (#gn-first job) lim-executor-waiting)
+    (#gn-error "executor slot name conflicts with lim-executor-waiting")
     (#gn-first job)))
 (#gn-fn executor-parameter (job)
   (#gn-if (#gn-equal (#gn-first job) (#gn-call task-eighth job))
@@ -42,29 +42,29 @@
   `(#set
     ,(#gn-call executor-name job)
     (#match ,(#gn-call executor-name job)
-      (#case (,(#gn-call task-fourth job) lim.executor.task)
+      (#case (,(#gn-call task-fourth job) lim-executor-task)
         (#block
-          (#set lim.executor.waiting true)
-          (#call ,(#gn-call task-sixth job) (: task lim.executor.task))))
-      (#case (,(#gn-call task-fifth job) lim.executor.value)
-        (,(#gn-call task-fifth job) lim.executor.value)))))
+          (#set lim-executor-waiting true)
+          (#call ,(#gn-call task-sixth job) (: task lim-executor-task))))
+      (#case (,(#gn-call task-fifth job) lim-executor-value)
+        (,(#gn-call task-fifth job) lim-executor-value)))))
 (#gn-fn executor-result (job)
   `(,(#gn-call executor-name job)
     (#match ,(#gn-call executor-name job)
-      (#case (,(#gn-call task-fifth job) lim.executor.value)
-        lim.executor.value)
-      (#case (,(#gn-call task-fourth job) lim.executor.task)
+      (#case (,(#gn-call task-fifth job) lim-executor-value)
+        lim-executor-value)
+      (#case (,(#gn-call task-fourth job) lim-executor-task)
         (#block
-          (#forget lim.executor.task)
+          (#forget lim-executor-task)
           (#unreachable))))))
 (#gn #executor (run result jobs)
   `((#struct ,result () ,(#gn-for-each job jobs (#gn-call executor-field job)))
     (#fn ,run ,(#gn-for-each job jobs (#gn-call executor-parameter job)) ,result
       ,@(#gn-for-each job jobs
         (#gn-call executor-initialize job))
-      (#let-mut lim.executor.waiting #bool true)
-      (#while lim.executor.waiting
-        (#set lim.executor.waiting false)
+      (#let-mut lim-executor-waiting #bool true)
+      (#while lim-executor-waiting
+        (#set lim-executor-waiting false)
         ,@(#gn-for-each job jobs
           (#gn-call executor-poll job)))
       (#return
@@ -94,7 +94,7 @@
         2u32
         (#gn-if (#gn-equal (#gn-call task-fifth job) 3u32)
           3u32
-          (#gn-error "@#wake-executor task slot must be 0u32 through 3u32"))))))
+          (#gn-error "#generate #wake-executor task slot must be 0u32 through 3u32"))))))
 (#gn-fn wake-executor-slots-valid (jobs)
   (#gn-if (#gn-equal (#gn-length jobs) 1)
     (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-first jobs)) 0u32)
@@ -140,54 +140,54 @@
   `(#set
     ,(#gn-call wake-executor-state-name job)
     (#match ,(#gn-call wake-executor-state-name job)
-      (#case (,pending lim.wake-executor.task)
-        (#if (#u32.!= (#u32.& lim.wake-executor.ready-mask (#u32.<< 1u32 ,(#gn-call wake-executor-slot job))) 0u32)
+      (#case (,pending lim-wake-executor-task)
+        (#if (#u32::ne (#u32::bit-and lim-wake-executor-ready-mask (#u32::shl 1u32 ,(#gn-call wake-executor-slot job))) 0u32)
           (#block
             (#let
-              lim.wake-executor.next
+              lim-wake-executor-next
               ,poll-type
               (#call
                 ,poll-function
-                (: task lim.wake-executor.task
+                (: task lim-wake-executor-task
                   : waker ,(#gn-call wake-executor-waker-parameter job))))
-            (#match lim.wake-executor.next
-              (#case (,pending lim.wake-executor.pending-task)
+            (#match lim-wake-executor-next
+              (#case (,pending lim-wake-executor-pending-task)
                 (#block
-                  (#set lim.wake-executor.waiting true)
-                  (,pending lim.wake-executor.pending-task)))
-              (#case (,ready lim.wake-executor.value)
-                (,ready lim.wake-executor.value))))
+                  (#set lim-wake-executor-waiting true)
+                  (,pending lim-wake-executor-pending-task)))
+              (#case (,ready lim-wake-executor-value)
+                (,ready lim-wake-executor-value))))
           (#block
-            (#set lim.wake-executor.waiting true)
-            (,pending lim.wake-executor.task))))
-      (#case (,ready lim.wake-executor.value)
-        (,ready lim.wake-executor.value)))))
+            (#set lim-wake-executor-waiting true)
+            (,pending lim-wake-executor-task))))
+      (#case (,ready lim-wake-executor-value)
+        (,ready lim-wake-executor-value)))))
 (#gn-fn wake-executor-result (poll-type pending ready job)
   `(,(#gn-call wake-executor-result-field job)
     (#match ,(#gn-call wake-executor-state-name job)
-      (#case (,ready lim.wake-executor.value)
-        lim.wake-executor.value)
-      (#case (,pending lim.wake-executor.task)
+      (#case (,ready lim-wake-executor-value)
+        lim-wake-executor-value)
+      (#case (,pending lim-wake-executor-task)
         (#block
-          (#forget lim.wake-executor.task)
+          (#forget lim-wake-executor-task)
           (#unreachable))))))
 (#gn-fn wake-executor-cancel-call (cancel-function job)
   `(#call ,cancel-function (: state ,(#gn-call wake-executor-state-name job))))
 (#gn-fn wake-executor-wait-result (outputs wait-spec cancel-function jobs)
   `(#match (#call ,(#gn-call task-fifth wait-spec) (: ,(#gn-first (#gn-call task-sixth wait-spec))
           ,(#gn-first (#gn-call task-sixth wait-spec))))
-    (#case (,(#gn-call task-second wait-spec) lim.wake-executor.mask)
+    (#case (,(#gn-call task-second wait-spec) lim-wake-executor-mask)
       (#block
-        (#set lim.wake-executor.ready-mask lim.wake-executor.mask)
+        (#set lim-wake-executor-ready-mask lim-wake-executor-mask)
         ()))
-    (#case (,(#gn-call task-third wait-spec) lim.wake-executor.reason)
+    (#case (,(#gn-call task-third wait-spec) lim-wake-executor-reason)
       (#block
-        (#set lim.wake-executor.lifecycle (,(#gn-call task-sixth outputs) lim.wake-executor.reason))
-        (#set lim.wake-executor.waiting false)
+        (#set lim-wake-executor-lifecycle (,(#gn-call task-sixth outputs) lim-wake-executor-reason))
+        (#set lim-wake-executor-waiting false)
         ()))))
 (#gn #wake-executor (run outputs task-spec wait-spec cancel-function jobs)
   (#gn-if (#gn-equal (#gn-length jobs) 0)
-    (#gn-error "@#wake-executor requires one to four task jobs")
+    (#gn-error "#generate #wake-executor requires one to four task jobs")
     (#gn-if (#gn-equal (#gn-length jobs) 1)
       (#gn-call wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
       (#gn-if (#gn-equal (#gn-length jobs) 2)
@@ -196,7 +196,7 @@
           (#gn-call wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
           (#gn-if (#gn-equal (#gn-length jobs) 4)
             (#gn-call wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
-            (#gn-error "@#wake-executor supports at most four task jobs")))))))
+            (#gn-error "#generate #wake-executor supports at most four task jobs")))))))
 (#gn-fn wake-executor-generate (run outputs task-spec wait-spec cancel-function jobs)
   (#gn-if (#gn-equal (#gn-call wake-executor-slots-valid jobs) valid)
     `((#struct ,(#gn-first outputs) () ,(#gn-for-each job jobs (#gn-call wake-executor-field (#gn-call task-fifth task-spec) job)))
@@ -220,14 +220,14 @@
             (#gn-call task-second task-spec)
             (#gn-call task-third task-spec)
             job))
-        (#let-mut lim.wake-executor.ready-mask #u32 15u32)
+        (#let-mut lim-wake-executor-ready-mask #u32 15u32)
         (#let-mut
-          lim.wake-executor.lifecycle
+          lim-wake-executor-lifecycle
           ,(#gn-call task-third outputs)
           ,(#gn-call task-fourth outputs))
-        (#let-mut lim.wake-executor.waiting #bool true)
-        (#while lim.wake-executor.waiting
-          (#set lim.wake-executor.waiting false)
+        (#let-mut lim-wake-executor-waiting #bool true)
+        (#while lim-wake-executor-waiting
+          (#set lim-wake-executor-waiting false)
           ,@(#gn-for-each job jobs
             (#gn-call
               wake-executor-poll
@@ -237,13 +237,13 @@
               (#gn-call task-fifth task-spec)
               (#gn-call task-sixth task-spec)
               job))
-          (#if lim.wake-executor.waiting
+          (#if lim-wake-executor-waiting
             (#block
               ,(#gn-call wake-executor-wait-result outputs wait-spec cancel-function jobs)
               ())
             ()))
         (#return
-          (#match lim.wake-executor.lifecycle
+          (#match lim-wake-executor-lifecycle
             (#case ,(#gn-call task-fourth outputs)
               (,(#gn-call task-fifth outputs)
                 (#struct-literal
@@ -255,12 +255,12 @@
                       (#gn-call task-third task-spec)
                       (#gn-call task-fourth task-spec)
                       job)))))
-            (#case (,(#gn-call task-sixth outputs) lim.wake-executor.reason)
+            (#case (,(#gn-call task-sixth outputs) lim-wake-executor-reason)
               (#block
                 ,@(#gn-for-each job jobs
                   (#gn-call wake-executor-cancel-call cancel-function job))
-                (,(#gn-call task-seventh outputs) lim.wake-executor.reason)))))))
-    (#gn-error "@#wake-executor slots must be consecutive from 0u32")))
+                (,(#gn-call task-seventh outputs) lim-wake-executor-reason)))))))
+    (#gn-error "#generate #wake-executor slots must be consecutive from 0u32")))
 ;; Explicit async composition. Names: (Task Poll Pending Ready poll-function).
 ;; Each stage is (State (#await ChildTask Pending Ready poll) continuation).
 ;; A continuation is (#then NextState start-next) or (#return).
@@ -270,43 +270,43 @@
 (#gn-fn async-complete (names continuation)
   (#gn-if (#gn-equal (#gn-first continuation) #return)
     (#gn-if (#gn-equal (#gn-rest continuation) ())
-      `(,(#gn-call task-fourth names) lim.async.value)
+      `(,(#gn-call task-fourth names) lim-async-value)
       (#gn-error "async #return continuation takes no arguments"))
     (#gn-if (#gn-equal (#gn-first continuation) #then)
       `(,(#gn-call task-third names)
         (,(#gn-call task-second continuation)
-          (#call ,(#gn-call task-third continuation) (: value lim.async.value))))
+          (#call ,(#gn-call task-third continuation) (: value lim-async-value))))
       (#gn-error "async continuation must be (#return) or (#then State function)"))))
 (#gn-fn async-poll-case (names stage)
   (#gn-if (#gn-equal (#gn-first (#gn-call task-second stage)) #await)
-    `(#case (,(#gn-first stage) lim.async.task)
-      (#match (#call ,(#gn-call task-fifth (#gn-call task-second stage)) (: task lim.async.task))
-        (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.polled-task)
-          (,(#gn-call task-third names) (,(#gn-first stage) lim.async.polled-task)))
-        (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
+    `(#case (,(#gn-first stage) lim-async-task)
+      (#match (#call ,(#gn-call task-fifth (#gn-call task-second stage)) (: task lim-async-task))
+        (#case (,(#gn-call task-third (#gn-call task-second stage)) lim-async-polled-task)
+          (,(#gn-call task-third names) (,(#gn-first stage) lim-async-polled-task)))
+        (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim-async-value)
           ,(#gn-call async-complete names (#gn-call task-third stage)))))
     (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
 (#gn #async (names result stages)
-  `((@ #task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
+  `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
     (#fn ,(#gn-call task-fifth names) ((task ,(#gn-first names))) ,(#gn-call task-second names)
       (#return
         (#match task
           ,@(#gn-for-each stage stages
             (#gn-call async-poll-case names stage)))))))
-;; Waker-aware explicit composition. Child polls take `task` and a shared
+;; Waker::aware explicit composition. Child polls take `task` and a shared
 ;; `waker` reference. The generated parent poll forwards that exact handle;
 ;; it does not create, clone, or retain wake authority on its own.
 (#gn-fn async-wake-poll-case (names stage)
   (#gn-if (#gn-equal (#gn-first (#gn-call task-second stage)) #await)
-    `(#case (,(#gn-first stage) lim.async.task)
-      (#match (#call ,(#gn-call task-fifth (#gn-call task-second stage)) (: task lim.async.task : waker waker))
-        (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.polled-task)
-          (,(#gn-call task-third names) (,(#gn-first stage) lim.async.polled-task)))
-        (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
+    `(#case (,(#gn-first stage) lim-async-task)
+      (#match (#call ,(#gn-call task-fifth (#gn-call task-second stage)) (: task lim-async-task : waker waker))
+        (#case (,(#gn-call task-third (#gn-call task-second stage)) lim-async-polled-task)
+          (,(#gn-call task-third names) (,(#gn-first stage) lim-async-polled-task)))
+        (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim-async-value)
           ,(#gn-call async-complete names (#gn-call task-third stage)))))
     (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
 (#gn #async-wake (names result stages waker)
-  `((@ #task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
+  `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
     (#fn ,(#gn-call task-fifth names) ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call task-second names)
       (#return
         (#match task
@@ -317,8 +317,8 @@
 ;; concrete tuple. A handler consumes all owned state fields.
 (#gn-fn task-cancel-case (entry)
   (#gn-if (#gn-equal (#gn-length entry) 2)
-    `(#case (,(#gn-first entry) lim.cancel.task)
-      (#call ,(#gn-call task-second entry) (: task lim.cancel.task)))
+    `(#case (,(#gn-first entry) lim-cancel-task)
+      (#call ,(#gn-call task-second entry) (: task lim-cancel-task)))
     (#gn-if (#gn-equal (#gn-length entry) 3)
       (#gn-if (#gn-equal (#gn-length (#gn-call task-third entry)) 0)
         `(#case ,(#gn-first entry)
@@ -336,7 +336,7 @@
         "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))"))))
 (#gn #task-cancel (cancel task states)
   `((#fn ,cancel ((task ,task)) () (#return (#match task ,@(#gn-for-each entry states (#gn-call task-cancel-case entry)))))))
-;; One explicit OS worker owns this executor and its fixed set of task slots.
-;; Existing @#thread-spawn Send checks, errors, and mandatory joining apply.
+;; Choice.One explicit OS worker owns this executor and its fixed set of task slots.
+;; Existing #generate #thread-spawn Send checks, errors, and mandatory joining apply.
 (#gn #threaded-executor (run result jobs thread)
-  `((@ #executor ,run ,result ,jobs) (@ #thread-spawn (: task ,thread : worker ,run))))
+  `((#generate #executor ,run ,result ,jobs) (#generate #thread-spawn (: task ,thread : worker ,run))))

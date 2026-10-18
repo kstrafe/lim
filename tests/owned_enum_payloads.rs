@@ -25,20 +25,20 @@ fn enum_match_destinations_preserve_checked_nested_expressions() {
         ),
     ] {
         let source = format!(
-            "(#enum E () ((Value #u64) (Padding (#array #u64 10))))
+            "(#enum E () ((E.Value #u64) (E.Padding (#array #u64 10))))
           (#fn answer ((value #u64)) #u64 (#return value))
           (#fn make ((choose {ty})) E
             (#return (#match (#clone choose)
-              (#case {yes} (Value (#match (#u64.== 1u64 1u64)
+              (#case {yes} (E.Value (#match (#u64::eq 1u64 1u64)
                 (#case true (#call answer (: value 42u64))) (#case false 0u64))))
-              (#case {no} (Value 0u64)))))
+              (#case {no} (E.Value 0u64)))))
           (#fn main () #u64
             (#let subject {ty} {subject})
-            (#let-mut value E (Value 0u64))
+            (#let-mut value E (E.Value 0u64))
             (#set value (#match (#clone subject)
               (#case {yes} (#call make (: choose (#clone subject))))
-              (#case {no} (Value 0u64))))
-            (#return (#get-payload value Value 0)))"
+              (#case {no} (E.Value 0u64))))
+            (#return (#get-payload value E.Value 0)))"
         );
         assert_eq!(run(&source).code(), Some(42), "{source}");
     }
@@ -66,35 +66,35 @@ fn run(source: &str) -> std::process::ExitStatus {
 #[test]
 fn owned_and_computed_payloads_preserve_values_and_register_classes() {
     for (ty, value, result) in [
-        ("#u64", "42u64", "(#get-payload SOURCE Value 0)"),
+        ("#u64", "42u64", "(#get-payload SOURCE E.Value 0)"),
         (
             "#u128",
             "42u128",
-            "(#as (#get-payload SOURCE Value 0) #u64)",
+            "(#as (#get-payload SOURCE E.Value 0) #u64)",
         ),
         (
             "#f32",
             "(#literal #f32 42.0)",
-            "(#if (#f32.== (#get-payload SOURCE Value 0) (#literal #f32 42.0)) 42u64 0u64)",
+            "(#if (#f32::eq (#get-payload SOURCE E.Value 0) (#literal #f32 42.0)) 42u64 0u64)",
         ),
         (
             "#f64",
             "(#literal #f64 42.0)",
-            "(#if (#f64.== (#get-payload SOURCE Value 0) (#literal #f64 42.0)) 42u64 0u64)",
+            "(#if (#f64::eq (#get-payload SOURCE E.Value 0) (#literal #f64 42.0)) 42u64 0u64)",
         ),
         (
             "(#tuple #u64 #u64)",
             "(#tuple 42u64 1u64)",
-            "(#get (#get-payload SOURCE Value 0) 0)",
+            "(#get (#get-payload SOURCE E.Value 0) 0)",
         ),
     ] {
         for source in ["owner", "(#call make ())"] {
             let result = result.replace("SOURCE", source);
             let program = format!(
-                "(#enum E () ((Value {ty}) Other))
-                 (#fn make () E (#return (Value {value})))
+                "(#enum E () ((E.Value {ty}) E.Other))
+                 (#fn make () E (#return (E.Value {value})))
                  (#fn main () #u64
-                   (#let owner E (Value {value}))
+                   (#let owner E (E.Value {value}))
                    (#return {result}))"
             );
             assert_eq!(run(&program).code(), Some(42), "{program}");
@@ -104,25 +104,25 @@ fn owned_and_computed_payloads_preserve_values_and_register_classes() {
 
 #[test]
 fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
-    let inactive = "(#enum E () ((Value #u64) Other))
+    let inactive = "(#enum E () ((E.Value #u64) E.Other))
       (#fn main () #u64
-        (#let owner E Other)
-        (#return (#get-payload owner Value 0)))";
+        (#let owner E E.Other)
+        (#return (#get-payload owner E.Value 0)))";
     assert!(!run(inactive).success());
     for words in [1, 8] {
         let fields = format!("(#tuple {})", "#u64 ".repeat(words));
         let value_source = format!(
-            "(#enum E () ((Value #u64) (Other {fields})))
-             (#fn make () E (#return (Value 42u64)))
+            "(#enum E () ((E.Value #u64) (E.Other {fields})))
+             (#fn make () E (#return (E.Value 42u64)))
              (#fn main () #u64
-               (#return (#get-payload (#call make ()) Value 0)))"
+               (#return (#get-payload (#call make ()) E.Value 0)))"
         );
         assert_eq!(run(&value_source).code(), Some(42));
         let source = format!(
-            "(#enum E () ((Value ()) (Other {fields})))
-             (#fn make () E (#assert false) (#return (Value ())))
+            "(#enum E () ((E.Value ()) (E.Other {fields})))
+             (#fn make () E (#assert false) (#return (E.Value ())))
              (#fn main () #u64
-               (#forget (#get-payload (#call make ()) Value 0))
+               (#forget (#get-payload (#call make ()) E.Value 0))
                (#return 42u64))"
         );
         assert!(!run(&source).success());
@@ -131,7 +131,7 @@ fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
 
 #[test]
 fn enum_variants_reject_multiple_payload_types() {
-    let source = "(#enum E () ((Pair #u64 #u64)))
+    let source = "(#enum E () ((E.Pair #u64 #u64)))
       (#fn main () #u64 (#return 0u64))";
     assert!(lim::parse_program(source)
         .unwrap_err()

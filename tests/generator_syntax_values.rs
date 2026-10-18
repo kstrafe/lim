@@ -4,7 +4,7 @@ fn expand(expression: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("generator-syntax-values");
     let source = format!(
         "(#gn alias (options) `((#type ,{expression} #u64)))
-         (@alias (: name Word : suffix \"alias\"))
+         (#generate alias (: name Word : suffix \"Alias\"))
          (#fn main () #u64 (#return 42u64))"
     );
     lim::compile_source_to_assembly(
@@ -23,7 +23,7 @@ fn named_syntax_lookup_and_identifier_composition_are_literal_operations() {
         "(#gn-get options absent Fallback)",
         "(#gn-get options name (#gn-error \"unused fallback must not run\"))",
         "(#gn-symbol-append (#gn-get options name) (#gn-get options suffix))",
-        "(#gn-symbol-append Word alias)",
+        "(#gn-symbol-append Word Alias)",
         "(#gn-gensym \"task\")",
         "(#gn-gensym (#gn-get (: hint \"task\") hint))",
     ] {
@@ -91,12 +91,12 @@ fn symbol_append_inserts_double_colons_for_literal_suffixes_and_nested_calls() {
         ("(#gn-symbol-append Word \"-alias\")", "Word::-alias"),
     ] {
         expand(&format!(
-            "(#gn-if (#gn-equal {expression} {expected}) {expression} (#gn-error \"incorrect symbol join\"))"
+            "(#gn-if (#gn-equal {expression} {expected}) Word (#gn-error \"incorrect symbol join\"))"
         ))
         .unwrap();
     }
     // Joining cannot accidentally enter the compiler-owned gensym domain.
-    expand("(#gn-symbol-append lim. \"gensym.fake\")").unwrap();
+    expand("(#gn-if (#gn-equal (#gn-symbol-append lim. \"gensym.fake\") lim.::gensym.fake) Word (#gn-error \"incorrect gensym join\"))").unwrap();
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn joined_names_are_inspectable_and_reused_from_the_generated_cache() {
     let source = r#"
       (#gn emit (name)
         `((#fn ,(#gn-symbol-append name "read") () #u64 (#return 42u64))))
-      (@emit Word)
+      (#generate emit Word)
       (#fn main () #u64 (#return (#call Word::read (:))))
     "#;
     let compile = || {
@@ -175,7 +175,7 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
     std::fs::write(&imported, "(#type lim.gensym.fake #u64)").unwrap();
     for source in [
         "(#import \"module.lim\")",
-        "(#import-external \"module.lim\" lib.)",
+        "(#import-external \"module.lim\" lib)",
     ] {
         let error = compile(source);
         assert!(error.message.contains("reserved"), "{error:?}");
@@ -185,11 +185,11 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
             Some("(#type lim.gensym.fake #u64)")
         );
     }
-    std::fs::write(&imported, "(#type gensym.fake #u64)").unwrap();
-    let source = "(#import-external \"module.lim\" lim.)";
+    std::fs::write(&imported, "(#fn gensym.fake () #u64 (#return 42u64))").unwrap();
+    let source = "(#import-external \"module.lim\" lim.gensym.)";
     let error = compile(source);
     let span = error.span.unwrap();
-    assert_eq!(&source[span.start..span.end], "lim.");
+    assert_eq!(&source[span.start..span.end], "lim.gensym.");
     assert!(error.message.contains("reserved"), "{error:?}");
 }
 
@@ -197,7 +197,7 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
 fn ordinary_generator_symbols_still_cannot_shadow_parameters() {
     let scratch = support::Scratch::new("gensym-no-implicit-hygiene");
     let source = "(#gn emit (name) `((#fn ,name (: task #u64) #u64
-        (#let task #u64 42u64) (#return task))))\n(@emit work)";
+        (#let task #u64 42u64) (#return task))))\n(#generate emit work)";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -215,7 +215,7 @@ fn cached_generated_gensym_type_errors_preserve_exact_source_spans() {
     let source = "(#gn-fn emit (temporary) `((#fn broken () #u64
         (#let ,temporary #u64 false) (#return ,temporary))))
       (#gn generate () (#gn-call emit (#gn-gensym \"task\")))
-      (@generate)";
+      (#generate generate)";
     let compile = || {
         lim::compile_source_to_assembly(
             source,
@@ -310,11 +310,11 @@ fn external_imported_generators_keep_fresh_locals_and_explicit_prefixed_api_keys
         scratch.path().join("module.lim"),
         "(#gn-fn emit (name temporary)
         `((#fn ,name (: task #u64) #u64 (#let ,temporary #u64 task) (#return ,temporary))))
-      (#gn make (name) (#gn-call emit name (#gn-gensym \"task\"))) (@make first)",
+      (#gn make (name) (#gn-call emit name (#gn-gensym \"task\"))) (#generate make first)",
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" lib.)
-      (#fn main () #u64 (#return (#call lib.first (: lib.task 42u64))))";
+    let source = "(#import-external \"module.lim\" lib)
+      (#fn main () #u64 (#return (#call lib@first (: lib@task 42u64))))";
     lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

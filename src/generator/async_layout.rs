@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn zero_length_layout_markers_do_not_require_the_element_layout() {
-        let marker = Type::Array(Box::new(Type::Named("Deferred-child".into())), 0);
+        let marker = Type::Array(Box::new(Type::Named("Deferred::child".into())), 0);
         assert_eq!(
             crate::codegen::storage_word_count(&marker, &HashMap::new(), &HashMap::new()).unwrap(),
             0

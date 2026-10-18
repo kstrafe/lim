@@ -28,9 +28,9 @@ fn inline_linearity_propagates_through_struct_enum_tuple_and_array() {
             "enum with one linear payload variant",
             "choice",
             "(#struct Resource (#linear) ((value #u64)))
-             (#enum Choice () ((Empty) (Selected (#tuple #bool Resource))))
+             (#enum Choice () ((Choice.Empty) (Choice.Selected (#tuple #bool Resource))))
              (#fn main () #u64
-               (#let choice Choice (Empty))
+               (#let choice Choice (Choice.Empty))
                (#return 0u64))",
         ),
         (

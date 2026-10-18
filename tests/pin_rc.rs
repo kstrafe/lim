@@ -54,7 +54,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 fn rejected(source: &str, code: lim::DiagnosticCode, message: &str) {
     let error = compile(source)
         .err()
-        .expect("adversarial pin-Rc program must be rejected");
+        .expect("adversarial Pin-Rc program must be rejected");
     assert_eq!(error.code, code, "{error:?}");
     assert!(error.message.contains(message), "{error:?}");
     assert!(error.span.is_some(), "{error:?}");
@@ -104,7 +104,7 @@ fn run(source: &str, label: &str) -> String {
 fn clone_refuses_mutation_until_unique_and_destroys_and_deallocates_once() {
     let source = replace(&example_source(),
         "(#let available PinnedNumberRc::MutResult",
-        "(#assert (#u64.== (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 0u64))\n  (#let available PinnedNumberRc::MutResult");
+        "(#assert (#u64::eq (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 0u64))\n  (#let available PinnedNumberRc::MutResult");
     let generated = run(&source, "pin-rc-native");
     for function in ["create", "clone", "borrow", "borrow-mut", "destroy"] {
         assert!(
@@ -213,8 +213,8 @@ fn allocator_source() -> String {
 const ARENA: &str = "(#let-mut arena Arena (#struct-literal Arena
   (: identity 0u64 : destroyed (#atomic-init #u64 0u64) : deallocated (#atomic-init #u64 0u64))))";
 const OWNER: &str = "(#let owner PinnedNumberRc (#match (#call PinnedNumberRc::create (: allocator (#borrow arena) : value 42u64))
-  (#case (PinnedNumberRc::created allocated) allocated)
-  (#case (PinnedNumberRc::allocation-failed failure) (#block (#forget failure) (#unreachable)))))";
+  (#case (PinnedNumberRc::CreateResult.Created allocated) allocated)
+  (#case (PinnedNumberRc::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))";
 
 #[test]
 fn allocator_is_retained_by_clones_and_direct_or_helper_returned_view_aliases() {
@@ -258,7 +258,7 @@ fn allocator_is_retained_by_clones_and_direct_or_helper_returned_view_aliases() 
 #[test]
 fn releasing_views_and_final_owner_allows_allocator_mutation() {
     let source = replace(&allocator_source(), "(#forget arena) (#return answer)",
-        "(#set-field arena identity 42u64) (#assert (#u64.== (#get arena identity) answer)) (#forget arena) (#return answer)");
+        "(#set-field arena identity 42u64) (#assert (#u64::eq (#get arena identity) answer)) (#forget arena) (#return answer)");
     run(&source, "pin-rc-allocator-release");
 }
 
@@ -283,7 +283,7 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
         "Arena::Allocator::allocate",
         "(#fn Arena::Allocator::allocate
       (: allocator (#ref Arena) : layout #usize : alignment #usize) Arena::Allocator::Allocation
-      (#return (Arena::Allocator::AllocationFailed OutOfMemory)))",
+      (#return (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)))",
     );
     let base = replace_function(&base, "destroy-number", "(#fn destroy-number
       (: allocator (#ref Arena) : pin (#pin-ref-mut Value)) ()
@@ -294,12 +294,12 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
       (#let result PinnedNumberRc::CreateResult (#call PinnedNumberRc::create
         (: allocator (#borrow arena) : value (#struct-literal Value (: amount 42u64)))))
       (#let original Value (#match result
-        (#case (PinnedNumberRc::allocation-failed (#tuple error value))
-          (#block (#match error (#case OutOfMemory ())) value))
-        (#case (PinnedNumberRc::created unexpected) (#block (#call PinnedNumberRc::destroy (: owner unexpected)) (#unreachable)))))
+        (#case (PinnedNumberRc::CreateResult.Allocation-failed (#tuple error value))
+          (#block (#match error (#case ArenaError.OutOfMemory ())) value))
+        (#case (PinnedNumberRc::CreateResult.Created unexpected) (#block (#call PinnedNumberRc::destroy (: owner unexpected)) (#unreachable)))))
       (#let (Value answer) Value original)
-      (#assert (#u64.== (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
-      (#assert (#u64.== (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 0u64))
+      (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
+      (#assert (#u64::eq (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 0u64))
       (#forget arena) (#return answer)");
     run(
         &format!("(#struct Value (#linear) (: amount #u64)) \n{source}"),
@@ -311,7 +311,7 @@ fn nested_reference_source(body: &str) -> String {
     let base = replace(&allocator_source(), ": type #u64", ": type Value");
     let base = replace_function(&base, "destroy-number", "(#fn destroy-number
       (: allocator (#ref Arena) : pin (#pin-ref-mut Value)) ()
-      (#assert (#u64.== (#deref (#get pin reference)) 42u64))
+      (#assert (#u64::eq (#deref (#get pin reference)) 42u64))
       (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator destroyed)) 1u64 #memory-relaxed))
       (#forget pin) (#return ()))");
     let source = with_main(&base, body);
@@ -341,7 +341,7 @@ fn cloned_handle_retains_references_nested_in_the_pinned_value() {
         "(#let view (#pin-ref Value) (#call PinnedNumberRc::borrow (: owner (#borrow clone))))
       (#let answer #u64 (#deref (#get view reference))) (#drop view)
       (#call PinnedNumberRc::destroy (: owner clone))
-      (#assert (#u64.== (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
+      (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
       (#forget arena) (#return answer)";
     // The original owner was leaked, so destroying the clone must not destroy
     // the still-shared allocation. Its nested reference nevertheless stays live.

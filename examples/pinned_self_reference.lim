@@ -27,4 +27,4 @@
   (#forget link)
   (#drop external)
   (#forget outside)
-  (#return (#u64.+.wrap observed (#as state #u64))))
+  (#return (#u64::add-wrap observed (#as state #u64))))

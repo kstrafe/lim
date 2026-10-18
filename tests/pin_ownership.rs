@@ -59,7 +59,7 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
           (#let result #u64 {read}) (#forget view)
           (#let raw (#ptr-mut {ty}) (#unsafe (#pin-release moved)))
           (#let status #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of {ty})))))
-          (#assert (#i64.== status 0i64)) (#return result))"
+          (#assert (#i64::eq status 0i64)) (#return result))"
         );
         run(&source, 42);
     }
@@ -67,14 +67,14 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
 
 #[test]
 fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
-    for initializer in ["Empty", "(Full (#borrow source))"] {
+    for initializer in ["Slot.Empty", "(Slot.Full (#borrow source))"] {
         let source = format!(
-            "(#enum Slot () ((Empty) (Full (#ref #u64))))
+            "(#enum Slot () ((Slot.Empty) (Slot.Full (#ref #u64))))
           (#struct Holder () (: slot Slot))
           (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
           (#fn read (: view (#pin-ref Holder)) #u64
-            (#return (#if (#variant-is (#pin-borrow (#get view slot)) Empty) 42u64
-              (#deref (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get view slot)) Full)))))))
+            (#return (#if (#variant-is (#pin-borrow (#get view slot)) Slot.Empty) 42u64
+              (#deref (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get view slot)) Slot.Full)))))))
           (#fn main () #u64
             (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
               (0usize (#size-of Holder) 3usize 34usize -1i64 0usize))))
@@ -85,12 +85,12 @@ fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
             (#let result #u64 (#call read (: view view))) (#forget view)
             (#let moved (#pin-own Holder) (#call forward (: owner owner)))
             (#let raw (#ptr-mut Holder) (#unsafe (#pin-release moved)))
-            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Holder)))) 0i64))
+            (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Holder)))) 0i64))
             (#return result))"
         );
         run(&source, 42);
-        if initializer == "Empty" {
-            let changed = source.replace("(#let view", "(#let update (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))\n            (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get update slot)))))\n            (#unsafe (#pin-write (#pin-borrow-mut (#get update slot)) (Full (#borrow source))))\n            (#forget update)\n            (#let view");
+        if initializer == "Slot.Empty" {
+            let changed = source.replace("(#let view", "(#let update (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))\n            (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get update slot)))))\n            (#unsafe (#pin-write (#pin-borrow-mut (#get update slot)) (Slot.Full (#borrow source))))\n            (#forget update)\n            (#let view");
             run(&changed, 42);
             let invalid = changed.replace("(#let raw", "(#set source 99u64) (#let raw");
             let scratch = support::Scratch::new("pin-owned-updated-enum-conflict");
@@ -101,10 +101,10 @@ fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
                 &scratch.path().join("cache"),
                 lim::TargetDescription::X86_64_SYSTEM_V,
             )
-            .expect_err("an initial Empty fact must not hide a newly stored live reference");
+            .expect_err("an initial Slot.Empty fact must not hide a newly stored live reference");
             assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
         }
-        if initializer.starts_with("(Full") {
+        if initializer.starts_with("(Slot.Full") {
             let rejected = source.replace("(#let raw", "(#set source 99u64) (#let raw");
             let scratch = support::Scratch::new("pin-owned-reference-enum-conflict");
             let error = lim::compile_source_to_assembly(

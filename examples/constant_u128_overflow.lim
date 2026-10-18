@@ -1,5 +1,5 @@
-(#const Maximum #u128 0xffffffffffffffffffffffffffffffff)
-(#const Saturated #u128 (#u128.+.saturate Maximum 1))
+(#const maximum #u128 0xffffffffffffffffffffffffffffffff)
+(#const saturated #u128 (#u128::add-saturate maximum 1))
 
 (#fn main () #u64
-  (#return (#if (#u128.== Saturated Maximum) 42 0)))
+  (#return (#if (#u128::eq saturated maximum) 42 0)))

@@ -8,7 +8,7 @@
   #u128
   (
     #return
-    (#u128.+.wrap  left right)
+    (#u128::add-wrap  left right)
   )
 )
 

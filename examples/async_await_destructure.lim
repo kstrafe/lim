@@ -1,25 +1,25 @@
 ; Await an aggregate, destructure it, then keep its leaves through another await.
 (#struct Values () ((z (#tuple #u16 #u16)) (a #u64)))
-(#enum InputTask () ((InputStart Values) (InputResume Values)))
-(#enum InputPoll () ((InputPending InputTask) (InputReady Values)))
+(#enum InputTask () ((InputTask.InputStart Values) (InputTask.InputResume Values)))
+(#enum InputPoll () ((InputPoll.InputPending InputTask) (InputPoll.InputReady Values)))
 (#fn input-poll ((task InputTask) (waker (#ref #u64))) InputPoll
   (#return (#match task
-    (#case (InputStart values) (InputPending (InputResume values)))
-    (#case (InputResume values) (InputReady values)))))
-(#enum Step () ((Start #u64) (Resume #u64)))
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
+    (#case (InputTask.InputStart values) (InputPoll.InputPending (InputTask.InputResume values)))
+    (#case (InputTask.InputResume values) (InputPoll.InputReady values)))))
+(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start value) (StepPending (Resume value)))
-    (#case (Resume value) (StepReady value)))))
+    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+    (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((values Values)) #u64
     (#let (Values (#tuple left right) bias) Values
-      (#await Values InputTask InputPending InputReady input-poll (InputStart values)))
+      (#await Values InputTask InputPoll.InputPending InputPoll.InputReady input-poll (InputTask.InputStart values)))
     (#let second #u64
-      (#await #u64 Step StepPending StepReady step-poll (Start (#as right #u64))))
-    (#return (#u64.+.wrap (#u64.+.wrap (#as left #u64) second) bias)))))
+      (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
+    (#return (#u64::add-wrap (#u64::add-wrap (#as left #u64) second) bias)))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
@@ -29,7 +29,7 @@
   (#for-range (attempt #u64) 0u64 4u64
     (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (Work::Pending next) (#block (#set task next) ()))
-      (#case (Work::Ready value) (#block (#return value)))))
+      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+      (#case (Work::Poll.Ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))

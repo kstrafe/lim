@@ -579,7 +579,7 @@ mod tests {
                (#let view (#ref #u64) (#if choose (#borrow left) external))
                (#for-range (iteration #u64) 0u64 3u64
                  (#let loop-view (#ref #u64) (#if choose (#borrow right) external))
-                 (#assert (#u64.>= (#deref loop-view) 0u64))
+                 (#assert (#u64::ge (#deref loop-view) 0u64))
                  (#forget loop-view))
                (#let holder Holder (#struct-literal Holder (: view view)))
                (#return (#deref (#get holder view))))",
@@ -616,7 +616,7 @@ mod tests {
             ));
         }
         for _ in 0..128 {
-            source.push_str(" (#assert (#u64.>= (#deref view-0) 0u64))");
+            source.push_str(" (#assert (#u64::ge (#deref view-0) 0u64))");
         }
         source.push_str(" (#return (#deref view-31)))");
         let program = crate::parse_program(&source).unwrap();

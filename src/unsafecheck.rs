@@ -262,7 +262,7 @@ fn check_expression(
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
-        | Expr::At => {}
+        | Expr::Generate => {}
     }
     Ok(())
 }

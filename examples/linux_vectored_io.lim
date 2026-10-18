@@ -10,10 +10,10 @@
 
 (#fn main () #u64
   (#let data (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let vectors (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#unsafe (#block
     (#ptr-write data 118u8)
@@ -76,30 +76,30 @@
     (#call linux-lseek (: fd fd : offset 0i64 : whence 2i64)))
   (#let fd-closed #i64 (#call linux-close (: fd fd)))
   (#let data-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (data 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (data 4096usize))))
   (#let vectors-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (vectors 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (vectors 4096usize))))
   (#let vectored-ok #bool
-    (#bool.&& (#i64.>= fd 0i64)
-      (#bool.&& (#i64.== gathered 4i64)
-        (#bool.&& (#i64.== invalid-vector-count -22i64)
-          (#bool.&& (#i64.== seek-start 0i64)
-            (#bool.&& (#i64.== scattered 4i64)
-              (#bool.&& (#u8.== first-byte 65u8)
-                (#bool.&& (#u8.== fourth-byte 68u8)
-                  (#bool.&& (#i64.== positioned-written 4i64)
-                    (#bool.&& (#i64.== positioned-written-v2 4i64)
-                      (#bool.&& (#i64.== positioned-read 4i64)
-                        (#bool.&& (#u8.== positioned-first 65u8)
-                          (#bool.&& (#u8.== positioned-fourth 68u8)
-                            (#bool.&& (#i64.== positioned-read-v2 4i64)
-                              (#bool.&& (#u8.== positioned-v2-first 65u8)
-                                (#bool.&& (#u8.== positioned-v2-fourth 68u8)
-                                  (#bool.&& (#i64.== position-after-positioned-io 4i64)
-                                    (#bool.&& (#i64.== end-position 20i64)
-                                      (#bool.&& (#i64.== fd-closed 0i64)
-                                        (#bool.&& (#i64.== data-unmapped 0i64)
-                                          (#i64.== vectors-unmapped 0i64)))))))))))))))))))))
+    (#bool::and (#i64::ge fd 0i64)
+      (#bool::and (#i64::eq gathered 4i64)
+        (#bool::and (#i64::eq invalid-vector-count -22i64)
+          (#bool::and (#i64::eq seek-start 0i64)
+            (#bool::and (#i64::eq scattered 4i64)
+              (#bool::and (#u8::eq first-byte 65u8)
+                (#bool::and (#u8::eq fourth-byte 68u8)
+                  (#bool::and (#i64::eq positioned-written 4i64)
+                    (#bool::and (#i64::eq positioned-written-v2 4i64)
+                      (#bool::and (#i64::eq positioned-read 4i64)
+                        (#bool::and (#u8::eq positioned-first 65u8)
+                          (#bool::and (#u8::eq positioned-fourth 68u8)
+                            (#bool::and (#i64::eq positioned-read-v2 4i64)
+                              (#bool::and (#u8::eq positioned-v2-first 65u8)
+                                (#bool::and (#u8::eq positioned-v2-fourth 68u8)
+                                  (#bool::and (#i64::eq position-after-positioned-io 4i64)
+                                    (#bool::and (#i64::eq end-position 20i64)
+                                      (#bool::and (#i64::eq fd-closed 0i64)
+                                        (#bool::and (#i64::eq data-unmapped 0i64)
+                                          (#i64::eq vectors-unmapped 0i64)))))))))))))))))))))
   (#return (#if vectored-ok
     (#block
       (#let-mut byte #u8 86u8)
@@ -108,6 +108,6 @@
       (#set byte 10u8)
       (#let second #i64
         (#call linux-write-byte (: source (#borrow byte))))
-      (#if (#bool.&& (#i64.== first 1i64) (#i64.== second 1i64))
+      (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
         42u64 1u64))
     1u64)))

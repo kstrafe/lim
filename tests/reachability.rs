@@ -57,8 +57,8 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
       (#type Alias Value)
       (#fn increment ((value Value)) Value
         (#return (#struct-literal Value
-          (: number (#u64.+.wrap (#get value number) 1u64)))))
-      (#fn Value-clone ((value Value)) Value
+          (: number (#u64::add-wrap (#get value number) 1u64)))))
+      (#fn Value::clone ((value Value)) Value
         (#return (#call increment (: value value))))
       (#fn unused () #u64 (#return 99u64))
       (#fn main () #u64
@@ -91,15 +91,15 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
 fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
     let sources = [
         "(#struct Value () ((number #u64)))
-         (#fn Value-clone ((value Value)) Value (#return (#clone value)))",
+         (#fn Value::clone ((value Value)) Value (#return (#clone value)))",
         "(#struct Value () ((number #u64)))
-         (#fn Value-clone ((value Value)) Value (#return (#call helper (: value value))))
+         (#fn Value::clone ((value Value)) Value (#return (#call helper (: value value))))
          (#fn helper ((value Value)) Value (#return (#clone value)))",
         "(#struct Left () ((number #u64))) (#struct Right () ((number #u64)))
-         (#fn Left-clone ((value Left)) Left
+         (#fn Left::clone ((value Left)) Left
            (#let right Right (#clone (#struct-literal Right (: number 0u64))))
            (#return value))
-         (#fn Right-clone ((value Right)) Right
+         (#fn Right::clone ((value Right)) Right
            (#let left Left (#clone (#struct-literal Left (: number 0u64))))
            (#return value))",
     ];

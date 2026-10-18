@@ -1416,11 +1416,11 @@ fn generate_checked_assembly_with_roots(
             .cloned()
             .ok_or_else(|| format!("thread worker '{worker}' has no native signature"))?;
         let task_type = Type::Named(name.clone());
-        let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
-        let join_result_type = Type::Named(format!("{name}-join-result"));
+        let spawn_result_type = Type::Named(format!("{name}::SpawnResult"));
+        let join_result_type = Type::Named(format!("{name}::JoinResult"));
         let join_indirect_return = supports_indirect_return_type(&join_result_type, structs, enums);
-        let spawn_name = format!("{name}-spawn");
-        let join_name = format!("{name}-join");
+        let spawn_name = format!("{name}::spawn");
+        let join_name = format!("{name}::join");
         for (function_name, abi) in [
             (
                 spawn_name.clone(),
@@ -1859,8 +1859,8 @@ fn generate_thread_task(
         .ok_or("thread packet size overflow")?;
     let task_symbol = asm_symbol(name);
     let worker_symbol = asm_symbol(worker);
-    let spawn_symbol = asm_symbol(&format!("{name}-spawn"));
-    let join_symbol = asm_symbol(&format!("{name}-join"));
+    let spawn_symbol = asm_symbol(&format!("{name}::spawn"));
+    let join_symbol = asm_symbol(&format!("{name}::join"));
     let entry_symbol = format!(".Llim_thread_entry_{task_symbol}");
     let stack_symbol = format!(".Llim_thread_stack_{task_symbol}");
     let mapping_symbol = format!(".Llim_thread_mapping_{task_symbol}");
@@ -2145,7 +2145,7 @@ fn generate_thread_task(
     // CLONE_CHILD_CLEARTID wakes a shared (not PRIVATE) futex after exit.
     output.push_str(&format!("    mov r10, QWORD PTR [rbp-8]\n    mov DWORD PTR [r10+4], 1\n    mov eax, 60\n    xor edi, edi\n    syscall\n    ud2\n.size {entry_symbol}, .-{entry_symbol}\n"));
 
-    let join_result_type = Type::Named(format!("{name}-join-result"));
+    let join_result_type = Type::Named(format!("{name}::JoinResult"));
     let join_result_words = storage_word_count(&join_result_type, structs, enums)?;
     let join_indirect_return = supports_indirect_return_type(&join_result_type, structs, enums);
     if join_result_words < result_words + 1 || join_result_words < 3 {
@@ -4405,7 +4405,7 @@ fn atomic_scalar_info(ty: &Type) -> Option<(usize, bool)> {
 
 fn atomic_width_name(bytes: usize) -> &'static str {
     match bytes {
-        1 => "BYTE",
+        1 => "bYTE",
         2 => "WORD",
         4 => "DWORD",
         8 => "QWORD",
@@ -5822,14 +5822,14 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
     // Generated ordinary declarations also enter via parse_item, without
     // parse_program's source-name hygiene. BindingId storage must stand on
     // its own, not depend on an earlier spelling rewrite.
-    let source = "(#enum Small () ((Number #u64) Zero))
-      (#enum Wide () ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
+    let source = "(#enum Small () ((Small.Number #u64) Small.Zero))
+      (#enum Wide () ((Wide.Words (#tuple #u64 #u64 #u64 #u64)) Wide.Absent))
       (#fn main () #u64
-        (#let small Small (Number 20u64))
-        (#let wide Wide (Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
-        (#let first #u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
-        (#let second #u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
-        (#return (#u64.+.wrap first second)))";
+        (#let small Small (Small.Number 20u64))
+        (#let wide Wide (Wide.Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
+        (#let first #u64 (#match small (#case (Small.Number value) value) (#case Small.Zero 0u64)))
+        (#let second #u64 (#match wide (#case (Wide.Words value) (#get value 0)) (#case Wide.Absent 0u64)))
+        (#return (#u64::add-wrap first second)))";
     let mut program = crate::parse_program("").unwrap();
     for syntax in crate::parse(source).unwrap() {
         let mut expression = crate::normalize_keywords(syntax.expr);
@@ -6297,7 +6297,7 @@ impl FunctionContext<'_> {
         let custom = self
             .expression_type(&items[1])
             .and_then(|ty| match ty {
-                Type::Named(name) => Some(format!("{name}-clone")),
+                Type::Named(name) => Some(format!("{name}::clone")),
                 _ => None,
             })
             .filter(|name| self.functions.contains_key(name));
@@ -9820,7 +9820,7 @@ impl FunctionContext<'_> {
                         .push_str(&format!("    mov {register}, {}\n", character as u32));
                 }
             }
-            Expr::At => return Err("@ is not an executable expression".into()),
+            Expr::Generate => return Err("#generate is not an executable expression".into()),
             Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
                 return Err("quoted expressions are not executable".into())
             }
@@ -10048,8 +10048,8 @@ impl FunctionContext<'_> {
                 "    bt rax, 62\n    jnc {word}\n    btr rax, 63\n    btr rax, 62\n"
             ));
             self.output.push_str(match target {
-                Type::Bool | Type::U8 => "    movzx eax, BYTE PTR [rax]\n",
-                Type::I8 => "    movsx rax, BYTE PTR [rax]\n",
+                Type::Bool | Type::U8 => "    movzx eax, bYTE PTR [rax]\n",
+                Type::I8 => "    movsx rax, bYTE PTR [rax]\n",
                 Type::U16 => "    movzx eax, WORD PTR [rax]\n",
                 Type::I16 => "    movsx rax, WORD PTR [rax]\n",
                 Type::Char | Type::U32 => "    mov eax, DWORD PTR [rax]\n",
@@ -10317,8 +10317,8 @@ impl FunctionContext<'_> {
                 // the underlying address, just like ordinary dereferences.
                 self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
                 let instruction = match (bytes, signed) {
-                    (1, true) => "movsx rax, BYTE PTR [rax]",
-                    (1, false) => "movzx eax, BYTE PTR [rax]",
+                    (1, true) => "movsx rax, bYTE PTR [rax]",
+                    (1, false) => "movzx eax, bYTE PTR [rax]",
                     (2, true) => "movsx rax, WORD PTR [rax]",
                     (2, false) => "movzx eax, WORD PTR [rax]",
                     (4, true) => "movsxd rax, DWORD PTR [rax]",
@@ -10706,7 +10706,7 @@ impl FunctionContext<'_> {
                     "internal error: checked clone operand lost its type".to_owned()
                 })?;
                 let clone_function = match ty {
-                    Type::Named(name) => Some(format!("{name}-clone")),
+                    Type::Named(name) => Some(format!("{name}::clone")),
                     _ => None,
                 };
                 if let Some(function) =
@@ -10899,7 +10899,7 @@ impl FunctionContext<'_> {
                         "    bt rcx, 62\n    jnc {word}\n    btr rcx, 63\n    btr rcx, 62\n"
                     ));
                     self.output.push_str(match target {
-                        Type::Bool | Type::I8 | Type::U8 => "    mov BYTE PTR [rcx], al\n",
+                        Type::Bool | Type::I8 | Type::U8 => "    mov bYTE PTR [rcx], al\n",
                         Type::I16 | Type::U16 => "    mov WORD PTR [rcx], ax\n",
                         Type::I32 | Type::U32 | Type::Char => "    mov DWORD PTR [rcx], eax\n",
                         _ => unreachable!(),
@@ -11110,9 +11110,9 @@ impl FunctionContext<'_> {
                 }
                 match target {
                     Type::Bool | Type::U8 => {
-                        self.output.push_str("    movzx eax, BYTE PTR [rax]\n")
+                        self.output.push_str("    movzx eax, bYTE PTR [rax]\n")
                     }
-                    Type::I8 => self.output.push_str("    movsx rax, BYTE PTR [rax]\n"),
+                    Type::I8 => self.output.push_str("    movsx rax, bYTE PTR [rax]\n"),
                     Type::U16 => self.output.push_str("    movzx eax, WORD PTR [rax]\n"),
                     Type::I16 => self.output.push_str("    movsx rax, WORD PTR [rax]\n"),
                     Type::Char | Type::U32 => {
@@ -11182,7 +11182,7 @@ impl FunctionContext<'_> {
                 }
                 match target {
                     Type::Bool | Type::I8 | Type::U8 => {
-                        self.output.push_str("    mov BYTE PTR [rcx], al\n")
+                        self.output.push_str("    mov bYTE PTR [rcx], al\n")
                     }
                     Type::I16 | Type::U16 => self.output.push_str("    mov WORD PTR [rcx], ax\n"),
                     Type::Char | Type::I32 | Type::U32 => {

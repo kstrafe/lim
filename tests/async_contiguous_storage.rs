@@ -55,7 +55,7 @@ fn run_ordinary_typed_owner(on_heap: bool, exclusive: bool) {
             .replace("(#let-mut storage Owner", "(#let allocation (#ptr-mut Owner) (#unsafe (#linux-syscall (#ptr-mut Owner)\n        9usize (0usize (#size-of Owner) 3usize 34usize -1i64 0usize))))\n      (#let initial Owner")
             .replace("(#let owner", "(#let-mut storage (#pin-own Owner) (#unsafe (#pin-own-of allocation initial)))\n      (#let owner")
             .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
-            .replace("(#forget storage)", "(#let released (#ptr-mut Owner) (#unsafe (#pin-release storage)))\n      (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize\n        (released (#size-of Owner)))) 0i64))")
+            .replace("(#forget storage)", "(#let released (#ptr-mut Owner) (#unsafe (#pin-release storage)))\n      (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize\n        (released (#size-of Owner)))) 0i64))")
     } else {
         source
     };
@@ -112,17 +112,17 @@ fn run_ordinary_typed_payload(on_heap: bool) {
       (#let initial Storage",
         )
         .replace(
-            "(#let-else (OwnerView::Some owner)",
+            "(#let-else (OwnerView.Some owner)",
             "
       (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of allocation initial)))
-      (#let-else (OwnerView::Some owner)",
+      (#let-else (OwnerView.Some owner)",
         )
         .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
         .replace(
             "\n  (#forget storage)\n",
             "
       (#let released (#ptr-mut Storage) (#unsafe (#pin-release storage)))
-      (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize
+      (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize
         (released (#size-of Storage)))) 0i64))\n",
         );
     let (kind, source) = if on_heap {
@@ -205,7 +205,7 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
     let source = cloned_source().replace(
         "(#forget copied)",
         "(#forget copied)
-      (#let second-ready () (#await () Step Pending Ready step-poll Start))
+      (#let second-ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
       (#forget second-ready)",
     );
     let prefix = source.split_once("(#fn main () #u64").unwrap().0;
@@ -216,14 +216,14 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
         (#let-mut frame Work::Frame (#call work (:)))
         (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
-        (#let-else (Work::Pending next) Work::Poll second (#unreachable))
-        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task next)))
-        (#let-else (Work::Frame::Cleanup::owner.item::Full original)
-          Work::Frame::Cleanup::owner.item (#get cleanup owner.item) (#unreachable))
-        (#assert (#u64.== (#get original value) 2u64))
+        (#let-else (Work::Poll.Pending next) Work::Poll second (#unreachable))
+        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup (: task next)))
+        (#let-else (Work::Frame::Cleanup::Owner-item.Full original)
+          Work::Frame::Cleanup::Owner-item (#get cleanup owner-item) (#unreachable))
+        (#assert (#u64::eq (#get original value) 2u64))
         (#forget original) (#forget cleanup)
         (#forget pending) (#forget next) (#forget frame)
         (#return 42u64))"
@@ -233,11 +233,11 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
 fn cloned_source() -> String {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let hooks = "
-      (#fn Token-clone (: original Token) Token
+      (#fn Token::clone (: original Token) Token
         (#let value #u64 (#get original value))
         (#forget original)
-        (#return (#struct-literal Token (: value (#u64.+.wrap value 10u64)))))
-      (#fn Owner-clone (: original Owner) Owner
+        (#return (#struct-literal Token (: value (#u64::add-wrap value 10u64)))))
+      (#fn Owner::clone (: original Owner) Owner
         (#let kept #u64 (#get original kept))
         (#let item Token (#clone (#get original item)))
         (#forget original)
@@ -245,7 +245,7 @@ fn cloned_source() -> String {
     format!("{hooks}\n{source}").replace(
         "(#let whole (#ref Owner)",
         "(#let copied Owner (#clone owner))
-         (#assert (#u64.== (#get (#get copied item) value) 12u64))
+         (#assert (#u64::eq (#get (#get copied item) value) 12u64))
          (#forget copied)\n    (#let whole (#ref Owner)",
     )
 }
@@ -287,19 +287,19 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
         (#set-field owner item (#struct-literal Token (: value 1u64)))
         (#let answer #u64 (#call read
           (: view (#get owner kept)
-           : amount (#await () Step Pending Ready step-poll Start))))
+           : amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))))
         (#forget owner) (#return answer))))
         (#fn read (: view (#ref-mut #u64) : amount ()) #u64
-          (#deref-set view (#u64.+.wrap (#deref view) 2u64))
+          (#deref-set view (#u64::add-wrap (#deref view) 2u64))
           (#return (#deref view)))\n{}",
         &source[..begin],
         &source[end..],
     );
     run(&source);
     let invalid = source.replace(
-        "(#await () Step Pending Ready step-poll Start)",
+        "(#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)",
         "(#block (#deref-set (#get owner kept) 99u64)
-          (#await () Step Pending Ready step-poll Start))",
+          (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))",
     );
     let scratch = support::Scratch::new("partial-exclusive-lend-conflict");
     let mut previous = None;
@@ -360,7 +360,7 @@ fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration()
         .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")
         .replace("(#forget frame)", "(#forget pending)
           (#let released (#ptr-mut Work::Frame) (#unsafe (#pin-release frame)))
-          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Work::Frame)))) 0i64))");
+          (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (released (#size-of Work::Frame)))) 0i64))");
     run(&source);
 }
 
@@ -403,7 +403,7 @@ fn heap_owned_whole_borrow_preserves_the_same_contiguous_address() {
             "
           (#forget pending)
           (#let raw (#ptr-mut Work::Frame) (#unsafe (#pin-release frame)))
-          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize
+          (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize
             (raw (#size-of Work::Frame)))) 0i64))",
         );
     run(&source);

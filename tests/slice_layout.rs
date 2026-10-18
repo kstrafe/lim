@@ -58,16 +58,16 @@ fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
             "static",
             String::new(),
             "#ref",
-            "(#unsafe (#borrow Values))",
+            "(#unsafe (#borrow values))",
         ),
     ] {
         let source = format!(
-            "(#static Values {array} {values})
+            "(#static values {array} {values})
           (#fn snapshot (: values ({reference} {array})) {array}
             (#return (#deref values)))
           (#fn main () #u64 {declarations}
             (#let copied {array} (#call snapshot (: values {argument})))
-            (#assert (#u64.== (#index copied 0usize) 1u64))
+            (#assert (#u64::eq (#index copied 0usize) 1u64))
             (#return (#index copied 7usize)))"
         );
         native_exit(&source, 42, case);
@@ -78,11 +78,11 @@ fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
 fn large_string_array_payloads_use_aggregate_destinations() {
     native_exit(
         r#"
-      (#enum Message () ((Text (#array #char 14))))
-      (#fn message () Message (#return (Text "abcdefghijklm*")))
+      (#enum Message () ((Message.Text (#array #char 14))))
+      (#fn message () Message (#return (Message.Text "abcdefghijklm*")))
       (#fn main () #u64
         (#return (#match (#call message ())
-          (#case (Text characters) (#as (#index characters 13usize) #u64)))))
+          (#case (Message.Text characters) (#as (#index characters 13usize) #u64)))))
     "#,
         42,
         "large string array payload",
@@ -113,7 +113,7 @@ fn local_array_borrow_to_slice_in_helper() {
 fn static_array_borrow_to_slice_in_helper() {
     native_exit(
         r#"
-(#static Values (#array #u64 3)
+(#static values (#array #u64 3)
   (#array-of (#array #u64 3) 10u64 20u64 42u64))
 
 (#fn read-third ((values (#ref (#array #u64 3)))) #u64
@@ -122,7 +122,7 @@ fn static_array_borrow_to_slice_in_helper() {
 
 (#fn main () #u64
   (#return (#unsafe
-    (#call read-third (: values (#borrow Values)))))
+    (#call read-third (: values (#borrow values)))))
 )
 "#,
         42,
@@ -164,7 +164,7 @@ fn mutable_slice_split_and_index_preserve_layout_across_calls() {
   (#let right-value #u64 (#deref (#slice-mut-idx right 0usize)))
   (#forget left)
   (#forget right)
-  (#return (#u64.+.wrap
+  (#return (#u64::add-wrap
     left-value right-value)))
 
 (#fn main () #u64
@@ -196,7 +196,7 @@ fn multiword_slice_mutation_and_read_preserve_element_address() {
   (#let view (#slice (#tuple #u64 #u64 #u64))
     (#slice-of (#borrow values)))
   (#let item (#tuple #u64 #u64 #u64) (#deref (#slice-idx view 1usize)))
-  (#return (#u64.+.wrap (#u64.+.wrap (#get item 0) (#get item 1)) (#get item 2)))
+  (#return (#u64::add-wrap (#u64::add-wrap (#get item 0) (#get item 1)) (#get item 2)))
 )
 "#,
         42,

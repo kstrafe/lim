@@ -7,7 +7,7 @@
     #let
     value
     #u8
-    (#u8.+.wrap
+    (#u8::add-wrap
       (#as 255 #u8)
       1
     )
@@ -16,7 +16,7 @@
     #return
     (
       #if
-      (#u8.==  value 0)
+      (#u8::eq  value 0)
       42
       0
     )

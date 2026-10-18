@@ -341,7 +341,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let leaf = fixture.write("modules α/leaf #%.lim", leaf_text);
     let bridge_text = "(#import \"leaf #%.lim\")\r\n(#cfg-if (#cfg-is #flavor first)\r\n (#fn proxy ((value Number)) Number (#return (#call leaf-value (: value value))))\r\n (#cfg-else (#fn proxy ((value Number)) Number (#return value))))\r\n";
     let bridge = fixture.write("modules α/bridge.lim", bridge_text);
-    let root_text = "(#import-external \"modules α/bridge.lim\" ext-)\r\n(#fn glyph-root () #char (#return #\\😀)) (#fn main () ext-Number (#return (#call ext-proxy (: ext-value 42u64))))\r\n";
+    let root_text = "(#import-external \"modules α/bridge.lim\" ext)\r\n(#fn glyph-root () #char (#return #\\😀)) (#fn main () ext@Number (#return (#call ext@proxy (: ext@value 42u64))))\r\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -356,7 +356,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         (
             &root,
             root_text,
-            "ext-proxy",
+            "ext@proxy",
             &bridge,
             bridge_text,
             "#fn proxy",
@@ -365,7 +365,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         (
             &root,
             root_text,
-            "ext-Number",
+            "ext@Number",
             &leaf,
             leaf_text,
             "#type Number",
@@ -416,11 +416,11 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         assert_eq!(result.get("uri"), Some(&string(uri(target))));
         assert_eq!(result.get("range"), Some(&source_range("", 0, 0)));
     }
-    for (path, text, needle) in [(&root, root_text, "ext-)")] {
+    for (path, text, needle) in [(&root, root_text, "ext)")] {
         assert_eq!(client.definition(path, text, needle), Json::Null);
     }
     assert_location(
-        &client.definition(&root, root_text, "ext-value 42"),
+        &client.definition(&root, root_text, "ext@value 42"),
         &bridge,
         bridge_text,
         "#fn proxy ((value",
@@ -445,10 +445,10 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
     let fixture = Fixture::new("member-roles");
     let definitions = "(#struct Left () (: value #u64))\n(#struct Right () (: value #u64))\n(#fn read (: item (#ref Left)) #u64 (#return (#get item value)))";
     let module = fixture.write("types.lim", definitions);
-    let source = "(#import-external \"types.lim\" ext-)\n(#fn main () #u64
-      (#let left ext-Left (#struct-literal ext-Left (: ext-value 40u64)))
-      (#let right ext-Right (#struct-literal ext-Right (: ext-value 2u64)))
-      (#let result #u64 (#u64.+.wrap (#call ext-read (: ext-item (#borrow left))) (#get right ext-value)))
+    let source = "(#import-external \"types.lim\" ext)\n(#fn main () #u64
+      (#let left ext@Left (#struct-literal ext@Left (: ext@value 40u64)))
+      (#let right ext@Right (#struct-literal ext@Right (: ext@value 2u64)))
+      (#let result #u64 (#u64::add-wrap (#call ext@read (: ext@item (#borrow left))) (#get right ext@value)))
       (#forget left) (#forget right) (#return result))";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
@@ -466,21 +466,21 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
         (
             &root,
             source,
-            "ext-value 2u64",
+            "ext@value 2u64",
             "#struct Right () (: value",
             "value",
         ),
         (
             &root,
             source,
-            "ext-item (#borrow",
+            "ext@item (#borrow",
             "#fn read (: item",
             "item",
         ),
         (
             &root,
             source,
-            "ext-value)))",
+            "ext@value)))",
             "#struct Right () (: value",
             "value",
         ),
@@ -496,7 +496,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
     let updated = format!("; unsaved declaration shift\n; second line\n{definitions}");
     client.change(&module, 2, &updated);
     assert_location(
-        &client.definition(&root, source, "ext-value 2u64"),
+        &client.definition(&root, source, "ext@value 2u64"),
         &module,
         &updated,
         "#struct Right () (: value",
@@ -509,7 +509,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
 fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
     let fixture = Fixture::new("generated-source-roles");
     let source = "(#gn emit () `((#struct Box () (: value #u64))
-      (#fn forward (: value #u64) #u64 (#return value))))\n(@emit)
+      (#fn forward (: value #u64) #u64 (#return value))))\n(#generate emit)
       (#fn main () #u64
         (#let object Box (#struct-literal Box (: value 42u64)))
         (#let result #u64 (#call forward (: value (#get object value))))
@@ -550,7 +550,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
 #[test]
 fn generated_syntax_bundles_keep_their_definition_after_expansion() {
     let fixture = Fixture::new("generated-bundles");
-    let source = "(#gn emit () `((#syntax Number (42u64))))\n(@emit)\n(#fn main () #u64 (#return (#syntax-splice Number)))\n";
+    let source = "(#gn emit () `((#syntax Number (42u64))))\n(#generate emit)\n(#fn main () #u64 (#return (#syntax-splice Number)))\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -571,20 +571,20 @@ fn generated_syntax_bundles_keep_their_definition_after_expansion() {
 #[test]
 fn bundled_standard_library_types_and_view_locals_have_real_targets() {
     let fixture = Fixture::new("bundled-source-roles");
-    let source = "(#std)\n(#fn main () #usize (#return SYSTEM-ALLOCATION-ALIGNMENT))\n";
+    let source = "(#std)\n(#fn main () #usize (#return sYSTEM-ALLOCATION-ALIGNMENT))\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&root, source);
-    let target = client.definition(&root, source, "SYSTEM-ALLOCATION-ALIGNMENT");
+    let target = client.definition(&root, source, "sYSTEM-ALLOCATION-ALIGNMENT");
     let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
     let bundled = fs::read_to_string(&path).unwrap();
     assert_location(
         &target,
         &path,
         &bundled,
-        "#const SYSTEM-ALLOCATION-ALIGNMENT",
-        "SYSTEM-ALLOCATION-ALIGNMENT",
+        "#const sYSTEM-ALLOCATION-ALIGNMENT",
+        "sYSTEM-ALLOCATION-ALIGNMENT",
     );
     assert!(bundled.starts_with("; Bundled source:"));
     client.open(&path, &bundled);
@@ -602,7 +602,7 @@ fn bundled_standard_library_types_and_view_locals_have_real_targets() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Data (#tuple Number Number)) Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const LIMIT Number 99u64)\n(#static COUNT Number 42u64)\n(#fn inspect (: holder (#ref Holder) : choice (#ref Choice) : record (#ref CRecord)) () (#return ()))\n";
+    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const lIMIT Number 99u64)\n(#static cOUNT Number 42u64)\n(#fn inspect (: holder (#ref Holder) : choice (#ref Choice) : record (#ref CRecord)) () (#return ()))\n";
     let module = fixture.write("functions.lim", module_text);
     let root_text = "(#import \"functions.lim\")\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#unsafe-call foreign (: value (#unsafe-call guarded (: value input)))))))\n";
     let root = fixture.write("main.lim", root_text);
@@ -674,7 +674,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
         (
             &module,
             module_text,
-            "Number)) Empty",
+            "Number)) Choice.Empty",
             "#type Number",
             "Number",
         ),
@@ -907,19 +907,19 @@ fn watched_multi_entry_contexts_add_and_remove_definition_candidates() {
 #[test]
 fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
-    let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(@#optional (: type Number : name Maybe))\n";
+    let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(#generate emit Number)\n(#generate #optional (: type Number : name Maybe))\n";
     let types = fixture.write("types.lim", imported);
-    let root_text = "(#import \"types.lim\")\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe-construct (: value 42u64))))";
+    let root_text = "(#import \"types.lim\")\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe::construct (: value 42u64))))";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&root, root_text);
     client.open(&types, imported);
     let alias = client.definition(&root, root_text, "Number (#return");
-    let constructor = client.definition(&root, root_text, "Maybe-construct");
+    let constructor = client.definition(&root, root_text, "Maybe::construct");
     let mut snapshots = Vec::new();
     for (result, name, invocation_line) in
-        [(&alias, "Number", 2), (&constructor, "Maybe-construct", 3)]
+        [(&alias, "Number", 2), (&constructor, "Maybe::construct", 3)]
     {
         let path = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
         assert!(path.starts_with(fixture.0.join(".lim/generated")));
@@ -928,7 +928,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
         let declaration = if name == "Number" {
             "#type Number"
         } else {
-            "#fn Maybe-construct"
+            "#fn Maybe::construct"
         };
         assert_location(result, &path, &text, declaration, name);
         snapshots.push((
@@ -942,7 +942,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
         alias
     );
     assert_eq!(
-        client.definition(&root, root_text, "Maybe-construct"),
+        client.definition(&root, root_text, "Maybe::construct"),
         constructor
     );
     client.open(&snapshots[0].0, &snapshots[0].1);
@@ -955,7 +955,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
         Json::Null
     );
     assert_eq!(
-        client.definition(&root, root_text, "Maybe-construct"),
+        client.definition(&root, root_text, "Maybe::construct"),
         Json::Null
     );
     for (path, text, modified) in &snapshots {
@@ -997,11 +997,11 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
         let text = format!(
             "(#import \"/<lim-std>/enum_project.lim\")
           (#struct Row () (: value #u64))
-          (#enum Task () ((Work Row) Idle))
-          (@#enum-project (: enum Task : variant Work : payload Row : mode #{mode} : name View))
+          (#enum Task () ((Task.Work Row) Task.Idle))
+          (#generate #enum-project (: enum Task : variant Task.Work : payload Row : mode #{mode} : name View))
           (#fn main () #u64
-            (#let-mut task Task (#enum-literal Work (#struct-literal Row (: value 42u64))))
-            (#let-else (View::Some frame)
+            (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row (: value 42u64))))
+            (#let-else (View.Some frame)
               (#call View::project (: source (#{borrow} task)))
               (#else (#forget task) (#return 0u64)))
             (#let answer #u64 (#get frame value))
@@ -1012,14 +1012,14 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
         let mut client = Client::start(&fixture.0);
         client.open(&root, &text);
         assert_location(
-            &client.definition(&root, &text, "Work (#struct-literal"),
+            &client.definition(&root, &text, "Task.Work (#struct-literal"),
             &root,
             &text,
-            "(Work Row)",
-            "Work",
+            "(Task.Work Row)",
+            "Task.Work",
         );
         for (name, declaration) in [
-            ("View::Some", "(View::Some"),
+            ("View.Some", "(View.Some"),
             ("View::project", "#fn View::project"),
         ] {
             let result = client.definition(&root, &text, name);
@@ -1035,7 +1035,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
             &client.definition(&root, &text, "frame value"),
             &root,
             &text,
-            "(View::Some frame)",
+            "(View.Some frame)",
             "frame",
         );
         assert_location(
@@ -1068,7 +1068,7 @@ fn ambiguous_imports_fail_closed_and_deduplicated_imports_recover() {
         .array()
         .unwrap()
         .is_empty());
-    let repaired = "(#import \"first.lim\") (#import \"first.lim\") (#import-external \"second.lim\" other-)\n(#fn main () #u64 (#return (#call target ())))\n(#fn another () #u64 (#return (#call other-target ())))";
+    let repaired = "(#import \"first.lim\") (#import \"first.lim\") (#import-external \"second.lim\" other)\n(#fn main () #u64 (#return (#call target ())))\n(#fn another () #u64 (#return (#call other@target ())))";
     client.change(&root, 2, repaired);
     assert_location(
         &client.definition(&root, repaired, "target ("),
@@ -1078,7 +1078,7 @@ fn ambiguous_imports_fail_closed_and_deduplicated_imports_recover() {
         "target",
     );
     assert_location(
-        &client.definition(&root, repaired, "other-target"),
+        &client.definition(&root, repaired, "other@target"),
         &second,
         second_text,
         "#fn target",

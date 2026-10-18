@@ -5,7 +5,7 @@
 (#fn increment ((view View)) #u64
   (#let reference (#ref-mut #u64) (#get view value))
   (#forget view)
-  (#deref-set reference (#u64.+.wrap (#deref reference) 2u64))
+  (#deref-set reference (#u64::add-wrap (#deref reference) 2u64))
   (#let result #u64 (#deref reference))
   (#forget reference)
   (#return result))

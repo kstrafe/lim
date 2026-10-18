@@ -130,22 +130,22 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
     let scratch = support::Scratch::new("semantic-optional-word-owner");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Input () ((NoInput) (HasInput (#pin-own #u64))))
-      (#enum Output () ((NoOutput) (HasOutput (#pin-own #u64))))
+      (#enum Input () ((Input.NoInput) (Input.HasInput (#pin-own #u64))))
+      (#enum Output () ((Output.NoOutput) (Output.HasOutput (#pin-own #u64))))
       (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
-        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+        (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput owner) (Output.HasOutput owner)))))
       (#fn forward (: storage (#ref-mut Words)) Output
         (#return (#call convert (: storage storage))))
       ").unwrap();
     let source = "(#import \"lib.lim\")
       (#fn main () #u64
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
-        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
         (#let output Output (#call forward (: storage (#borrow-mut storage))))
-        (#let answer #u64 (#match output (#case (NoOutput) 42u64)
-          (#case (HasOutput owner) (#block
+        (#let answer #u64 (#match output (#case (Output.NoOutput) 42u64)
+          (#case (Output.HasOutput owner) (#block
             (#let view (#pin-ref #u64) (#pin-own-borrow (#borrow owner)))
             (#let answer #u64 (#deref view)) (#forget view) (#forget owner) answer))))
         (#forget storage) (#return answer))";
@@ -155,7 +155,7 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
     assert_eq!(cold, warm.unwrap());
     assert!(semantic_decisions(&report, "hit") > 0, "{report}");
     let unknown = source.replace(
-        "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))",
+        "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))",
         "",
     );
     let cold = compile(directory, &unknown, &config).0.unwrap_err();
@@ -173,24 +173,24 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
     let scratch = support::Scratch::new("semantic-optional-word-result");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Input () ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+      (#enum Input () ((Input.NoInput) (Input.HasInput (#ref #u64))))
+      (#enum Output () ((Output.NoOutput) (Output.HasOutput (#ref #u64))))
       (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
-        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput view) (HasOutput view)))))
+        (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput view) (Output.HasOutput view)))))
       (#fn forward (: storage (#ref-mut Words)) Output
         (#return (#call convert (: storage storage))))").unwrap();
     let source = "(#import \"lib.lim\")
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
-        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
         (#let output Output (#call forward (: storage (#borrow-mut storage))))
-        (#let answer #u64 (#match output (#case (NoOutput) 42u64) (#case (HasOutput view) (#deref view))))
+        (#let answer #u64 (#match output (#case (Output.NoOutput) 42u64) (#case (Output.HasOutput view) (#deref view))))
         (#forget storage) (#return answer))";
     let config = CompileConfig::default();
-    let occupied = source.replace("(NoInput)))", "(HasInput (#borrow amount))))");
+    let occupied = source.replace("(Input.NoInput)))", "(Input.HasInput (#borrow amount))))");
     for valid in [source.to_owned(), occupied.clone()] {
         let cold = compile(directory, &valid, &config).0.unwrap();
         let (warm, report) = compile(directory, &valid, &config);
@@ -221,11 +221,11 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
     let scratch = support::Scratch::new("semantic-word-view-cleanup");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#struct Storage () (: words (#array #u64 4)))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
-        (#unsafe (#pin-write slot (Vacant))) (#return ()))
+        (#unsafe (#pin-write slot (Cell.Vacant))) (#return ()))
       (#fn clear-storage (: storage (#ref-mut Storage)) ()
         (#call clear (: slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut (#get storage words) 1usize 3usize)))))
         (#unsafe (#word-forget (#array #u64 2) (#borrow-slice-mut (#get storage words) 1usize 3usize)))
@@ -236,7 +236,7 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
       (#fn main () #u64
         (#let-mut amount #u64 40u64)
         (#let-mut storage Storage (#struct-literal Storage (: words (#array-repeat 0u64))))
-        (#unsafe (#word-write Cell (#borrow-slice-mut (#get storage words) 1usize 3usize) (Occupied (#borrow amount))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#get storage words) 1usize 3usize) (Cell.Occupied (#borrow amount))))
         (#call forward (: storage (#borrow-mut storage)))
         (#set amount 42u64)
         (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice (#get storage words) 1usize 3usize))))
@@ -265,10 +265,10 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "
-      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn inspect (: words (#slice #u64)) #u64
         (#let value Cell (#unsafe (#word-read Cell words)))
-        (#return (#match value (#case (Vacant) 42u64) (#case (Occupied view) (#deref view)))))
+        (#return (#match value (#case (Cell.Vacant) 42u64) (#case (Cell.Occupied view) (#deref view)))))
       (#fn forward (: words (#slice #u64)) #u64
         (#return (#call inspect (: words words))))",
     )
@@ -278,12 +278,12 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
-        (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Cell.Vacant)))
         (#let answer #u64 (#call forward (: words (#borrow-slice words 1usize 3usize))))
         (#forget words) (#return answer))";
     for source in [
         source.to_string(),
-        source.replace("(Vacant)))", "(Occupied (#borrow amount))))"),
+        source.replace("(Cell.Vacant)))", "(Cell.Occupied (#borrow amount))))"),
     ] {
         let cold = compile(directory, &source, &config).0.unwrap();
         let (warm, report) = compile(directory, &source, &config);
@@ -303,11 +303,11 @@ fn imported_word_constructor_facts_survive_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "
-      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#enum Cell () ((Cell.Vacant) (Cell.Occupied (#ref #u64))))
       (#fn initialize (: words (#slice-mut #u64)) ()
-        (#unsafe (#word-write Cell words (Vacant))) (#return ()))
+        (#unsafe (#word-write Cell words (Cell.Vacant))) (#return ()))
       (#fn initialize-and-read (: words (#ref-mut (#array #u64 2))) ()
-        (#unsafe (#word-write Cell (#borrow-slice-mut (#deref words)) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#deref words)) (Cell.Vacant)))
         (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice (#deref words)))))
         (#forget cell) (#return ()))",
     )
@@ -343,11 +343,11 @@ fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "(#struct Token (#linear) (: amount #u64))
-         (#enum Slot (#linear) ((Empty) (Full Token)))
+         (#enum Slot (#linear) ((Slot.Empty) (Slot.Full Token)))
          (#struct Buffer () (: prefix #u64 : slot Slot : suffix #u64))
          (#fn clear (: slot (#pin-ref-mut Slot)) ()
            (#unsafe (#forget (#pin-read slot)))
-           (#unsafe (#pin-write slot (Empty))) (#return ()))
+           (#unsafe (#pin-write slot (Slot.Empty))) (#return ()))
          (#fn clear-buffer (: buffer (#pin-ref-mut Buffer)) ()
            (#call clear (: slot (#pin-borrow-mut (#get buffer slot)))) (#return ()))",
     )
@@ -356,10 +356,10 @@ fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
       (#fn main () #u64
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
         (#unsafe (#word-write Buffer (#borrow-slice-mut words)
-          (#struct-literal Buffer (: prefix 40u64 : slot (Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
+          (#struct-literal Buffer (: prefix 40u64 : slot (Slot.Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
         (#call clear-buffer (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words)))))
         (#let value #u64 (#unsafe (#word-read #u64 (#borrow-slice words 2usize 3usize))))
-        (#assert (#u64.== value 0u64)) (#forget words) (#return 42u64))";
+        (#assert (#u64::eq value 0u64)) (#forget words) (#return 42u64))";
     let config = CompileConfig::default();
     let cold = compile(directory, source, &config).0.unwrap();
     let (warm, report) = compile(directory, source, &config);
@@ -714,9 +714,9 @@ fn aggregate_outcomes_and_mutable_reference_stores_match_cold_analysis() {
     fs::write(
         dir.join("lib.lim"),
         "(#struct Holder () (: value (#ref #u64)))
-      (#enum Choice () ((Found Holder) Missing))
+      (#enum Choice () ((Choice.Found Holder) Choice.Missing))
       (#fn choose (: owner (#ref #u64) : flag #bool) Choice
-        (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
+        (#return (#if flag (Choice.Found (#struct-literal Holder (: value owner))) Choice.Missing)))
       (#fn replace (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
         (#deref-set slot value) (#return ()))",
     )
@@ -727,9 +727,9 @@ fn aggregate_outcomes_and_mutable_reference_stores_match_cold_analysis() {
       (#call replace (: slot (#borrow-mut (#get holder value)) : value (#borrow second)))
       (#set first 2u64)
       (#let result #u64 (#match (#call choose (: owner (#get holder value) : flag true))
-        (#case (Found selected) (#block (#let answer #u64 (#deref (#get selected value)))
+        (#case (Choice.Found selected) (#block (#let answer #u64 (#deref (#get selected value)))
           (#forget selected) answer))
-        (#case Missing 0u64))) (#forget holder) (#return result))";
+        (#case Choice.Missing 0u64))) (#forget holder) (#return result))";
     let cold = compile(dir, source, &CompileConfig::default()).0.unwrap();
     let (warm, report) = compile(dir, source, &CompileConfig::default());
     assert_eq!(warm.unwrap(), cold);
@@ -740,7 +740,8 @@ fn aggregate_outcomes_and_mutable_reference_stores_match_cold_analysis() {
 fn generated_dependency_changes_invalidate_semantic_summaries() {
     let scratch = support::Scratch::new("semantic-generated");
     let dir = scratch.path();
-    let library = "(#gn functions () `((#fn generated () #u64 (#return 7u64)))) (@functions)";
+    let library =
+        "(#gn functions () `((#fn generated () #u64 (#return 7u64)))) (#generate functions)";
     fs::write(dir.join("lib.lim"), library).unwrap();
     let source = "(#import \"lib.lim\") (#fn main () #u64 (#return (#call generated ())))";
     let cold = compile(dir, source, &CompileConfig::default()).0.unwrap();

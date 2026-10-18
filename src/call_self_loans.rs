@@ -1710,26 +1710,26 @@ mod tests {
     #[test]
     fn selected_payload_snapshot_access_and_reinitialization_are_distinct() {
         let source = r#"
-          (#enum Choice () ((Good #u64) (Bad #u64)))
-          (#enum Address () (Empty (Full (#pin-ref-mut #u64))))
+          (#enum Choice () ((Choice.Good #u64) (Choice.Bad #u64)))
+          (#enum Address () (Address.Empty (Address.Full (#pin-ref-mut #u64))))
           (#struct Frame () (: owner Choice : address Address : pc #u32))
           (#fn select (: owner (#pin-ref-mut Choice)) (#pin-ref-mut #u64)
-            (#return (#unsafe (#pin-get-payload-unchecked-mut owner Good))))
+            (#return (#unsafe (#pin-get-payload-unchecked-mut owner Choice.Good))))
           (#fn install (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
             (#let selected (#pin-ref-mut #u64)
-              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Choice.Good)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Address.Full selected)))
             (#return target))
           (#fn resume (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
             INITIALIZE
             (#unsafe (#pin-write
-              (#deref (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target address)) Full)))
+              (#deref (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target address)) Address.Full)))
               42u64))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) Empty))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) Address.Empty))
             (#return target))
           (#fn driver () ()
             (#let-mut frame Frame
-              (#struct-literal Frame (: owner (Good 0u64) : address Empty : pc 1u32)))
+              (#struct-literal Frame (: owner (Choice.Good 0u64) : address Address.Empty : pc 1u32)))
             (#let installed (#pin-ref-mut Frame)
               (#call install (: target (#pin-borrow-mut frame))))
             (#let resumed (#pin-ref-mut Frame) (#call resume (: target installed)))
@@ -1738,40 +1738,40 @@ mod tests {
         for (initialize, conflicting_access) in [
             ("", None),
             (
-                "(#if (#u32.== (#get target pc) 0u32)
+                "(#if (#u32::eq (#get target pc) 0u32)
                   (#block
-                    (#assert (#variant-is (#pin-borrow (#get target address)) Empty))
-                    (#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))
+                    (#assert (#variant-is (#pin-borrow (#get target address)) Address.Empty))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Choice.Good 9u64)))
                     (#let selected (#pin-ref-mut #u64)
-                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
-                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Choice.Good)))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Address.Full selected)))
                     ()) ())",
                 None,
             ),
             (
-                "(#if (#u32.== (#get target pc) 0u32)
+                "(#if (#u32::eq (#get target pc) 0u32)
                   (#block
                     (#let selected (#pin-ref-mut #u64)
-                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
-                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Choice.Good)))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Address.Full selected)))
                     ()) ())",
                 Some("(#pin-borrow-mut (#get target owner))"),
             ),
             (
-                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))",
-                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64))"),
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Choice.Good 9u64)))",
+                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Choice.Good 9u64))"),
             ),
             (
-                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))
-                  (#assert (#variant-is (#pin-borrow (#get target address)) Empty))",
-                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64))"),
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Choice.Good 9u64)))
+                  (#assert (#variant-is (#pin-borrow (#get target address)) Address.Empty))",
+                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Choice.Good 9u64))"),
             ),
         ] {
             for helper in [false, true] {
                 let mut source = source.replace("INITIALIZE", initialize);
                 if helper {
                     source = source.replace(
-                        "(#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good))",
+                        "(#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Choice.Good))",
                         "(#call select (: owner (#pin-borrow-mut (#get target owner))))",
                     );
                 }
@@ -1900,18 +1900,18 @@ mod tests {
 
     #[test]
     fn enum_payload_owner_observation_is_not_hidden_by_a_missing_alias() {
-        let source = "(#enum View () (NoView (HasView (#pin-ref-mut #u64))))
+        let source = "(#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64))))
           (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
             (#return target))
           (#fn observe (: target (#pin-ref-mut Link)) #u64 (#return (#get target value)))
           (#fn driver () #u64
-            (#let-mut link Link (#struct-literal Link (: value 42u64 : view NoView)))
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view View.NoView)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let value #u64 (#call observe (: target installed)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) NoView))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
             (#drop installed) (#forget link) (#return value))";
         let declarations = fixture(source);
         let plan = call_plan(&declarations, "driver", "observe");
@@ -1955,20 +1955,20 @@ mod tests {
 
     #[test]
     fn ordinary_function_unknown_enum_tag_retains_possible_mutable_payload_aliases() {
-        let source = "(#enum Value () (Empty (Full #u64)))
+        let source = "(#enum Value () (Value.Empty (Value.Full #u64)))
           (#struct Link () (: value Value : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64)
-              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
             (#return target))
           (#fn observe (: target (#pin-ref-mut Link)) ()
             (#let payload (#pin-ref-mut #u64)
-              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
             (#drop payload) (#return ()))
           (#fn driver (: outside (#pin-ref-mut #u64) : choose #bool) ()
             (#let-mut link Link (#struct-literal Link
-              (: value (#if choose (Full 42u64) Empty) : view outside)))
+              (: value (#if choose (Value.Full 42u64) Value.Empty) : view outside)))
             (#if choose
               (#block
                 (#let installed (#pin-ref-mut Link)
@@ -2024,7 +2024,7 @@ mod tests {
 
     #[test]
     fn nested_dereference_payload_tag_proves_the_stored_reference_is_active() {
-        let source = "(#enum View () (NoView (HasView (#pin-ref #u64))))
+        let source = "(#enum View () (View.NoView (View.HasView (#pin-ref #u64))))
           (#struct Inner () (: value #u64 : view View))
           (#struct Middle () (: inner (#pin-ref-mut Inner)))
           (#struct Outer () (: middle (#pin-ref-mut Middle)))
@@ -2040,10 +2040,10 @@ mod tests {
           (#fn relay (: target (#pin-ref-mut Shell)) ()
             (#call observe (: target target)) (#return ()))
           (#fn driver () ()
-            (#let-mut inner Inner (#struct-literal Inner (: value 7u64 : view NoView)))
+            (#let-mut inner Inner (#struct-literal Inner (: value 7u64 : view View.NoView)))
             (#let inner_ref (#pin-ref-mut Inner) (#pin-borrow-mut inner))
             (#let view (#pin-ref #u64) (#pin-borrow (#get inner_ref value)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get inner_ref view)) (HasView view)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get inner_ref view)) (View.HasView view)))
             (#let-mut middle Middle (#struct-literal Middle (: inner inner_ref)))
             (#let middle_ref (#pin-ref-mut Middle) (#pin-borrow-mut middle))
             (#let-mut outer Outer (#struct-literal Outer (: middle middle_ref)))
@@ -2077,7 +2077,7 @@ mod tests {
             "{error:?}"
         );
 
-        let inactive = source.replace("(HasView view)", "NoView");
+        let inactive = source.replace("(View.HasView view)", "View.NoView");
         let declarations = fixture(&inactive);
         let plan = call_plan(&declarations, "driver", "relay");
         plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
@@ -2550,21 +2550,21 @@ mod tests {
         assert!(!cache.checked.contains(&(plan, true)));
     }
 
-    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value () (Empty (Full #u64)))
+    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value () (Value.Empty (Value.Full #u64)))
           (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
-              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
+              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#if (#variant-is (#pin-borrow (#get target value)) Empty)
+            (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
               (#block
-                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
+                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
                 (#unsafe (#pin-write
-                  (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)) 42u64))) ())
+                  (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)) 42u64))) ())
             (#return target))
           (#fn driver (: outside (#pin-ref #u64)) ()
-            (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
+            (#let-mut link Link (#struct-literal Link (: value (Value.Full 42u64) : view outside)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
             (#pin-set-field updated view outside)
@@ -2573,8 +2573,8 @@ mod tests {
     #[test]
     fn entry_payload_constraints_survive_reinitializing_the_current_constructor() {
         let source = PAYLOAD_ENTRY_SOURCE;
-        for (guard, rejected) in [("Empty", false), ("Full", true)] {
-            let source = source.replace("value)) Empty)", &format!("value)) {guard})"));
+        for (guard, rejected) in [("Value.Empty", false), ("Value.Full", true)] {
+            let source = source.replace("value)) Value.Empty)", &format!("value)) {guard})"));
             let declarations = fixture(&source);
             let plan = call_plan(&declarations, "driver", "tick");
             assert!(plan.aliases[0]
@@ -2587,20 +2587,20 @@ mod tests {
         }
     }
 
-    const STORAGE_ENTRY_SOURCE: &str = "(#enum View () (NoView (HasView (#pin-ref #u64))))
+    const STORAGE_ENTRY_SOURCE: &str = "(#enum View () (View.NoView (View.HasView (#pin-ref #u64))))
           (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view))) (#return target))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view))) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#if (#variant-is (#pin-borrow (#get target view)) NoView)
+            (#if (#variant-is (#pin-borrow (#get target view)) View.NoView)
               (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64)) ())
             (#return target))
           (#fn driver () ()
-            (#let-mut link Link (#struct-literal Link (: value 42u64 : view NoView)))
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view View.NoView)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get updated view)) NoView))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get updated view)) View.NoView))
             (#drop updated) (#forget link) (#return ()))";
 
     fn with_entry_tick(source: &str, statements: &str) -> String {
@@ -2619,7 +2619,7 @@ mod tests {
         for fresh in [false, true] {
             let child = if fresh {
                 "(#let view (#pin-ref #u64)
-                  (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
+                  (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
                  (#pin-set-field target view view)"
             } else {
                 ""
@@ -2627,14 +2627,14 @@ mod tests {
             let source = format!(
                 "{}
                 (#fn rewrite (: target (#pin-ref-mut Link)) ()
-                  (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64)))
+                  (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 99u64)))
                   (#return ()))",
                 with_entry_tick(
                     PAYLOAD_ENTRY_SOURCE,
                     &format!(
                         "
-                (#assert (#variant-is (#pin-borrow (#get target value)) Empty))
-                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
+                (#assert (#variant-is (#pin-borrow (#get target value)) Value.Empty))
+                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
                 {child} (#call rewrite (: target target))"
                     )
                 )
@@ -2651,8 +2651,8 @@ mod tests {
         let source = with_entry_tick(
             PAYLOAD_ENTRY_SOURCE,
             "
-          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Empty))
-          (#assert (#variant-is (#pin-borrow (#get target value)) Empty))",
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Value.Empty))
+          (#assert (#variant-is (#pin-borrow (#get target value)) Value.Empty))",
         );
         let declarations = fixture(&source);
         let body = &declarations.bodies["tick"];
@@ -2662,7 +2662,7 @@ mod tests {
             .field_id(&Type::Named("Link".into()), "value")
             .unwrap();
         let empty = declarations
-            .variant_id(&Type::Named("Value".into()), "Empty")
+            .variant_id(&Type::Named("Value".into()), "Value.Empty")
             .unwrap();
         let owner = Place {
             root: PlaceRoot::Parameter(BindingId(0)),
@@ -2679,9 +2679,9 @@ mod tests {
         let source = with_entry_tick(
             PAYLOAD_ENTRY_SOURCE,
             "
-          (#if (#variant-is (#pin-borrow (#get target value)) Empty)
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64))) ())
-          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64)))",
+          (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64))) ())
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 99u64)))",
         );
         let declarations = fixture(&source);
         call_plan(&declarations, "driver", "tick")
@@ -2695,9 +2695,9 @@ mod tests {
             STORAGE_ENTRY_SOURCE,
             "
           (#let saved (#pin-ref #u64)
-            (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target view)) HasView))))
-          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) NoView))
-          (#assert (#variant-is (#pin-borrow (#get target view)) NoView))
+            (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target view)) View.HasView))))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) View.NoView))
+          (#assert (#variant-is (#pin-borrow (#get target view)) View.NoView))
           (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64))
           (#let observed #u64 (#deref saved)) (#forget observed) (#drop saved)",
         );
@@ -2715,11 +2715,14 @@ mod tests {
     #[test]
     fn a_disjoint_same_type_tag_does_not_exclude_the_incoming_pointer() {
         let source = STORAGE_ENTRY_SOURCE
-            .replace(": view View", ": view View : other View")
-            .replace(": view NoView", ": view NoView : other NoView")
+            .replace(": view View)", ": view View : other View)")
             .replace(
-                "(#variant-is (#pin-borrow (#get target view)) NoView)",
-                "(#variant-is (#pin-borrow (#get target other)) NoView)",
+                ": view View.NoView",
+                ": view View.NoView : other View.NoView",
+            )
+            .replace(
+                "(#variant-is (#pin-borrow (#get target view)) View.NoView)",
+                "(#variant-is (#pin-borrow (#get target other)) View.NoView)",
             );
         let declarations = fixture(&source);
         call_plan(&declarations, "driver", "tick")
@@ -2730,8 +2733,8 @@ mod tests {
     #[test]
     fn entry_pointer_storage_tags_constrain_the_incoming_family_not_its_owner() {
         let source = STORAGE_ENTRY_SOURCE;
-        for (guard, rejected) in [("NoView", false), ("HasView", true)] {
-            let source = source.replace("view)) NoView)", &format!("view)) {guard})"));
+        for (guard, rejected) in [("View.NoView", false), ("View.HasView", true)] {
+            let source = source.replace("view)) View.NoView)", &format!("view)) {guard})"));
             let declarations = fixture(&source);
             let plan = call_plan(&declarations, "driver", "tick");
             assert!(plan.aliases[0]
@@ -2750,24 +2753,24 @@ mod tests {
 
     #[test]
     fn entry_payload_aliases_are_correlated_with_checked_physical_tag_guards() {
-        let source = "(#enum Value () (Empty (Full #u64)))
+        let source = "(#enum Value () (Value.Empty (Value.Full #u64)))
           (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
-              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
+              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#if (#variant-is (#pin-borrow (#get target value)) Empty)
-              (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64))) ())
+            (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 99u64))) ())
             (#return target))
           (#fn driver (: outside (#pin-ref #u64)) ()
-            (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
+            (#let-mut link Link (#struct-literal Link (: value (Value.Full 42u64) : view outside)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
             (#pin-set-field updated view outside)
             (#drop updated) (#forget link) (#return ()))";
-        for (guard, rejected) in [("Empty", false), ("Full", true)] {
-            let source = source.replace("value)) Empty)", &format!("value)) {guard})"));
+        for (guard, rejected) in [("Value.Empty", false), ("Value.Full", true)] {
+            let source = source.replace("value)) Value.Empty)", &format!("value)) {guard})"));
             let declarations = fixture(&source);
             let plan = call_plan(&declarations, "driver", "tick");
             assert_eq!(plan.aliases.len(), 1);
@@ -2779,7 +2782,7 @@ mod tests {
         // establish an incompatible tag; subsequent facts cannot excuse it.
         let bad = source.replace(
             "(#if (#variant-is",
-            "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Empty)) (#if (#variant-is",
+            "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Value.Empty)) (#if (#variant-is",
         );
         let declarations = fixture(&bad);
         call_plan(&declarations, "driver", "tick")
@@ -2789,27 +2792,27 @@ mod tests {
 
     #[test]
     fn checked_empty_pointer_slots_retire_only_their_stored_entry_alias() {
-        let source = "(#enum View () (Empty (Full (#pin-ref-mut #u64))))
+        let source = "(#enum View () (View.Empty (View.Full (#pin-ref-mut #u64))))
           (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (Full view))) (#return target))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.Full view))) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             GUARD
             (#let fresh (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#drop fresh) (#return target))
           (#fn driver () ()
-            (#let-mut link Link (#struct-literal Link (: value 42u64 : view Empty)))
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view View.Empty)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
             (#drop updated) (#forget link) (#return ()))";
         for (guard, rejected) in [
             (
-                "(#assert (#variant-is (#pin-borrow (#get target view)) Empty))",
+                "(#assert (#variant-is (#pin-borrow (#get target view)) View.Empty))",
                 false,
             ),
             (
-                "(#assert (#variant-is (#pin-borrow (#get target view)) Full))",
+                "(#assert (#variant-is (#pin-borrow (#get target view)) View.Full))",
                 true,
             ),
             ("", true),
@@ -2826,20 +2829,20 @@ mod tests {
     #[test]
     fn initializer_entry_guards_survive_destructive_reads_but_are_not_invented_after_writes() {
         for early in [true, false] {
-            let assertion = "(#assert (#variant-is slot Empty))";
+            let assertion = "(#assert (#variant-is slot Slot.Empty))";
             let (before, after) = if early {
                 (assertion, "")
             } else {
                 ("", assertion)
             };
             let source = format!(
-                "(#enum Slot (#linear) (Empty (Full #u64)))
+                "(#enum Slot (#linear) (Slot.Empty (Slot.Full #u64)))
               (#fn initialize (: slot (#pin-ref-mut Slot)) ()
                 {before}
                 (#let previous Slot (#unsafe (#pin-read slot))) (#forget previous)
-                (#unsafe (#pin-write slot Empty))
+                (#unsafe (#pin-write slot Slot.Empty))
                 {after}
-                (#unsafe (#pin-write slot (Full 42u64))) (#return ()))"
+                (#unsafe (#pin-write slot (Slot.Full 42u64))) (#return ()))"
             );
             let declarations = fixture(&source);
             let function = declarations.function_id("initialize").unwrap();
@@ -2852,7 +2855,7 @@ mod tests {
             )
             .unwrap();
             let empty = declarations
-                .variant_id(&Type::Named("Slot".into()), "Empty")
+                .variant_id(&Type::Named("Slot".into()), "Slot.Empty")
                 .unwrap();
             assert!(!effects.is_empty());
             for effect in effects {
@@ -2868,15 +2871,15 @@ mod tests {
     #[test]
     fn user_assert_calls_and_ambiguous_guard_receivers_do_not_establish_entry_tags() {
         for assertion in [
-            "(#call assert (: condition (#variant-is first Empty)))",
-            "(#assert (#variant-is (#if choose first second) Empty))",
+            "(#call assert (: condition (#variant-is first Slot.Empty)))",
+            "(#assert (#variant-is (#if choose first second) Slot.Empty))",
         ] {
-            let source = format!("(#enum Slot (#linear) (Empty (Full #u64)))
+            let source = format!("(#enum Slot (#linear) (Slot.Empty (Slot.Full #u64)))
               (#fn assert (: condition #bool) () (#return ()))
               (#fn initialize (: first (#pin-ref-mut Slot) : second (#pin-ref-mut Slot) : choose #bool) ()
                 {assertion}
                 (#let previous Slot (#unsafe (#pin-read first))) (#forget previous)
-                (#unsafe (#pin-write first (Full 42u64))) (#return ()))");
+                (#unsafe (#pin-write first (Slot.Full 42u64))) (#return ()))");
             let declarations = fixture(&source);
             let effects = guarded_writes(
                 declarations.function_id("initialize").unwrap(),
@@ -2924,8 +2927,8 @@ mod tests {
     #[test]
     fn global_consumption_identities_do_not_substitute_an_unused_parameter() {
         let source = format!(
-            "(#static Count #u64 0u64)
-          (#fn touch () () (#unsafe (#forget Count)) (#return ())) {}",
+            "(#static count #u64 0u64)
+          (#fn touch () () (#unsafe (#forget count)) (#return ())) {}",
             SOURCE.replace(
                 "(#pin-set-field target state 2u32)",
                 "(#call touch ()) (#pin-set-field target state 2u32)"
@@ -2942,7 +2945,7 @@ mod tests {
         .unwrap();
         assert!(effects
             .iter()
-            .any(|effect| effect.target.global == declarations.global_id("Count")));
+            .any(|effect| effect.target.global == declarations.global_id("count")));
         call_plan(&declarations, "driver", "tick")
             .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
@@ -2952,7 +2955,7 @@ mod tests {
     fn definite_clear_retires_entry_alias_but_conditional_clear_does_not() {
         for conditional in [false, true] {
             let clear = if conditional {
-                "(#if (#u32.== (#get target state) 0u32) (#pin-set-field target view outside) ())"
+                "(#if (#u32::eq (#get target state) 0u32) (#pin-set-field target view outside) ())"
             } else {
                 "(#pin-set-field target view outside)"
             };

@@ -14,11 +14,11 @@ fn binding_lines(dump: &str) -> Vec<&str> {
 
 #[test]
 fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
-    let source = "(#enum Value () ((Small #u32) (Large #u64)))
+    let source = "(#enum Value () ((Value.Small #u32) (Value.Large #u64)))
       (#fn inspect ((value Value)) #u64
         (#return (#match value
-          (#case (Small item) (#as item #u64))
-          (#case (Large item) item))))";
+          (#case (Value.Small item) (#as item #u64))
+          (#case (Value.Large item) item))))";
 
     let dump = checked_dump(source);
     let items: Vec<_> = binding_lines(&dump)
@@ -49,9 +49,9 @@ fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
         let ty = binding.split_whitespace().last().unwrap();
         assert!(
             dump.lines()
-                .any(|line| line.contains(&format!("Some({ty})"))
+                .any(|line| line.contains(&format!("Maybe.Some({ty})"))
                     && line.contains("Symbol {")
-                    && line.contains(&format!("binding: Some(BindingId({id}))"))),
+                    && line.contains(&format!("binding: Maybe.Some(BindingId({id}))"))),
             "binding {id} has no correctly typed Symbol use: {dump}"
         );
     }
@@ -93,7 +93,7 @@ fn unused_destructured_names_are_recorded_as_bindings() {
             .next()
             .unwrap();
         assert!(
-            dump.contains(&format!("binding: Some(BindingId({id}))")),
+            dump.contains(&format!("binding: Maybe.Some(BindingId({id}))")),
             "{dump}"
         );
     }
@@ -101,13 +101,13 @@ fn unused_destructured_names_are_recorded_as_bindings() {
 
 #[test]
 fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate() {
-    let source = "(#static TOTAL #u64 0u64)
+    let source = "(#static tOTAL #u64 0u64)
       (#fn main () #u64
         (#let-mut local #u64 1u64)
         (#set local 2u64)
         (#block (#let inside #u32 4u32) inside)
         (#loop (#let iteration #u32 5u32) (#break))
-        (#return (#u64.+.wrap local (#unsafe TOTAL))))";
+        (#return (#u64::add-wrap local (#unsafe tOTAL))))";
 
     let dump = checked_dump(source);
     let bindings = binding_lines(&dump);
@@ -120,7 +120,7 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
         );
     }
     assert!(
-        !bindings.iter().any(|line| line.contains(": TOTAL ")),
+        !bindings.iter().any(|line| line.contains(": tOTAL ")),
         "static is not a local binding: {dump}"
     );
     assert!(
@@ -134,19 +134,19 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
         "local assignment lacks binding identity: {dump}"
     );
     assert!(
-        dump.contains("Declaration(Global(GlobalId(0)))"),
+        dump.contains("Declaration(global(GlobalId(0)))"),
         "static reference lacks global identity: {dump}"
     );
 }
 
 #[test]
 fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
-    let source = "(#enum Maybe () ((Some #u64) None))
+    let source = "(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
       (#fn success ((value Maybe)) #u64
-        (#let-else (Some payload) Maybe value (#return 0u64))
+        (#let-else (Maybe.Some payload) Maybe value (#return 0u64))
         (#return payload))
       (#fn failure ((value Maybe)) #u64
-        (#let-else (Some payload) Maybe value
+        (#let-else (Maybe.Some payload) Maybe value
           (#let payload #u32 7u32)
           (#return (#as payload #u64)))
         (#return payload))";
@@ -191,9 +191,9 @@ fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
         assert!(
             failure
                 .lines()
-                .any(|line| line.contains(&format!("Some({ty})"))
+                .any(|line| line.contains(&format!("Maybe.Some({ty})"))
                     && line.contains("Symbol {")
-                    && line.contains(&format!("binding: Some(BindingId({id}))"))),
+                    && line.contains(&format!("binding: Maybe.Some(BindingId({id}))"))),
             "payload binding {id} has no correctly typed symbol use: {failure}"
         );
     }

@@ -1,18 +1,18 @@
 ; The step suspends for an effect, without producing a value to bind.
-(#enum StepTask (#linear) (Start Resume))
+(#enum StepTask (#linear) (StepTask.Start StepTask.Resume))
 
-(#enum StepPoll () ((StepPending StepTask) (StepReady ())))
+(#enum StepPoll () ((StepPoll.StepPending StepTask) (StepPoll.StepReady ())))
 
 (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case Start (StepPending Resume))
-    (#case Resume (StepReady ())))))
+    (#case StepTask.Start (StepPoll.StepPending StepTask.Resume))
+    (#case StepTask.Resume (StepPoll.StepReady ())))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut keep-going #bool true)
     (#for () keep-going
-      (#await () StepTask StepPending StepReady step-poll Start)
+      (#await () StepTask StepPoll.StepPending StepPoll.StepReady step-poll StepTask.Start)
       (#set keep-going false))
     (#return 42u64))))
 
@@ -20,10 +20,10 @@
   (#let waker #u64 0u64)
   (#let first Work::Poll
     (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
   (#let second Work::Poll
     (#call Work::poll (: task task : waker (#borrow waker))))
   (#return (#match second
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending unexpected)
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending unexpected)
       (#block (#forget unexpected) (#unreachable))))))

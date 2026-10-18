@@ -31,11 +31,11 @@
   #u64
   (
     #return
-    (#u64.+.wrap
-      (#u64.+.wrap
-        (#u64.+.wrap
-          (#u64.+.wrap
-            (#u64.+.wrap
+    (#u64::add-wrap
+      (#u64::add-wrap
+        (#u64::add-wrap
+          (#u64::add-wrap
+            (#u64::add-wrap
               (#get value a)
               (#get value b)
             )

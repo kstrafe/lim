@@ -1,10 +1,10 @@
 (#import "../../library/string.lim")
 (#fn main () #u64
-  (#let-mut text String (#call String-new ()))
+  (#let-mut text String (#call String::new ()))
   (#let bytes StringBytes
-    (#call String-bytes (: string (#borrow text))))
-  (#call String-clear (: string (#borrow-mut text)))
-  (#let value #usize (#call StringBytes-len (: bytes bytes)))
+    (#call String::bytes (: string (#borrow text))))
+  (#call String::clear (: string (#borrow-mut text)))
+  (#let value #usize (#call StringBytes::len (: bytes bytes)))
   (#drop bytes)
-  (#call String-free (: string text))
+  (#call String::free (: string text))
   (#return (#as value #u64)))

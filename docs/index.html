@@ -42,13 +42,13 @@
         <p class="eyebrow">01 / Read what runs</p>
         <h2 id="language-title">Nothing left<br>to guess.</h2>
         <p>Not an opaque intermediate representation. Not shorthand that hides a second language. A compiled Lisp with explicit types, named call arguments, and visible control flow.</p>
-        <p>Builtins wear <code>#</code>. Generators wear <code>@</code>. Even arithmetic states its type and overflow behavior.</p>
+        <p>Builtins wear <code>#</code>. Invoke generators with <code>#generate</code>; external identifiers use <code>prefix@Name</code>. Even arithmetic states its type and overflow behavior.</p>
       </div>
       <figure class="code-panel">
         <figcaption><span class="code-dot" aria-hidden="true"></span> answer.lim <span>Source → native executable</span></figcaption>
         <pre><code><span class="comment">; A function, not a method.</span>
 (<span class="keyword">#fn</span> add (: left <span class="type">#u64</span> : right <span class="type">#u64</span>) <span class="type">#u64</span>
-  (<span class="keyword">#return</span> (<span class="operator">#u64.+.wrap</span> left right)))
+  (<span class="keyword">#return</span> (<span class="operator">#u64::add-wrap</span> left right)))
 
 (<span class="keyword">#fn</span> main () <span class="type">#u64</span>
   (<span class="keyword">#let</span> answer <span class="type">#u64</span>
@@ -71,7 +71,7 @@
           <span class="feature-number">B</span>
           <h3>Concrete all the way down</h3>
           <p>Full monomorphization through code generation, rather than user-facing generic types. Pure generators produce concrete Lim definitions. Their output is source you can read, search, and review.</p>
-          <code class="inline-example">(@#optional (: type #u64 : name MaybeU64))</code>
+          <code class="inline-example">(#generate #optional (: type #u64 : name MaybeU64))</code>
         </article>
         <article>
           <span class="feature-number">C</span>
@@ -100,7 +100,7 @@
         <article>
           <span class="feature-number">F</span>
           <h3>Keywords that leave your names alone</h3>
-          <p>The entire <code>#</code>-prefixed identifier space is reserved for the language. Keywords, builtin types, and operations are visibly marked: <code>#fn</code>, <code>#u64</code>, <code>#return</code>. Language and standard-library generators use names such as <code>@#optional</code>; your generators use names such as <code>@make-record</code>.</p>
+          <p>The entire <code>#</code>-prefixed identifier space is reserved for the language. Keywords, builtin types, and operations are visibly marked: <code>#fn</code>, <code>#u64</code>, <code>#return</code>. Invoke language and standard-library generators with forms such as <code>(#generate #optional ...)</code>; invoke your own with <code>(#generate make-record ...)</code>.</p>
           <p>This supports backward-compatible keyword additions: a future <code>#feature</code> does not turn your existing <code>feature</code> identifier into a keyword. The prefix prevents name collisions; it is not a blanket guarantee against every syntax or semantic change.</p>
         </article>
       </div>

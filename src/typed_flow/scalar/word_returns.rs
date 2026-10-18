@@ -520,14 +520,14 @@ mod tests {
         let source = source
             .replace(
                 "(#struct Frame ()",
-                "(#enum Outcome () ((Pending Frame) (Ready #u64))) (#struct Frame ()",
+                "(#enum Outcome () ((Outcome.Pending Frame) (Outcome.Ready #u64))) (#struct Frame ()",
             )
             .replace(") Frame\n", ") Outcome\n")
             .replace(
                 "(#let-mut frame",
-                "(#if flag () (#block (#return (Ready 0u64)))) (#let-mut frame",
+                "(#if flag () (#block (#return (Outcome.Ready 0u64)))) (#let-mut frame",
             )
-            .replace("(#return (#unsafe", "(#return (Pending (#unsafe")
+            .replace("(#return (#unsafe", "(#return (Outcome.Pending (#unsafe")
             .replace("(#pin-borrow-mut frame))))", "(#pin-borrow-mut frame)))))");
         let program = crate::parse_program(&source).unwrap();
         let d = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();

@@ -984,7 +984,7 @@ fn parse_register(name: &str) -> Option<(Register, Width)> {
 fn parse_memory(operand: &str) -> Result<Option<(Width, Memory)>, String> {
     let (width, body) = if let Some((width, body)) = operand.split_once(" PTR [") {
         let width = match width {
-            "BYTE" => Width::Byte,
+            "bYTE" => Width::Byte,
             "WORD" => Width::Word,
             "DWORD" => Width::Dword,
             "QWORD" => Width::Qword,
@@ -1049,7 +1049,7 @@ fn parse_memory(operand: &str) -> Result<Option<(Width, Memory)>, String> {
 fn parse_rip_memory(operand: &str) -> Result<Option<(Option<Width>, String, i64)>, String> {
     let (width, body) = if let Some((width, body)) = operand.split_once(" PTR [rip+") {
         let width = match width {
-            "BYTE" => Width::Byte,
+            "bYTE" => Width::Byte,
             "WORD" => Width::Word,
             "DWORD" => Width::Dword,
             "QWORD" => Width::Qword,

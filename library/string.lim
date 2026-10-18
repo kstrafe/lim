@@ -1,7 +1,7 @@
 ; Opaque, linear UTF-8 text backed by the native Lim process heap (no libc).
-; Length/capacity are bytes, not characters. Strings are not NUL-terminated;
+; Length/capacity are bytes, not characters. Strings are not NUL::terminated;
 ; embedded NUL is valid text. No safe mutable byte access or shallow clone exists.
-; Allocation is fallible, moves do not allocate, and String-free is explicit.
+; Allocation is fallible, moves do not allocate, and String::free is explicit.
 (#import "system_allocator.lim")
 (
   #struct
@@ -20,7 +20,7 @@
 ; writing through it from this shared borrow is forbidden.
 (
   #unsafe-fn
-  String-data-pointer
+  String::data-pointer
   (: string (#ref String))
   (#ptr-mut #u8)
   (
@@ -31,7 +31,7 @@
 ; shared source loans must be disjoint; no implicit clone or source move occurs.
 (
   #fn
-  String-push-string
+  String::push-string
   (: string (#ref-mut String) : text (#ref String))
   StringStatus
   (
@@ -46,16 +46,16 @@
       #match
       (
         #call
-        String-reserve
+        String::reserve
         (: string string : additional additional)      )
       (
         #case
-        (StringErr error)
-        (StringErr error)
+        (StringStatus.StringErr error)
+        (StringStatus.StringErr error)
       )
       (
         #case
-        StringOk
+        StringStatus.StringOk
         (
           #block
           (
@@ -84,7 +84,7 @@
           )
           (
             #while
-            (#usize.< index additional)
+            (#usize::lt index additional)
             (
               #unsafe
               (
@@ -92,7 +92,7 @@
                 (
                   #ptr-offset
                   target
-                  (#usize.+.wrap length index)
+                  (#usize::add-wrap length index)
                 )
                 (
                   #ptr-read
@@ -104,7 +104,7 @@
               #set
               index
               (
-                #usize.+.wrap
+                #usize::add-wrap
                 index
                 (#literal #usize 1)
               )
@@ -116,51 +116,51 @@
               #borrow-mut
               (#get string length)
             )
-            (#usize.+.wrap length additional)
+            (#usize::add-wrap length additional)
           )
-          StringOk
+          StringStatus.StringOk
         )
       )    )  ))
 (
   #enum
   StringError ()
-  (StringOutOfMemory StringCapacityOverflow StringInvalidUtf8 StringInvalidChar)
+  (StringError.StringOutOfMemory StringError.StringCapacityOverflow StringError.StringInvalidUtf8 StringError.StringInvalidChar)
 )
 (
   #enum
   StringStatus ()
   (
-    StringOk
-    (StringErr StringError)
+    StringStatus.StringOk
+    (StringStatus.StringErr StringError)
   )
 )
 (
   #enum
   StringCreateResult ()
   (
-    (StringCreated String)
-    (StringCreateFailed StringError)
+    (StringCreateResult.StringCreated String)
+    (StringCreateResult.StringCreateFailed StringError)
   )
 )
 (
   #enum
   StringByteResult ()
   (
-    (StringByte #u8)
-    StringByteOutOfBounds
+    (StringByteResult.StringByte #u8)
+    StringByteResult.StringByteOutOfBounds
   )
 )
 (
   #enum
   StringPopResult ()
   (
-    (StringPopped #char)
-    StringEmpty
+    (StringPopResult.StringPopped #char)
+    StringPopResult.StringEmpty
   )
 )
 (
   #fn
-  String-new
+  String::new
   ()
   String
   (
@@ -171,7 +171,7 @@
       (: pointer (#ptr-null (#ptr-mut #u8)) : length 0usize : capacity 0usize)    )  ))
 (
   #fn
-  String-len
+  String::len
   (: string (#ref String))
   #usize
   (
@@ -180,7 +180,7 @@
   ))
 (
   #fn
-  String-capacity
+  String::capacity
   (: string (#ref String))
   #usize
   (
@@ -189,21 +189,21 @@
   ))
 (
   #fn
-  String-is-empty
+  String::is-empty
   (: string (#ref String))
   #bool
   (
     #return
     (
-      #usize.==
+      #usize::eq
       (#get string length)
       (#literal #usize 0)
     )
   ))
-; Reserve once before a bulk append. Failure changes neither allocation nor text.
+; Reserve once before a bulk append. Outcome.Failure changes neither allocation nor text.
 (
   #fn
-  String-reserve
+  String::reserve
   (: string (#ref-mut String) : additional #usize)
   StringStatus
   (
@@ -223,23 +223,23 @@
     (
       #if
       (
-        #usize.>
+        #usize::gt
         additional
-        (#usize.-.wrap SYSTEM-ALLOCATION-MAX length)
+        (#usize::sub-wrap sYSTEM-ALLOCATION-MAX length)
       )
-      (StringErr StringCapacityOverflow)
+      (StringStatus.StringErr StringError.StringCapacityOverflow)
       (
         #block
         (
           #let
           requested
           #usize
-          (#usize.+.wrap length additional)
+          (#usize::add-wrap length additional)
         )
         (
           #if
-          (#usize.<= requested capacity)
-          StringOk
+          (#usize::le requested capacity)
+          StringStatus.StringOk
           (
             #block
             (
@@ -247,7 +247,7 @@
               doubled
               #usize
               (
-                #usize.*.saturate
+                #usize::mul-saturate
                 capacity
                 (#literal #usize 2)
               )
@@ -259,7 +259,7 @@
               (
                 #if
                 (
-                  #usize.<
+                  #usize::lt
                   doubled
                   (#literal #usize 8)
                 )
@@ -273,8 +273,8 @@
               #usize
               (
                 #if
-                (#usize.> geometric SYSTEM-ALLOCATION-MAX)
-                SYSTEM-ALLOCATION-MAX
+                (#usize::gt geometric sYSTEM-ALLOCATION-MAX)
+                sYSTEM-ALLOCATION-MAX
                 geometric
               )
             )
@@ -284,7 +284,7 @@
               #usize
               (
                 #if
-                (#usize.> requested bounded)
+                (#usize::gt requested bounded)
                 requested
                 bounded
               )
@@ -296,7 +296,7 @@
               (
                 #if
                 (
-                  #usize.==
+                  #usize::eq
                   capacity
                   (#literal #usize 0)
                 )
@@ -315,7 +315,7 @@
               allocation
               (
                 #case
-                (SystemAllocated pointer)
+                (SystemAllocationResult.SystemAllocated pointer)
                 (
                   #block
                   (
@@ -334,31 +334,31 @@
                     )
                     chosen
                   )
-                  StringOk
+                  StringStatus.StringOk
                 )
               )
               (
                 #case
-                (SystemAllocationFailed error)
+                (SystemAllocationResult.SystemAllocationFailed error)
                 (
                   #match
                   error
                   (
                     #case
-                    SystemAllocationOutOfMemory
-                    (StringErr StringOutOfMemory)
+                    SystemAllocationError.SystemAllocationOutOfMemory
+                    (StringStatus.StringErr StringError.StringOutOfMemory)
                   )
                   (
                     #case
-                    SystemAllocationInvalidSize
-                    (StringErr StringCapacityOverflow)
+                    SystemAllocationError.SystemAllocationInvalidSize
+                    (StringStatus.StringErr StringError.StringCapacityOverflow)
                   )
                 )
               )
             )          )        )      )    )  ))
 (
   #fn
-  String-with-capacity
+  String::with-capacity
   (: capacity #usize)
   StringCreateResult
   (
@@ -367,7 +367,7 @@
     String
     (
       #call
-      String-new
+      String::new
       ()
     )
   )
@@ -377,27 +377,27 @@
       #match
       (
         #call
-        String-reserve
+        String::reserve
         (: string (#borrow-mut string) : additional capacity)      )
       (
         #case
-        StringOk
-        (StringCreated string)
+        StringStatus.StringOk
+        (StringCreateResult.StringCreated string)
       )
       (
         #case
-        (StringErr error)
+        (StringStatus.StringErr error)
         (
           #block
           (
             #call
-            String-free
+            String::free
             (: string string)          )
-          (StringCreateFailed error)        )      )    )  ))
+          (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 ; Zero is not a scalar width: reject surrogates and out-of-range #char casts.
 (
   #fn
-  String-scalar-width
+  String::scalar-width
   (: value #char)
   #usize
   (
@@ -411,21 +411,21 @@
     (
       #if
       (
-        #bool.||
+        #bool::or
         (
-          #u32.>
+          #u32::gt
           code
           (#literal #u32 1114111)
         )
         (
-          #bool.&&
+          #bool::and
           (
-            #u32.>=
+            #u32::ge
             code
             (#literal #u32 55296)
           )
           (
-            #u32.<=
+            #u32::le
             code
             (#literal #u32 57343)
           )
@@ -435,7 +435,7 @@
       (
         #if
         (
-          #u32.<
+          #u32::lt
           code
           (#literal #u32 128)
         )
@@ -443,7 +443,7 @@
         (
           #if
           (
-            #u32.<
+            #u32::lt
             code
             (#literal #u32 2048)
           )
@@ -451,7 +451,7 @@
           (
             #if
             (
-              #u32.<
+              #u32::lt
               code
               (#literal #u32 65536)
             )
@@ -466,7 +466,7 @@
 ; is unsafe so outside callers cannot write through arbitrary pointers safely.
 (
   #unsafe-fn
-  String-write-scalar
+  String::write-scalar
   (: pointer (#ptr-mut #u8) : offset #usize : value #char : width #usize)
   ()
   (
@@ -482,7 +482,7 @@
     (
       #if
       (
-        #usize.==
+        #usize::eq
         width
         (#literal #usize 1)
       )
@@ -490,17 +490,17 @@
       (
         #if
         (
-          #usize.==
+          #usize::eq
           width
           (#literal #usize 2)
         )
         (
           #as
           (
-            #u32.|
+            #u32::bit-or
             (#literal #u32 192)
             (
-              #u32.>>
+              #u32::shr
               code
               (#literal #u32 6)
             )
@@ -510,17 +510,17 @@
         (
           #if
           (
-            #usize.==
+            #usize::eq
             width
             (#literal #usize 3)
           )
           (
             #as
             (
-              #u32.|
+              #u32::bit-or
               (#literal #u32 224)
               (
-                #u32.>>
+                #u32::shr
                 code
                 (#literal #u32 12)
               )
@@ -530,10 +530,10 @@
           (
             #as
             (
-              #u32.|
+              #u32::bit-or
               (#literal #u32 240)
               (
-                #u32.>>
+                #u32::shr
                 code
                 (#literal #u32 18)
               )
@@ -560,7 +560,7 @@
   )
   (
     #while
-    (#usize.< index width)
+    (#usize::lt index width)
     (
       #let
       shift
@@ -568,12 +568,12 @@
       (
         #as
         (
-          #usize.*.wrap
+          #usize::mul-wrap
           (
-            #usize.-.wrap
+            #usize::sub-wrap
             width
             (
-              #usize.+.wrap
+              #usize::add-wrap
               index
               (#literal #usize 1)
             )
@@ -590,11 +590,11 @@
       (
         #as
         (
-          #u32.|
+          #u32::bit-or
           (#literal #u32 128)
           (
-            #u32.&
-            (#u32.>> code shift)
+            #u32::bit-and
+            (#u32::shr code shift)
             (#literal #u32 63)
           )
         )
@@ -608,7 +608,7 @@
         (
           #ptr-offset
           pointer
-          (#usize.+.wrap offset index)
+          (#usize::add-wrap offset index)
         )
         byte
       )
@@ -617,7 +617,7 @@
       #set
       index
       (
-        #usize.+.wrap
+        #usize::add-wrap
         index
         (#literal #usize 1)
       )
@@ -629,7 +629,7 @@
   ))
 (
   #fn
-  String-push-char
+  String::push-char
   (: string (#ref-mut String) : value #char)
   StringStatus
   (
@@ -638,32 +638,32 @@
     #usize
     (
       #call
-      String-scalar-width
+      String::scalar-width
       (: value value)    )  )
   (
     #return
     (
       #if
       (
-        #usize.==
+        #usize::eq
         width
         (#literal #usize 0)
       )
-      (StringErr StringInvalidChar)
+      (StringStatus.StringErr StringError.StringInvalidChar)
       (
         #match
         (
           #call
-          String-reserve
+          String::reserve
           (: string string : additional width)        )
         (
           #case
-          (StringErr error)
-          (StringErr error)
+          (StringStatus.StringErr error)
+          (StringStatus.StringErr error)
         )
         (
           #case
-          StringOk
+          StringStatus.StringOk
           (
             #block
             (
@@ -676,7 +676,7 @@
               #unsafe
               (
                 #unsafe-call
-                String-write-scalar
+                String::write-scalar
                 (: pointer (#get string pointer) : offset length : value value : width width)              )            )
             (
               #deref-set
@@ -684,12 +684,12 @@
                 #borrow-mut
                 (#get string length)
               )
-              (#usize.+.wrap length width)
+              (#usize::add-wrap length width)
             )
-            StringOk          )        )      )    )  ))
+            StringStatus.StringOk          )        )      )    )  ))
 (
   #fn
-  String-push-chars
+  String::push-chars
   (: string (#ref-mut String) : text (#slice #char))
   StringStatus
   (
@@ -712,19 +712,19 @@
   )
   (
     #while
-    (#usize.< index count)
+    (#usize::lt index count)
     (
       #let
       width
       #usize
       (
         #call
-        String-scalar-width
+        String::scalar-width
         (: value (#deref (#slice-idx text index)))      )    )
     (
       #if
       (
-        #usize.==
+        #usize::eq
         width
         (#literal #usize 0)
       )
@@ -732,7 +732,7 @@
         #block
         (
           #return
-          (StringErr StringInvalidChar)
+          (StringStatus.StringErr StringError.StringInvalidChar)
         )
       )
       ()
@@ -740,15 +740,15 @@
     (
       #if
       (
-        #usize.>
+        #usize::gt
         width
-        (#usize.-.wrap SYSTEM-ALLOCATION-MAX additional)
+        (#usize::sub-wrap sYSTEM-ALLOCATION-MAX additional)
       )
       (
         #block
         (
           #return
-          (StringErr StringCapacityOverflow)
+          (StringStatus.StringErr StringError.StringCapacityOverflow)
         )
       )
       ()
@@ -756,13 +756,13 @@
     (
       #set
       additional
-      (#usize.+.wrap additional width)
+      (#usize::add-wrap additional width)
     )
     (
       #set
       index
       (
-        #usize.+.wrap
+        #usize::add-wrap
         index
         (#literal #usize 1)
       )
@@ -773,16 +773,16 @@
       #match
       (
         #call
-        String-reserve
+        String::reserve
         (: string string : additional additional)      )
       (
         #case
-        (StringErr error)
-        (StringErr error)
+        (StringStatus.StringErr error)
+        (StringStatus.StringErr error)
       )
       (
         #case
-        StringOk
+        StringStatus.StringOk
         (
           #block
           (
@@ -799,7 +799,7 @@
           )
           (
             #while
-            (#usize.< cursor count)
+            (#usize::lt cursor count)
             (
               #let
               value
@@ -815,24 +815,24 @@
               #usize
               (
                 #call
-                String-scalar-width
+                String::scalar-width
                 (: value value)              )            )
             (
               #unsafe
               (
                 #unsafe-call
-                String-write-scalar
+                String::write-scalar
                 (: pointer (#get string pointer) : offset offset : value value : width scalar-width)              )            )
             (
               #set
               offset
-              (#usize.+.wrap offset scalar-width)
+              (#usize::add-wrap offset scalar-width)
             )
             (
               #set
               cursor
               (
-                #usize.+.wrap
+                #usize::add-wrap
                 cursor
                 (#literal #usize 1)
               )
@@ -845,12 +845,12 @@
             )
             offset
           )
-          StringOk        )      )    )  ))
+          StringStatus.StringOk        )      )    )  ))
 ; Strict UTF-8: reject lone continuations, overlong encodings, surrogate code
 ; points, scalars above U+10FFFF, and incomplete sequences, before allocating.
 (
   #fn
-  String-utf8-valid
+  String::utf8-valid
   (: bytes (#slice #u8))
   #bool
   (
@@ -867,7 +867,7 @@
   )
   (
     #while
-    (#usize.< index count)
+    (#usize::lt index count)
     (
       #let
       first
@@ -884,7 +884,7 @@
       (
         #if
         (
-          #u8.<
+          #u8::lt
           first
           (#literal #u8 128)
         )
@@ -892,14 +892,14 @@
         (
           #if
           (
-            #bool.&&
+            #bool::and
             (
-              #u8.>=
+              #u8::ge
               first
               (#literal #u8 194)
             )
             (
-              #u8.<=
+              #u8::le
               first
               (#literal #u8 223)
             )
@@ -908,14 +908,14 @@
           (
             #if
             (
-              #bool.&&
+              #bool::and
               (
-                #u8.>=
+                #u8::ge
                 first
                 (#literal #u8 224)
               )
               (
-                #u8.<=
+                #u8::le
                 first
                 (#literal #u8 239)
               )
@@ -924,14 +924,14 @@
             (
               #if
               (
-                #bool.&&
+                #bool::and
                 (
-                  #u8.>=
+                  #u8::ge
                   first
                   (#literal #u8 240)
                 )
                 (
-                  #u8.<=
+                  #u8::le
                   first
                   (#literal #u8 244)
                 )
@@ -946,16 +946,16 @@
     (
       #if
       (
-        #bool.||
+        #bool::or
         (
-          #usize.==
+          #usize::eq
           width
           (#literal #usize 0)
         )
         (
-          #usize.>
+          #usize::gt
           width
-          (#usize.-.wrap count index)
+          (#usize::sub-wrap count index)
         )
       )
       (
@@ -967,7 +967,7 @@
     (
       #if
       (
-        #usize.>
+        #usize::gt
         width
         (#literal #usize 1)
       )
@@ -983,7 +983,7 @@
               #slice-idx
               bytes
               (
-                #usize.+.wrap
+                #usize::add-wrap
                 index
                 (#literal #usize 1)
               )
@@ -993,60 +993,60 @@
         (
           #if
           (
-            #bool.||
+            #bool::or
             (
-              #bool.||
+              #bool::or
               (
-                #bool.&&
+                #bool::and
                 (
-                  #u8.==
+                  #u8::eq
                   first
                   (#literal #u8 224)
                 )
                 (
-                  #u8.<
+                  #u8::lt
                   second
                   (#literal #u8 160)
                 )
               )
               (
-                #bool.&&
+                #bool::and
                 (
-                  #u8.==
+                  #u8::eq
                   first
                   (#literal #u8 237)
                 )
                 (
-                  #u8.>
+                  #u8::gt
                   second
                   (#literal #u8 159)
                 )
               )
             )
             (
-              #bool.||
+              #bool::or
               (
-                #bool.&&
+                #bool::and
                 (
-                  #u8.==
+                  #u8::eq
                   first
                   (#literal #u8 240)
                 )
                 (
-                  #u8.<
+                  #u8::lt
                   second
                   (#literal #u8 144)
                 )
               )
               (
-                #bool.&&
+                #bool::and
                 (
-                  #u8.==
+                  #u8::eq
                   first
                   (#literal #u8 244)
                 )
                 (
-                  #u8.>
+                  #u8::gt
                   second
                   (#literal #u8 143)
                 )
@@ -1067,7 +1067,7 @@
         )
         (
           #while
-          (#usize.< continuation width)
+          (#usize::lt continuation width)
           (
             #let
             byte
@@ -1077,21 +1077,21 @@
               (
                 #slice-idx
                 bytes
-                (#usize.+.wrap index continuation)
+                (#usize::add-wrap index continuation)
               )
             )
           )
           (
             #if
             (
-              #bool.||
+              #bool::or
               (
-                #u8.<
+                #u8::lt
                 byte
                 (#literal #u8 128)
               )
               (
-                #u8.>
+                #u8::gt
                 byte
                 (#literal #u8 191)
               )
@@ -1106,7 +1106,7 @@
             #set
             continuation
             (
-              #usize.+.wrap
+              #usize::add-wrap
               continuation
               (#literal #usize 1)
             )
@@ -1119,13 +1119,13 @@
     (
       #set
       index
-      (#usize.+.wrap index width)
+      (#usize::add-wrap index width)
     )
   )
   (#return true))
 (
   #fn
-  String-push-utf8
+  String::push-utf8
   (: string (#ref-mut String) : bytes (#slice #u8))
   StringStatus
   (
@@ -1133,26 +1133,26 @@
     (
       #if
       (
-        #bool.!
+        #bool::not
         (
           #call
-          String-utf8-valid
+          String::utf8-valid
           (: bytes bytes)        )      )
-      (StringErr StringInvalidUtf8)
+      (StringStatus.StringErr StringError.StringInvalidUtf8)
       (
         #match
         (
           #call
-          String-reserve
+          String::reserve
           (: string string : additional (#slice-len bytes))        )
         (
           #case
-          (StringErr error)
-          (StringErr error)
+          (StringStatus.StringErr error)
+          (StringStatus.StringErr error)
         )
         (
           #case
-          StringOk
+          StringStatus.StringOk
           (
             #block
             (
@@ -1181,7 +1181,7 @@
             )
             (
               #while
-              (#usize.< index count)
+              (#usize::lt index count)
               (
                 #unsafe
                 (
@@ -1189,7 +1189,7 @@
                   (
                     #ptr-offset
                     pointer
-                    (#usize.+.wrap length index)
+                    (#usize::add-wrap length index)
                   )
                   (
                     #deref
@@ -1201,7 +1201,7 @@
                 #set
                 index
                 (
-                  #usize.+.wrap
+                  #usize::add-wrap
                   index
                   (#literal #usize 1)
                 )
@@ -1213,14 +1213,14 @@
                 #borrow-mut
                 (#get string length)
               )
-              (#usize.+.wrap length count)
+              (#usize::add-wrap length count)
             )
-            StringOk
+            StringStatus.StringOk
           )
         )      )    )  ))
 (
   #fn
-  String-from-chars
+  String::from-chars
   (: text (#slice #char))
   StringCreateResult
   (
@@ -1229,7 +1229,7 @@
     String
     (
       #call
-      String-new
+      String::new
       ()
     )
   )
@@ -1239,26 +1239,26 @@
       #match
       (
         #call
-        String-push-chars
+        String::push-chars
         (: string (#borrow-mut string) : text text)      )
       (
         #case
-        StringOk
-        (StringCreated string)
+        StringStatus.StringOk
+        (StringCreateResult.StringCreated string)
       )
       (
         #case
-        (StringErr error)
+        (StringStatus.StringErr error)
         (
           #block
           (
             #call
-            String-free
+            String::free
             (: string string)          )
-          (StringCreateFailed error)        )      )    )  ))
+          (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 (
   #fn
-  String-from-utf8
+  String::from-utf8
   (: bytes (#slice #u8))
   StringCreateResult
   (
@@ -1267,7 +1267,7 @@
     String
     (
       #call
-      String-new
+      String::new
       ()
     )
   )
@@ -1277,28 +1277,28 @@
       #match
       (
         #call
-        String-push-utf8
+        String::push-utf8
         (: string (#borrow-mut string) : bytes bytes)      )
       (
         #case
-        StringOk
-        (StringCreated string)
+        StringStatus.StringOk
+        (StringCreateResult.StringCreated string)
       )
       (
         #case
-        (StringErr error)
+        (StringStatus.StringErr error)
         (
           #block
           (
             #call
-            String-free
+            String::free
             (: string string)          )
-          (StringCreateFailed error)        )      )    )  ))
+          (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 ; Return a byte by value. Packed allocation addresses must not be converted to
 ; Lim word-layout references. A StringBytes view retains the owner's borrow.
 (
   #fn
-  String-byte-at
+  String::byte-at
   (: string (#ref String) : index #usize)
   StringByteResult
   (
@@ -1306,12 +1306,12 @@
     (
       #if
       (
-        #usize.<
+        #usize::lt
         index
         (#get string length)
       )
       (
-        StringByte
+        StringByteResult.StringByte
         (
           #unsafe
           (
@@ -1324,12 +1324,12 @@
           )
         )
       )
-      StringByteOutOfBounds
+      StringByteResult.StringByteOutOfBounds
     )
   ))
 (
   #fn
-  String-bytes
+  String::bytes
   (: string (#ref String))
   StringBytes
   (
@@ -1340,29 +1340,29 @@
       (: owner string)    )  ))
 (
   #fn
-  StringBytes-len
+  StringBytes::len
   (: bytes StringBytes)
   #usize
   (
     #return
     (
       #call
-      String-len
+      String::len
       (: string (#get bytes owner))    )  ))
 (
   #fn
-  StringBytes-byte-at
+  StringBytes::byte-at
   (: bytes StringBytes : index #usize)
   StringByteResult
   (
     #return
     (
       #call
-      String-byte-at
+      String::byte-at
       (: string (#get bytes owner) : index index)    )  ))
 (
   #fn
-  String-pop-char
+  String::pop-char
   (: string (#ref-mut String))
   StringPopResult
   (
@@ -1376,11 +1376,11 @@
     (
       #if
       (
-        #usize.==
+        #usize::eq
         length
         (#literal #usize 0)
       )
-      StringEmpty
+      StringPopResult.StringEmpty
       (
         #block
         (
@@ -1394,7 +1394,7 @@
           start
           #usize
           (
-            #usize.-.wrap
+            #usize::sub-wrap
             length
             (#literal #usize 1)
           )
@@ -1414,14 +1414,14 @@
         (
           #while
           (
-            #bool.&&
+            #bool::and
             (
-              #u8.>=
+              #u8::ge
               first
               (#literal #u8 128)
             )
             (
-              #u8.<=
+              #u8::le
               first
               (#literal #u8 191)
             )
@@ -1430,7 +1430,7 @@
             #set
             start
             (
-              #usize.-.wrap
+              #usize::sub-wrap
               start
               (#literal #usize 1)
             )
@@ -1454,7 +1454,7 @@
           (
             #if
             (
-              #u8.<
+              #u8::lt
               first
               (#literal #u8 128)
             )
@@ -1462,7 +1462,7 @@
             (
               #if
               (
-                #u8.<
+                #u8::lt
                 first
                 (#literal #u8 224)
               )
@@ -1470,7 +1470,7 @@
               (
                 #if
                 (
-                  #u8.<
+                  #u8::lt
                   first
                   (#literal #u8 240)
                 )
@@ -1485,7 +1485,7 @@
           code
           #u32
           (
-            #u32.&
+            #u32::bit-and
             (#as first #u32)
             mask
           )
@@ -1495,14 +1495,14 @@
           index
           #usize
           (
-            #usize.+.wrap
+            #usize::add-wrap
             start
             (#literal #usize 1)
           )
         )
         (
           #while
-          (#usize.< index length)
+          (#usize::lt index length)
           (
             #let
             byte
@@ -1519,14 +1519,14 @@
             #set
             code
             (
-              #u32.|
+              #u32::bit-or
               (
-                #u32.<<
+                #u32::shl
                 code
                 (#literal #u32 6)
               )
               (
-                #u32.&
+                #u32::bit-and
                 (#as byte #u32)
                 (#literal #u32 63)
               )
@@ -1536,7 +1536,7 @@
             #set
             index
             (
-              #usize.+.wrap
+              #usize::add-wrap
               index
               (#literal #usize 1)
             )
@@ -1551,7 +1551,7 @@
           start
         )
         (
-          StringPopped
+          StringPopResult.StringPopped
           (#as code #char)
         )
       )
@@ -1559,7 +1559,7 @@
   ))
 (
   #fn
-  String-clear
+  String::clear
   (: string (#ref-mut String))
   ()
   (
@@ -1576,7 +1576,7 @@
   ))
 (
   #fn
-  String-try-clone
+  String::try-clone
   (: string (#ref String))
   StringCreateResult
   (
@@ -1591,7 +1591,7 @@
     String
     (
       #call
-      String-new
+      String::new
       ()
     )
   )
@@ -1601,21 +1601,21 @@
       #match
       (
         #call
-        String-reserve
+        String::reserve
         (: string (#borrow-mut copy) : additional length)      )
       (
         #case
-        (StringErr error)
+        (StringStatus.StringErr error)
         (
           #block
           (
             #call
-            String-free
+            String::free
             (: string copy)          )
-          (StringCreateFailed error)        )      )
+          (StringCreateResult.StringCreateFailed error)        )      )
       (
         #case
-        StringOk
+        StringStatus.StringOk
         (
           #block
           (
@@ -1638,7 +1638,7 @@
           )
           (
             #while
-            (#usize.< index length)
+            (#usize::lt index length)
             (
               #unsafe
               (
@@ -1654,25 +1654,25 @@
               #set
               index
               (
-                #usize.+.wrap
+                #usize::add-wrap
                 index
                 (#literal #usize 1)
               )
             )
           )
           (#set-field copy length length)
-          (StringCreated copy)
+          (StringCreateResult.StringCreated copy)
         )
       )    )  ))
 (
   #fn
-  String-free
+  String::free
   (: string String)
   ()
   (
     #if
     (
-      #usize.!=
+      #usize::ne
       (#get string capacity)
       (#literal #usize 0)
     )

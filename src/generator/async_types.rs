@@ -54,7 +54,9 @@ pub(crate) fn collect_enum_pattern_bindings(
         }
         Expr::List(items) if !items.is_empty() => {
             let Expr::Symbol(variant_name) = &items[0] else {
-                return Err("@#async-fn #for initializer requires named enum patterns".into());
+                return Err(
+                    "#generate #async-fn #for initializer requires named enum patterns".into(),
+                );
             };
             // Tuple/array payloads have explicit structural declarations too.
             // Resolve aliases only to select their layout; keep the declared
@@ -64,7 +66,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             while let Some(target) = environment.aliases.get(declared) {
                 if !visited.insert(declared) {
                     return Err(format!(
-                        "@#async-fn cyclic pattern type alias '{type_name}'"
+                        "#generate #async-fn cyclic pattern type alias '{type_name}'"
                     ));
                 }
                 declared = target;
@@ -73,7 +75,9 @@ pub(crate) fn collect_enum_pattern_bindings(
             let ty = parse_type(Some(&normalize_keywords(
                 parsed
                     .first()
-                    .ok_or_else(|| format!("@#async-fn missing pattern type '{type_name}'"))?
+                    .ok_or_else(|| {
+                        format!("#generate #async-fn missing pattern type '{type_name}'")
+                    })?
                     .expr
                     .clone(),
             )))?;
@@ -86,7 +90,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                 {
                     if length != items.len() - 1 {
                         return Err(format!(
-                            "@#async-fn array pattern expects {length} elements"
+                            "#generate #async-fn array pattern expects {length} elements"
                         ));
                     }
                     Some(vec![crate::type_source(&element); length])
@@ -95,7 +99,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                     if variant_name == &name && environment.struct_fields.contains_key(&name) =>
                 {
                     let order = environment.struct_field_order.get(&name).ok_or_else(|| {
-                        format!("@#async-fn missing declared field order for '{name}'")
+                        format!("#generate #async-fn missing declared field order for '{name}'")
                     })?;
                     let fields = &environment.struct_fields[&name];
                     Some(
@@ -103,7 +107,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                             .iter()
                             .map(|field| {
                                 fields.get(field).cloned().ok_or_else(|| {
-                                    format!("@#async-fn missing declared field '{name}.{field}'")
+                                    format!("#generate #async-fn missing declared field '{name}.{field}'")
                                 })
                             })
                             .collect::<Result<Vec<_>, _>>()?,
@@ -114,7 +118,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             if let Some(fields) = structural_fields {
                 if fields.len() != items.len() - 1 {
                     return Err(format!(
-                        "@#async-fn aggregate pattern '{variant_name}' expects {} fields",
+                        "#generate #async-fn aggregate pattern '{variant_name}' expects {} fields",
                         fields.len()
                     ));
                 }
@@ -124,7 +128,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                 return Ok(());
             }
             let enum_name = resolve_async_enum_name(type_name, environment).ok_or_else(|| {
-                format!("@#async-fn cannot resolve enum payload types for '{type_name}'")
+                format!("#generate #async-fn cannot resolve enum payload types for '{type_name}'")
             })?;
             let fields = environment
                 .enums
@@ -132,12 +136,12 @@ pub(crate) fn collect_enum_pattern_bindings(
                 .and_then(|variants| variants.get(variant_name))
                 .ok_or_else(|| {
                     format!(
-                        "@#async-fn cannot resolve pattern variant '{variant_name}' for '{type_name}'"
+                        "#generate #async-fn cannot resolve pattern variant '{variant_name}' for '{type_name}'"
                     )
                 })?;
             if fields.len() != items.len() - 1 {
                 return Err(format!(
-                    "@#async-fn enum pattern '{variant_name}' has {} fields, but the declaration has {}",
+                    "#generate #async-fn enum pattern '{variant_name}' has {} fields, but the declaration has {}",
                     items.len() - 1,
                     fields.len()
                 ));
@@ -147,7 +151,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             }
         }
         Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) | Expr::String(_) => {}
-        _ => return Err("@#async-fn #for initializer has an unsupported pattern".into()),
+        _ => return Err("#generate #async-fn #for initializer has an unsupported pattern".into()),
     }
     Ok(())
 }
@@ -251,7 +255,7 @@ mod tests {
                 .unwrap_err()
                 .contains("expects 2 elements")
         );
-        assert!(bindings("(Missing value)", "Choice", &environment)
+        assert!(bindings("(missing value)", "Choice", &environment)
             .unwrap_err()
             .contains("cannot resolve pattern variant"));
         environment.struct_field_order.remove("Pair");

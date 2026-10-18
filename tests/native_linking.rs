@@ -60,14 +60,14 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
         let tuple = "(#tuple () #u128 #f64 #u64)";
         let source = format!(
             "(#fn receiver (: view ({ty} {tuple}) : count (#ref-mut #u64)) ({ty} {tuple})
-              (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return view))
+              (#deref-set count (#u64::add-wrap (#deref count) 1u64)) (#return view))
               (#fn main () #u64
                 (#let-mut values {tuple} (#tuple {tuple} () 18446744073709551617u128 3.5f64 42u64))
                 (#let view ({ty} {tuple}) ({borrow} values)) (#let-mut count #u64 0u64)
                 (#let unit () (#get (#call receiver (: view view : count (#borrow-mut count))) 0))
-                (#assert (#u64.== count 1u64))
-                (#assert (#u128.== (#get view 1) 18446744073709551617u128))
-                (#assert (#f64.== (#get view 2) 3.5f64))
+                (#assert (#u64::eq count 1u64))
+                (#assert (#u128::eq (#get view 1) 18446744073709551617u128))
+                (#assert (#f64::eq (#get view 2) 3.5f64))
                 (#return (#get view 3)))"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
@@ -75,10 +75,10 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
     for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
         let tuple = "(#tuple #u128 #f64 #u64)";
         let source = format!(
-            "(#let Values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64))
-              (#fn main () #u64 (#let view ({ty} {tuple}) ({borrow} Values))
-                (#assert (#u128.== (#get view 0) 18446744073709551617u128))
-                (#assert (#f64.== (#get view 1) 3.5f64)) (#return (#get view 2)))"
+            "(#let values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64))
+              (#fn main () #u64 (#let view ({ty} {tuple}) ({borrow} values))
+                (#assert (#u128::eq (#get view 0) 18446744073709551617u128))
+                (#assert (#f64::eq (#get view 1) 3.5f64)) (#return (#get view 2)))"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }
@@ -169,11 +169,11 @@ fn large_loop_results_keep_their_local_or_indirect_destination() {
           (#return (#index values 6usize)))"
         ),
         format!(
-            "(#enum Packet () (: Present (#array #u64 7)))
+            "(#enum Packet () (: Packet.Present (#array #u64 7)))
           (#fn main () #u64
             (#let packet Packet (#block (#label outer (#loop
-              (#forget 0u64) (#break-to outer (Present {values}))))))
-            (#let-else (Present values) Packet packet (#unreachable))
+              (#forget 0u64) (#break-to outer (Packet.Present {values}))))))
+            (#let-else (Packet.Present values) Packet packet (#unreachable))
             (#return (#index values 6usize)))"
         ),
         // The loop writes a nested field at a nonzero offset in an indirect
@@ -183,7 +183,7 @@ fn large_loop_results_keep_their_local_or_indirect_destination() {
           (#fn make () Packet (#return (#struct-literal Packet
             (: sentinel 9u64 : values {result}))))
           (#fn main () #u64 (#let packet Packet (#call make (:)))
-            (#assert (#u64.== (#get packet sentinel) 9u64))
+            (#assert (#u64::eq (#get packet sentinel) 9u64))
             (#return (#index (#get packet values) 6usize)))"
         ),
     ] {
@@ -679,7 +679,7 @@ fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
     let source = format!(
         "(#import {:?}) (#fn main () #u64
           (#let letter #u8 83u8)
-          (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
+          (#assert (#i64::eq (#call linux-write-byte (: source (#borrow letter))) 1i64))
           (#return 42u64))",
         library.to_str().unwrap()
     );

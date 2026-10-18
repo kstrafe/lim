@@ -20,11 +20,11 @@ fn borrowed_arguments_and_generated_case_sequences_run_in_order() {
         `((#fn ,name (: value (#ref-mut #u64)) #u64
             (#return (#match true
               (#case true (#when true)
-                (#deref-set value (#u64.+.wrap (#deref value) 1u64))
-                (#deref-set value (#u64.+.wrap (#deref value) 1u64))
+                (#deref-set value (#u64::add-wrap (#deref value) 1u64))
+                (#deref-set value (#u64::add-wrap (#deref value) 1u64))
                 (#deref value))
               (#case _ 0u64))))))
-      (@make-function increment)
+      (#generate make-function increment)
       (#fn main () #u64
         (#let-mut value #u64 40u64)
         (#return (#call increment (($ (#borrow-mut value))))))

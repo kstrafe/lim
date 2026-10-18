@@ -40,6 +40,6 @@ fn nested_type_positions_are_checked_without_rewriting_identifiers_or_literals()
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "u8");
     }
-    assert!(parse_program("(#fn make-u64 () #u64 (#return (#u64.+.wrap 40u64 2u64)))").is_ok());
-    assert!(parse_program("(#struct User.Type () (: field-name #u8))").is_ok());
+    assert!(parse_program("(#fn make-u64 () #u64 (#return (#u64::add-wrap 40u64 2u64)))").is_ok());
+    assert!(parse_program("(#struct User::Type () (: field-name #u8))").is_ok());
 }

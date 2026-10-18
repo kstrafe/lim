@@ -21,7 +21,7 @@
   (#set-field point y 40)
   (
     #return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#get point x)
       (#get point y)
     )

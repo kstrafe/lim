@@ -12,4 +12,4 @@
   (#let (#array a b c d e f result)
     (#array #u64 7)
     (#call make (:)))
-  (#return (#u64.+.wrap last result)))
+  (#return (#u64::add-wrap last result)))

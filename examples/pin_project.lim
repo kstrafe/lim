@@ -1,11 +1,11 @@
 (#std)
-(#enum Task () ((Work #u64) Idle))
-(@#enum-project
-  (: enum Task : variant Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
+(#enum Task () ((Task.Work #u64) Task.Idle))
+(#generate #enum-project
+  (: enum Task : variant Task.Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
 
 (#fn main () #u64
-  (#let-mut task Task (#enum-literal Work 42u64))
-  (#let-else (WorkProjection::Some frame)
+  (#let-mut task Task (#enum-literal Task.Work 42u64))
+  (#let-else (WorkProjection.Some frame)
     (#call WorkProjection::project (: source (#pin-borrow-mut task)))
     (#else
       (#forget task)

@@ -319,8 +319,8 @@ mod tests {
         let source = "(#struct A () ((b #u64)))
           (#fn main () #u64
             (#let a A (#struct-literal A ((b 4u64))))
-            (#let a.b #u64 8u64)
-            (#return (#u64.+.wrap a.b (#get a b))))";
+            (#let a-b #u64 8u64)
+            (#return (#u64::add-wrap a-b (#get a b))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -329,7 +329,7 @@ mod tests {
             .iter()
             .enumerate()
             .find_map(|(index, node)| match &node.kind {
-                NodeKind::Symbol { name, .. } if name == "a.b" => Some(NodeId(index)),
+                NodeKind::Symbol { name, .. } if name == "a-b" => Some(NodeId(index)),
                 _ => None,
             })
             .unwrap();
@@ -375,7 +375,7 @@ mod tests {
           (#fn main () #u64
             (#let a A (#struct-literal A ((value 1u64))))
             (#let b B (#struct-literal B ((value 2u64))))
-            (#return (#u64.+.wrap (#get a value) (#get b value))))";
+            (#return (#u64::add-wrap (#get a value) (#get b value))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];

@@ -1,6 +1,6 @@
 (#fn main () #u64
   (#let chars (#array #char 2) "Hi")
   (#return
-    (#if (#char.== (#index "Hi" 1) #\i)
-         (#if (#char.== (#index chars 0) #\H) 42 0)
+    (#if (#char::eq (#index "Hi" 1) #\i)
+         (#if (#char::eq (#index chars 0) #\H) 42 0)
          0)))

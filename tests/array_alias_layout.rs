@@ -10,12 +10,12 @@ fn source(length: usize, global: bool) -> String {
     let row = format!("(#array-of Row {values})");
     let grid = format!("(#array-of Grid {row} (#array-repeat 25u64))");
     let declaration = if global {
-        format!("(#static Table Grid {grid})")
+        format!("(#static table Grid {grid})")
     } else {
         String::new()
     };
     let extra = if global {
-        "(#assert (#u64.== (#call inspect (: values (#unsafe Table))) 42u64))"
+        "(#assert (#u64::eq (#call inspect (: values (#unsafe table))) 42u64))"
     } else {
         ""
     };
@@ -25,15 +25,15 @@ fn source(length: usize, global: bool) -> String {
       (#fn make-row () RowAlias (#return {row}))
       (#fn make-grid () Grid (#return {grid}))
       (#fn inspect (: values Grid) #u64
-        (#return (#u64.+.wrap (#index (#index values 0usize) 0usize)
+        (#return (#u64::add-wrap (#index (#index values 0usize) 0usize)
           (#index (#index values 1usize) {last}usize))))
       (#fn main () #u64
         (#let local Grid {grid})
-        (#assert (#u64.== (#call inspect (: values local)) 42u64))
+        (#assert (#u64::eq (#call inspect (: values local)) 42u64))
         (#let returned Grid (#call make-grid ()))
-        (#assert (#u64.== (#call inspect (: values returned)) 42u64))
+        (#assert (#u64::eq (#call inspect (: values returned)) 42u64))
         (#let returned-row RowAlias (#call make-row ()))
-        (#assert (#u64.== (#index returned-row 0usize) 17u64)) {extra}
+        (#assert (#u64::eq (#index returned-row 0usize) 17u64)) {extra}
         (#return (#call inspect (: values {grid}))))",
         last = length - 1
     )

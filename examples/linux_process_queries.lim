@@ -4,9 +4,9 @@
   (#let pid #i64 (#call linux-getpid (:)))
   (#let tid #i64 (#call linux-gettid (:)))
   (#let max-fifo-priority #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MAX (1usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-SCHED-GET-PRIORITY-MAX (1usize))))
   (#let min-fifo-priority #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MIN (1usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-SCHED-GET-PRIORITY-MIN (1usize))))
   (#let-mut cpu #u32 4294967295u32)
   (#let-mut node #u32 4294967295u32)
   (#let cpu-query #i64
@@ -14,10 +14,10 @@
   (#let thread-signal-probe #i64
     (#call linux-tgkill (: group pid : thread tid : signal 0i32)))
   (#let limits (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let limit-query #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRLIMIT (7usize limits))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-GETRLIMIT (7usize limits))))
   (#let open-files-current #u64 (#unsafe (#ptr-read limits)))
   (#let open-files-maximum #u64
     (#unsafe (#ptr-read (#ptr-offset limits 1usize))))
@@ -33,8 +33,8 @@
   (#let attributes-query #i64
     (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes limits : size 56u32 : flags 0u32))))
   (#let attributes-header #u64 (#unsafe (#ptr-read limits)))
-  (#let attributes-size #u64 (#u64.& attributes-header 4294967295u64))
-  (#let attributes-policy #u64 (#u64.>> attributes-header 32u64))
+  (#let attributes-size #u64 (#u64::bit-and attributes-header 4294967295u64))
+  (#let attributes-policy #u64 (#u64::shr attributes-header 32u64))
   (#let invalid-attributes-size #i64
     (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes limits : size 8u32 : flags 0u32))))
   (#let invalid-attributes-flags #i64
@@ -47,35 +47,35 @@
   (#let free-ram #u64
     (#unsafe (#ptr-read (#ptr-offset limits 5usize))))
   (#let unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (limits 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (limits 4096usize))))
   (#let process-queries-ok #bool
-    (#bool.&& (#i64.> pid 0i64)
-      (#bool.&& (#i64.> tid 0i64)
-        (#bool.&& (#i64.== min-fifo-priority 1i64)
-          (#bool.&& (#i64.== max-fifo-priority 99i64)
-            (#bool.&& (#i64.== cpu-query 0i64)
-              (#bool.&& (#u32.!= cpu 4294967295u32)
-                (#bool.&& (#u32.!= node 4294967295u32)
-                  (#i64.== thread-signal-probe 0i64)))))))))
+    (#bool::and (#i64::gt pid 0i64)
+      (#bool::and (#i64::gt tid 0i64)
+        (#bool::and (#i64::eq min-fifo-priority 1i64)
+          (#bool::and (#i64::eq max-fifo-priority 99i64)
+            (#bool::and (#i64::eq cpu-query 0i64)
+              (#bool::and (#u32::ne cpu 4294967295u32)
+                (#bool::and (#u32::ne node 4294967295u32)
+                  (#i64::eq thread-signal-probe 0i64)))))))))
   (#let resource-queries-ok #bool
-    (#bool.&& (#i64.== limit-query 0i64)
-      (#bool.&& (#u64.<= open-files-current open-files-maximum)
-        (#bool.&& (#i64.== system-info 0i64)
-          (#bool.&& (#u64.> uptime 0u64)
-            (#bool.&& (#u64.> total-ram 0u64)
-              (#bool.&& (#u64.<= free-ram total-ram)
-                (#i64.== unmapped 0i64))))))))
+    (#bool::and (#i64::eq limit-query 0i64)
+      (#bool::and (#u64::le open-files-current open-files-maximum)
+        (#bool::and (#i64::eq system-info 0i64)
+          (#bool::and (#u64::gt uptime 0u64)
+            (#bool::and (#u64::gt total-ram 0u64)
+              (#bool::and (#u64::le free-ram total-ram)
+                (#i64::eq unmapped 0i64))))))))
   (#let scheduler-queries-ok #bool
-    (#bool.&& (#i64.>= scheduler 0i64)
-      (#bool.&& (#i64.== interval-query 0i64)
-        (#bool.&& (#u64.< interval-nanoseconds 1000000000u64)
-          (#bool.&& (#u64.< interval-seconds 60u64)
-            (#bool.&& (#i64.== invalid-interval -22i64)
-              (#bool.&& (#i64.== attributes-query 0i64)
-                (#bool.&& (#u64.>= attributes-size 48u64)
-                  (#bool.&& (#u64.== attributes-policy (#as scheduler #u64))
-                    (#bool.&& (#i64.== invalid-attributes-size -22i64)
-                      (#i64.== invalid-attributes-flags -22i64)))))))))))
+    (#bool::and (#i64::ge scheduler 0i64)
+      (#bool::and (#i64::eq interval-query 0i64)
+        (#bool::and (#u64::lt interval-nanoseconds 1000000000u64)
+          (#bool::and (#u64::lt interval-seconds 60u64)
+            (#bool::and (#i64::eq invalid-interval -22i64)
+              (#bool::and (#i64::eq attributes-query 0i64)
+                (#bool::and (#u64::ge attributes-size 48u64)
+                  (#bool::and (#u64::eq attributes-policy (#as scheduler #u64))
+                    (#bool::and (#i64::eq invalid-attributes-size -22i64)
+                      (#i64::eq invalid-attributes-flags -22i64)))))))))))
   (#return
-    (#if (#bool.&& process-queries-ok
-        (#bool.&& resource-queries-ok scheduler-queries-ok)) 42u64 1u64)))
+    (#if (#bool::and process-queries-ok
+        (#bool::and resource-queries-ok scheduler-queries-ok)) 42u64 1u64)))

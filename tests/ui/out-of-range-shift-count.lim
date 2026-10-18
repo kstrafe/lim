@@ -1,2 +1,2 @@
 (#fn main () #u8
-  (#return (#u8.<< 1u8 8)))
+  (#return (#u8::shl 1u8 8)))

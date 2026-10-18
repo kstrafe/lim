@@ -1,6 +1,6 @@
 (#std)
 (#import "../library/pin_box.lim")
-(@ #pin-box
+(#generate #pin-box
   (: type #u64 : allocator SystemAllocator::Allocator : name PinU64Box : destroy destroy-u64))
 
 (#fn destroy-u64 (: allocator (#ref SystemAllocator) : pin (#pin-ref-mut #u64)) ()
@@ -12,9 +12,9 @@
 
 (#fn main () #u64
   (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
-  (#let-else (PinU64Box::created owner) PinU64Box::CreateResult
+  (#let-else (PinU64Box::CreateResult.Created owner) PinU64Box::CreateResult
     (#call PinU64Box::create (($ (#borrow allocator)) (value 42u64)))
-    (#else (PinU64Box::allocation-failed failure)
+    (#else (PinU64Box::CreateResult.Allocation-failed failure)
       (#let (#tuple error value) (#tuple SystemAllocationError #u64) failure)
       (#forget error)
       (#forget value)

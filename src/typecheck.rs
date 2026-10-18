@@ -381,7 +381,7 @@ mod checked_program_tests {
         let program = crate::parse_program(
             "(#struct Value () ((number #u64)))
           (#fn helper ((value Value)) Value (#return value))
-          (#fn Value-clone ((value Value)) Value
+          (#fn Value::clone ((value Value)) Value
             (#return (#call helper (: value value))))
           (#fn main () #u64
             (#let value Value (#struct-literal Value (: number 42u64)))
@@ -391,7 +391,7 @@ mod checked_program_tests {
         let checked = CheckedProgram::validate(&program).unwrap();
         let depths = function_call_depths(&program, checked.declarations());
         assert_eq!(depths["helper"], 1);
-        assert_eq!(depths["Value-clone"], 2);
+        assert_eq!(depths["Value::clone"], 2);
         assert_eq!(depths["main"], 3);
     }
 
@@ -557,16 +557,16 @@ mod checked_program_tests {
     #[test]
     fn semantic_locations_do_not_depend_on_rendered_wording() {
         let cases = [
-            ("(#fn main () #u64 (#let value #u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
-            ("(#fn main () #u64 (#let value #u64 1u64) (#let flag #bool false) (#return (#u64.+.wrap 2u64 flag)))", "flag"),
-            ("(#fn add ((first #u64) (second #u64)) #u64 (#return (#u64.+.wrap first second))) (#fn main () #u64 (#return (#call add (: second false : first 1u64))))", "false"),
+            ("(#fn main () #u64 (#let value #u64 (#u64::add-wrap 1u64 false)) (#return value))", "false"),
+            ("(#fn main () #u64 (#let value #u64 1u64) (#let flag #bool false) (#return (#u64::add-wrap 2u64 flag)))", "flag"),
+            ("(#fn add ((first #u64) (second #u64)) #u64 (#return (#u64::add-wrap first second))) (#fn main () #u64 (#return (#call add (: second false : first 1u64))))", "false"),
             ("(#struct Inner () ((value #u64))) (#struct Outer () ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
             ("(#fn main () #u64 (#let-mut value #u64 0u64) (#let shared (#ref #u64) (#borrow value)) (#let mutable (#ref-mut #u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
             ("(#fn main () #u64 (#return (#get (#tuple (#tuple #u64 #u64) 1u64 false) 0)))", "false"),
-            ("(#fn main () #u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
+            ("(#fn main () #u64 (#return (#u64::add-wrap (#if false 1u64 2u64) false)))", "false"),
             ("(#fn choose ((flag #bool) (value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call choose (: value false : flag false))))", "false"),
             ("(#struct Point () ((value #u64))) (#fn main () #u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut #u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
-            ("(#fn main () #u64 (#return (#block (#let value #u64 1u64) (#u64.+.wrap value 2u64) (#let flag #bool false) (#u64.+.wrap flag 2u64))))", "flag"),
+            ("(#fn main () #u64 (#return (#block (#let value #u64 1u64) (#u64::add-wrap value 2u64) (#let flag #bool false) (#u64::add-wrap flag 2u64))))", "flag"),
         ];
         for (source, offending) in cases {
             let program = crate::parse_program(source).unwrap();
@@ -619,11 +619,11 @@ mod checked_program_tests {
 
     #[test]
     fn typed_match_return_uses_the_arm_local_loan_state() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
-            (#let holder Holder (Has (#borrow owner)))
-            (#return (#match holder (#case (Has view) view))))";
+            (#let holder Holder (Holder.Has (#borrow owner)))
+            (#return (#match holder (#case (Holder.Has view) view))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -665,13 +665,13 @@ mod checked_program_tests {
 
     #[test]
     fn typed_aggregate_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#struct Wrapped () ((view (#ref #u64))))
           (#fn escape () Wrapped
             (#let owner #u64 1u64)
-            (#let holder Holder (Has (#borrow owner)))
+            (#let holder Holder (Holder.Has (#borrow owner)))
             (#return (#struct-literal Wrapped
-              ((view (#match holder (#case (Has view) view)))))))";
+              ((view (#match holder (#case (Holder.Has view) view)))))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -683,12 +683,12 @@ mod checked_program_tests {
 
     #[test]
     fn typed_repeated_array_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#fn escape () (#array (#ref #u64) 2)
             (#let owner #u64 1u64)
-            (#let holder Holder (Has (#borrow owner)))
+            (#let holder Holder (Holder.Has (#borrow owner)))
             (#return (#array-repeat
-              (#match holder (#case (Has view) view)))))";
+              (#match holder (#case (Holder.Has view) view)))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -700,13 +700,13 @@ mod checked_program_tests {
 
     #[test]
     fn typed_reference_call_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#fn identity ((value (#ref #u64))) (#ref #u64) (#return value))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
-            (#let holder Holder (Has (#borrow owner)))
+            (#let holder Holder (Holder.Has (#borrow owner)))
             (#return (#call identity
-              (: value (#match holder (#case (Has view) view))))))";
+              (: value (#match holder (#case (Holder.Has view) view))))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -719,13 +719,13 @@ mod checked_program_tests {
     #[test]
     fn typed_projected_return_uses_nested_match_loan_state() {
         let source = "(#struct RefBox () ((view (#ref #u64))))
-          (#enum Holder () ((Has RefBox)))
+          (#enum Holder () ((Holder.Has RefBox)))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
             (#let holder Holder
-              (Has (#struct-literal RefBox ((view (#borrow owner))))))
+              (Holder.Has (#struct-literal RefBox ((view (#borrow owner))))))
             (#return (#get
-              (#match holder (#case (Has boxed) boxed)) view)))";
+              (#match holder (#case (Holder.Has boxed) boxed)) view)))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -757,13 +757,13 @@ mod checked_program_tests {
 
     #[test]
     fn typed_slice_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder () ((Has (#ref (#array #u64 2)))))
+        let source = "(#enum Holder () ((Holder.Has (#ref (#array #u64 2)))))
           (#fn escape () (#slice #u64)
             (#let owner (#array #u64 2)
               (#array-of (#array #u64 2) 1u64 2u64))
-            (#let holder Holder (Has (#borrow owner)))
+            (#let holder Holder (Holder.Has (#borrow owner)))
             (#return (#match holder
-              (#case (Has values) (#slice-of values)))))";
+              (#case (Holder.Has values) (#slice-of values)))))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -776,12 +776,12 @@ mod checked_program_tests {
 
     #[test]
     fn typed_array_literal_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#fn escape () (#array (#ref #u64) 1)
             (#let owner #u64 1u64)
-            (#let holder Holder (Has (#borrow owner)))
+            (#let holder Holder (Holder.Has (#borrow owner)))
             (#return (#array-of (#array (#ref #u64) 1)
-              (#match holder (#case (Has view) view)))))";
+              (#match holder (#case (Holder.Has view) view)))))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -847,7 +847,7 @@ mod checked_program_tests {
             `((#fn ,name () (#ref #u64)
                 (#let owner #u64 1u64)
                 (#return (#borrow owner)))))
-          (@make generated)";
+          (#generate make generated)";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
         let span = span.unwrap();
@@ -855,7 +855,7 @@ mod checked_program_tests {
         let generated = &program.source_files[span.source_id as usize].source;
         assert!(generated[span.start..span.end].starts_with("(#return"));
         assert!(labels.iter().any(|(label, _)| {
-            label.source_id == 0 && &source[label.start..label.end] == "(@make generated)"
+            label.source_id == 0 && &source[label.start..label.end] == "(#generate make generated)"
         }));
     }
 
@@ -1768,7 +1768,7 @@ fn check_types_inner(
         }
         let clone_hook = function
             .name
-            .strip_suffix("-clone")
+            .strip_suffix("::clone")
             .is_some_and(|name| structs.contains_key(name) || enums.contains_key(name));
         if (function.external || function.unsafe_call) && (function.name == "main" || clone_hook) {
             *diagnostic_span = function_name_span(program, &function.name);
@@ -1963,11 +1963,11 @@ fn check_types_inner(
             }
         }
         let task_type = Type::Named(name.clone());
-        let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
-        let join_result_type = Type::Named(format!("{name}-join-result"));
+        let spawn_result_type = Type::Named(format!("{name}::SpawnResult"));
+        let join_result_type = Type::Named(format!("{name}::JoinResult"));
         for (generated_name, signature) in [
             (
-                format!("{name}-spawn"),
+                format!("{name}::spawn"),
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: worker_signature.parameters.clone(),
@@ -1976,7 +1976,7 @@ fn check_types_inner(
                 },
             ),
             (
-                format!("{name}-join"),
+                format!("{name}::join"),
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: vec![task_type],
@@ -2812,8 +2812,8 @@ fn check_thread_task_ownership(
         .keys()
         .flat_map(|task| {
             [
-                format!("{task}-spawn-result"),
-                format!("{task}-join-result"),
+                format!("{task}::SpawnResult"),
+                format!("{task}::JoinResult"),
             ]
         })
         .collect::<HashSet<_>>();
@@ -3270,11 +3270,11 @@ fn thread_result_type(
         return None;
     };
     tasks.keys().find_map(|task| {
-        (function == &format!("{task}-spawn"))
-            .then(|| Type::Named(format!("{task}-spawn-result")))
+        (function == &format!("{task}::spawn"))
+            .then(|| Type::Named(format!("{task}::SpawnResult")))
             .or_else(|| {
-                (function == &format!("{task}-join"))
-                    .then(|| Type::Named(format!("{task}-join-result")))
+                (function == &format!("{task}::join"))
+                    .then(|| Type::Named(format!("{task}::JoinResult")))
             })
     })
 }
@@ -3374,7 +3374,7 @@ fn check_function_task_uses(
                         "thread task handle '{name}' must be immutable and consumed by join"
                     ));
                 }
-                let expected_spawn = format!("{task_type}-spawn");
+                let expected_spawn = format!("{task_type}::spawn");
                 if !is_direct_thread_call(value, &expected_spawn) {
                     return Err(semantic_format!(
                         "thread task '{name}' must be initialized directly by '{expected_spawn}'"
@@ -3528,7 +3528,7 @@ fn direct_task_join(
         return None;
     };
     for task_type in tasks.keys() {
-        if operator == &format!("{task_type}-join") && items.len() == 2 {
+        if operator == &format!("{task_type}::join") && items.len() == 2 {
             let Expr::Symbol(handle) = &items[1] else {
                 return None;
             };
@@ -3573,9 +3573,9 @@ fn contains_thread_operation(expression: &Expr, tasks: &HashMap<String, String>)
                 _ => None,
             });
             head.is_some_and(|head| {
-                tasks
-                    .keys()
-                    .any(|task| head == &format!("{task}-spawn") || head == &format!("{task}-join"))
+                tasks.keys().any(|task| {
+                    head == &format!("{task}::spawn") || head == &format!("{task}::join")
+                })
             }) || items
                 .iter()
                 .any(|item| contains_thread_operation(item, tasks))
@@ -4304,7 +4304,7 @@ fn collect_expression_calls(
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
-        | Expr::At => {}
+        | Expr::Generate => {}
     }
 }
 
@@ -5270,7 +5270,10 @@ fn find_operator_argument(
 ) -> Option<crate::Span> {
     if let Expr::List(items) = &expression.expr {
         if let Some(Expr::Symbol(head)) = items.first() {
-            let normalized = head.strip_prefix('#').unwrap_or(head);
+            let lowered = crate::names::numeric_operation(head);
+            let normalized = lowered
+                .as_deref()
+                .unwrap_or_else(|| head.strip_prefix('#').unwrap_or(head));
             if operators.iter().any(|operator| {
                 normalized == *operator
                     || normalized.split('.').skip(1).any(|part| part == *operator)
@@ -5290,7 +5293,10 @@ fn find_operator_argument(
 fn source_operator_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
     if let Expr::List(items) = &expression.expr {
         if let Some(Expr::Symbol(head)) = items.first() {
-            let normalized = head.strip_prefix('#').unwrap_or(head);
+            let lowered = crate::names::numeric_operation(head);
+            let normalized = lowered
+                .as_deref()
+                .unwrap_or_else(|| head.strip_prefix('#').unwrap_or(head));
             if normalized == target || normalized.split('.').skip(1).any(|part| part == target) {
                 return expression.children.first().map(|head| head.span);
             }
@@ -5359,7 +5365,7 @@ fn expression_with_type_hint(
             return false;
         }
         head.strip_prefix('#')
-            .and_then(|qualified| qualified.split_once('.'))
+            .and_then(|qualified| qualified.split_once("::"))
             .is_some_and(|(qualifier, _)| {
                 is_builtin_scalar_name(qualifier) && qualifier.eq_ignore_ascii_case(wanted)
             })
@@ -5382,7 +5388,7 @@ fn expression_with_type_hint(
     }
     let is_typed_scalar_operator = head
         .strip_prefix('#')
-        .and_then(|qualified| qualified.split_once('.'))
+        .and_then(|qualified| qualified.split_once("::"))
         .is_some_and(|(qualifier, _)| is_builtin_scalar_name(qualifier));
     if !is_typed_scalar_operator {
         return expression
@@ -7060,7 +7066,7 @@ fn expression_inner(
             functions.pending_value_label.replace(previous);
             result
         }
-        Expr::At
+        Expr::Generate
         | Expr::Quote(_)
         | Expr::QuasiQuote(_)
         | Expr::Unquote(_)
@@ -7117,7 +7123,7 @@ fn type_contains_thread_task_value(
     let ty = resolve_type(ty, aliases).unwrap_or_else(|_| ty.clone());
     match &ty {
         Type::Named(name) => {
-            functions.contains_key(&format!("{name}-join"))
+            functions.contains_key(&format!("{name}::join"))
                 || (seen.insert(name.clone())
                     && enums.get(name).is_some_and(|variants| {
                         variants
@@ -7450,13 +7456,13 @@ fn list_expression(
                 return Err("thread task handles and results cannot be cloned".into());
             }
             if let Type::Named(name) = &cloned {
-                if functions.contains_key(&format!("{name}-join")) {
+                if functions.contains_key(&format!("{name}::join")) {
                     return Err(semantic_format!("thread task '{name}' cannot be cloned"));
                 }
-                if let Some(signature) = functions.get(&format!("{name}-clone")) {
+                if let Some(signature) = functions.get(&format!("{name}::clone")) {
                     if signature.parameters != [cloned.clone()] || signature.return_type != cloned {
                         return Err(semantic_format!(
-                            "'{name}-clone' must take and return exactly one '{name}' value"
+                            "'{name}::clone' must take and return exactly one '{name}' value"
                         ));
                     }
                 }
@@ -7480,16 +7486,16 @@ fn list_expression(
                 );
             }
             if let Type::Named(name) = &forgotten {
-                if functions.contains_key(&format!("{name}-join")) {
+                if functions.contains_key(&format!("{name}::join")) {
                     return Err(semantic_format!(
                         "thread task '{name}' must be joined; it cannot be dropped or forgotten"
                     ));
                 }
                 let thread_result_task = name
-                    .strip_suffix("-spawn-result")
-                    .or_else(|| name.strip_suffix("-join-result"));
+                    .strip_suffix("::SpawnResult")
+                    .or_else(|| name.strip_suffix("::JoinResult"));
                 if thread_result_task
-                    .is_some_and(|task| functions.contains_key(&format!("{task}-spawn")))
+                    .is_some_and(|task| functions.contains_key(&format!("{task}::spawn")))
                 {
                     return Err(semantic_format!(
                         "thread result '{name}' must be matched so any task handle is joined"
@@ -11361,7 +11367,7 @@ mod generation_planning_tests {
 
     fn context(body: &str) -> (Program, crate::generation_interfaces::DeclarationInterfaces) {
         let source = format!(
-            "(@#async-fn (: protocol start-await : waker #u64
+            "(#generate #async-fn (: protocol start-await : waker #u64
                 : function (#fn start () #u64 (#return 1u64)))) {body}"
         );
         let prepared = crate::prepare_program_syntax(
@@ -11427,8 +11433,8 @@ mod generation_planning_tests {
                 (#let address #usize (#ptr-address ptr))
                 (#let length #usize (#slice-len items))
                 (#return (#match result
-                    (#case (Start::Pending child) 0u64)
-                    (#case (Start::Ready value) value))))",
+                    (#case (Start::Poll.Pending child) 0u64)
+                    (#case (Start::Poll.Ready value) value))))",
         )
         .unwrap();
     }
@@ -11461,12 +11467,12 @@ mod generation_planning_tests {
         )
         .unwrap();
         let (message, code, span, _) = plan(
-            "(#fn ignored ((value Missing)) #u64 (#return 1u64))
+            "(#fn ignored ((value missing)) #u64 (#return 1u64))
              (#fn main () #u64 (#return 1u64))",
         )
         .err()
         .unwrap();
-        assert!(message.contains("Missing"), "{message}");
+        assert!(message.contains("missing"), "{message}");
         assert_eq!(code, crate::DiagnosticCode::Type);
         assert!(span.is_some());
     }
@@ -11532,11 +11538,11 @@ mod typed_ownership_tests {
                 "(#array (#ref-mut #u64) 2)",
                 "(#array-of (#array (#ref-mut #u64) 2) reference reference)",
             ),
-            ("Choice", "(Both (#tuple reference reference))"),
+            ("Choice", "(Choice.Both (#tuple reference reference))"),
         ] {
             let source = format!(
                 "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                  (#enum Choice () ((Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
+                  (#enum Choice () ((Choice.Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
                   (#fn main () ()
                     (#let-mut value #u64 1u64)
                     (#let reference (#ref-mut #u64) (#borrow-mut value))
@@ -11638,7 +11644,7 @@ mod typed_ownership_tests {
     fn typed_exclusive_field_transfers_preserve_independent_slots() {
         for access in [
             "(#deref moved)",
-            "(#u64.+.wrap (#deref moved) (#deref (#get holder other)))",
+            "(#u64::add-wrap (#deref moved) (#deref (#get holder other)))",
             "(#deref (#get holder other))",
             "(#deref (#get holder item))",
         ] {
@@ -11668,8 +11674,8 @@ mod typed_ownership_tests {
              "(#tuple (#borrow-mut first) (#borrow-mut second))", "(#get holder 0)"),
             ("", "(#array (#ref-mut #u64) 2)",
              "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
-            ("(#enum Holder () ((Views (#tuple (#ref-mut #u64) (#ref-mut #u64)))))", "Holder",
-             "(Views (#tuple (#borrow-mut first) (#borrow-mut second)))", "(#get (#get-payload holder Views 0) 0)"),
+            ("(#enum Holder () ((Holder.Views (#tuple (#ref-mut #u64) (#ref-mut #u64)))))", "Holder",
+             "(Holder.Views (#tuple (#borrow-mut first) (#borrow-mut second)))", "(#get (#get-payload holder Holder.Views 0) 0)"),
         ] {
             let source = format!("{declarations}
                 (#fn main () #u64
@@ -12032,7 +12038,7 @@ mod typed_ownership_tests {
             let source = format!("(#struct Owner () (: value #u64 : other #u64))
                 (#struct View () (: child (#ref-mut #u64)))
                 (#fn increment (: target (#ref-mut #u64)) #u64
-                  (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return (#deref target)))
+                  (#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return (#deref target)))
                 (#fn inspect (: parent (#ref-mut Owner)) #u64
                   (#let view View (#struct-literal View (: child (#borrow-mut (#get parent value)))))
                   (#let answer #u64 (#call increment (: target {argument})))
@@ -12133,10 +12139,10 @@ mod typed_ownership_tests {
                 "(#get values view)",
             ),
             (
-                "(#enum Holder () ((Some (#ref #u64)) None))",
+                "(#enum Holder () ((Holder.Some (#ref #u64)) Holder.None))",
                 "Holder",
-                "(Some (#borrow owner))",
-                "(#get-payload values Some 0)",
+                "(Holder.Some (#borrow owner))",
+                "(#get-payload values Holder.Some 0)",
             ),
         ] {
             for released in ["values", projection] {
@@ -12409,9 +12415,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_payload_reborrows_retain_parameter_origins() {
-        let source = "(#enum Slot () ((Full #u64) Empty))
+        let source = "(#enum Slot () ((Slot.Full #u64) Slot.Empty))
           (#fn inspect ((slot (#pin-ref Slot))) ()
-            (#let view (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Full)))
+            (#let view (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Slot.Full)))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12662,8 +12668,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn static_reference_origins_survive_forwarding_calls() {
-        let source = "(#static VALUE #u64 1u64)
-          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow VALUE))))
+        let source = "(#static vALUE #u64 1u64)
+          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow vALUE))))
           (#fn forward () (#ref #u64) (#return (#call obtain ())))
           (#fn inspect () () (#let view (#ref #u64) (#call forward ()))
             (#forget view) (#return ()))";
@@ -13314,20 +13320,20 @@ mod typed_ownership_tests {
     #[test]
     fn computed_forget_consumes_linear_producers_without_consuming_their_referents() {
         for expression in [
-            "(#match owner (#case (Wrapped held) held))",
-            "(#block (#match owner (#case (Wrapped held) held)))",
-            "(#if selected (#match owner (#case (Wrapped held) held))
-              (#match owner (#case (Wrapped other) other)))",
+            "(#match owner (#case (Envelope.Wrapped held) held))",
+            "(#block (#match owner (#case (Envelope.Wrapped held) held)))",
+            "(#if selected (#match owner (#case (Envelope.Wrapped held) held))
+              (#match owner (#case (Envelope.Wrapped other) other)))",
         ] {
             let source = format!(
                 "(#struct Resource (#linear) (: value #u64))
                   (#struct Holder (#linear) (: view (#ref-mut Resource)))
-                  (#enum Envelope (#linear) ((Wrapped Holder)))
+                  (#enum Envelope (#linear) ((Envelope.Wrapped Holder)))
                   (#fn release (: owner Envelope : selected #bool) ()
                     (#forget {expression}) (#return ()))
                   (#fn main () #u64
                     (#let-mut resource Resource (#struct-literal Resource (: value 42u64)))
-                    (#call release (: owner (Wrapped (#struct-literal Holder (: view (#borrow-mut resource)))) : selected true))
+                    (#call release (: owner (Envelope.Wrapped (#struct-literal Holder (: view (#borrow-mut resource)))) : selected true))
                     (#let answer #u64 (#get resource value))
                     (#forget resource) (#return answer))"
             );
@@ -15244,23 +15250,23 @@ mod typed_ownership_tests {
     #[test]
     fn enum_call_slots_distinguish_inactive_payloads_from_missing_provenance() {
         for (argument, count, definite) in [
-            ("(Empty)", 0, false),
+            ("(Choice.Empty)", 0, false),
             ("stored", 0, false),
             ("maybe", 1, false),
-            ("(Full left)", 1, true),
-            ("(#if selected (Full left) (Empty))", 1, false),
+            ("(Choice.Full left)", 1, true),
+            ("(#if selected (Choice.Full left) (Choice.Empty))", 1, false),
         ] {
             let source = format!(
                 "(#struct Resource (#linear) (: number #u64))
-                (#enum Choice () ((Empty) (Full (#ref-mut Resource))))
+                (#enum Choice () ((Choice.Empty) (Choice.Full (#ref-mut Resource))))
                 (#fn consume (: choice Choice) ()
                   (#let done () (#match choice
-                    (#case (Empty) ())
-                    (#case (Full value) (#block (#forget (#deref value)) ()))))
+                    (#case (Choice.Empty) ())
+                    (#case (Choice.Full value) (#block (#forget (#deref value)) ()))))
                   (#return ()))
                 (#fn caller (: left (#ref-mut Resource) : selected #bool) ()
-                  (#let stored Choice (Empty))
-                  (#let maybe Choice (#if selected (Full left) (Empty)))
+                  (#let stored Choice (Choice.Empty))
+                  (#let maybe Choice (#if selected (Choice.Full left) (Choice.Empty)))
                   (#call consume (: choice {argument})) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -15311,36 +15317,42 @@ mod typed_ownership_tests {
     fn owned_variant_facts_follow_nested_enum_payload_bindings() {
         let source = "(#fn touch () ()
           (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
-          (#enum Choice () (Empty (Full #u64)))
-          (#enum Wrapper () (Absent (Wrapped Choice)))
+          (#enum Choice () (Choice.Empty (Choice.Full #u64)))
+          (#enum Wrapper () (Wrapper.Absent (Wrapper.Wrapped Choice)))
           (#fn inspect () ()
-            (#let wrapper Wrapper (Wrapped (Full 1u64)))
+            (#let wrapper Wrapper (Wrapper.Wrapped (Choice.Full 1u64)))
             (#match wrapper
-              (#case (Wrapped inner)
+              (#case (Wrapper.Wrapped inner)
                 (#block (#let snapshot Choice inner) (#forget snapshot) ()))
-              (#case Absent ()))
+              (#case Wrapper.Absent ()))
             (#return ()))";
         let opaque = source.replace("(#let snapshot", "(#call touch ()) (#let snapshot");
         let overwritten = source.replace(
             "(#let snapshot Choice inner)",
-            "(#let-mut changed Choice inner) (#set changed Empty) (#let snapshot Choice changed)",
+            "(#let-mut changed Choice inner) (#set changed Choice.Empty) (#let snapshot Choice changed)",
         );
         let nested = source
-            .replace("(Wrapped Choice)", "(Wrapped (#tuple Choice Choice))")
             .replace(
-                "(Wrapped (Full 1u64))",
-                "(Wrapped (#tuple (Full 1u64) Empty))",
+                "(Wrapper.Wrapped Choice)",
+                "(Wrapper.Wrapped (#tuple Choice Choice))",
             )
-            .replace("(Wrapped inner)", "(Wrapped (#tuple inner other))")
+            .replace(
+                "(Wrapper.Wrapped (Choice.Full 1u64))",
+                "(Wrapper.Wrapped (#tuple (Choice.Full 1u64) Choice.Empty))",
+            )
+            .replace(
+                "(Wrapper.Wrapped inner)",
+                "(Wrapper.Wrapped (#tuple inner other))",
+            )
             .replace(
                 "(#block (#let snapshot",
                 "(#block (#forget other) (#let snapshot",
             );
         for (source, owner, expected) in [
-            (source.to_owned(), "inner", Some("Full")),
+            (source.to_owned(), "inner", Some("Choice.Full")),
             (opaque, "inner", None),
-            (overwritten, "changed", Some("Empty")),
-            (nested, "inner", Some("Full")),
+            (overwritten, "changed", Some("Choice.Empty")),
+            (nested, "inner", Some("Choice.Full")),
         ] {
             let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
@@ -15378,19 +15390,19 @@ mod typed_ownership_tests {
 
     #[test]
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
-        let source = "(#enum Choice () ((Empty) (Full #u64)))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
             (#struct Holder () (: choice Choice))
             (#fn touch () ()
               (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
             (#fn inspect (: selected #bool) ()
-              (#let-mut choice Choice (Empty))
+              (#let-mut choice Choice (Choice.Empty))
               (#let initial Choice choice)
-              (#if selected (#block (#set choice (Full 1u64)) ())
-                            (#block (#set choice (Full 2u64)) ()))
+              (#if selected (#block (#set choice (Choice.Full 1u64)) ())
+                            (#block (#set choice (Choice.Full 2u64)) ()))
               (#let agreed Choice choice)
-              (#if selected (#block (#set choice (Empty)) ()) ())
+              (#if selected (#block (#set choice (Choice.Empty)) ()) ())
               (#let mixed Choice choice)
-              (#set choice (Empty))
+              (#set choice (Choice.Empty))
               (#let restored Choice choice)
               (#let holder Holder (#struct-literal Holder (: choice choice)))
               (#let projected Choice (#get holder choice))
@@ -15398,7 +15410,7 @@ mod typed_ownership_tests {
               (#let copied Choice (#unsafe (#pin-read pinned)))
               (#drop pinned)
               (#let after-pin Choice choice)
-              (#set choice (Empty))
+              (#set choice (Choice.Empty))
               (#call touch ())
               (#let after-call Choice choice)
               (#forget holder) (#return ()))";
@@ -15416,11 +15428,11 @@ mod typed_ownership_tests {
         );
         let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(choice));
         for (name, expected) in [
-            ("initial", Some("Empty")),
-            ("agreed", Some("Full")),
+            ("initial", Some("Choice.Empty")),
+            ("agreed", Some("Choice.Full")),
             ("mixed", None),
-            ("restored", Some("Empty")),
-            ("projected", Some("Empty")),
+            ("restored", Some("Choice.Empty")),
+            ("projected", Some("Choice.Empty")),
             ("after-pin", None),
             ("after-call", None),
         ] {
@@ -15477,15 +15489,15 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#enum Choice () ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
                 (#fn read (: source (#ref Choice)) #u64
                   (#return (#match (#deref source)
-                    (#case (Empty) 0u64)
-                    (#case (Full value) (#deref value)))))
+                    (#case (Choice.Empty) 0u64)
+                    (#case (Choice.Full value) (#deref value)))))
                 (#fn touch (: target (#ref-mut Choice)) ()
                   (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
                 (#fn caller () #u64
-                  (#let-mut choice Choice (Empty)) {mutation}
+                  (#let-mut choice Choice (Choice.Empty)) {mutation}
                   (#let borrowed (#ref Choice) (#borrow choice))
                   (#let result #u64 (#call read (: source borrowed)))
                   (#drop borrowed) (#forget choice) (#return result))"
@@ -15675,17 +15687,17 @@ mod typed_ownership_tests {
         ] {
             let clear = "(#forget (#deref target))";
             let choose = match mode {
-                "explicit" => format!("(#if selected (#block {clear} (#return (Ready))) (#block (#return (Pending)))) (#return unknown)"),
-                "nested" => format!("(#return (#if selected (#block {clear} (Ready)) (Pending)))"),
-                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block (#break (Pending))))))"),
-                "unknown" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
-                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (Ready)))"),
-                "restore" => format!("{clear} (#deref-set target (#struct-literal Part (: view replacement))) (#return (Ready))"),
-                "later-call" => format!("{clear} (#call touch ()) (#return (Ready))"),
+                "explicit" => format!("(#if selected (#block {clear} (#return (Outcome.Ready))) (#block (#return (Outcome.Pending)))) (#return unknown)"),
+                "nested" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (Outcome.Pending)))"),
+                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Outcome.Ready))) (#block (#break (Outcome.Pending))))))"),
+                "unknown" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) unknown))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (Outcome.Ready)))"),
+                "restore" => format!("{clear} (#deref-set target (#struct-literal Part (: view replacement))) (#return (Outcome.Ready))"),
+                "later-call" => format!("{clear} (#call touch ()) (#return (Outcome.Ready))"),
                 _ => unreachable!(),
             };
             let source = format!("(#struct Part (#linear) (: view (#ref #u64)))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome : replacement (#ref #u64)) Outcome {choose})");
             let program = crate::parse_program(&source).unwrap();
@@ -15694,7 +15706,7 @@ mod typed_ownership_tests {
             let id = declarations.function_id("choose").unwrap();
             let body = &declarations.bodies["choose"];
             let ready = declarations
-                .variant_id(&Type::Named("Outcome".into()), "Ready")
+                .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
                 .unwrap();
             let groups = &body.call_clear_variants[&id];
             assert_eq!(!groups[&ready].is_empty(), definite, "{mode}: {groups:?}");
@@ -15721,16 +15733,17 @@ mod typed_ownership_tests {
             ("forward", true),
         ] {
             let alternative = if mode == "same-variant" {
-                "(Ready)"
+                "(Outcome.Ready)"
             } else if mode == "unknown" {
                 "unknown"
             } else {
-                "(Pending)"
+                "(Outcome.Pending)"
             };
-            let call = "(#call choose (: target target : selected true : unknown (Pending)))";
+            let call =
+                "(#call choose (: target target : selected true : unknown (Outcome.Pending)))";
             let result = match mode {
                 "branches" => format!("(#if true {call} {call})"),
-                "unknown-branch" => format!("(#if true {call} (Ready))"),
+                "unknown-branch" => format!("(#if true {call} (Outcome.Ready))"),
                 "loop-result" => format!("(#loop (#break {call}))"),
                 "forward" => call.replace("choose", "relay"),
                 _ => call.into(),
@@ -15757,20 +15770,20 @@ mod typed_ownership_tests {
             let ready_cleanup = if accepts { "" } else { "(#forget holder)" };
             let source = format!(
                 "(#struct Part (#linear) (: view (#ref #u64)))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome) Outcome
-                  (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
+                  (#return (#if selected (#block (#forget (#deref target)) (Outcome.Ready)) {alternative})))
                 (#fn relay (: target (#ref-mut Part) : selected #bool : unknown Outcome) Outcome
                   (#let result Outcome (#call choose (: target target : selected selected : unknown unknown)))
-                  (#return (#match result (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
+                  (#return (#match result (#case (Outcome.Ready) (Outcome.Ready)) (#case (Outcome.Pending) (Outcome.Pending)))))
                 (#fn main () #u64 (#let-mut value #u64 42u64)
                   (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
                   (#let target (#ref-mut Part) (#borrow-mut holder))
                   (#let outcome Outcome {result}) {between}
                   (#match outcome
-                    (#case (Ready) (#block {ready_body} (#drop target) {ready_cleanup} ()))
-                    (#case (Pending) (#block {pending_body} (#drop target) (#forget holder) ())))
+                    (#case (Outcome.Ready) (#block {ready_body} (#drop target) {ready_cleanup} ()))
+                    (#case (Outcome.Pending) (#block {pending_body} (#drop target) (#forget holder) ())))
                   (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -15779,7 +15792,7 @@ mod typed_ownership_tests {
             if mode == "forward" {
                 let id = declarations.function_id("relay").unwrap();
                 let ready = declarations
-                    .variant_id(&Type::Named("Outcome".into()), "Ready")
+                    .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
                     .unwrap();
                 assert_eq!(
                     declarations.bodies["relay"].call_clear_variants[&id][&ready].len(),
@@ -15818,16 +15831,16 @@ mod typed_ownership_tests {
             };
             let scrutinee = if direct { call } else { "outcome" };
             let source = format!("(#struct Part (#linear) (: view (#ref #u64)))
-                (#enum Outcome () ((Ready (#ref #u64)) (Pending)))
+                (#enum Outcome () ((Outcome.Ready (#ref #u64)) (Outcome.Pending)))
                 (#fn choose (: target (#ref-mut Part) : selected #bool) Outcome
                   (#return (#if selected (#block (#let saved (#ref #u64) (#get target view))
-                    (#forget (#deref target)) (Ready saved)) (Pending))))
+                    (#forget (#deref target)) (Outcome.Ready saved)) (Outcome.Pending))))
                 (#fn main () #u64 (#let-mut value #u64 42u64)
                   (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
                   (#let target (#ref-mut Part) (#borrow-mut holder)) {bind}
                   (#return (#match {scrutinee}
-                    (#case (Ready escaped) (#block (#set value 9u64) (#drop target) (#deref escaped)))
-                    (#case (Pending) (#block (#drop target) (#forget holder) 0u64)))))");
+                    (#case (Outcome.Ready escaped) (#block (#set value 9u64) (#drop target) (#deref escaped)))
+                    (#case (Outcome.Pending) (#block (#drop target) (#forget holder) 0u64)))))");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
@@ -15858,9 +15871,9 @@ mod typed_ownership_tests {
             let source = format!(
                 "(#struct Part (#linear) (: view (#ref #u64)))
                 (#struct Pair () (: left Part : right Part))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
-                  (#return (#if selected (#block (#forget (#get target left)) (Ready)) (Pending))))
+                  (#return (#if selected (#block (#forget (#get target left)) (Outcome.Ready)) (Outcome.Pending))))
                 (#fn main () #u64 (#let-mut left-value #u64 7u64) (#let-mut right-value #u64 42u64)
                   (#let-mut holder Pair (#struct-literal Pair
                     (: left (#struct-literal Part (: view (#borrow left-value)))
@@ -15868,10 +15881,10 @@ mod typed_ownership_tests {
                   (#let target (#ref-mut Pair) (#borrow-mut holder))
                   (#let outcome Outcome (#call choose (: target target : selected true)))
                   (#return (#match outcome
-                    (#case (Ready) (#block (#set left-value 9u64) {mutation}
+                    (#case (Outcome.Ready) (#block (#set left-value 9u64) {mutation}
                       (#let result #u64 (#deref (#get (#get target right) view)))
                       (#drop target) (#forget (#get holder right)) result))
-                    (#case (Pending) (#block (#drop target) (#forget holder) 0u64)))))"
+                    (#case (Outcome.Pending) (#block (#drop target) (#forget holder) 0u64)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15907,9 +15920,9 @@ mod typed_ownership_tests {
             "read-before-restore",
         ] {
             let selected = if mode == "pending" {
-                "Pending"
+                "Outcome.Pending"
             } else {
-                "Ready"
+                "Outcome.Ready"
             };
             let between = if mode == "stale-call" {
                 "(#call touch ())"
@@ -15923,20 +15936,20 @@ mod typed_ownership_tests {
             };
             let restore = "(#deref-set target (#struct-literal Resource (: number 42u64)))";
             let alternative = match mode {
-                "same-variant" => "(Ready)",
+                "same-variant" => "(Outcome.Ready)",
                 "unknown" => "unknown",
-                _ => "(Pending)",
+                _ => "(Outcome.Pending)",
             };
             let source = format!(
                 "(#struct Resource (#linear) (: number #u64))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
-                  (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
+                  (#return (#if selected (#block (#forget (#deref target)) (Outcome.Ready)) {alternative})))
                 (#fn main () #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder))
-                  (#let outcome Outcome (#call choose (: target target : selected true : unknown (Pending)))) {between}
+                  (#let outcome Outcome (#call choose (: target target : selected true : unknown (Outcome.Pending)))) {between}
                   (#let-else ({selected}) Outcome outcome (#unreachable))
                   (#let marker #u64 0u64) {read} {restore}
                   (#let result #u64 (#get target number))
@@ -16015,18 +16028,18 @@ mod typed_ownership_tests {
         ] {
             let clear = "(#forget (#deref target))";
             let implementation = match mode {
-                "explicit" => format!("(#if selected (#block {clear} (#return (Ready))) (#block (#return (Pending)))) (#return unknown)"),
-                "nested" => format!("(#return (#if selected (#block {clear} (Ready)) (Pending)))"),
-                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block (#break (Pending))))))"),
-                "unknown" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
-                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (Ready)))"),
-                "both" => format!("{clear} (#return (#if selected (Ready) (Pending)))"),
-                "restored" => format!("(#return (#if selected (#block {clear} (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready)) (Pending)))"),
-                "callee" => "(#return (#if selected (#block (#call consume (: target target)) (Ready)) (Pending)))".into(),
+                "explicit" => format!("(#if selected (#block {clear} (#return (Outcome.Ready))) (#block (#return (Outcome.Pending)))) (#return unknown)"),
+                "nested" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (Outcome.Pending)))"),
+                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Outcome.Ready))) (#block (#break (Outcome.Pending))))))"),
+                "unknown" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) unknown))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (Outcome.Ready)))"),
+                "both" => format!("{clear} (#return (#if selected (Outcome.Ready) (Outcome.Pending)))"),
+                "restored" => format!("(#return (#if selected (#block {clear} (#deref-set target (#struct-literal Resource (: number 42u64))) (Outcome.Ready)) (Outcome.Pending)))"),
+                "callee" => "(#return (#if selected (#block (#call consume (: target target)) (Outcome.Ready)) (Outcome.Pending)))".into(),
                 _ => unreachable!(),
             };
             let source = format!("(#struct Resource (#linear) (: number #u64))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn consume (: target (#ref-mut Resource)) () (#forget (#deref target)) (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome {implementation})");
             let program = crate::parse_program(&source).unwrap();
@@ -16038,10 +16051,10 @@ mod typed_ownership_tests {
                 .unwrap();
             let id = declarations.function_id("choose").unwrap();
             let ready = declarations
-                .variant_id(&Type::Named("Outcome".into()), "Ready")
+                .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
                 .unwrap();
             let pending = declarations
-                .variant_id(&Type::Named("Outcome".into()), "Pending")
+                .variant_id(&Type::Named("Outcome".into()), "Outcome.Pending")
                 .unwrap();
             let summary = &summaries[&id];
             let selected = &summary.variant_exits[&ready];
@@ -16095,11 +16108,11 @@ mod typed_ownership_tests {
     #[test]
     fn staged_variant_exit_contracts_keep_consumed_entry_profiles_separate() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected
-                (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready))
-                (Pending))))";
+                (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Outcome.Ready))
+                (Outcome.Pending))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         declarations.staged_parameter_contents_summaries();
@@ -16110,10 +16123,10 @@ mod typed_ownership_tests {
         let summary = &summaries[&declarations.function_id("initialize").unwrap()];
         assert_eq!(summary.consumed_entry.len(), 1);
         let ready = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         let pending = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Pending")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Pending")
             .unwrap();
         assert!(summary.variant_exits[&ready]
             .effects_from_consumed_entry
@@ -16142,10 +16155,10 @@ mod typed_ownership_tests {
     #[test]
     fn staged_variant_exit_contracts_do_not_hide_unknown_raw_accesses() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn raw (: anchor (#ref-mut Resource) : pointer (#ptr-mut Resource)) Outcome
               (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
-              (#forget (#deref target)) (#return (Ready)))";
+              (#forget (#deref target)) (#return (Outcome.Ready)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -16159,7 +16172,7 @@ mod typed_ownership_tests {
             &[],
         );
         let ready = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         assert!(outcomes[&ready].has_normal_return);
         assert!(outcomes[&ready].effects_from_consumed_entry.is_none());
@@ -16170,10 +16183,10 @@ mod typed_ownership_tests {
     fn staged_variant_exit_contracts_keep_sibling_destinations_distinct() {
         let source = "(#struct Resource (#linear) (: number #u64))
             (#struct Pair () (: left Resource : right Resource))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
-              (#return (#if selected (#block (#forget (#get target left)) (Ready))
-                (#block (#forget (#get target right)) (Pending)))))";
+              (#return (#if selected (#block (#forget (#get target left)) (Outcome.Ready))
+                (#block (#forget (#get target right)) (Outcome.Pending)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         declarations.staged_parameter_contents_summaries();
@@ -16187,7 +16200,7 @@ mod typed_ownership_tests {
             .effects
             .iter()
             .all(|effect| !effect.definitely_consumed));
-        for (outcome, field) in [("Ready", "left"), ("Pending", "right")] {
+        for (outcome, field) in [("Outcome.Ready", "left"), ("Outcome.Pending", "right")] {
             let variant = declarations
                 .variant_id(&Type::Named("Outcome".into()), outcome)
                 .unwrap();
@@ -16208,10 +16221,10 @@ mod typed_ownership_tests {
     #[test]
     fn staged_variant_exit_contracts_require_a_reachable_normal_return() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
-              (#if selected (#block (#forget (#deref target)) (#unreachable) (#return (Ready)))
-                (#block (#return (Pending)))) (#return (Ready)))";
+              (#if selected (#block (#forget (#deref target)) (#unreachable) (#return (Outcome.Ready)))
+                (#block (#return (Outcome.Pending)))) (#return (Outcome.Ready)))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         declarations.staged_parameter_contents_summaries();
@@ -16227,14 +16240,14 @@ mod typed_ownership_tests {
             "divergence cannot erase destruction preconditions"
         );
         let ready = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         if let Some(outcome) = summary.variant_exits.get(&ready) {
             assert!(!outcome.has_normal_return);
             assert!(outcome.effects.is_empty());
         }
         let pending = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Pending")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Pending")
             .unwrap();
         assert!(summary.variant_exits[&pending].has_normal_return);
         assert!(summary.variant_exits[&pending].effects.is_empty());
@@ -16255,15 +16268,16 @@ mod typed_ownership_tests {
         ] {
             let alternative = match mode {
                 "unknown" => "unknown",
-                "same-variant" => "(Pending)",
-                _ => "(Pending)",
+                "same-variant" => "(Outcome.Pending)",
+                _ => "(Outcome.Pending)",
             };
             let destructive = if mode == "same-variant" {
-                "Pending"
+                "Outcome.Pending"
             } else {
-                "Ready"
+                "Outcome.Ready"
             };
-            let call = "(#call choose (: target target : selected false : unknown (Pending)))";
+            let call =
+                "(#call choose (: target target : selected false : unknown (Outcome.Pending)))";
             let result = match mode {
                 "branches" => format!("(#if true {call} {call})"),
                 "loop-result" => format!("(#loop (#break {call}))"),
@@ -16280,20 +16294,24 @@ mod typed_ownership_tests {
             } else {
                 ""
             };
-            let selected = if mode == "ready" { "Ready" } else { "Pending" };
+            let selected = if mode == "ready" {
+                "Outcome.Ready"
+            } else {
+                "Outcome.Pending"
+            };
             let finish = if accepts {
                 "(#drop target) (#forget holder) (#return result)"
             } else {
                 "(#drop target) (#return (#unreachable))"
             };
             let source = format!("(#struct Resource (#linear) (: number #u64))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) ({destructive})) {alternative})))
                 (#fn relay (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#let outcome Outcome (#call choose (: target target : selected selected : unknown unknown)))
-                  (#return (#match outcome (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
+                  (#return (#match outcome (#case (Outcome.Ready) (Outcome.Ready)) (#case (Outcome.Pending) (Outcome.Pending)))))
                 (#fn main () #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder)) {before}
@@ -16353,9 +16371,9 @@ mod typed_ownership_tests {
                 "target"
             };
             let selected = if mode == "pending" {
-                "Pending"
+                "Outcome.Pending"
             } else {
-                "Ready"
+                "Outcome.Ready"
             };
             let finish = if accepts {
                 "(#drop target) (#forget holder) (#return result)"
@@ -16364,10 +16382,10 @@ mod typed_ownership_tests {
             };
             let source = format!(
                 "(#struct Resource (#linear) (: number #u64))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
                   (#return (#if selected (#block (#deref-set target
-                    (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
+                    (#struct-literal Resource (: number 42u64))) (Outcome.Ready)) (Outcome.Pending))))
                 (#fn caller (: choice #bool) #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder))
@@ -16417,18 +16435,18 @@ mod typed_ownership_tests {
     #[test]
     fn staged_outcome_refinement_revisits_loop_snapshot_dependencies() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
-              (#return (#if selected (#block (#forget (#deref target)) (Ready)) (Pending))))
+              (#return (#if selected (#block (#forget (#deref target)) (Outcome.Ready)) (Outcome.Pending))))
             (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#let-mut turns #u64 0u64)
               (#loop
                 (#let outcome Outcome (#call choose (: target target : selected false)))
-                (#let-else (Pending) Outcome outcome (#unreachable))
+                (#let-else (Outcome.Pending) Outcome outcome (#unreachable))
                 (#let read #u64 (#get target number))
-                (#if (#u64.< turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break))))
+                (#if (#u64::lt turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break))))
               (#let result #u64 (#get target number))
               (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -16453,17 +16471,17 @@ mod typed_ownership_tests {
             let source = format!(
                 "(#struct Resource (#linear) (: number #u64))
                 (#struct Pair () (: left Resource : right Resource))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
-                  (#return (#if selected (#block (#forget (#get target left)) (Ready))
-                    (#block (#forget (#get target right)) (Pending)))))
+                  (#return (#if selected (#block (#forget (#get target left)) (Outcome.Ready))
+                    (#block (#forget (#get target right)) (Outcome.Pending)))))
                 (#fn main () #u64
                   (#let-mut holder Pair (#struct-literal Pair
                     (: left (#struct-literal Resource (: number 42u64))
                      : right (#struct-literal Resource (: number 7u64)))))
                   (#let target (#ref-mut Pair) (#borrow-mut holder))
                   (#let outcome Outcome (#call choose (: target target : selected false)))
-                  (#let-else (Pending) Outcome outcome (#unreachable))
+                  (#let-else (Outcome.Pending) Outcome outcome (#unreachable))
                   (#let result #u64 {read}) {finish})"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -16489,19 +16507,19 @@ mod typed_ownership_tests {
     #[test]
     fn staged_outcome_refinement_wakes_on_pre_call_snapshot_changes() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn touch () () (#return ()))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
-              (#return (#if selected (#block (#forget (#deref target)) (#call touch ()) (Ready)) (Pending))))
+              (#return (#if selected (#block (#forget (#deref target)) (#call touch ()) (Outcome.Ready)) (Outcome.Pending))))
             (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#let-mut turns #u64 0u64)
               (#loop
-                (#let outcome Outcome (#call choose (: target target : selected (#u64.< turns 1u64))))
+                (#let outcome Outcome (#call choose (: target target : selected (#u64::lt turns 1u64))))
                 (#match outcome
-                  (#case (Ready) (#block (#set turns 1u64) (#continue)))
-                  (#case (Pending) (#block (#let read #u64 (#get target number)) (#break)))))
+                  (#case (Outcome.Ready) (#block (#set turns 1u64) (#continue)))
+                  (#case (Outcome.Pending) (#block (#let read #u64 (#get target number)) (#break)))))
               (#return (#unreachable)))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -16510,7 +16528,7 @@ mod typed_ownership_tests {
         // Contents-clear inference deliberately loses its proof across touch;
         // complete ownership exits still record the actual destruction.
         let ready = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         let choose = declarations.function_id("choose").unwrap();
         assert!(declarations.bodies["choose"].call_clear_variants[&choose][&ready].is_empty());
@@ -16548,7 +16566,7 @@ mod typed_ownership_tests {
         let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(holder));
         let spans = moves
             .before(read, &place)
-            .expect("a later Pending cannot erase destruction from an earlier Ready iteration");
+            .expect("a later Outcome.Pending cannot erase destruction from an earlier Outcome.Ready iteration");
         assert!(spans
             .iter()
             .flatten()
@@ -16559,17 +16577,17 @@ mod typed_ownership_tests {
     fn staged_outcome_refinement_tracks_linear_result_moves() {
         let source = "(#struct Resource (#linear) (: number #u64))
             (#struct Metadata (#linear) (: number #u64))
-            (#enum Outcome () ((Ready Metadata) (Pending Metadata)))
+            (#enum Outcome () ((Outcome.Ready Metadata) (Outcome.Pending Metadata)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target))
-                (Ready (#struct-literal Metadata (: number 1u64))))
-                (Pending (#struct-literal Metadata (: number 2u64))))))
+                (Outcome.Ready (#struct-literal Metadata (: number 1u64))))
+                (Outcome.Pending (#struct-literal Metadata (: number 2u64))))))
             (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#let outcome Outcome (#call choose (: target target : selected false)))
               (#let saved Outcome outcome)
-              (#let-else (Pending metadata) Outcome saved (#unreachable))
+              (#let-else (Outcome.Pending metadata) Outcome saved (#unreachable))
               (#let result #u64 (#get target number))
               (#forget metadata) (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -16585,16 +16603,16 @@ mod typed_ownership_tests {
     #[test]
     fn staged_outcome_refinement_clears_profiles_even_when_a_run_fails_early() {
         let source = "(#struct Resource (#linear) (: number #u64))
-            (#enum Outcome () ((Ready) (Pending)))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#deref-set target
-                (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
+                (#struct-literal Resource (: number 42u64))) (Outcome.Ready)) (Outcome.Pending))))
             (#fn caller () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#forget (#deref target))
               (#let outcome Outcome (#call initialize (: target target : selected true)))
-              (#let-else (Ready) Outcome outcome (#unreachable))
+              (#let-else (Outcome.Ready) Outcome outcome (#unreachable))
               (#let result #u64 (#get target number))
               (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -16603,7 +16621,7 @@ mod typed_ownership_tests {
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         let initialize = declarations.function_id("initialize").unwrap();
         let ready = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         declarations
             .staged_referent_entry_contracts(&types)
@@ -16635,25 +16653,25 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
-        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
             (#struct Pair () (: left Choice : right Choice))
-            (#fn empty () Choice (#return (Empty)))
+            (#fn empty () Choice (#return (Choice.Empty)))
             (#fn forward () Choice (#return (#call empty ())))
-            (#fn same (: selected #bool) Choice (#return (#if selected (Empty) (Empty))))
+            (#fn same (: selected #bool) Choice (#return (#if selected (Choice.Empty) (Choice.Empty))))
             (#fn different (: selected #bool : source (#ref #u64)) Choice
-              (#return (#if selected (Empty) (Full source))))
+              (#return (#if selected (Choice.Empty) (Choice.Full source))))
             (#fn unknown (: value Choice) Choice (#return value))
             (#fn borrowed (: source (#ref Choice)) (#ref Choice) (#return source))
             (#fn partial (: selected #bool : source (#ref #u64)) Pair
               (#return (#struct-literal Pair
-                (: left (#call forward ()) : right (#if selected (Empty) (Full source))))))
+                (: left (#call forward ()) : right (#if selected (Choice.Empty) (Choice.Full source))))))
             (#fn early (: selected #bool : source (#ref #u64)) Choice
-              (#if selected (#block (#return (Full source)) ())) (#return (Empty)))
+              (#if selected (#block (#return (Choice.Full source)) ())) (#return (Choice.Empty)))
             (#fn raw-write (: source (#ref #u64)) Choice
-              (#let-mut value Choice (Empty))
+              (#let-mut value Choice (Choice.Empty))
               (#let-mut scalar #u64 0u64)
               (#unsafe (#ptr-write (#addr-of-mut scalar) 1u64)) (#return value))
-            (#fn syscall-write () Choice (#let-mut value Choice (Empty))
+            (#fn syscall-write () Choice (#let-mut value Choice (Choice.Empty))
               (#let-mut scalar #u64 0u64)
               (#unsafe (#linux-syscall () 0u64 (0u64 (#addr-of-mut scalar) 0u64))) (#return value))
             (#fn no-return () Choice (#return (#unreachable)))";
@@ -17014,21 +17032,21 @@ mod typed_ownership_tests {
 
     #[test]
     fn unchecked_typed_payload_transfer_preserves_exclusive_referent_contents() {
-        let source = "(#enum Holder () (Empty (Full (#ref-mut #u64))))
+        let source = "(#enum Holder () (Holder.Empty (Holder.Full (#ref-mut #u64))))
             (#unsafe-fn take (: slot (#pin-ref-mut Holder)) (#ref-mut #u64)
               (#let payload (#pin-ref-mut (#ref-mut #u64))
-                (#unsafe (#pin-get-payload-unchecked-mut slot Full)))
+                (#unsafe (#pin-get-payload-unchecked-mut slot Holder.Full)))
               (#let value (#ref-mut #u64) (#unsafe (#pin-read payload)))
               (#forget payload)
-              (#unsafe (#pin-write slot Empty))
+              (#unsafe (#pin-write slot Holder.Empty))
               (#return value))
             (#fn read (: value (#ref-mut #u64)) #u64 (#return (#deref value)))
             (#fn clear (: slot (#pin-ref-mut Holder)) ()
               (#forget (#unsafe (#pin-read slot)))
-              (#unsafe (#pin-write slot Empty)) (#return ()))
+              (#unsafe (#pin-write slot Holder.Empty)) (#return ()))
             (#fn main () #u64
               (#let-mut owner #u64 42u64)
-              (#let-mut holder Holder (Full (#borrow-mut owner)))
+              (#let-mut holder Holder (Holder.Full (#borrow-mut owner)))
               (#let view (#ref-mut #u64) (#unsafe (#unsafe-call take (: slot (#pin-borrow-mut holder)))))
               (#call clear (: slot (#pin-borrow-mut holder)))
               (#let answer #u64 (#call read (: value view)))
@@ -17496,13 +17514,13 @@ mod typed_ownership_tests {
     fn nested_blocks_preserve_loop_control_without_leaking_it_afterward() {
         for source in [
             "(#fn main () #u64 (#let-mut count #u64 0u64)
-              (#while (#u64.< count 2u64)
-                (#block (#set count (#u64.+.wrap count 1u64))
-                  (#if (#u64.== count 1u64) (#block (#continue)) ())))
+              (#while (#u64::lt count 2u64)
+                (#block (#set count (#u64::add-wrap count 1u64))
+                  (#if (#u64::eq count 1u64) (#block (#continue)) ())))
               (#return count))",
             "(#fn main () #u64 (#loop (#block (#break))) (#return 42u64))",
             "(#fn main () #u64 (#let-mut count #u64 0u64)
-              (#let result #u64 (#loop (#if (#u64.< count 1u64)
+              (#let result #u64 (#loop (#if (#u64::lt count 1u64)
                 (#block (#set count 1u64) (#continue))
                 (#block (#break 42u64))))) (#return result))",
         ] {
@@ -17555,11 +17573,11 @@ mod typed_ownership_tests {
                 "direct" => format!("(#loop (#break {call}))"),
                 "branches" => format!("(#loop (#if true (#block (#break {call})) (#block (#break {call}))))"),
                 "nested" => format!("(#loop (#let saved Outcome (#loop (#break {call}))) (#break saved))"),
-                "continue-before" => format!("(#loop (#if (#u64.< turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break {call}))))"),
-                "unreachable-break" => format!("(#loop (#break {call}) (#break (Ready)))"),
-                "inner-unknown" => format!("(#loop (#let ignored Outcome (#loop (#break (Ready)))) (#forget ignored) (#break {call}))"),
-                "unknown" => format!("(#loop (#if true (#block (#break {call})) (#block (#break (Ready)))))"),
-                "post-call-write" => format!("(#loop (#let completed Outcome {call}) (#deref-set next-target (Full (#borrow value))) (#break completed))"),
+                "continue-before" => format!("(#loop (#if (#u64::lt turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break {call}))))"),
+                "unreachable-break" => format!("(#loop (#break {call}) (#break (Outcome.Ready)))"),
+                "inner-unknown" => format!("(#loop (#let ignored Outcome (#loop (#break (Outcome.Ready)))) (#forget ignored) (#break {call}))"),
+                "unknown" => format!("(#loop (#if true (#block (#break {call})) (#block (#break (Outcome.Ready)))))"),
+                "post-call-write" => format!("(#loop (#let completed Outcome {call}) (#deref-set next-target (Choice.Full (#borrow value))) (#break completed))"),
                 "post-call-call" => format!("(#loop (#let completed Outcome {call}) (#let ignored Outcome {}) (#forget ignored) (#break completed))", call.replace("complete true", "complete false")),
                 _ => unreachable!(),
             };
@@ -17627,7 +17645,7 @@ mod typed_ownership_tests {
                 "match" => format!("(#match true (#case true {call}) (#case false {call}))"),
                 "local-moves" => format!("(#if true (#block (#let saved Outcome {call}) saved) (#block (#let alternate Outcome {call}) alternate))"),
                 "distinct-callees" | "unwritten" => format!("(#if true {call} {other})"),
-                "unknown" => format!("(#if true {call} (Ready))"),
+                "unknown" => format!("(#if true {call} (Outcome.Ready))"),
                 "different-destinations" => format!("(#if true {call} (#call step-choice (: target (#borrow-mut other-holder) : value (#borrow value) : complete true)))"),
                 "sequential" => format!("(#block (#let earlier Outcome {call}) (#let later Outcome {}) (#if true (#block (#forget later) earlier) (#block (#forget earlier) later)))", call.replace("complete true", "complete false")),
                 _ => unreachable!(),
@@ -17637,7 +17655,7 @@ mod typed_ownership_tests {
                 source = source
                     .replace(
                         "(#let next-target",
-                        "(#let-mut other-holder Choice (Empty)) (#let next-target",
+                        "(#let-mut other-holder Choice (Choice.Empty)) (#let next-target",
                     )
                     .replace(
                         "(#forget holder)",
@@ -17648,9 +17666,9 @@ mod typed_ownership_tests {
                 let writes = if mode == "unwritten" {
                     ""
                 } else {
-                    "(#deref-set target (Empty))"
+                    "(#deref-set target (Choice.Empty))"
                 };
-                source.push_str(&format!("\n(#fn other-step (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome {writes} (#return (Ready)))"));
+                source.push_str(&format!("\n(#fn other-step (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome {writes} (#return (Outcome.Ready)))"));
             }
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17685,18 +17703,18 @@ mod typed_ownership_tests {
                 .map(|name| format!("(#set {name} 1u64)"))
                 .unwrap_or_default();
             let source = format!(
-                "(#enum Holder () ((Empty) (Full (#ref #u64))))
-                (#enum Outcome () ((Ready) (Pending)))
+                "(#enum Holder () ((Holder.Empty) (Holder.Full (#ref #u64))))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn store (: target (#ref-mut Holder) : value (#ref #u64)) Outcome
-                  (#deref-set target (Full value)) (#return (Ready)))
+                  (#deref-set target (Holder.Full value)) (#return (Outcome.Ready)))
                 (#fn main () #u64
                   (#let-mut left #u64 7u64) (#let-mut right #u64 42u64)
-                  (#let-mut holder Holder (Empty))
+                  (#let-mut holder Holder (Holder.Empty))
                   (#let result Outcome (#if true
                     (#call store (: target (#borrow-mut holder) : value (#borrow left)))
                     (#call store (: target (#borrow-mut holder) : value (#borrow right)))))
                   (#let output #u64 (#match result
-                    (#case (Ready) (#block {change} 0u64)) (#case (Pending) 0u64)))
+                    (#case (Outcome.Ready) (#block {change} 0u64)) (#case (Outcome.Pending) 0u64)))
                   (#forget holder) (#set left 9u64) (#set right 9u64) (#return output))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -17725,22 +17743,22 @@ mod typed_ownership_tests {
     fn staged_branch_clearing_keeps_loans_carried_by_the_returned_value() {
         for premature in [false, true] {
             let mutation = if premature { "(#set old 9u64)" } else { "" };
-            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
-                (#enum Outcome () ((Ready Choice) (Pending)))
+            let source = format!("(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+                (#enum Outcome () ((Outcome.Ready Choice) (Outcome.Pending)))
                 (#fn take (: target (#ref-mut Choice) : replacement (#ref #u64) : selected #bool) Outcome
                   (#return (#if selected
                     (#block (#let previous Choice (#deref target))
-                      (#deref-set target (Empty)) (Ready previous))
-                    (#block (#deref-set target (Full replacement)) (Pending)))))
+                      (#deref-set target (Choice.Empty)) (Outcome.Ready previous))
+                    (#block (#deref-set target (Choice.Full replacement)) (Outcome.Pending)))))
                 (#fn main () #u64
                   (#let-mut old #u64 7u64) (#let replacement #u64 42u64)
-                  (#let-mut holder Choice (Full (#borrow old)))
+                  (#let-mut holder Choice (Choice.Full (#borrow old)))
                   (#let result Outcome (#if true
                     (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))
                     (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))))
                   (#let output #u64 (#match result
-                    (#case (Ready previous) (#block {mutation} (#forget previous) 0u64))
-                    (#case (Pending) 0u64)))
+                    (#case (Outcome.Ready previous) (#block {mutation} (#forget previous) 0u64))
+                    (#case (Outcome.Pending) 0u64)))
                   (#forget holder) (#set old 9u64) (#return output))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17807,8 +17825,10 @@ mod typed_ownership_tests {
                         "stale-intermediate" => "(#let-mut final Outcome",
                         _ => "(#let output #u64",
                     };
-                    source =
-                        source.replace(next_use, &format!("(#set {target} (Ready)) {next_use}"));
+                    source = source.replace(
+                        next_use,
+                        &format!("(#set {target} (Outcome.Ready)) {next_use}"),
+                    );
                     if mode.starts_with("reinitialized-") {
                         source = source.replace(
                             "(#forget holder)",
@@ -17853,12 +17873,12 @@ mod typed_ownership_tests {
         ] {
             let mut source = original.to_owned();
             let write = "(#let update (#ref-mut Choice) (#borrow-mut holder))
-                (#deref-set update (Full (#borrow value))) (#drop update)";
+                (#deref-set update (Choice.Full (#borrow value))) (#drop update)";
             match mode {
                 "pending" => {
                     source = source.replace(
-                        "(#case (Pending) (#unreachable))",
-                        "(#case (Pending) (#block (#set value 1u64) result))",
+                        "(#case (Outcome.Pending) (#unreachable))",
+                        "(#case (Outcome.Pending) (#block (#set value 1u64) result))",
                     )
                 }
                 "write" => {
@@ -17876,7 +17896,7 @@ mod typed_ownership_tests {
                 "call" | "constructor-effect" => {
                     source.push_str(
                         "\n(#fn overwrite (: target (#ref-mut Choice) : value (#ref #u64)) ()
-                        (#deref-set target (Full value)) (#return ()))",
+                        (#deref-set target (Choice.Full value)) (#return ()))",
                     );
                     if mode == "call" {
                         source = source.replace("(#drop next-target)",
@@ -17884,7 +17904,7 @@ mod typed_ownership_tests {
                     } else {
                         source = source.replace(
                             "(#drop next-target)",
-                            "(#let temporary Choice (Full (#block
+                            "(#let temporary Choice (Choice.Full (#block
                                 (#call overwrite (: target next-target : value (#borrow value)))
                                 (#borrow old)))) (#forget temporary) (#drop next-target)",
                         );
@@ -17895,7 +17915,7 @@ mod typed_ownership_tests {
                         .replace("(#let second Outcome", "(#let-mut second Outcome")
                         .replace(
                             "(#drop next-target)",
-                            "(#drop next-target) (#set second (Ready))",
+                            "(#drop next-target) (#set second (Outcome.Ready))",
                         );
                 }
                 _ => unreachable!(),
@@ -17928,9 +17948,10 @@ mod typed_ownership_tests {
         // Both direct and helper-mediated writes must distinguish terminal
         // clearing from a suspended frame retaining its external referent.
         for through_call in [false, true] {
-            let clear = "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Empty)))))";
+            let clear =
+                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Slot.Empty)))))";
             let retain =
-                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Full value)))))";
+                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Slot.Full value)))))";
             let (clear_action, retain_action) = if through_call {
                 (
                     "(#call clear (: target target))".to_owned(),
@@ -17940,9 +17961,9 @@ mod typed_ownership_tests {
                 (clear.to_owned(), retain.to_owned())
             };
             let source = format!(
-                "(#enum Slot () ((Empty) (Full (#ref #u64))))
+                "(#enum Slot () ((Slot.Empty) (Slot.Full (#ref #u64))))
                 (#struct Frame () (: slot Slot))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn clear (: target (#pin-ref-mut Frame)) ()
                   {clear} (#return ()))
                 (#fn retain (: target (#pin-ref-mut Frame) : value (#ref #u64)) ()
@@ -17950,8 +17971,8 @@ mod typed_ownership_tests {
                 (#fn poll (: target (#pin-ref-mut Frame) : value (#ref #u64)
                   : ready #bool) Outcome
                   (#return (#if ready
-                    (#block {clear_action} (Ready))
-                    (#block {retain_action} (Pending)))))"
+                    (#block {clear_action} (Outcome.Ready))
+                    (#block {retain_action} (Outcome.Pending)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
@@ -17959,8 +17980,8 @@ mod typed_ownership_tests {
             let body = &declarations.bodies["poll"];
             let groups = &body.call_store_variants[&declarations.function_id("poll").unwrap()];
             let ty = crate::Type::Named("Outcome".into());
-            let ready = &groups[&declarations.variant_id(&ty, "Ready").unwrap()];
-            let pending = &groups[&declarations.variant_id(&ty, "Pending").unwrap()];
+            let ready = &groups[&declarations.variant_id(&ty, "Outcome.Ready").unwrap()];
+            let pending = &groups[&declarations.variant_id(&ty, "Outcome.Pending").unwrap()];
             assert_eq!(ready.len(), 1, "through_call={through_call}: {ready:?}");
             assert_eq!(pending.len(), 1, "through_call={through_call}: {pending:?}");
             for store in ready.iter().chain(pending) {
@@ -17985,21 +18006,21 @@ mod typed_ownership_tests {
     #[test]
     fn staged_return_conditioned_contents_include_writes_after_constructor_evaluation() {
         use crate::typed_flow::{FlowAction, FlowNode, FlowNodeId};
-        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
-            (#enum Outcome () ((Ready) (Pending)))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+            (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
             (#fn choose (: target (#ref-mut Choice) : value (#ref #u64)) Outcome
-              (#deref-set target (Full value)) (#deref-set target (Empty))
-              (#return (Ready)))";
+              (#deref-set target (Choice.Full value)) (#deref-set target (Choice.Empty))
+              (#return (Outcome.Ready)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["choose"];
         let mut flow = declarations.flows["choose"].clone();
         let ready = declarations
-            .variant_id(&crate::Type::Named("Outcome".into()), "Ready")
+            .variant_id(&crate::Type::Named("Outcome".into()), "Outcome.Ready")
             .unwrap();
         let write = flow.nodes.iter().find(|node| matches!(node.action, FlowAction::Write { value, .. }
             if matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { children, .. }
-                if matches!(&body.nodes[children[2].0].kind, crate::typed_body::NodeKind::Form { head, .. } if head == "Full")))).unwrap().clone();
+                if matches!(&body.nodes[children[2].0].kind, crate::typed_body::NodeKind::Form { head, .. } if head == "Choice.Full")))).unwrap().clone();
         let evaluated = flow.nodes.iter().position(|node| matches!(node.action, FlowAction::Evaluate(value)
             if matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { children, .. }
                 if matches!(body.nodes[children[0].0].kind, crate::typed_body::NodeKind::Declaration(crate::typed_ir::DeclarationId::Variant(variant)) if variant == ready)))).unwrap();
@@ -18028,27 +18049,29 @@ mod typed_ownership_tests {
             "unknown-written",
             "same-variant",
         ] {
-            let clear = "(#deref-set target (Empty))";
-            let write = "(#deref-set target (Full value))";
+            let clear = "(#deref-set target (Choice.Empty))";
+            let write = "(#deref-set target (Choice.Full value))";
             let body = match mode {
-                "explicit-returns" => format!("(#if selected (#block {clear} (#return (Ready))) (#block {write} (#return (Pending)))) (#return unknown)"),
-                "nested-result" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Pending))))"),
-                "loop-result" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block {write} (#break (Pending))))))"),
-                "unknown-result" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
-                "unknown-written" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} unknown)))"),
-                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Ready))))"),
+                "explicit-returns" => format!("(#if selected (#block {clear} (#return (Outcome.Ready))) (#block {write} (#return (Outcome.Pending)))) (#return unknown)"),
+                "nested-result" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (#block {write} (Outcome.Pending))))"),
+                "loop-result" => format!("(#return (#loop (#if selected (#block {clear} (#break (Outcome.Ready))) (#block {write} (#break (Outcome.Pending))))))"),
+                "unknown-result" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) unknown))"),
+                "unknown-written" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (#block {write} unknown)))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Outcome.Ready)) (#block {write} (Outcome.Ready))))"),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
-                (#enum Outcome () ((Ready) (Pending)))
+            let source = format!("(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn choose (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool : unknown Outcome) Outcome {body})");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let body = &declarations.bodies["choose"];
             let groups = &body.call_store_variants[&declarations.function_id("choose").unwrap()];
             let outcome = crate::Type::Named("Outcome".into());
-            let ready = declarations.variant_id(&outcome, "Ready").unwrap();
-            let pending = declarations.variant_id(&outcome, "Pending").unwrap();
+            let ready = declarations.variant_id(&outcome, "Outcome.Ready").unwrap();
+            let pending = declarations
+                .variant_id(&outcome, "Outcome.Pending")
+                .unwrap();
             let stores = &groups[&ready];
             assert_eq!(stores.len(), 1, "{mode}: {stores:?}");
             assert_eq!(
@@ -18157,8 +18180,8 @@ mod typed_ownership_tests {
             ("early-return", false, false),
             ("forwarded-clear", true, false),
         ] {
-            let clear = "(#deref-set target (Empty))";
-            let write = "(#deref-set target (Full value))";
+            let clear = "(#deref-set target (Choice.Empty))";
+            let write = "(#deref-set target (Choice.Full value))";
             let body = match mode {
                 "always-clear" => clear.to_owned(),
                 "conditional-clear" => format!("(#if selected {clear} ())"),
@@ -18172,7 +18195,7 @@ mod typed_ownership_tests {
                 _ => unreachable!(),
             };
             let source = format!(
-                "(#enum Choice () ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
                 (#fn clear (: target (#ref-mut Choice)) () {clear} (#return ()))
                 (#fn replace (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool) ()
                   {body} (#return ()))"
@@ -18202,17 +18225,17 @@ mod typed_ownership_tests {
             "dynamic-index",
         ] {
             let whole =
-                "(#deref-set target (#struct-literal Pair (: left (Empty) : right (Empty))))";
-            let field = "(#deref-set (#borrow-mut (#get target left)) (Full value))";
+                "(#deref-set target (#struct-literal Pair (: left (Choice.Empty) : right (Choice.Empty))))";
+            let field = "(#deref-set (#borrow-mut (#get target left)) (Choice.Full value))";
             let (target, body) = match mode {
                 "field-then-whole" => ("Pair", format!("{field} {whole}")),
                 "whole-then-field" => ("Pair", format!("{whole} {field}")),
                 "conditional-field" => ("Pair", format!("{whole} (#if selected {field} ())")),
-                "ambiguous-field" => ("Pair", "(#deref-set (#if selected (#borrow-mut (#get target left)) (#borrow-mut (#get target right))) (Full value))".to_owned()),
-                "dynamic-index" => ("(#array Choice 2)", "(#deref-set (#borrow-mut (#index target index)) (Full value))".to_owned()),
+                "ambiguous-field" => ("Pair", "(#deref-set (#if selected (#borrow-mut (#get target left)) (#borrow-mut (#get target right))) (Choice.Full value))".to_owned()),
+                "dynamic-index" => ("(#array Choice 2)", "(#deref-set (#borrow-mut (#index target index)) (Choice.Full value))".to_owned()),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
+            let source = format!("(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
                 (#struct Pair () (: left Choice : right Choice))
                 (#fn replace (: target (#ref-mut {target}) : value (#ref #u64) : selected #bool : index #usize) ()
                   {body} (#return ()))");
@@ -18245,18 +18268,18 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set value 1u64)" } else { "" };
             let source = format!(
-                "(#enum Choice () ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
                 (#fn take (: target (#ref-mut Choice)) Choice
                   (#let previous Choice (#deref target))
-                  (#deref-set target (Empty)) (#return previous))
+                  (#deref-set target (Choice.Empty)) (#return previous))
                 (#fn main () #u64
                   (#let-mut value #u64 42u64)
-                  (#let-mut holder Choice (Full (#borrow value)))
+                  (#let-mut holder Choice (Choice.Full (#borrow value)))
                   (#let target (#ref-mut Choice) (#borrow-mut holder))
                   (#let previous Choice (#call take (: target target)))
                   (#drop target) {mutation}
                   (#let result #u64 (#match previous
-                    (#case (Empty) 0u64) (#case (Full view) (#deref view))))
+                    (#case (Choice.Empty) 0u64) (#case (Choice.Full view) (#deref view))))
                   (#forget previous) (#forget holder)
                   (#set value 1u64) (#return result))"
             );
@@ -18281,9 +18304,10 @@ mod typed_ownership_tests {
         // A union over all exits cannot claim that a Ready-only clear also
         // clears Pending. Keep this invariant independent of async layouts.
         for through_call in [false, true] {
-            let clear = "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Empty)))))";
+            let clear =
+                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Slot.Empty)))))";
             let retain =
-                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Full value)))))";
+                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Slot.Full value)))))";
             let (clear_action, retain_action) = if through_call {
                 (
                     "(#call clear (: target target))",
@@ -18293,15 +18317,15 @@ mod typed_ownership_tests {
                 (clear, retain)
             };
             let source = format!(
-                "(#enum Slot () ((Empty) (Full (#ref #u64))))
+                "(#enum Slot () ((Slot.Empty) (Slot.Full (#ref #u64))))
                 (#struct Frame () (: slot Slot))
-                (#enum Outcome () ((Ready) (Pending)))
+                (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
                 (#fn clear (: target (#pin-ref-mut Frame)) () {clear} (#return ()))
                 (#fn retain (: target (#pin-ref-mut Frame) : value (#ref #u64)) ()
                   {retain} (#return ()))
                 (#fn poll (: target (#pin-ref-mut Frame) : value (#ref #u64) : ready #bool) Outcome
-                  (#return (#if ready (#block {clear_action} (Ready))
-                    (#block {retain_action} (Pending)))))"
+                  (#return (#if ready (#block {clear_action} (Outcome.Ready))
+                    (#block {retain_action} (Outcome.Pending)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
@@ -18315,13 +18339,15 @@ mod typed_ownership_tests {
             assert_eq!(stores[0].destination.parameter, 0);
             assert!(
                 !stores[0].sources.is_empty(),
-                "a Ready clear is not unconditional clearing"
+                "a Outcome.Ready clear is not unconditional clearing"
             );
             assert!(stores[0].sources.iter().all(|source| source.parameter == 1));
             let variants = &body.call_store_variants[&function];
             let outcome = crate::Type::Named("Outcome".into());
-            let ready = &variants[&declarations.variant_id(&outcome, "Ready").unwrap()];
-            let pending = &variants[&declarations.variant_id(&outcome, "Pending").unwrap()];
+            let ready = &variants[&declarations.variant_id(&outcome, "Outcome.Ready").unwrap()];
+            let pending = &variants[&declarations
+                .variant_id(&outcome, "Outcome.Pending")
+                .unwrap()];
             assert!(ready
                 .iter()
                 .all(|store| store.definitely_written && store.sources.is_empty()));
@@ -18330,7 +18356,7 @@ mod typed_ownership_tests {
                 .all(|store| store.definitely_written && !store.sources.is_empty()));
             for selected_ready in [false, true] {
                 let mutation = if selected_ready {
-                    "(#match outcome (#case Ready (#block (#set incoming 1u64) ())) (#case Pending ()))"
+                    "(#match outcome (#case Outcome.Ready (#block (#set incoming 1u64) ())) (#case Outcome.Pending ()))"
                 } else {
                     "(#set incoming 1u64)"
                 };
@@ -18339,7 +18365,7 @@ mod typed_ownership_tests {
                     (#fn main (: selected #bool) ()
                       (#let old #u64 7u64)
                       (#let-mut incoming #u64 42u64)
-                      (#let-mut frame Frame (#struct-literal Frame (: slot (Full (#borrow old)))))
+                      (#let-mut frame Frame (#struct-literal Frame (: slot (Slot.Full (#borrow old)))))
                       (#let target (#pin-ref-mut Frame) (#pin-borrow-mut frame))
                       (#let outcome Outcome (#call poll (: target target : value (#borrow incoming) : ready selected)))
                       (#forget target) {mutation}
@@ -18352,7 +18378,8 @@ mod typed_ownership_tests {
                     let (message, code, span, _) = check_types_with_span(&program).unwrap_err();
                     assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
                     assert!(message.contains("incoming"), "{message}");
-                    let span = span.expect("the retained Pending loan needs a causal source span");
+                    let span =
+                        span.expect("the retained Outcome.Pending loan needs a causal source span");
                     assert_eq!(&caller[span.start..span.end], "#set");
                     assert_eq!(span.start, caller.rfind("#set incoming 1u64").unwrap());
                 }
@@ -18792,19 +18819,19 @@ mod typed_ownership_tests {
     #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
-            "(#enum Choice () ((Empty) (Full #u64)))
+            "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
             (#fn inspect (: selected #bool) ()
-              (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
+              (#let-mut left Choice (Choice.Empty)) (#let-mut right Choice (Choice.Empty))
               (#let target (#ref-mut Choice)
                 (#if selected (#borrow-mut left) (#borrow-mut right)))
-              (#deref-set target (Full 1u64)) (#drop target)
+              (#deref-set target (Choice.Full 1u64)) (#drop target)
               (#let uncertain Choice left)
-              (#set left (Empty))
+              (#set left (Choice.Empty))
               (#let pinned (#pin-ref-mut Choice) (#pin-borrow-mut left))
-              (#unsafe (#pin-write pinned (Full 2u64))) (#drop pinned)
+              (#unsafe (#pin-write pinned (Choice.Full 2u64))) (#drop pinned)
               (#let after-pin Choice left)
               (#let exact (#ref-mut Choice) (#borrow-mut right))
-              (#deref-set exact (Empty)) (#drop exact)
+              (#deref-set exact (Choice.Empty)) (#drop exact)
               (#let after-exact Choice right)
               (#forget left) (#forget right) (#return ()))",
         )
@@ -18824,8 +18851,8 @@ mod typed_ownership_tests {
         };
         for (site, owner, variant) in [
             ("uncertain", "left", None),
-            ("after-pin", "left", Some("Full")),
-            ("after-exact", "right", Some("Empty")),
+            ("after-pin", "left", Some("Choice.Full")),
+            ("after-exact", "right", Some("Choice.Empty")),
         ] {
             let index = flow.nodes.iter().position(|node| matches!(node.action,
                 crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding(site))).unwrap();
@@ -19334,11 +19361,11 @@ mod typed_ownership_tests {
                 "#set-index owner 0u64",
             ),
             (
-                "(#enum Owner () ((Item Resource)))",
+                "(#enum Owner () ((Owner.Item Resource)))",
                 "Owner",
-                format!("(Item {resource})"),
-                "(#get-payload owner Item 0)",
-                "#set-payload owner Item 0",
+                format!("(Owner.Item {resource})"),
+                "(#get-payload owner Owner.Item 0)",
+                "#set-payload owner Owner.Item 0",
             ),
         ] {
             for consumed in [false, true] {
@@ -20094,10 +20121,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_return_alternatives_keep_all_type_variants_without_provenance() {
-        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source =
+            "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
           (#fn choose ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#if selected
-              (#block (#forget other) (Has view)) other)))
+              (#block (#forget other) (Choice.Has view)) other)))
           (#fn forward ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#call choose (: view view : other other : selected selected))))";
         let program = crate::parse_program(source).unwrap();
@@ -20113,7 +20141,7 @@ mod typed_ownership_tests {
             declarations.bodies["forward"].call_return_variant_bounds[&choose],
             HashMap::from([(
                 Vec::new(),
-                ["Has", "Other", "Empty"]
+                ["Choice.Has", "Choice.Other", "Choice.Empty"]
                     .into_iter()
                     .map(|name| declarations.variant_id(&choice, name).unwrap())
                     .collect::<HashSet<_>>()
@@ -20142,8 +20170,8 @@ mod typed_ownership_tests {
     #[test]
     fn staged_mixed_callee_variants_exclude_unreachable_reference_payloads() {
         for expression in [
-            "(#if selected (Has view) Empty)",
-            "(#loop (#if selected (#block (#break (Has view))) (#block (#break Empty))))",
+            "(#if selected (Choice.Has view) Choice.Empty)",
+            "(#loop (#if selected (#block (#break (Choice.Has view))) (#block (#break Choice.Empty))))",
         ] {
             for consumer in [
                 "(#fn forward ((view (#ref #u64)) (selected #bool)) Choice
@@ -20159,7 +20187,7 @@ mod typed_ownership_tests {
               (#return saved))",
             ] {
                 let source = format!(
-                    "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+                    "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
           (#struct Envelope () ((choice Choice)))
           (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
             (#return {expression})) {consumer}"
@@ -20181,7 +20209,7 @@ mod typed_ownership_tests {
                     assert_eq!(bounds[&Vec::new()].len(), 2);
                     assert!(!bounds[&Vec::new()].contains(
                         &declarations
-                            .variant_id(&crate::Type::Named("Choice".into()), "Other")
+                            .variant_id(&crate::Type::Named("Choice".into()), "Choice.Other")
                             .unwrap()
                     ));
                     declarations
@@ -20216,33 +20244,33 @@ mod typed_ownership_tests {
     fn staged_loop_result_tags_survive_unrelated_calls_and_self_assignment() {
         for (initial, effects, expected_tag) in [
             (
-                "(#loop (#break (Full 1u64)))",
+                "(#loop (#break (Choice.Full 1u64)))",
                 "(#call touch ())",
-                Some("Full"),
+                Some("Choice.Full"),
             ),
             (
-                "(#loop (#break (Full 1u64)))",
+                "(#loop (#break (Choice.Full 1u64)))",
                 "(#while selected (#set saved saved))",
-                Some("Full"),
+                Some("Choice.Full"),
             ),
             (
-                "(Full 1u64)",
+                "(Choice.Full 1u64)",
                 "(#while selected (#set saved saved))",
-                Some("Full"),
+                Some("Choice.Full"),
             ),
             (
-                "(#loop (#break (#if selected (Full 1u64) Empty)))",
+                "(#loop (#break (#if selected (Choice.Full 1u64) Choice.Empty)))",
                 "(#call touch ())",
                 None,
             ),
             (
-                "(#loop (#break (Full 1u64)))",
-                "(#set saved Empty)",
-                Some("Empty"),
+                "(#loop (#break (Choice.Full 1u64)))",
+                "(#set saved Choice.Empty)",
+                Some("Choice.Empty"),
             ),
         ] {
             let source = format!(
-                "(#enum Choice () ((Full #u64) Empty))
+                "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
               (#fn touch () () (#return ()))
               (#fn choose ((selected #bool)) Choice
                 (#let-mut saved Choice {initial})
@@ -20277,16 +20305,16 @@ mod typed_ownership_tests {
     #[test]
     fn staged_callee_loop_returns_publish_common_discriminants() {
         for (expression, expected) in [
-            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Has right)))))", Some("Has")),
-            ("(#loop (#break (#loop (#break (Has left)))))", Some("Has")),
-            ("(#loop (#break (Has left)) (#break (Other right)))", Some("Has")),
-            ("(#loop (#break Empty))", Some("Empty")),
-            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Other right)))))", None),
-            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (#call ambiguous (: view right : selected selected))))))", None),
+            ("(#loop (#if selected (#block (#break (Choice.Has left))) (#block (#break (Choice.Has right)))))", Some("Choice.Has")),
+            ("(#loop (#break (#loop (#break (Choice.Has left)))))", Some("Choice.Has")),
+            ("(#loop (#break (Choice.Has left)) (#break (Choice.Other right)))", Some("Choice.Has")),
+            ("(#loop (#break Choice.Empty))", Some("Choice.Empty")),
+            ("(#loop (#if selected (#block (#break (Choice.Has left))) (#block (#break (Choice.Other right)))))", None),
+            ("(#loop (#if selected (#block (#break (Choice.Has left))) (#block (#break (#call ambiguous (: view right : selected selected))))))", None),
         ] {
-        let source = format!("(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source = format!("(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
           (#fn ambiguous ((view (#ref #u64)) (selected #bool)) Choice
-            (#return (#if selected (Has view) (Other view))))
+            (#return (#if selected (Choice.Has view) (Choice.Other view))))
           (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
             (#return {expression}))
           (#fn forward ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
@@ -20317,16 +20345,16 @@ mod typed_ownership_tests {
     #[test]
     fn staged_enum_loop_results_check_each_reachable_break() {
         for (body, missing_exit) in [
-            ("(#if selected (#block (#break (Has left))) (#block (#break Empty)))", None),
-            ("(#let inner Choice (#loop (#break (Has left)))) (#break inner)", None),
-            ("(#if selected (#block (#break (Has left))) (#block (#break (Has right))))", Some(true)),
-            ("(#break (Has left)) (#break (Has right))", Some(false)),
-            ("(#let ignored Choice (#loop (#break (Other right)))) (#forget ignored) (#break (Has left))", None),
-            ("(#if selected (#block (#continue)) (#block (#break (Has left))))", None),
-            ("(#let borrowed (#ref #u64) left) (#break (Has borrowed))", None),
+            ("(#if selected (#block (#break (Choice.Has left))) (#block (#break Choice.Empty)))", None),
+            ("(#let inner Choice (#loop (#break (Choice.Has left)))) (#break inner)", None),
+            ("(#if selected (#block (#break (Choice.Has left))) (#block (#break (Choice.Has right))))", Some(true)),
+            ("(#break (Choice.Has left)) (#break (Choice.Has right))", Some(false)),
+            ("(#let ignored Choice (#loop (#break (Choice.Other right)))) (#forget ignored) (#break (Choice.Has left))", None),
+            ("(#if selected (#block (#continue)) (#block (#break (Choice.Has left))))", None),
+            ("(#let borrowed (#ref #u64) left) (#break (Choice.Has borrowed))", None),
         ] {
             let source = format!(
-                "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+                "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
               (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
                 (#let result Choice (#loop {body}))
                 (#return result))"
@@ -20371,24 +20399,25 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_enum_local_joins_require_only_reaching_constructor_slots() {
-        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source =
+            "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
           (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
-            (#let result Choice (#if selected (Has view) Empty))
+            (#let result Choice (#if selected (Choice.Has view) Choice.Empty))
             (#return result))";
         let alias = source.replace(
             "(#return result)",
             "(#let alias Choice result) (#return alias)",
         );
         let assigned = source.replace(
-            "(#let result Choice (#if selected (Has view) Empty))",
-            "(#let-mut result Choice Empty)
+            "(#let result Choice (#if selected (Choice.Has view) Choice.Empty))",
+            "(#let-mut result Choice Choice.Empty)
              (#if selected
                (#block (#set result (#match result
-                 (#case (Has old) (Has view)) (#case (Other old) (Has view))
-                 (#case Empty (Has view)))) ())
+                 (#case (Choice.Has old) (Choice.Has view)) (#case (Choice.Other old) (Choice.Has view))
+                 (#case Choice.Empty (Choice.Has view)))) ())
                (#block (#set result (#match result
-                 (#case (Has old) Empty) (#case (Other old) Empty)
-                 (#case Empty Empty))) ()))",
+                 (#case (Choice.Has old) Choice.Empty) (#case (Choice.Other old) Choice.Empty)
+                 (#case Choice.Empty Choice.Empty))) ()))",
         );
         for source in [source.to_owned(), alias, assigned] {
             let program = crate::parse_program(&source).unwrap();
@@ -20420,7 +20449,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_enum_returns_cannot_hide_missing_payload_provenance() {
-        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source =
+            "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
           (#fn echo ((value Choice)) Choice (#return value))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -20455,17 +20485,17 @@ mod typed_ownership_tests {
             let ty = if nested { "Envelope" } else { "Choice" };
             let scrutinee = if nested { "(#get value item)" } else { "value" };
             let empty = if nested {
-                "(#struct-literal Envelope ((item Empty)))"
+                "(#struct-literal Envelope ((item Choice.Empty)))"
             } else {
-                "Empty"
+                "Choice.Empty"
             };
             let source = format!(
-                "(#enum Choice () ((Has (#tuple (#ref #u64) (#ref #u64))) Empty))
+                "(#enum Choice () ((Choice.Has (#tuple (#ref #u64) (#ref #u64))) Choice.Empty))
           (#struct Envelope () ((item Choice)))
           (#fn echo ((value {ty})) {ty}
             (#match {scrutinee}
-              (#case (Has (#tuple left right)) (#block (#return value)))
-              (#case Empty (#block (#return {empty}))))
+              (#case (Choice.Has (#tuple left right)) (#block (#return value)))
+              (#case Choice.Empty (#block (#return {empty}))))
             (#return (#unreachable)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -20649,9 +20679,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_enum_constructors_require_only_the_active_payload() {
-        for returned in ["(Has value)", "(#if choice (Has value) Empty)", "Empty"] {
+        for returned in [
+            "(Choice.Has value)",
+            "(#if choice (Choice.Has value) Choice.Empty)",
+            "Choice.Empty",
+        ] {
             let source = format!(
-                "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+                "(#enum Choice () ((Choice.Has (#ref #u64)) (Choice.Other (#ref #u64)) Choice.Empty))
               (#fn make-choice ((value (#ref #u64)) (choice #bool)) Choice
                 (#return {returned}))"
             );
@@ -20668,7 +20702,7 @@ mod typed_ownership_tests {
                 .parameter_loan_slots[0]
                 .clear();
             let result = declarations.staged_referent_entry_contracts(&types);
-            if returned == "Empty" {
+            if returned == "Choice.Empty" {
                 result.unwrap();
             } else {
                 let error = result.unwrap_err();
@@ -20693,21 +20727,21 @@ mod typed_ownership_tests {
         for (ty, returned) in [
             (
                 "Wrapper",
-                "(#struct-literal Wrapper ((choice (Has value))))",
+                "(#struct-literal Wrapper ((choice (Choice.Has value))))",
             ),
             (
                 "(#tuple Choice #u64)",
-                "(#tuple (#tuple Choice #u64) (Has value) 0u64)",
+                "(#tuple (#tuple Choice #u64) (Choice.Has value) 0u64)",
             ),
             (
                 "(#array Choice 2)",
-                "(#array-of (#array Choice 2) (Has value) Empty)",
+                "(#array-of (#array Choice 2) (Choice.Has value) Choice.Empty)",
             ),
-            ("Outer", "(Wrap (Has value))"),
+            ("Outer", "(Outer.Wrap (Choice.Has value))"),
         ] {
             let source = format!(
-                "(#enum Choice () ((Has (#ref #u64)) Empty))
-              (#struct Wrapper () ((choice Choice))) (#enum Outer () ((Wrap Choice)))
+                "(#enum Choice () ((Choice.Has (#ref #u64)) Choice.Empty))
+              (#struct Wrapper () ((choice Choice))) (#enum Outer () ((Outer.Wrap Choice)))
               (#fn make ((value (#ref #u64))) {ty} (#return {returned}))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -20761,12 +20795,12 @@ mod typed_ownership_tests {
             ),
             (
                 "Wrapper",
-                "(#struct-literal Wrapper ((choice (#if choice (Has left) (Has right)))))",
+                "(#struct-literal Wrapper ((choice (#if choice (Choice.Has left) (Choice.Has right)))))",
             ),
         ] {
             let source = format!(
                 "(#struct View () ((value (#ref #u64))))
-              (#enum Choice () ((Has (#ref #u64)) Empty)) (#struct Wrapper () ((choice Choice)))
+              (#enum Choice () ((Choice.Has (#ref #u64)) Choice.Empty)) (#struct Wrapper () ((choice Choice)))
               (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {returned}))"
             );
@@ -20802,11 +20836,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_match_results_retain_arm_local_reference_snapshots() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#struct View () ((value (#ref #u64))))
           (#fn make ((holder Holder)) View
             (#return (#struct-literal View
-              ((value (#match holder (#case (Has view) view)))))))";
+              ((value (#match holder (#case (Holder.Has view) view)))))))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -20915,14 +20949,14 @@ mod typed_ownership_tests {
         ] {
             let source = format!(
                 "(#struct Token (#linear) ((value #u64)))
-              (#enum Choice () ((Owned Token) Empty))
+              (#enum Choice () ((Choice.Owned Token) Choice.Empty))
               (#fn consume ((value (#ref-mut Token))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn caller () ()
-                (#let-mut choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                (#let-mut choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
                 (#match choice
-                  (#case (Owned payload) (#block {cleanup} ()))
-                  (#case Empty ())) (#return ()))"
+                  (#case (Choice.Owned payload) (#block {cleanup} ()))
+                  (#case Choice.Empty ())) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -20987,13 +21021,13 @@ mod typed_ownership_tests {
     #[test]
     fn guarded_linear_payloads_do_not_need_cleanup_when_the_guard_fails() {
         let source = "(#struct Token (#linear) ((value #u64)))
-          (#enum Choice () ((Owned Token) Empty))
+          (#enum Choice () ((Choice.Owned Token) Choice.Empty))
           (#fn caller ((selected #bool)) ()
-            (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+            (#let choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
             (#match choice
-              (#case (Owned first) (#when selected) (#forget first))
-              (#case (Owned second) (#forget second))
-              (#case Empty ())) (#return ()))";
+              (#case (Choice.Owned first) (#when selected) (#forget first))
+              (#case (Choice.Owned second) (#forget second))
+              (#case Choice.Empty ())) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -21011,14 +21045,14 @@ mod typed_ownership_tests {
         ] {
             let source = format!(
                 "(#struct Token (#linear) ((value #u64)))
-              (#enum Choice () ((Owned Token) Empty))
+              (#enum Choice () ((Choice.Owned Token) Choice.Empty))
               (#fn discard ((value Token)) #bool (#forget value) (#return #false))
               (#fn caller () ()
-                (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                (#let choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
                 (#match choice
-                  (#case (Owned first) (#when {guard}) (#forget first))
-                  (#case (Owned second) (#forget second))
-                  (#case Empty ())) (#return ()))"
+                  (#case (Choice.Owned first) (#when {guard}) (#forget first))
+                  (#case (Choice.Owned second) (#forget second))
+                  (#case Choice.Empty ())) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -21051,7 +21085,7 @@ mod typed_ownership_tests {
             let guard = "(#call inspect (: target (#borrow first)))";
             let source = format!(
                 "(#struct Token (#linear) ((value #u64)))
-                 (#enum Choice () ((Owned Token) Empty))
+                 (#enum Choice () ((Choice.Owned Token) Choice.Empty))
                  (#fn operation ((target ({reference} Token))) #bool
                    {operation} (#return #false))
                  (#fn forward ((target ({reference} Token))) #bool
@@ -21059,11 +21093,11 @@ mod typed_ownership_tests {
                  (#fn inspect ((target (#ref Token))) #bool
                    (#let number #u64 (#get target value)) (#return #false))
                  (#fn caller () ()
-                   (#let-mut choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                   (#let-mut choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
                    (#match choice
-                     (#case (Owned first) (#when {guard}) (#forget first))
-                     (#case (Owned second) (#forget second))
-                     (#case Empty ())) (#return ()))"
+                     (#case (Choice.Owned first) (#when {guard}) (#forget first))
+                     (#case (Choice.Owned second) (#forget second))
+                     (#case Choice.Empty ())) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -21251,9 +21285,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_stored_enum_construction_does_not_hide_missing_active_payloads() {
-        let operation = "(#let stored Choice (#if choice (Has left) (Has right)))";
+        let operation = "(#let stored Choice (#if choice (Choice.Has left) (Choice.Has right)))";
         let source = format!(
-            "(#enum Choice () ((Has (#ref #u64)) Empty))
+            "(#enum Choice () ((Choice.Has (#ref #u64)) Choice.Empty))
           (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) Choice
             {operation} (#return stored))"
         );
@@ -21290,12 +21324,15 @@ mod typed_ownership_tests {
                 "View",
                 "(#struct-literal View ((value (#if choice left right))))",
             ),
-            ("Choice", "(#if choice (Has left) (Has right))"),
+            (
+                "Choice",
+                "(#if choice (Choice.Has left) (Choice.Has right))",
+            ),
         ] {
             let call = format!("(#call identity ((value {argument}) (ignored 0u64)))");
             let source = format!(
                 "(#struct View () ((value (#ref #u64))))
-              (#enum Choice () ((Has (#ref #u64)) Empty))
+              (#enum Choice () ((Choice.Has (#ref #u64)) Choice.Empty))
               (#fn identity ((ignored #u64) (value {ty})) {ty} (#return value))
               (#fn caller ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {call}))"
@@ -21618,7 +21655,7 @@ mod typed_ownership_tests {
                 "(#struct Resource (#linear) ((number #u64)))
               (#fn worker ((other (#ref Resource)) (target (#ref-mut Resource))) ()
                 {operation} (#return ()))
-              (@#thread-spawn (: task Task : worker worker))"
+              (#generate #thread-spawn (: task Task : worker worker))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -21665,7 +21702,7 @@ mod typed_ownership_tests {
             assert_eq!(captured.facts.unresolved, original.unresolved);
             assert_eq!(captured.facts.unresolved_reads, original.unresolved_reads);
             assert!(declarations
-                .staged_captured_thread_worker_contract("Missing", &summaries)
+                .staged_captured_thread_worker_contract("missing", &summaries)
                 .is_none());
             declarations.bodies.remove("worker");
             assert!(declarations
@@ -21731,14 +21768,14 @@ mod typed_ownership_tests {
         for representation in ["tuple", "struct", "payload"] {
             for slot in [0, 1] {
                 let (declarations, result_type, restored_output, consumed_output, selection) = match representation {
-                "tuple" => ("", "(#tuple Outcome Outcome)", "(#tuple (Restored) (Consumed))", "(#tuple (Consumed) (Restored))", format!("(#get output {slot})")),
-                "struct" => ("(#struct Packet () ((first Outcome) (second Outcome)))", "Packet", "(#struct-literal Packet (: first (Restored) : second (Consumed)))", "(#struct-literal Packet (: first (Consumed) : second (Restored)))", format!("(#get output {})", if slot == 0 { "first" } else { "second" })),
-                "payload" => ("(#struct Packet () ((first Outcome) (second Outcome))) (#enum Envelope () ((Packed Packet)))", "Envelope", "(Packed (#struct-literal Packet (: first (Restored) : second (Consumed))))", "(Packed (#struct-literal Packet (: first (Consumed) : second (Restored))))", format!("(#get (#get-payload output Packed 0) {})", if slot == 0 { "first" } else { "second" })),
+                "tuple" => ("", "(#tuple Outcome Outcome)", "(#tuple (Outcome.Restored) (Outcome.Consumed))", "(#tuple (Outcome.Consumed) (Outcome.Restored))", format!("(#get output {slot})")),
+                "struct" => ("(#struct Packet () ((first Outcome) (second Outcome)))", "Packet", "(#struct-literal Packet (: first (Outcome.Restored) : second (Outcome.Consumed)))", "(#struct-literal Packet (: first (Outcome.Consumed) : second (Outcome.Restored)))", format!("(#get output {})", if slot == 0 { "first" } else { "second" })),
+                "payload" => ("(#struct Packet () ((first Outcome) (second Outcome))) (#enum Envelope () ((Envelope.Packed Packet)))", "Envelope", "(Envelope.Packed (#struct-literal Packet (: first (Outcome.Restored) : second (Outcome.Consumed))))", "(Envelope.Packed (#struct-literal Packet (: first (Outcome.Consumed) : second (Outcome.Restored))))", format!("(#get (#get-payload output Envelope.Packed 0) {})", if slot == 0 { "first" } else { "second" })),
                 _ => unreachable!(),
             };
                 let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
-                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
                  {declarations}
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) {result_type}
                    (#forget (#deref target))
@@ -21746,17 +21783,17 @@ mod typed_ownership_tests {
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        {restored_output})
                      {consumed_output})))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
-                   (#return (#match (#call Task-spawn (: target target : choose choose))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok output)
+                   (#return (#match (#call Task::spawn (: target target : choose choose))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok output)
                            (#match {selection}
-                             (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                             (#case (Consumed) (#panic))))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))"
+                             (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                             (#case (Outcome.Consumed) (#panic))))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
                 let program = crate::parse_program(&source).unwrap();
                 let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -21780,10 +21817,10 @@ mod typed_ownership_tests {
     #[test]
     fn staged_return_bounds_use_captured_operand_tags_before_later_calls() {
         let program = crate::parse_program(
-            "(#enum Outcome () ((Before) (After)))
-             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
+            "(#enum Outcome () ((Outcome.Before) (Outcome.After)))
+             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (Outcome.After)) (#return ()))
              (#fn factory () (#tuple Outcome ())
-               (#let-mut tag Outcome (Before))
+               (#let-mut tag Outcome (Outcome.Before))
                (#return (#tuple tag (#call change (: target (#borrow-mut tag))))))",
         )
         .unwrap();
@@ -21795,7 +21832,7 @@ mod typed_ownership_tests {
             .unwrap();
         let factory = declarations.function_id("factory").unwrap();
         let before = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Before")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Before")
             .unwrap();
         let body = &declarations.bodies["factory"];
         assert_eq!(
@@ -21807,15 +21844,15 @@ mod typed_ownership_tests {
     #[test]
     fn staged_captured_operand_tags_recompute_after_loop_snapshot_changes() {
         let program = crate::parse_program(
-            "(#enum Outcome () ((Before) (After)))
-             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
+            "(#enum Outcome () ((Outcome.Before) (Outcome.After)))
+             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (Outcome.After)) (#return ()))
              (#fn factory ((count #u64)) (#tuple Outcome ())
-               (#let-mut tag Outcome (Before))
-               (#let-mut output (#tuple Outcome ()) (#tuple (Before) ()))
+               (#let-mut tag Outcome (Outcome.Before))
+               (#let-mut output (#tuple Outcome ()) (#tuple (Outcome.Before) ()))
                (#let-mut index #u64 0u64)
-               (#while (#u64.< index count)
+               (#while (#u64::lt index count)
                  (#set output (#tuple tag (#call change (: target (#borrow-mut tag)))))
-                 (#set index (#u64.+.wrap index 1u64)))
+                 (#set index (#u64::add-wrap index 1u64)))
                (#return output))",
         )
         .unwrap();
@@ -21827,10 +21864,10 @@ mod typed_ownership_tests {
             .unwrap();
         let factory = declarations.function_id("factory").unwrap();
         let before = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Before")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Before")
             .unwrap();
         let after = declarations
-            .variant_id(&Type::Named("Outcome".into()), "After")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.After")
             .unwrap();
         // Zero/one iteration returns Before; later iterations capture After.
         // Upper bounds retain both possibilities, but no singleton tag may
@@ -21848,24 +21885,24 @@ mod typed_ownership_tests {
         for slot in [0, 1] {
             let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
-                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
-                       (#let first (#tuple Outcome Outcome) (#tuple (Restored) (Consumed))) first)
-                     (#block (#let second (#tuple Outcome Outcome) (#tuple (Consumed) (Restored))) second))))
-                 (@#thread-spawn (: task Task : worker worker))
+                       (#let first (#tuple Outcome Outcome) (#tuple (Outcome.Restored) (Outcome.Consumed))) first)
+                     (#block (#let second (#tuple Outcome Outcome) (#tuple (Outcome.Consumed) (Outcome.Restored))) second))))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
-                   (#return (#match (#call Task-spawn (: target target : choose choose))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok output)
+                   (#return (#match (#call Task::spawn (: target target : choose choose))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok output)
                            (#match (#get output {slot})
-                             (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                             (#case (Consumed) (#panic))))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))"
+                             (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                             (#case (Outcome.Consumed) (#panic))))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -21888,22 +21925,22 @@ mod typed_ownership_tests {
     #[test]
     fn staged_worker_returned_alias_uses_replacement_not_initial_tags() {
         let source = "(#struct Resource (#linear) ((number #u64)))
-            (#enum Outcome () ((Restored) (Consumed)))
+            (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
             (#fn worker ((target (#ref-mut Resource))) (#tuple Outcome Outcome)
               (#forget (#deref target))
-              (#let-mut output (#tuple Outcome Outcome) (#tuple (Restored) (Consumed)))
-              (#set output (#tuple (Consumed) (Restored))) (#return output))
-            (@#thread-spawn (: task Task : worker worker))
+              (#let-mut output (#tuple Outcome Outcome) (#tuple (Outcome.Restored) (Outcome.Consumed)))
+              (#set output (#tuple (Outcome.Consumed) (Outcome.Restored))) (#return output))
+            (#generate #thread-spawn (: task Task : worker worker))
             (#fn caller ((target (#ref-mut Resource))) ()
-              (#return (#match (#call Task-spawn (: target target))
-                (#case (Task-spawn-ok task)
-                  (#match (#call Task-join (: task task))
-                    (#case (Task-join-ok output)
+              (#return (#match (#call Task::spawn (: target target))
+                (#case (Task::SpawnResult.Ok task)
+                  (#match (#call Task::join (: task task))
+                    (#case (Task::JoinResult.Ok output)
                       (#match (#get output 1)
-                        (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                        (#case (Consumed) (#panic))))
-                    (#case (Task-join-error (#tuple retry error)) (#panic))))
-                (#case (Task-spawn-error error) (#panic)))))";
+                        (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                        (#case (Outcome.Consumed) (#panic))))
+                    (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -21915,12 +21952,15 @@ mod typed_ownership_tests {
         };
         let span = conflict.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#get target number)");
-        let join = declarations.function_id("Task-join").unwrap();
+        let join = declarations.function_id("Task::join").unwrap();
         let ok = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Ok",
+            )
             .unwrap();
         let restored = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Restored")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Restored")
             .unwrap();
         let contracts = declarations.bodies["caller"]
             .call_output_variant_exits
@@ -21936,16 +21976,16 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_impossible_result_arms_do_not_require_fabricated_loans() {
-        let source = "(#enum Output () ((Pending (#ref #u64)) (Ready #u64)))
-            (#fn factory () Output (#return (Ready 42u64)))
+        let source = "(#enum Output () ((Output.Pending (#ref #u64)) (Output.Ready #u64)))
+            (#fn factory () Output (#return (Output.Ready 42u64)))
             (#fn wrap () Output
               (#return (#match (#call factory ())
-                (#case (Pending value) (Pending value))
-                (#case (Ready value) (Ready value)))))
+                (#case (Output.Pending value) (Output.Pending value))
+                (#case (Output.Ready value) (Output.Ready value)))))
             (#fn main () #u64
               (#return (#match (#call wrap ())
-                (#case (Pending value) (#deref value))
-                (#case (Ready value) value))))";
+                (#case (Output.Pending value) (#deref value))
+                (#case (Output.Ready value) value))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         crate::codegen::generate_assembly(&program).unwrap();
@@ -21964,12 +22004,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn prepared_variant_tags_require_verified_callee_bodies() {
-        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
             (#fn noop ((target (#ref-mut Choice))) () (#return ()))
             (#fn forward ((target (#ref-mut Choice))) ()
               (#call noop (: target target)) (#return ()))
             (#fn write ((target (#ref-mut Choice))) ()
-              (#deref-set target (Empty)) (#return ()))
+              (#deref-set target (Choice.Empty)) (#return ()))
             (#fn caller ((target (#ref-mut Choice))) ()
               (#call forward (: target target)) (#call write (: target target)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -21999,18 +22039,18 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_owned_call_outputs_exclude_absent_input_payload_loans() {
-        let source = "(#enum Task () ((Waiting) (Holding (#ref #u64))))
-          (#enum Outcome () ((Pending Task) (Ready #u64)))
+        let source = "(#enum Task () ((Task.Waiting) (Task.Holding (#ref #u64))))
+          (#enum Outcome () ((Outcome.Pending Task) (Outcome.Ready #u64)))
           (#fn poll ((task Task)) Outcome
             (#return (#match task
-              (#case (Waiting) (Ready 37u64))
-              (#case (Holding held) (Pending (Holding held))))))
-          (#fn wrapper () Outcome (#return (#call poll (: task (Waiting)))))
+              (#case (Task.Waiting) (Outcome.Ready 37u64))
+              (#case (Task.Holding held) (Outcome.Pending (Task.Holding held))))))
+          (#fn wrapper () Outcome (#return (#call poll (: task (Task.Waiting)))))
           (#fn main () #u64 (#return (#match (#call wrapper (:))
-            (#case (Ready value) value)
-            (#case (Pending task) (#match task
-              (#case (Waiting) 0u64)
-              (#case (Holding held) (#deref held)))))))";
+            (#case (Outcome.Ready value) value)
+            (#case (Outcome.Pending task) (#match task
+              (#case (Task.Waiting) 0u64)
+              (#case (Task.Holding held) (#deref held)))))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         crate::codegen::generate_assembly(&program).unwrap();
@@ -22039,21 +22079,25 @@ mod typed_ownership_tests {
     #[test]
     fn production_call_entry_reads_use_non_singleton_owned_variant_bounds() {
         let prefix = "(#struct Resource (#linear) ((number #u64)))
-          (#enum Stage (#linear) ((Start (#ref-mut Resource))
-            (WaitA (#ref-mut Resource)) (WaitB (#ref-mut Resource))))
+          (#enum Stage (#linear) ((Stage.Start (#ref-mut Resource))
+            (Stage.WaitA (#ref-mut Resource)) (Stage.WaitB (#ref-mut Resource))))
 
           (#fn inspect ((stage Stage)) ()
             (#match stage
-              (#case (Start active) (#block (#assert (#u64.== (#get active number) 0u64)) ()))
-              (#case (WaitA paused-a) ())
-              (#case (WaitB paused-b) ()))
+              (#case (Stage.Start active) (#block (#assert (#u64::eq (#get active number) 0u64)) ()))
+              (#case (Stage.WaitA paused-a) ())
+              (#case (Stage.WaitB paused-b) ()))
             (#return ()))";
         for start_possible in [false, true] {
-            let alternate = if start_possible { "Start" } else { "WaitB" };
+            let alternate = if start_possible {
+                "Stage.Start"
+            } else {
+                "Stage.WaitB"
+            };
             let source = format!(
                 "{prefix}
               (#fn suspend ((target (#ref-mut Resource)) (choose #bool)) Stage
-                (#return (#if choose (WaitA target) ({alternate} target))))
+                (#return (#if choose (Stage.WaitA target) ({alternate} target))))
               (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                 (#forget (#deref target))
                 (#let stage Stage (#call suspend (: target target : choose choose)))
@@ -22247,46 +22291,51 @@ mod typed_ownership_tests {
         for shape in ["tuple", "struct", "payload"] {
             for slot in [0, 1] {
                 for unknown in [false, true] {
-                    let fallback = if unknown { "fallback" } else { "(Consumed)" };
+                    let fallback = if unknown {
+                        "fallback"
+                    } else {
+                        "(Outcome.Consumed)"
+                    };
                     let operand = format!("(#if choose
-                    (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
+                    (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Outcome.Restored))
                     {fallback})");
                     let field = if slot == 0 { "first" } else { "second" };
-                    let packet =
-                        format!("(#struct-literal Packet (: first {operand} : second (Restored)))");
+                    let packet = format!(
+                        "(#struct-literal Packet (: first {operand} : second (Outcome.Restored)))"
+                    );
                     let (output_type, constructor, selector) = match shape {
                         "tuple" => (
                             "(#tuple Outcome Outcome)",
-                            format!("(#tuple {operand} (Restored))"),
+                            format!("(#tuple {operand} (Outcome.Restored))"),
                             format!("(#get output {slot})"),
                         ),
                         "struct" => ("Packet", packet, format!("(#get output {field})")),
                         "payload" => (
                             "Wrapped",
-                            format!("(PacketValue {packet})"),
-                            format!("(#get (#get-payload output PacketValue 0) {field})"),
+                            format!("(Wrapped.PacketValue {packet})"),
+                            format!("(#get (#get-payload output Wrapped.PacketValue 0) {field})"),
                         ),
                         _ => unreachable!(),
                     };
                     let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
-                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
                  (#struct Packet () ((first Outcome) (second Outcome)))
-                 (#enum Wrapped () ((PacketValue Packet)))
+                 (#enum Wrapped () ((Wrapped.PacketValue Packet)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) {output_type}
                    (#forget (#deref target))
                    (#return {constructor}))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) ()
-                   (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok output)
+                   (#return (#match (#call Task::spawn (: target target : choose choose : fallback fallback))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok output)
                            (#match {selector}
-                             (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                             (#case (Consumed) (#panic))))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))"
+                             (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                             (#case (Outcome.Consumed) (#panic))))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
                     let program = crate::parse_program(&source).unwrap();
                     let worker =
@@ -22316,17 +22365,17 @@ mod typed_ownership_tests {
         for slot in [0, 1] {
             let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
-                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
                  (#fn calculate ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
-                       (#tuple (Restored) (Consumed)))
-                     (#tuple (Consumed) (Restored)))))
+                       (#tuple (Outcome.Restored) (Outcome.Consumed)))
+                     (#tuple (Outcome.Consumed) (Outcome.Restored)))))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#get (#call calculate (: target target : choose choose)) {slot})
-                     (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                     (#case (Consumed) (#panic)))))"
+                     (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                     (#case (Outcome.Consumed) (#panic)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22349,23 +22398,23 @@ mod typed_ownership_tests {
     #[test]
     fn staged_nested_worker_outcome_keeps_unknown_return_alternatives() {
         let source = "(#struct Resource (#linear) ((number #u64)))
-            (#enum Outcome () ((Restored) (Consumed)))
+            (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
             (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) (#tuple Outcome Outcome)
               (#forget (#deref target))
               (#return (#if choose
                 (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
-                  (#tuple (Restored) (Consumed))) fallback)))
-            (@#thread-spawn (: task Task : worker worker))
+                  (#tuple (Outcome.Restored) (Outcome.Consumed))) fallback)))
+            (#generate #thread-spawn (: task Task : worker worker))
             (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) ()
-              (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
-                (#case (Task-spawn-ok task)
-                  (#match (#call Task-join (: task task))
-                    (#case (Task-join-ok output)
+              (#return (#match (#call Task::spawn (: target target : choose choose : fallback fallback))
+                (#case (Task::SpawnResult.Ok task)
+                  (#match (#call Task::join (: task task))
+                    (#case (Task::JoinResult.Ok output)
                       (#match (#get output 0)
-                        (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                        (#case (Consumed) (#panic))))
-                    (#case (Task-join-error (#tuple retry error)) (#panic))))
-                (#case (Task-spawn-error error) (#panic)))))";
+                        (#case (Outcome.Restored) (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                        (#case (Outcome.Consumed) (#panic))))
+                    (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -22373,16 +22422,19 @@ mod typed_ownership_tests {
             .staged_contents_referent_entry_contracts(&types)
             .unwrap_err()
         else {
-            panic!("unknown output may select Restored without initializing the referent");
+            panic!("unknown output may select Outcome.Restored without initializing the referent");
         };
         let span = conflict.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#get target number)");
-        let join = declarations.function_id("Task-join").unwrap();
+        let join = declarations.function_id("Task::join").unwrap();
         let ok = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Ok",
+            )
             .unwrap();
         let restored = declarations
-            .variant_id(&Type::Named("Outcome".into()), "Restored")
+            .variant_id(&Type::Named("Outcome".into()), "Outcome.Restored")
             .unwrap();
         let contracts = declarations.bodies["caller"]
             .call_output_variant_exits
@@ -22406,29 +22458,29 @@ mod typed_ownership_tests {
             (true, true, true, false),
             (false, false, false, false),
         ] {
-            let read = "(#block (#assert (#u64.== (#get target number) 42u64)) ())";
+            let read = "(#block (#assert (#u64::eq (#get target number) 42u64)) ())";
             let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
-                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#enum Outcome () ((Outcome.Restored) (Outcome.Consumed)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) Outcome
                    (#forget (#deref target))
                    (#return (#if choose
-                     (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
-                     (Consumed))))
-                 (@#thread-spawn (: task Task : worker worker))
+                     (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Outcome.Restored))
+                     (Outcome.Consumed))))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
-                   (#return (#match (#call Task-spawn (: target target : choose choose))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok outcome)
+                   (#return (#match (#call Task::spawn (: target target : choose choose))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok outcome)
                            (#block {}
                            (#match {}
-                             (#case (Restored) {})
-                             (#case (Consumed) {}))))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))",
+                             (#case (Outcome.Restored) {})
+                             (#case (Outcome.Consumed) {}))))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))",
                 if alias {
-                    if overwrite { "(#let-mut selected Outcome outcome) (#set selected (Restored))" }
+                    if overwrite { "(#let-mut selected Outcome outcome) (#set selected (Outcome.Restored))" }
                     else { "(#let selected Outcome outcome)" }
                 } else { "" },
                 if alias { "selected" } else { "outcome" },
@@ -22442,18 +22494,24 @@ mod typed_ownership_tests {
             if succeeds {
                 let summaries = result.unwrap();
                 let worker = declarations.function_id("worker").unwrap();
-                let join = declarations.function_id("Task-join").unwrap();
+                let join = declarations.function_id("Task::join").unwrap();
                 let ok = declarations
-                    .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+                    .variant_id(
+                        &Type::Named("Task::JoinResult".into()),
+                        "Task::JoinResult.Ok",
+                    )
                     .unwrap();
                 let error = declarations
-                    .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+                    .variant_id(
+                        &Type::Named("Task::JoinResult".into()),
+                        "Task::JoinResult.Error",
+                    )
                     .unwrap();
                 let restored = declarations
-                    .variant_id(&Type::Named("Outcome".into()), "Restored")
+                    .variant_id(&Type::Named("Outcome".into()), "Outcome.Restored")
                     .unwrap();
                 let consumed = declarations
-                    .variant_id(&Type::Named("Outcome".into()), "Consumed")
+                    .variant_id(&Type::Named("Outcome".into()), "Outcome.Consumed")
                     .unwrap();
                 assert_eq!(
                     summaries[&worker].variant_exits[&restored].restored.len(),
@@ -22512,14 +22570,14 @@ mod typed_ownership_tests {
                 "Outcome"
             };
             let first_output = if slot.is_some() {
-                "(#tuple (FromFirst) (FromSecond))"
+                "(#tuple (Outcome.FromFirst) (Outcome.FromSecond))"
             } else {
-                "(FromFirst)"
+                "(Outcome.FromFirst)"
             };
             let second_output = if slot.is_some() {
-                "(#tuple (FromSecond) (FromFirst))"
+                "(#tuple (Outcome.FromSecond) (Outcome.FromFirst))"
             } else {
-                "(FromSecond)"
+                "(Outcome.FromSecond)"
             };
             let selected = slot.map_or_else(
                 || "outcome".to_owned(),
@@ -22527,23 +22585,23 @@ mod typed_ownership_tests {
             );
             let program = crate::parse_program(&format!(
             "(#struct Holder (#linear) ((value (#ref #u64))))
-             (#enum Outcome () ((FromFirst) (FromSecond)))
+             (#enum Outcome () ((Outcome.FromFirst) (Outcome.FromSecond)))
              (#fn worker ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) {result_type}
                (#forget (#deref target))
                (#return (#if choose
                  (#block (#deref-set target (#struct-literal Holder (: value first))) {first_output})
                  (#block (#deref-set target (#struct-literal Holder (: value second))) {second_output}))))
-             (@#thread-spawn (: task Task : worker worker))
+             (#generate #thread-spawn (: task Task : worker worker))
              (#fn caller ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) ()
-               (#return (#match (#call Task-spawn (: target target : first first : second second : choose choose))
-                 (#case (Task-spawn-ok task)
-                   (#match (#call Task-join (: task task))
-                     (#case (Task-join-ok outcome)
+               (#return (#match (#call Task::spawn (: target target : first first : second second : choose choose))
+                 (#case (Task::SpawnResult.Ok task)
+                   (#match (#call Task::join (: task task))
+                     (#case (Task::JoinResult.Ok outcome)
                        (#match {selected}
-                         (#case (FromFirst) (#block (#let observed-first (#ref #u64) (#get target value)) ()))
-                         (#case (FromSecond) (#block (#let observed-second (#ref #u64) (#get target value)) ()))))
-                     (#case (Task-join-error (#tuple retry error)) (#panic))))
-                 (#case (Task-spawn-error error) (#panic)))))",
+                         (#case (Outcome.FromFirst) (#block (#let observed-first (#ref #u64) (#get target value)) ()))
+                         (#case (Outcome.FromSecond) (#block (#let observed-second (#ref #u64) (#get target value)) ()))))
+                     (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                 (#case (Task::SpawnResult.Error error) (#panic)))))",
         )).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -22553,9 +22611,12 @@ mod typed_ownership_tests {
             let body = &declarations.bodies["caller"];
             let flow = &declarations.flows["caller"];
             let origins = flow.staged_parameter_store_loan_origins(body);
-            let join = declarations.function_id("Task-join").unwrap();
+            let join = declarations.function_id("Task::join").unwrap();
             let ok = declarations
-                .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+                .variant_id(
+                    &Type::Named("Task::JoinResult".into()),
+                    "Task::JoinResult.Ok",
+                )
                 .unwrap();
             let count = if slot.is_some() { 4 } else { 2 };
             assert_eq!(body.call_output_store_variants[&join].len(), count);
@@ -22609,15 +22670,15 @@ mod typed_ownership_tests {
                 "(#struct Resource (#linear) ((number #u64)))
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target)) {restore} (#return ()))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource))) ()
-                   (#return (#match (#call Task-spawn (: target target))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok result)
-                           (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))"
+                   (#return (#match (#call Task::spawn (: target target))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok result)
+                           (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22636,7 +22697,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_outcomes_keep_pending_consumption_and_spawn_failure_state() {
-        let read = "(#assert (#u64.== (#get target number) 42u64))";
+        let read = "(#assert (#u64::eq (#get target number) 42u64))";
         for (before_join, retry_read, failed_spawn_read, succeeds) in [
             (false, false, true, true),
             (true, false, false, false),
@@ -22655,16 +22716,16 @@ mod typed_ownership_tests {
                    (#forget (#deref target))
                    (#deref-set target (#struct-literal Resource ((number 42u64))))
                    (#return ()))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource))) ()
-                   (#return (#match (#call Task-spawn (: target target))
-                     (#case (Task-spawn-ok task)
+                   (#return (#match (#call Task::spawn (: target target))
+                     (#case (Task::SpawnResult.Ok task)
                        (#block {before}
-                         (#match (#call Task-join (: task task))
-                           (#case (Task-join-ok result) ())
-                           (#case (Task-join-error (#tuple retry error))
+                         (#match (#call Task::join (: task task))
+                           (#case (Task::JoinResult.Ok result) ())
+                           (#case (Task::JoinResult.Error (#tuple retry error))
                              (#block {retry} (#panic))))))
-                     (#case (Task-spawn-error error) {failed}))))"
+                     (#case (Task::SpawnResult.Error error) {failed}))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22696,15 +22757,15 @@ mod typed_ownership_tests {
         let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn worker ((target (#ref-mut Resource))) ()
             (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()))
-          (@#thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut Resource))) ()
-            (#return (#match (#call Task-spawn (: target target))
-              (#case (Task-spawn-ok task)
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result)
-                    (#block (#assert (#u64.== (#get target number) 42u64)) ()))
-                  (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))";
+            (#return (#match (#call Task::spawn (: target target))
+              (#case (Task::SpawnResult.Ok task)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok result)
+                    (#block (#assert (#u64::eq (#get target number) 42u64)) ()))
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+              (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -22776,17 +22837,17 @@ mod typed_ownership_tests {
             let at = |selected| if phase == selected { access } else { "" };
             let source = format!(
                 "(#fn worker ((target ({reference} #u64))) () (#return ()))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
                    (#let-mut owner #u64 42u64)
-                   (#let outcome Task-spawn-result (#call Task-spawn (: target ({borrow} owner))))
+                   (#let outcome Task::SpawnResult (#call Task::spawn (: target ({borrow} owner))))
                    (#return (#match outcome
-                     (#case (Task-spawn-ok task)
+                     (#case (Task::SpawnResult.Ok task)
                        (#block {}
-                         (#match (#call Task-join (: task task))
-                           (#case (Task-join-ok result) (#block {} ()))
-                           (#case (Task-join-error (#tuple retry error)) (#block {} (#panic))))))
-                     (#case (Task-spawn-error error) (#block {} ())))))",
+                         (#match (#call Task::join (: task task))
+                           (#case (Task::JoinResult.Ok result) (#block {} ()))
+                           (#case (Task::JoinResult.Error (#tuple retry error)) (#block {} (#panic))))))
+                     (#case (Task::SpawnResult.Error error) (#block {} ())))))",
                 at("pending"),
                 at("completed"),
                 at("retry"),
@@ -22822,20 +22883,20 @@ mod typed_ownership_tests {
             "(#let observed #u64 owner)",
             "(#call read (: input alias))",
             "(#call write (: input alias))",
-            "(#call Task-spawn (: target alias))",
+            "(#call Task::spawn (: target alias))",
         ] {
             let source = format!(
                 "(#fn worker ((target (#ref-mut #u64))) () (#return ()))
                  (#fn read ((input (#ref-mut #u64))) #u64 (#return (#deref input)))
                  (#fn write ((input (#ref-mut #u64))) () (#deref-set input 7u64) (#return ()))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
                    (#let-mut owner #u64 42u64)
                    (#let alias (#ref-mut #u64) (#borrow-mut owner))
-                   (#return (#match (#call Task-spawn (: target alias))
-                     (#case (Task-spawn-ok task)
+                   (#return (#match (#call Task::spawn (: target alias))
+                     (#case (Task::SpawnResult.Ok task)
                        (#block (#let moved Task task) {access} (#panic)))
-                     (#case (Task-spawn-error error) ()))))"
+                     (#case (Task::SpawnResult.Error error) ()))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22875,16 +22936,16 @@ mod typed_ownership_tests {
           (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#forget (#deref target))
             (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
-          (@#thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64))) ()
-            (#return (#match (#call Task-spawn (: target target : source source))
-              (#case (Task-spawn-ok task)
+            (#return (#match (#call Task::spawn (: target target : source source))
+              (#case (Task::SpawnResult.Ok task)
                 (#block {pending}
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok result)
                     (#block {completed} ()))
-                  (#case (Task-join-error (#tuple retry error)) (#block {retry} (#panic))))))
-              (#case (Task-spawn-error error) {failed}))))"
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#block {retry} (#panic))))))
+              (#case (Task::SpawnResult.Error error) {failed}))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22930,15 +22991,15 @@ mod typed_ownership_tests {
                  (#block (#forget (#deref target))
                    (#deref-set target (#struct-literal Holder ((value source))))) ())
                (#return ()))
-             (@#thread-spawn (: task Task : worker worker))
+             (#generate #thread-spawn (: task Task : worker worker))
              (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
-               (#return (#match (#call Task-spawn (: target target : source source : choose choose))
-                 (#case (Task-spawn-ok task)
-                   (#match (#call Task-join (: task task))
-                     (#case (Task-join-ok result)
+               (#return (#match (#call Task::spawn (: target target : source source : choose choose))
+                 (#case (Task::SpawnResult.Ok task)
+                   (#match (#call Task::join (: task task))
+                     (#case (Task::JoinResult.Ok result)
                        (#block (#let loaded (#ref #u64) (#get target value)) ()))
-                     (#case (Task-join-error (#tuple retry error)) (#panic))))
-                 (#case (Task-spawn-error error) (#panic)))))",
+                     (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                 (#case (Task::SpawnResult.Error error) (#panic)))))",
         )
         .unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22980,7 +23041,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_capture_storage_selectors_preserve_output_positions() {
-        let program = crate::parse_program("(#fn worker ((value (#ref #u64))) () (#return ())) (@#thread-spawn (: task Task : worker worker))").unwrap();
+        let program = crate::parse_program("(#fn worker ((value (#ref #u64))) () (#return ())) (#generate #thread-spawn (: task Task : worker worker))").unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let owner = declarations
             .aggregate_id(&Type::Named("Task".into()))
@@ -23027,32 +23088,32 @@ mod typed_ownership_tests {
     #[test]
     fn staged_thread_successful_join_clears_removed_reference_contents() {
         for (target_type, write, declarations_source) in [
-            ("Holder", "(#deref-set target (Empty))", ""),
+            ("Holder", "(#deref-set target (Holder.Empty))", ""),
             (
                 "Holder",
-                "(#let replacement Holder (Empty)) (#deref-set target replacement)",
+                "(#let replacement Holder (Holder.Empty)) (#deref-set target replacement)",
                 "",
             ),
             (
                 "Wrapper",
-                "(#deref-set target (#struct-literal Wrapper (: inner (Empty))))",
+                "(#deref-set target (#struct-literal Wrapper (: inner (Holder.Empty))))",
                 "(#struct Wrapper (#linear) ((inner Holder))) ",
             ),
         ] {
             let source = format!(
-                "(#enum Holder (#linear) ((Filled (#ref #u64)) (Empty)))
+                "(#enum Holder (#linear) ((Holder.Filled (#ref #u64)) (Holder.Empty)))
           {declarations_source}
           (#fn worker ((target (#ref-mut {target_type}))) ()
             (#forget (#deref target)) {write} (#return ()))
-          (@#thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut {target_type}))) ()
-            (#return (#match (#call Task-spawn (: target target))
-              (#case (Task-spawn-ok task)
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result)
+            (#return (#match (#call Task::spawn (: target target))
+              (#case (Task::SpawnResult.Ok task)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok result)
                     (#block (#let observed {target_type} (#deref target)) (#forget observed) ()))
-                  (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))"
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+              (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23084,20 +23145,20 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_join_preserves_distinct_nested_worker_result_constructors() {
-        let source = "(#enum Decision (#linear) ((Ready) (Failed)))
+        let source = "(#enum Decision (#linear) ((Decision.Ready) (Decision.Failed)))
           (#struct Packet (#linear) ((first Decision) (second Decision)))
           (#fn factory () Packet
-            (#return (#struct-literal Packet (: first (Ready) : second (Failed)))))
+            (#return (#struct-literal Packet (: first (Decision.Ready) : second (Decision.Failed)))))
           (#fn worker () Packet (#return (#call factory ())))
-          (@#thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
           (#fn caller () ()
-            (#return (#match (#call Task-spawn ())
-              (#case (Task-spawn-ok task)
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok packet)
+            (#return (#match (#call Task::spawn ())
+              (#case (Task::SpawnResult.Ok task)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok packet)
                     (#block (#let observed Packet packet) (#forget observed) ()))
-                  (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))";
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+              (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         crate::generate_assembly(&program).unwrap();
@@ -23106,12 +23167,18 @@ mod typed_ownership_tests {
         declarations
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
-        let join = declarations.function_id("Task-join").unwrap();
+        let join = declarations.function_id("Task::join").unwrap();
         let ok = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Ok",
+            )
             .unwrap();
         let retry = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Error",
+            )
             .unwrap();
         let body = &declarations.bodies["caller"];
         let flow = &declarations.flows["caller"];
@@ -23125,7 +23192,7 @@ mod typed_ownership_tests {
                 .unwrap(),
         );
         use crate::typed_place::{Place, Segment};
-        for (field, constructor) in [("first", "Ready"), ("second", "Failed")] {
+        for (field, constructor) in [("first", "Decision.Ready"), ("second", "Decision.Failed")] {
             let field = declarations
                 .field_id(&Type::Named("Packet".into()), field)
                 .unwrap();
@@ -23163,7 +23230,7 @@ mod typed_ownership_tests {
         for (parameters, returned, caller_parameters, arguments, known) in [
             (
                 "((choose #bool))",
-                "(#if choose (Ready) (Failed))",
+                "(#if choose (Decision.Ready) (Decision.Failed))",
                 "((choose #bool))",
                 ": choose choose",
                 true,
@@ -23177,16 +23244,16 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#enum Decision (#linear) ((Ready) (Failed)))
+                "(#enum Decision (#linear) ((Decision.Ready) (Decision.Failed)))
                  (#fn worker {parameters} Decision (#return {returned}))
-                 (@#thread-spawn (: task Task : worker worker))
+                 (#generate #thread-spawn (: task Task : worker worker))
                  (#fn caller {caller_parameters} ()
-                   (#return (#match (#call Task-spawn ({arguments}))
-                     (#case (Task-spawn-ok task)
-                       (#match (#call Task-join (: task task))
-                         (#case (Task-join-ok decision) (#block (#forget decision) ()))
-                         (#case (Task-join-error (#tuple retry error)) (#panic))))
-                     (#case (Task-spawn-error error) (#panic)))))"
+                   (#return (#match (#call Task::spawn ({arguments}))
+                     (#case (Task::SpawnResult.Ok task)
+                       (#match (#call Task::join (: task task))
+                         (#case (Task::JoinResult.Ok decision) (#block (#forget decision) ()))
+                         (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                     (#case (Task::SpawnResult.Error error) (#panic)))))"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
@@ -23196,14 +23263,17 @@ mod typed_ownership_tests {
             declarations
                 .staged_contents_referent_entry_contracts(&types)
                 .unwrap();
-            let join = declarations.function_id("Task-join").unwrap();
+            let join = declarations.function_id("Task::join").unwrap();
             let ok = declarations
-                .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+                .variant_id(
+                    &Type::Named("Task::JoinResult".into()),
+                    "Task::JoinResult.Ok",
+                )
                 .unwrap();
             let path = vec![crate::typed_place::Segment::Payload(ok, 0)];
             let body = &declarations.bodies["caller"];
             if known {
-                let variants = ["Ready", "Failed"]
+                let variants = ["Decision.Ready", "Decision.Failed"]
                     .into_iter()
                     .map(|name| {
                         declarations
@@ -23227,17 +23297,17 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_global_clears_are_deferred_to_successful_join() {
-        let source = "(#enum Holder (#linear) ((Empty) (Filled (#ref #u64))))
-            (#static Snapshot Holder (Empty))
-            (#fn worker () () (#unsafe (#forget Snapshot)) (#return ()))
-            (@#thread-spawn (: task Task : worker worker))
+        let source = "(#enum Holder (#linear) ((Holder.Empty) (Holder.Filled (#ref #u64))))
+            (#static snapshot Holder (Holder.Empty))
+            (#fn worker () () (#unsafe (#forget snapshot)) (#return ()))
+            (#generate #thread-spawn (: task Task : worker worker))
             (#fn caller () ()
-              (#return (#match (#call Task-spawn ())
-                (#case (Task-spawn-ok task)
-                  (#match (#call Task-join (: task task))
-                    (#case (Task-join-ok result) ())
-                    (#case (Task-join-error (#tuple retry error)) (#panic))))
-                (#case (Task-spawn-error error) ()))))";
+              (#return (#match (#call Task::spawn ())
+                (#case (Task::SpawnResult.Ok task)
+                  (#match (#call Task::join (: task task))
+                    (#case (Task::JoinResult.Ok result) ())
+                    (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+                (#case (Task::SpawnResult.Error error) ()))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         crate::generate_assembly(&program).unwrap();
@@ -23246,15 +23316,21 @@ mod typed_ownership_tests {
         declarations
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
-        let global = declarations.global_id("Snapshot").unwrap();
+        let global = declarations.global_id("snapshot").unwrap();
         let worker = declarations.function_id("worker").unwrap();
-        let spawn = declarations.function_id("Task-spawn").unwrap();
-        let join = declarations.function_id("Task-join").unwrap();
+        let spawn = declarations.function_id("Task::spawn").unwrap();
+        let join = declarations.function_id("Task::join").unwrap();
         let ok = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Ok",
+            )
             .unwrap();
         let retry = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Error",
+            )
             .unwrap();
         let body = &declarations.bodies["caller"];
         assert_eq!(body.call_parameter_clears[&worker].len(), 1);
@@ -23269,12 +23345,12 @@ mod typed_ownership_tests {
     #[test]
     fn stored_enum_constructors_require_agreement_across_worker_paths() {
         let clear = "(#forget (#deref target))";
-        let empty = "(#deref-set target (Empty))";
-        let filled = "(#deref-set target (Filled source))";
+        let empty = "(#deref-set target (Holder.Empty))";
+        let filled = "(#deref-set target (Holder.Filled source))";
         for (writes, expected) in [
             (
                 format!("(#if choose (#block {clear} {empty}) (#block {clear} {empty}))"),
-                Some("Empty"),
+                Some("Holder.Empty"),
             ),
             (
                 format!("(#if choose (#block {clear} {empty}) (#block {clear} {filled}))"),
@@ -23283,10 +23359,10 @@ mod typed_ownership_tests {
             (format!("(#if choose (#block {clear} {empty}) ())"), None),
         ] {
             let program = crate::parse_program(&format!(
-                "(#enum Holder (#linear) ((Filled (#ref #u64)) (Empty)))
+                "(#enum Holder (#linear) ((Holder.Filled (#ref #u64)) (Holder.Empty)))
                  (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                    {writes} (#return ()))
-                 (@#thread-spawn (: task Task : worker worker))"
+                 (#generate #thread-spawn (: task Task : worker worker))"
             ))
             .unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23335,7 +23411,7 @@ mod typed_ownership_tests {
             let source = format!(
                 "(#struct Resource (#linear) ((number #u64)))
                  (#fn worker ((target (#ref-mut Resource))) () {operation} {exit})
-                 (@#thread-spawn (: task Task : worker worker))"
+                 (#generate #thread-spawn (: task Task : worker worker))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23382,9 +23458,9 @@ mod typed_ownership_tests {
         use crate::typed_place::{Place, Segment};
 
         let program = crate::parse_program(
-            "(#static Global #u64 7u64)
+            "(#static global #u64 7u64)
              (#fn worker ((target (#ref-mut #u64))) () (#return ()))
-             (@#thread-spawn (: task Task : worker worker))",
+             (#generate #thread-spawn (: task Task : worker worker))",
         )
         .unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23393,7 +23469,10 @@ mod typed_ownership_tests {
             .aggregate_id(&Type::Named("Task".into()))
             .unwrap();
         let variant = declarations
-            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .variant_id(
+                &Type::Named("Task::JoinResult".into()),
+                "Task::JoinResult.Ok",
+            )
             .unwrap();
         let place = Place {
             root: PlaceRoot::Parameter(BindingId(0)),
@@ -23406,7 +23485,7 @@ mod typed_ownership_tests {
             definitely_consumed: false,
             consumption_spans: vec![None],
         };
-        let global = Place::root(PlaceRoot::Global(declarations.global_id("Global").unwrap()));
+        let global = Place::root(PlaceRoot::Global(declarations.global_id("global").unwrap()));
         let mut facts = ReferentFunctionEffects {
             has_normal_return: false,
             effects: vec![effect.clone()],
@@ -23492,14 +23571,14 @@ mod typed_ownership_tests {
         let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn z-worker ((owner (#ref-mut Resource))) #u64
             (#forget (#deref owner)) (#return (#get owner number)))
-          (@#thread-spawn (: task Task : worker z-worker))
+          (#generate #thread-spawn (: task Task : worker z-worker))
           (#fn a-caller ((owner (#ref-mut Resource))) #u64
-            (#return (#match (#call Task-spawn (: owner owner))
-              (#case (Task-spawn-ok task)
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result) result)
-                  (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))";
+            (#return (#match (#call Task::spawn (: owner owner))
+              (#case (Task::SpawnResult.Ok task)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok result) result)
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+              (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -23550,21 +23629,28 @@ mod typed_ownership_tests {
         for (operation, variant_name, expected_storage) in [
             (
                 "spawn",
-                "ReadValueTask-spawn-ok",
+                "ReadValueTask::SpawnResult.Ok",
                 vec![Segment::ThreadCapture(owner, 0)],
             ),
             (
                 "join",
-                "ReadValueTask-join-error",
+                "ReadValueTask::JoinResult.Error",
                 vec![Segment::Tuple(0), Segment::ThreadCapture(owner, 0)],
             ),
         ] {
             let id = declarations
-                .function_id(&format!("ReadValueTask-{operation}"))
+                .function_id(&format!("ReadValueTask::{operation}"))
                 .unwrap();
             let variant = declarations
                 .variant_id(
-                    &Type::Named(format!("ReadValueTask-{operation}-result")),
+                    &Type::Named(format!(
+                        "ReadValueTask::{}Result",
+                        if operation == "spawn" {
+                            "Spawn"
+                        } else {
+                            "Join"
+                        }
+                    )),
                     variant_name,
                 )
                 .unwrap();
@@ -23624,19 +23710,19 @@ mod typed_ownership_tests {
     #[test]
     fn staged_thread_array_captures_specialize_actual_storage_slots() {
         let source = "(#fn worker ((values (#array (#ref #u64) 2))) #u64
-            (#let result #u64 (#u64.+.wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
+            (#let result #u64 (#u64::add-wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
             (#forget values) (#return result))
-          (@#thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
           (#fn main () #u64
             (#let left #u64 20u64) (#let right #u64 22u64)
             (#let values (#array (#ref #u64) 2)
               (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))
-            (#return (#match (#call Task-spawn (: values values))
-              (#case (Task-spawn-ok task)
-                (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result) result)
-                  (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))";
+            (#return (#match (#call Task::spawn (: values values))
+              (#case (Task::SpawnResult.Ok task)
+                (#match (#call Task::join (: task task))
+                  (#case (Task::JoinResult.Ok result) result)
+                  (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))
+              (#case (Task::SpawnResult.Error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23652,7 +23738,7 @@ mod typed_ownership_tests {
         let origins = flow.loan_origins(body);
         for operation in ["spawn", "join"] {
             let id = declarations
-                .function_id(&format!("Task-{operation}"))
+                .function_id(&format!("Task::{operation}"))
                 .unwrap();
             let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
                 let FlowAction::Evaluate(value) = node.action else { return None };
@@ -23689,8 +23775,8 @@ mod typed_ownership_tests {
                        (array (#array (#ref #u64) 2)) (pinned (#pin-ref #u64))
                        (number #u64)) #u64
             (#forget bundle) (#forget view) (#forget array) (#return number))
-          (@#thread-spawn (: task Task : worker worker))
-          (@#thread-spawn (: task OtherTask : worker worker))
+          (#generate #thread-spawn (: task Task : worker worker))
+          (#generate #thread-spawn (: task OtherTask : worker worker))
           (#fn main () #u64 (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -23739,8 +23825,8 @@ mod typed_ownership_tests {
             assert!(matches!(fields[0].ty, Type::RawPointer { .. }));
             let spawn_ok = declarations
                 .variant_id(
-                    &Type::Named(format!("{name}-spawn-result")),
-                    &format!("{name}-spawn-ok"),
+                    &Type::Named(format!("{name}::SpawnResult")),
+                    &format!("{name}::SpawnResult.Ok"),
                 )
                 .unwrap();
             let mut expected_spawn = slots.clone();
@@ -23748,13 +23834,13 @@ mod typed_ownership_tests {
                 seed.storage.insert(0, Segment::Payload(spawn_ok, 0));
             }
             assert_eq!(
-                declarations.reference_storage_slots(&Type::Named(format!("{name}-spawn-result"))),
+                declarations.reference_storage_slots(&Type::Named(format!("{name}::SpawnResult"))),
                 expected_spawn
             );
             let join_error = declarations
                 .variant_id(
-                    &Type::Named(format!("{name}-join-result")),
-                    &format!("{name}-join-error"),
+                    &Type::Named(format!("{name}::JoinResult")),
+                    &format!("{name}::JoinResult.Error"),
                 )
                 .unwrap();
             let mut expected_retry = slots.clone();
@@ -23763,7 +23849,7 @@ mod typed_ownership_tests {
                 seed.storage.insert(0, Segment::Payload(join_error, 0));
             }
             assert_eq!(
-                declarations.reference_storage_slots(&Type::Named(format!("{name}-join-result"))),
+                declarations.reference_storage_slots(&Type::Named(format!("{name}::JoinResult"))),
                 expected_retry
             );
             by_task.push(slots);
@@ -24333,7 +24419,10 @@ mod typed_ownership_tests {
             let summaries = declarations
                 .staged_referent_entry_contracts(&types)
                 .unwrap_or_else(|error| panic!("{name}: {error:?}"));
-            for function in [poll.to_owned(), format!("{poll}::cleanup")] {
+            for function in [
+                poll.to_owned(),
+                format!("{}::cleanup", poll.replace("::poll", "::Poll")),
+            ] {
                 let id = declarations.function_id(&function).unwrap();
                 assert!(
                     matches!(
@@ -24897,12 +24986,12 @@ mod typed_ownership_tests {
             ),
             (
                 "Choice",
-                "(Both (#tuple (#borrow-mut owner) (#borrow-mut owner)))",
+                "(Choice.Both (#tuple (#borrow-mut owner) (#borrow-mut owner)))",
             ),
         ] {
             let source = format!(
                 "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                (#enum Choice () ((Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
+                (#enum Choice () ((Choice.Both (#tuple (#ref-mut #u64) (#ref-mut #u64)))))
                 (#fn main () () (#let-mut owner #u64 42u64)
                   (#let holder {ty} {constructor}) (#forget holder) (#return ()))"
             );

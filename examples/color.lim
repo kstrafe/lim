@@ -1,7 +1,7 @@
 (
   #enum
   Color ()
-  (Red Green Blue)
+  (Color.Red Color.Green Color.Blue)
 )
 
 (
@@ -13,9 +13,9 @@
     #return
     (
       #match
-      Green
-      (#case Red 10)
-      (#case Green 20)
+      Color.Green
+      (#case Color.Red 10)
+      (#case Color.Green 20)
       (#case _ 30)
     )
   )

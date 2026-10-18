@@ -1,7 +1,7 @@
 (#struct Resource (#linear) ((number #u64)))
 
 (#struct Owner () ((item Resource)))
-(#enum Container () ((Contained Resource)))
+(#enum Container () ((Container.Contained Resource)))
 
 (#fn main () #u64
   (#let-mut owner Owner
@@ -24,11 +24,11 @@
   (#let array-number #u64 (#get (#index array 0u64) number))
   (#forget array)
   (#let-mut payload Container
-    (Contained (#struct-literal Resource ((number 1u64)))))
-  (#forget (#get-payload payload Contained 0))
-  (#set-payload payload Contained 0 (#struct-literal Resource ((number 10u64))))
-  (#let payload-number #u64 (#get (#get-payload payload Contained 0) number))
+    (Container.Contained (#struct-literal Resource ((number 1u64)))))
+  (#forget (#get-payload payload Container.Contained 0))
+  (#set-payload payload Container.Contained 0 (#struct-literal Resource ((number 10u64))))
+  (#let payload-number #u64 (#get (#get-payload payload Container.Contained 0) number))
   (#forget payload)
   (#return
-    (#u64.+.wrap (#u64.+.wrap previous replacement)
-      (#u64.+.wrap tuple-number (#u64.+.wrap array-number payload-number)))))
+    (#u64::add-wrap (#u64::add-wrap previous replacement)
+      (#u64::add-wrap tuple-number (#u64::add-wrap array-number payload-number)))))

@@ -311,15 +311,15 @@ impl Recipes {
                     let prefix = format!(
                         "(#let {base} #usize (#call {prototype} (: {owner} {owner} : {sample} 0usize)))
                          (#let {next} #usize (#call {prototype} (: {owner} {owner} : {sample} 1usize)))
-                         (#let {descending} #bool (#usize.< {next} {base}))
-                         (#let {stride} #usize (#if {descending} (#usize.-.wrap {base} {next}) (#usize.-.wrap {next} {base})))
-                         (#let {delta} #usize (#if {descending} (#usize.-.wrap {base} {address}) (#usize.-.wrap {address} {base})))");
+                         (#let {descending} #bool (#usize::lt {next} {base}))
+                         (#let {stride} #usize (#if {descending} (#usize::sub-wrap {base} {next}) (#usize::sub-wrap {next} {base})))
+                         (#let {delta} #usize (#if {descending} (#usize::sub-wrap {base} {address}) (#usize::sub-wrap {address} {base})))");
                     let index_value = format!(
-                        "(#if (#usize.== {stride} 0usize) 0usize (#usize./.wrap {delta} {stride}))"
+                        "(#if (#usize::eq {stride} 0usize) 0usize (#usize::div-wrap {delta} {stride}))"
                     );
-                    let probe_value = format!("(#if (#usize.== {stride} 0usize) (#usize.== {address} {base})
-                        (#bool.&& (#if {descending} (#usize.<= {address} {base}) (#usize.>= {address} {base}))
-                          (#usize.< {delta} (#usize.*.wrap {stride} {length}usize))))");
+                    let probe_value = format!("(#if (#usize::eq {stride} 0usize) (#usize::eq {address} {base})
+                        (#bool::and (#if {descending} (#usize::le {address} {base}) (#usize::ge {address} {base}))
+                          (#usize::lt {delta} (#usize::mul-wrap {stride} {length}usize))))");
                     (prefix, index_value, probe_value)
                 };
                 recipes.declarations.push(format!(

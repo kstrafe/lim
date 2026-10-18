@@ -19,7 +19,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "#unknown");
 
-    let source = "(#gn fail () (#gn-error \"ordinary text; source span 0:0:1; source file /not/the/source: 8:2: bad\"))\n(@fail)";
+    let source = "(#gn fail () (#gn-error \"ordinary text; source span 0:0:1; source file /not/the/source: 8:2: bad\"))\n(#generate fail)";
     fs::write(&imported, source).unwrap();
     for _ in 0..2 {
         let error =
@@ -27,11 +27,11 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
         assert_eq!(error.code, lim::DiagnosticCode::Generator);
         assert_eq!(error.source_name.as_deref(), imported.to_str());
         let span = error.span.unwrap();
-        assert_eq!(&source[span.start..span.end], "(@fail)");
+        assert_eq!(&source[span.start..span.end], "(#generate fail)");
         assert!(error.message.contains("source file /not/the/source"));
     }
     let source =
-        "(#fn value () #u64 (#return 42u64))\n(#const bad #u64 (#u64.+.wrap 1u64 (#call value (:))))";
+        "(#fn value () #u64 (#return 42u64))\n(#const bad #u64 (#u64::add-wrap 1u64 (#call value (:))))";
     let error =
         lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(error.code, lim::DiagnosticCode::Codegen);
@@ -40,7 +40,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     assert!(!error.message.contains("source span"));
 
     let source =
-        "(#gn inner () `((#fn bad () #u64 (#return false))))\n(#gn outer () `((@inner)))\n(@outer)";
+        "(#gn inner () `((#fn bad () #u64 (#return false))))\n(#gn outer () `((#generate inner)))\n(#generate outer)";
     let cold = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     let warm = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(cold, warm);

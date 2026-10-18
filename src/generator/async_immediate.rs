@@ -256,10 +256,10 @@ mod tests {
 
     fn graph(body: &str) -> Graph {
         let source = format!(
-            "(#enum Child () ((Waiting #u64)))
-          (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+            "(#enum Child () ((Child.Waiting #u64)))
+          (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
           (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-            (#return (#match task (#case (Waiting value) (Ready value)))))
+            (#return (#match task (#case (Child.Waiting value) (ChildPoll.Ready value)))))
           (#fn touch (: value #u64 : target (#ref-mut #u64)) ()
             (#deref-set target value) (#return ()))
           (#fn touch-before (: target (#ref-mut #u64) : value #u64) ()
@@ -270,7 +270,7 @@ mod tests {
           (#struct Pair () (: left #u64 : right #u64))
           (#fn touch-two (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
             (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
-          (@#async-fn (: protocol WorkAwait : waker #u64
+          (#generate #async-fn (: protocol WorkAwait : waker #u64
             : function (#fn work () #u64 {body})))"
         );
         let prepared = crate::prepare_program_syntax(
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn borrow_after_await_has_one_operation_local_consumer() {
         let graph = graph("(#let-mut owner #u64 0u64)
-          (#call touch (: value (#await Child Pending Ready child-poll (Waiting 42u64)) : target (#borrow-mut owner)))
+          (#call touch (: value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64)) : target (#borrow-mut owner)))
           (#return owner)");
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 1);
         let graph = super::tests::graph(
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn borrows_before_await_or_effects_and_stored_handles_are_not_delayed() {
         for body in [
-            "(#call touch-before (: target (#borrow-mut owner) : value (#await Child Pending Ready child-poll (Waiting 42u64))))",
+            "(#call touch-before (: target (#borrow-mut owner) : value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64))))",
             "(#call touch-before (: target (#borrow-mut owner) : value (#call effect ())))",
             "(#let view (#ref-mut #u64) (#borrow-mut owner)) (#call touch (: target view : value 42u64))",
         ] {
@@ -335,7 +335,7 @@ mod tests {
     fn disjoint_projection_arguments_share_a_single_synchronous_call() {
         let graph = graph("(#let-mut pair Pair (#struct-literal Pair (: left 0u64 : right 0u64)))
           (#call touch-two (: left (#borrow-mut (#get pair left)) : right (#borrow-mut (#get pair right))))
-          (#return (#u64.+.wrap (#get pair left) (#get pair right)))");
+          (#return (#u64::add-wrap (#get pair left) (#get pair right)))");
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 2);
     }
 

@@ -8,32 +8,32 @@
   (#forget token)
   (#return value))
 
-(#enum Step (#linear) ((Waiting #u64) (Resuming #u64)))
+(#enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64)))
 
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Waiting value) (StepPending (Resuming value)))
-    (#case (Resuming value) (StepReady value)))))
+    (#case (Step.Waiting value) (StepPoll.StepPending (Step.Resuming value)))
+    (#case (Step.Resuming value) (StepPoll.StepReady value)))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let result #u64
       (#call consume-token (: token
         (#loop
           (#let awaited #u64
-            (#await #u64 Step StepPending StepReady step-poll (Waiting 41u64)))
-          (#if (#u64.== awaited 41u64)
-            (#break (#call make-token (: value (#u64.+.wrap awaited 1u64))))
+            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 41u64)))
+          (#if (#u64::eq awaited 41u64)
+            (#break (#call make-token (: value (#u64::add-wrap awaited 1u64))))
             (#break (#struct-literal Token ((value 0u64)))))))))
     (#return result))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#forget waker)
   (#return (#match second
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

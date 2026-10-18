@@ -15,20 +15,20 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
             };
             let source = format!(
                 "(#import \"/<lim-std>/enum_project.lim\")
-          (#enum Choice () ((Number {discriminant} #u64) (Empty 0)))
-          (@#enum-project (: enum Choice : variant Number : payload #u64 : mode #pin-ref{suffix} : name Projection))
+          (#enum Choice () ((Choice.Number {discriminant} #u64) (Choice.Empty 0)))
+          (#generate #enum-project (: enum Choice : variant Choice.Number : payload #u64 : mode #pin-ref{suffix} : name Projection))
           (#fn main () #u64
             (#let-mut counter #u64 0u64)
             (#let-mut owner (#array Choice 1)
-              (#array-of (#array Choice 1) (Number 42u64)))
-            (#let-else (Projection::Some payload)
+              (#array-of (#array Choice 1) (Choice.Number 42u64)))
+            (#let-else (Projection.Some payload)
               (#call Projection::project (: source (#pin-borrow{suffix} (#index owner
-                (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize)))))
+                (#block (#set counter (#u64::add-wrap counter 1u64)) 0usize)))))
               (#else (#return 1u64)))
             {write}
             (#let result #u64 (#deref payload))
             (#drop payload)
-            (#assert (#u64.== counter 1u64))
+            (#assert (#u64::eq counter 1u64))
             (#forget owner) (#return result))"
             );
             check(&source).unwrap();
@@ -198,7 +198,7 @@ fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
 #[test]
 fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
     let source = "(#struct Payload () ((value #u64)))
-      (#enum State (#linear) (Ready))
+      (#enum State (#linear) (State.Ready))
 
       (#struct Frame () ((state State) (owner Payload)))
       (#fn advance ((state State) (view (#pin-ref-mut Payload)) (waker (#ref #u64))) ()
@@ -217,7 +217,7 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
         (#return ()))
       (#fn main () ()
         (#let-mut frame Frame
-          (#struct-literal Frame ((state Ready) (owner (#struct-literal Payload ((value 0u64)))))))
+          (#struct-literal Frame ((state State.Ready) (owner (#struct-literal Payload ((value 0u64)))))))
         (#let view (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let waker #u64 0u64)
         (#call poll (: task view : waker (#borrow waker)))
@@ -236,16 +236,16 @@ fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
         (#let previous Pair (#unsafe (#pin-read pinned)))
         (#let previous-sum #u64
-          (#u64.+.wrap (#get previous left) (#get previous right)))
+          (#u64::add-wrap (#get previous left) (#get previous right)))
         (#unsafe
           (#pin-write pinned
             (#struct-literal Pair ((left 10u64) (right 20u64)))))
         (#let current Pair (#unsafe (#pin-read pinned)))
         (#let current-sum #u64
-          (#u64.+.wrap (#get current left) (#get current right)))
+          (#u64::add-wrap (#get current left) (#get current right)))
         (#drop pinned)
         (#forget owner)
-        (#return (#u64.+.wrap previous-sum current-sum)))";
+        (#return (#u64::add-wrap previous-sum current-sum)))";
     let scratch = support::Scratch::new("pinned-storage-access");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -354,7 +354,7 @@ fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
         (#let state #u32 (#get pinned state))
         (#drop pinned)
         (#forget pair)
-        (#return (#u64.+.wrap observed (#as state #u64))))";
+        (#return (#u64::add-wrap observed (#as state #u64))))";
     let scratch = support::Scratch::new("pin-state-field-write");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -396,20 +396,20 @@ fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
 
 #[test]
 fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
-    let source = "(#enum State () (Idle Running))
+    let source = "(#enum State () (State.Idle State.Running))
       (#struct Pair () ((value #u64) (state State)))
       (#fn main () #u64
         (#let-mut pair Pair
-          (#struct-literal Pair ((value 40u64) (state Idle))))
+          (#struct-literal Pair ((value 40u64) (state State.Idle))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
         (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
-        (#pin-set-field pinned state Running)
+        (#pin-set-field pinned state State.Running)
         (#let observed #u64 (#deref view))
         (#drop view)
         (#let state State (#get pinned state))
         (#drop pinned)
         (#forget pair)
-        (#return (#u64.+.wrap observed (#as state #u64))))";
+        (#return (#u64::add-wrap observed (#as state #u64))))";
     let scratch = support::Scratch::new("pin-enum-state-field-write");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -504,7 +504,7 @@ fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
       (#let owner #u64 7u64)
       (#let pinned (#pin-ref #u64) (#pin-borrow owner))
       (#let snapshot #u64 owner)
-      (#return (#u64.+.wrap snapshot (#deref pinned))))";
+      (#return (#u64::add-wrap snapshot (#deref pinned))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
 }
@@ -730,7 +730,7 @@ fn a_pin_stays_effective_when_stored_in_an_aggregate() {
       (#let holder (#tuple (#pin-ref #u64))
         (#tuple (#tuple (#pin-ref #u64)) pinned))
       (#let snapshot #u64 owner)
-      (#return (#u64.+.wrap snapshot (#deref (#get holder 0)))))";
+      (#return (#u64::add-wrap snapshot (#deref (#get holder 0)))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
 }
@@ -744,7 +744,7 @@ fn a_pin_stays_effective_across_a_reference_returning_function() {
         (#let pinned (#pin-ref #u64) (#pin-borrow owner))
         (#let retained (#pin-ref #u64) (#call retain (: value pinned)))
         (#let snapshot #u64 owner)
-        (#return (#u64.+.wrap snapshot (#deref retained))))";
+        (#return (#u64::add-wrap snapshot (#deref retained))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
 }
@@ -757,7 +757,7 @@ fn field_reborrows_preserve_the_pin() {
         (#let pinned (#pin-ref Pair) (#pin-borrow pair))
         (#let left-pin (#pin-ref #u64) (#borrow (#get pinned left)))
         (#let copied #u64 (#get pair left))
-        (#return (#u64.+.wrap copied (#deref left-pin))))";
+        (#return (#u64::add-wrap copied (#deref left-pin))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
 }
@@ -802,7 +802,7 @@ fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
         (#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
         (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
         (#let answer #u64 (#deref (#get updated view)))
-        (#assert (#u32.== (#get updated state) 2u32))
+        (#assert (#u32::eq (#get updated state) 2u32))
         (#pin-set-field updated view external) (#drop updated) (#forget link)
         (#drop external) (#forget outside) (#return answer))";
     check(source).unwrap();

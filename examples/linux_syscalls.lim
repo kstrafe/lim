@@ -1,12 +1,12 @@
 (#import "../library/linux_x86_64.lim")
 
 (#fn is-ebadf ((status #i64)) #bool
-  (#return (#i64.== status -9i64)))
+  (#return (#i64::eq status -9i64)))
 
 (#fn main () #u64
   (#let pid #i64 (#call linux-getpid (:)))
   (#let asm_pid #i64
-    (#unsafe (#asm #i64 ((rax LINUX-SYS-GETPID)) "syscall")))
+    (#unsafe (#asm #i64 ((rax lINUX-SYS-GETPID)) "syscall")))
   (#let uid #i64 (#call linux-getuid (:)))
   (#let gid #i64 (#call linux-getgid (:)))
   (#let euid #i64 (#call linux-geteuid (:)))
@@ -33,11 +33,11 @@
   (#let failed_fstat #i64
     (#unsafe (#unsafe-call linux-fstat (: fd 999999i64 : metadata (#ptr-null (#ptr-mut #i64))))))
   (#let failed_ioctl #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl #i64
     (#unsafe (#unsafe-call linux-fcntl (: fd 999999i64 : command 1i32 : argument 0usize))))
   (#let failed_flock #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FLOCK (999999i64 2usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync #i64
     (#call linux-fdatasync (: fd 999999i64)))
   (#let failed_openat #i64
@@ -45,27 +45,27 @@
   (#let failed_unlinkat #i64
     (#unsafe (#unsafe-call linux-unlinkat (: directory -100i64 : path (#ptr-null (#ptr-mut #u8)) : flags 0i32))))
   (#let failed_fchdir #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHDIR (999999i64))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FCHDIR (999999i64))))
   (#let failed_fchmod #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHMOD (999999i64 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FCHMOD (999999i64 0usize))))
   (#let failed_fchown #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHOWN (999999i64 0usize 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FCHOWN (999999i64 0usize 0usize))))
   (#let failed_getdents #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-GETDENTS64
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-GETDENTS64
       (999999i64 (#ptr-null (#ptr-mut #u8)) 8usize))))
   (#let failed_fallocate #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FALLOCATE
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FALLOCATE
       (999999i64 0usize 0i64 1i64))))
   (#let failed_dup2 #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-DUP2 (999999i64 999998i64))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-DUP2 (999999i64 999998i64))))
   (#let advice #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-FADVISE64 (-1i64 0usize 0usize 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-FADVISE64 (-1i64 0usize 0usize 0usize))))
   (#let-mut parent_signal #u32 0u32)
   (#let parent_query #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-PRCTL
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-PRCTL
       (2usize (#borrow-mut parent_signal) 0usize 0usize 0usize))))
   (#let identity-memory (#ptr-mut #u32)
-    (#unsafe (#linux-syscall (#ptr-mut #u32) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let getresuid-result #i64
     (#unsafe (#unsafe-call linux-getresuid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
@@ -86,9 +86,9 @@
   (#let invalid-groups-size #i64
     (#unsafe (#unsafe-call linux-getgroups (: size -1i32 : groups (#ptr-null (#ptr-mut #u32))))))
   (#let identity-memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (identity-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (identity-memory 4096usize))))
   (#let-mut mapping (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let uname-result #i64
     (#unsafe (#unsafe-call linux-uname (: buffer mapping))))
@@ -144,13 +144,13 @@
   (#let link-first-byte #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 64usize))))
   (#let cwd-result #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-GETCWD (mapping 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-GETCWD (mapping 4096usize))))
   (#let cwd-first-byte #u8 (#unsafe (#ptr-read mapping)))
   (#let protected #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MPROTECT (mapping 4096usize 1usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MPROTECT (mapping 4096usize 1usize))))
   (#let protected-first-byte #u8 (#unsafe (#ptr-read mapping)))
   (#let unprotected #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MPROTECT (mapping 4096usize 3usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MPROTECT (mapping 4096usize 3usize))))
   (#let advised #i64
     (#unsafe (#unsafe-call linux-madvise (: address mapping : length 4096usize : advice 0i32))))
   (#let edge-written ()
@@ -167,46 +167,46 @@
   (#let expanded-edge #u8
     (#unsafe (#ptr-read (#ptr-offset mapping 8191usize))))
   (#let unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (mapping 8192usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (mapping 8192usize))))
   (#let mapping-i16 (#ptr-mut #i16)
-    (#unsafe (#linux-syscall (#ptr-mut #i16) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i16) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let edge-i16 (#ptr-mut #i16) (#unsafe (#ptr-offset mapping-i16 2047usize)))
   (#let write-i16 () (#unsafe (#ptr-write edge-i16 -1234i16)))
   (#let value-i16 #i16 (#unsafe (#ptr-read edge-i16)))
   (#let unmapped-i16 #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (mapping-i16 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (mapping-i16 4096usize))))
   (#let mapping-i32 (#ptr-mut #i32)
-    (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let edge-i32 (#ptr-mut #i32) (#unsafe (#ptr-offset mapping-i32 1023usize)))
   (#let write-i32 () (#unsafe (#ptr-write edge-i32 -123456789i32)))
   (#let value-i32 #i32 (#unsafe (#ptr-read edge-i32)))
   (#let unmapped-i32 #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (mapping-i32 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (mapping-i32 4096usize))))
   (#let mapping-u32 (#ptr-mut #u32)
-    (#unsafe (#linux-syscall (#ptr-mut #u32) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let edge-u32 (#ptr-mut #u32) (#unsafe (#ptr-offset mapping-u32 1023usize)))
   (#let write-u32 () (#unsafe (#ptr-write edge-u32 4294967295u32)))
   (#let value-u32 #u32 (#unsafe (#ptr-read edge-u32)))
   (#let unmapped-u32 #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (mapping-u32 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (mapping-u32 4096usize))))
   (#let pipe-memory (#ptr-mut #i32)
-    (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let pipe-created #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-PIPE2 (pipe-memory 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-PIPE2 (pipe-memory 0usize))))
   (#let pipe-read-fd #i64 (#as (#unsafe (#ptr-read pipe-memory)) #i64))
   (#let pipe-write-fd #i64
     (#as (#unsafe (#ptr-read (#ptr-offset pipe-memory 1usize))) #i64))
   (#let pipe-payload-set ()
     (#unsafe (#ptr-write (#ptr-offset pipe-memory 4usize) 305419896i32)))
   (#let pipe-write-count #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-WRITE
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-WRITE
       (pipe-write-fd (#ptr-offset pipe-memory 4usize) 4usize))))
   (#let pipe-read-count #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-READ
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
       (pipe-read-fd (#ptr-offset pipe-memory 8usize) 4usize))))
   (#let pipe-payload-read #i32
     (#unsafe (#ptr-read (#ptr-offset pipe-memory 8usize))))
@@ -215,24 +215,24 @@
   (#let pipe-write-close #i64
     (#call linux-close (: fd pipe-write-fd)))
   (#let pipe-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (pipe-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pipe-memory 4096usize))))
   (#let event-memory (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let event-descriptor #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-EVENTFD2 (0usize 0usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-EVENTFD2 (0usize 0usize))))
   (#let event-payload-set () (#unsafe (#ptr-write event-memory 7u64)))
   (#let event-write-count #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-WRITE
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-WRITE
       (event-descriptor event-memory 8usize))))
   (#let event-read-count #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-READ
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
       (event-descriptor event-memory 8usize))))
   (#let event-payload #u64 (#unsafe (#ptr-read event-memory)))
   (#let event-closed #i64
     (#call linux-close (: fd event-descriptor)))
   (#let event-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (event-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (event-memory 4096usize))))
   (#let-mut time LinuxTimespec
     (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 0i64))))
   (#let clock #i64
@@ -251,120 +251,120 @@
   (#let remaining-seconds #i64 (#get zero-remaining seconds))
   (#let remaining-nanoseconds #i64 (#get zero-remaining nanoseconds))
   (#let identity-ok #bool
-    (#bool.&& (#i64.!= pid 0i64)
-      (#bool.&& (#i64.!= asm_pid 0i64)
-        (#bool.&& (#i64.>= uid 0i64)
-          (#bool.&& (#i64.>= gid 0i64)
-            (#bool.&& (#i64.>= euid 0i64) (#i64.>= egid 0i64)))))))
+    (#bool::and (#i64::ne pid 0i64)
+      (#bool::and (#i64::ne asm_pid 0i64)
+        (#bool::and (#i64::ge uid 0i64)
+          (#bool::and (#i64::ge gid 0i64)
+            (#bool::and (#i64::ge euid 0i64) (#i64::ge egid 0i64)))))))
   (#let credential-queries-ok #bool
-    (#bool.&& (#i64.== getresuid-result 0i64)
-      (#bool.&& (#i64.== (#as real-uid #i64) uid)
-        (#bool.&& (#i64.== (#as effective-uid #i64) euid)
-          (#bool.&& (#u32.>= saved-uid 0u32)
-            (#bool.&& (#i64.== getresgid-result 0i64)
-              (#bool.&& (#i64.== (#as real-gid #i64) gid)
-                (#bool.&& (#i64.== (#as effective-gid #i64) egid)
-                  (#bool.&& (#u32.>= saved-gid 0u32)
-                    (#bool.&& (#i64.>= supplementary-groups 0i64)
-                      (#bool.&& (#i64.== invalid-groups-size -22i64)
-                        (#i64.== identity-memory-unmapped 0i64))))))))))))
+    (#bool::and (#i64::eq getresuid-result 0i64)
+      (#bool::and (#i64::eq (#as real-uid #i64) uid)
+        (#bool::and (#i64::eq (#as effective-uid #i64) euid)
+          (#bool::and (#u32::ge saved-uid 0u32)
+            (#bool::and (#i64::eq getresgid-result 0i64)
+              (#bool::and (#i64::eq (#as real-gid #i64) gid)
+                (#bool::and (#i64::eq (#as effective-gid #i64) egid)
+                  (#bool::and (#u32::ge saved-gid 0u32)
+                    (#bool::and (#i64::ge supplementary-groups 0i64)
+                      (#bool::and (#i64::eq invalid-groups-size -22i64)
+                        (#i64::eq identity-memory-unmapped 0i64))))))))))))
   (#let process-ok #bool
-    (#bool.&& (#i64.!= ppid 0i64)
-      (#bool.&& (#i64.> pgrp 0i64)
-        (#bool.&& (#i64.== queried-pgrp pgrp)
-          (#bool.&& (#i64.> sid 0i64)
-            (#bool.&& (#i64.>= priority 1i64)
-              (#bool.&& (#i64.<= priority 40i64)
-                (#bool.&& (#i64.!= tid 0i64) (#i64.== yielded 0i64)))))))))
+    (#bool::and (#i64::ne ppid 0i64)
+      (#bool::and (#i64::gt pgrp 0i64)
+        (#bool::and (#i64::eq queried-pgrp pgrp)
+          (#bool::and (#i64::gt sid 0i64)
+            (#bool::and (#i64::ge priority 1i64)
+              (#bool::and (#i64::le priority 40i64)
+                (#bool::and (#i64::ne tid 0i64) (#i64::eq yielded 0i64)))))))))
   (#let descriptor-errors-ok #bool
-    (#bool.&& (#i64.== failed_close -9i64)
-      (#bool.&& (#i64.== failed_dup -9i64)
-        (#bool.&& (#i64.== failed_seek -9i64)
-          (#bool.&& (#i64.== failed_sync -9i64)
-            (#bool.&& (#i64.== failed_truncate -9i64)
-              (#bool.&& (#i64.== uname-result 0i64)
-                (#bool.&& (#u8.== uname-first-byte 76u8)
-                  (#bool.&& (#i64.== random-buffer-count 4i64)
-                    (#bool.&& (#i64.>= null-device 0i64)
-                      (#bool.&& (#i64.== close-null-device 0i64)
-                  (#bool.&& (#i64.== advice -9i64) (#i64.== alive 0i64)))))))))))))
+    (#bool::and (#i64::eq failed_close -9i64)
+      (#bool::and (#i64::eq failed_dup -9i64)
+        (#bool::and (#i64::eq failed_seek -9i64)
+          (#bool::and (#i64::eq failed_sync -9i64)
+            (#bool::and (#i64::eq failed_truncate -9i64)
+              (#bool::and (#i64::eq uname-result 0i64)
+                (#bool::and (#u8::eq uname-first-byte 76u8)
+                  (#bool::and (#i64::eq random-buffer-count 4i64)
+                    (#bool::and (#i64::ge null-device 0i64)
+                      (#bool::and (#i64::eq close-null-device 0i64)
+                  (#bool::and (#i64::eq advice -9i64) (#i64::eq alive 0i64)))))))))))))
   (#let uname-name-ok #bool
-    (#bool.&& (#u8.== uname-first-byte 76u8)
-      (#bool.&& (#u8.== uname-second-byte 105u8)
-        (#bool.&& (#u8.== uname-third-byte 110u8)
-          (#bool.&& (#u8.== uname-fourth-byte 117u8)
-            (#bool.&& (#u8.== uname-fifth-byte 120u8)
-              (#u8.== uname-terminator 0u8)))))))
+    (#bool::and (#u8::eq uname-first-byte 76u8)
+      (#bool::and (#u8::eq uname-second-byte 105u8)
+        (#bool::and (#u8::eq uname-third-byte 110u8)
+          (#bool::and (#u8::eq uname-fourth-byte 117u8)
+            (#bool::and (#u8::eq uname-fifth-byte 120u8)
+              (#u8::eq uname-terminator 0u8)))))))
   (#let extra-descriptor-errors-ok #bool
-    (#bool.&& (#call is-ebadf (: status failed_fstat))
-      (#bool.&& (#call is-ebadf (: status failed_ioctl))
-        (#bool.&& (#call is-ebadf (: status failed_fcntl))
-          (#bool.&& (#call is-ebadf (: status failed_flock))
-            (#bool.&& (#call is-ebadf (: status failed_fdatasync))
-              (#bool.&& (#call is-ebadf (: status failed_fchdir))
-                (#bool.&& (#call is-ebadf (: status failed_fchmod))
-                  (#bool.&& (#call is-ebadf (: status failed_fchown))
-                    (#bool.&& (#call is-ebadf (: status failed_getdents))
-                      (#bool.&& (#call is-ebadf (: status failed_fallocate))
-                        (#bool.&& (#call is-ebadf (: status failed_dup2))
-                          (#bool.&& (#i64.== failed_openat -14i64)
-                            (#i64.== failed_unlinkat -14i64))))))))))))))
+    (#bool::and (#call is-ebadf (: status failed_fstat))
+      (#bool::and (#call is-ebadf (: status failed_ioctl))
+        (#bool::and (#call is-ebadf (: status failed_fcntl))
+          (#bool::and (#call is-ebadf (: status failed_flock))
+            (#bool::and (#call is-ebadf (: status failed_fdatasync))
+              (#bool::and (#call is-ebadf (: status failed_fchdir))
+                (#bool::and (#call is-ebadf (: status failed_fchmod))
+                  (#bool::and (#call is-ebadf (: status failed_fchown))
+                    (#bool::and (#call is-ebadf (: status failed_getdents))
+                      (#bool::and (#call is-ebadf (: status failed_fallocate))
+                        (#bool::and (#call is-ebadf (: status failed_dup2))
+                          (#bool::and (#i64::eq failed_openat -14i64)
+                            (#i64::eq failed_unlinkat -14i64))))))))))))))
   (#let path-queries-ok #bool
-    (#bool.&& (#i64.> readlink-count 0i64)
-      (#bool.&& (#u8.== link-first-byte 47u8)
-        (#bool.&& (#i64.> cwd-result 0i64)
-          (#bool.&& (#u8.== cwd-first-byte 47u8)
-            (#bool.&& (#i64.== protected 0i64)
-              (#bool.&& (#u8.== protected-first-byte 47u8)
-                (#bool.&& (#i64.== unprotected 0i64)
-                  (#bool.&& (#i64.== advised 0i64)
-                    (#bool.&& (#u8.== preserved-edge 42u8)
-                      (#u8.== expanded-edge 84u8)))))))))))
+    (#bool::and (#i64::gt readlink-count 0i64)
+      (#bool::and (#u8::eq link-first-byte 47u8)
+        (#bool::and (#i64::gt cwd-result 0i64)
+          (#bool::and (#u8::eq cwd-first-byte 47u8)
+            (#bool::and (#i64::eq protected 0i64)
+              (#bool::and (#u8::eq protected-first-byte 47u8)
+                (#bool::and (#i64::eq unprotected 0i64)
+                  (#bool::and (#i64::eq advised 0i64)
+                    (#bool::and (#u8::eq preserved-edge 42u8)
+                      (#u8::eq expanded-edge 84u8)))))))))))
   (#let memory-time-ok #bool
-    (#bool.&& (#i64.== parent_query 0i64)
-      (#bool.&& (#bool.== (#ptr-is-null mapping) false)
-        (#bool.&& (#i64.== unmapped 0i64)
-              (#bool.&& (#i64.== clock 0i64)
-                (#bool.&& (#i64.>= seconds 0i64)
-                  (#bool.&& (#u8.== edge-byte 42u8)
-                    (#bool.&& (#i64.>= nanoseconds 0i64)
-                      (#bool.&& (#i64.< nanoseconds 1000000000i64)
-                        (#bool.&& (#i64.== slept 0i64)
-                          (#bool.&& (#i64.== remaining-seconds 0i64)
-                            (#bool.&& (#i64.>= remaining-nanoseconds 0i64)
-                              (#bool.&& (#i64.< remaining-nanoseconds 1000000000i64)
-                                (#i64.== random-result 1i64))))))))))))))
+    (#bool::and (#i64::eq parent_query 0i64)
+      (#bool::and (#bool::eq (#ptr-is-null mapping) false)
+        (#bool::and (#i64::eq unmapped 0i64)
+              (#bool::and (#i64::eq clock 0i64)
+                (#bool::and (#i64::ge seconds 0i64)
+                  (#bool::and (#u8::eq edge-byte 42u8)
+                    (#bool::and (#i64::ge nanoseconds 0i64)
+                      (#bool::and (#i64::lt nanoseconds 1000000000i64)
+                        (#bool::and (#i64::eq slept 0i64)
+                          (#bool::and (#i64::eq remaining-seconds 0i64)
+                            (#bool::and (#i64::ge remaining-nanoseconds 0i64)
+                              (#bool::and (#i64::lt remaining-nanoseconds 1000000000i64)
+                                (#i64::eq random-result 1i64))))))))))))))
   (#let pointer-widths-ok #bool
-    (#bool.&& (#i16.== value-i16 -1234i16)
-      (#bool.&& (#i64.== unmapped-i16 0i64)
-        (#bool.&& (#i32.== value-i32 -123456789i32)
-          (#bool.&& (#i64.== unmapped-i32 0i64)
-            (#bool.&& (#u32.== value-u32 4294967295u32)
-              (#i64.== unmapped-u32 0i64)))))))
+    (#bool::and (#i16::eq value-i16 -1234i16)
+      (#bool::and (#i64::eq unmapped-i16 0i64)
+        (#bool::and (#i32::eq value-i32 -123456789i32)
+          (#bool::and (#i64::eq unmapped-i32 0i64)
+            (#bool::and (#u32::eq value-u32 4294967295u32)
+              (#i64::eq unmapped-u32 0i64)))))))
   (#let pipe-io-ok #bool
-    (#bool.&& (#i64.== pipe-created 0i64)
-      (#bool.&& (#i64.== pipe-write-count 4i64)
-        (#bool.&& (#i64.== pipe-read-count 4i64)
-          (#bool.&& (#i32.== pipe-payload-read 305419896i32)
-            (#bool.&& (#i64.== pipe-read-close 0i64)
-              (#bool.&& (#i64.== pipe-write-close 0i64)
-                (#i64.== pipe-unmapped 0i64))))))))
+    (#bool::and (#i64::eq pipe-created 0i64)
+      (#bool::and (#i64::eq pipe-write-count 4i64)
+        (#bool::and (#i64::eq pipe-read-count 4i64)
+          (#bool::and (#i32::eq pipe-payload-read 305419896i32)
+            (#bool::and (#i64::eq pipe-read-close 0i64)
+              (#bool::and (#i64::eq pipe-write-close 0i64)
+                (#i64::eq pipe-unmapped 0i64))))))))
   (#let eventfd-io-ok #bool
-    (#bool.&& (#i64.>= event-descriptor 0i64)
-      (#bool.&& (#i64.== event-write-count 8i64)
-        (#bool.&& (#i64.== event-read-count 8i64)
-          (#bool.&& (#u64.== event-payload 7u64)
-            (#bool.&& (#i64.== event-closed 0i64)
-              (#i64.== event-unmapped 0i64)))))))
+    (#bool::and (#i64::ge event-descriptor 0i64)
+      (#bool::and (#i64::eq event-write-count 8i64)
+        (#bool::and (#i64::eq event-read-count 8i64)
+          (#bool::and (#u64::eq event-payload 7u64)
+            (#bool::and (#i64::eq event-closed 0i64)
+              (#i64::eq event-unmapped 0i64)))))))
   (#return
     (#if
-      (#bool.&& uname-name-ok (#bool.&& identity-ok (#bool.&& process-ok
-        (#bool.&& credential-queries-ok
-          (#bool.&& descriptor-errors-ok
-            (#bool.&& extra-descriptor-errors-ok
-              (#bool.&& path-queries-ok
-                (#bool.&& memory-time-ok
-                  (#bool.&& pointer-widths-ok
-                    (#bool.&& pipe-io-ok eventfd-io-ok))))))))))
+      (#bool::and uname-name-ok (#bool::and identity-ok (#bool::and process-ok
+        (#bool::and credential-queries-ok
+          (#bool::and descriptor-errors-ok
+            (#bool::and extra-descriptor-errors-ok
+              (#bool::and path-queries-ok
+                (#bool::and memory-time-ok
+                  (#bool::and pointer-widths-ok
+                    (#bool::and pipe-io-ok eventfd-io-ok))))))))))
       42u64
       1u64)))

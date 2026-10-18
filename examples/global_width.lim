@@ -1,8 +1,8 @@
 (
   #let
-  WRAPPED
+  wRAPPED
   #u8
-  (#u8.+.wrap  255 1)
+  (#u8::add-wrap  255 1)
 )
 
 (
@@ -14,7 +14,7 @@
     #return
     (
       #if
-      (#u8.==  WRAPPED 0)
+      (#u8::eq  wRAPPED 0)
       42
       0
     )

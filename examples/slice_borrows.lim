@@ -15,13 +15,13 @@
   (#let child (#slice-mut #u64) (#slice-mut-range parent 1usize 3usize))
   (#deref-set (#slice-mut-idx child 0usize) 9u64)
   (#forget child)
-  (#assert (#usize.== (#slice-mut-len parent) 4usize))
+  (#assert (#usize::eq (#slice-mut-len parent) 4usize))
   (#forget parent)
 
   ; Bounds can also be #usize variables.
   (#let start #usize 0usize)
   (#let end #usize 3usize)
   (#let view (#slice #u64) (#borrow-slice values start end))
-  (#return (#u64.+.wrap
+  (#return (#u64::add-wrap
     (#deref (#slice-idx view 0usize))
     (#deref (#slice-idx view 2usize)))))

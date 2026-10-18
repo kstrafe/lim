@@ -2,12 +2,12 @@
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
 (#import "../library/linux_x86_64.lim")
-(@ #cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
     (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
-    (#assert (#i64.== (#call linux-write-byte (: source (#borrow byte))) 1i64)))
+    (#assert (#i64::eq (#call linux-write-byte (: source (#borrow byte))) 1i64)))
   (#return ()))
 
 (#struct Executor () ((notifications CellU64)))
@@ -15,9 +15,9 @@
 
 (#fn notify ((executor (#ref Executor)) (metadata (#ref WakeMetadata))) ()
   (#let cell (#ref CellU64) (#borrow (#get executor notifications)))
-  (#call CellU64-set
+  (#call CellU64::set
     (: cell (#clone cell)
-     : value (#u64.+.wrap (#call CellU64-get (($ cell))) (#get metadata amount))))
+     : value (#u64::add-wrap (#call CellU64::get (($ cell))) (#get metadata amount))))
   (#return ()))
 
 (#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
@@ -27,7 +27,7 @@
   (#forget metadata)
   (#return ()))
 
-(@ #local-waker
+(#generate #local-waker
   (LocalWaker
     local-waker-create
     local-waker-wake
@@ -36,50 +36,50 @@
     local-waker-destroy)
   (Executor WakeMetadata)
   (notify clone-metadata destroy-metadata))
-(@ #task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(#generate #task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return
     (#match task
-      (#case (Waiting remaining)
-        (#if (#u64.== (#clone remaining) 0u64)
+      (#case (Step.Waiting remaining)
+        (#if (#u64::eq (#clone remaining) 0u64)
           (#block
             (#forget remaining)
-            (StepReady 40u64))
+            (StepPoll.StepReady 40u64))
           (#block
             (#call local-waker-wake-by-ref (($ waker)))
-            (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
+            (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))))))))
 
-(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
-(@ #async-fn
+(#syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll))
+(#generate #async-fn
   (: protocol WorkAwait
    : waker LocalWaker
    : cancel (cancel-work ((await-0 cancel-step)))
    : function (#fn work ((offset #u64)) #u64
        (#let started-text (#array #char 14) "work: started\n")
        (#call print-text (: text (#borrow-slice started-text)))
-       (#let step Step (Waiting 1u64))
+       (#let step Step (Step.Waiting 1u64))
        (#let-mut total #u64 0u64)
        (#set total (#await StepAwait step))
        (#let resumed-text (#array #char 14) "work: resumed\n")
        (#call print-text (: text (#borrow-slice resumed-text)))
-       (#return (#u64.+.wrap total offset)))))
+       (#return (#u64::add-wrap total offset)))))
 
 (#fn cancel-step ((task Step)) ()
   (#match task
-    (#case (Waiting remaining) (#forget remaining)))
+    (#case (Step.Waiting remaining) (#forget remaining)))
   (#return ()))
 
 (#fn main () #u64
-  (#call cancel-work (: task (#call Work::poll::cleanup (: task (#call work (: offset 99u64))))))
+  (#call cancel-work (: task (#call Work::Poll::cleanup (: task (#call work (: offset 99u64))))))
   (#let executor Executor
-    (#struct-literal Executor ((notifications (#call CellU64-create (: value 0u64))))))
+    (#struct-literal Executor ((notifications (#call CellU64::create (: value 0u64))))))
   (#let waker LocalWaker
     (#call local-waker-create
       (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
   (#let first Work::Poll
     (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-  (#let-else (Work::Pending pending) Work::Poll
+  (#let-else (Work::Poll.Pending pending) Work::Poll
     first
     (#unreachable))
   (#let pending-text (#array #char 16) "poll 1: pending\n")
@@ -87,15 +87,15 @@
   (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending task)
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending task)
         (#forget task)
         (#unreachable))))
   (#let ready-text (#array #char 14) "poll 2: ready\n")
   (#call print-text (: text (#borrow-slice ready-text)))
   (#call local-waker-destroy (($ waker)))
   (#let executor-ref (#ref Executor) (#borrow executor))
-  (#let notifications #u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
+  (#let notifications #u64 (#call CellU64::get (: cell (#borrow (#get executor-ref notifications)))))
   (#drop executor-ref)
   (#forget executor)
-  (#return (#u64.+.wrap result notifications)))
+  (#return (#u64::add-wrap result notifications)))

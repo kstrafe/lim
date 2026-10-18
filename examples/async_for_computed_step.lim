@@ -1,51 +1,51 @@
 ; The condition and the expression used by the step both suspend.
-(#enum ConditionTask (#linear) ((Check #u64) (Recheck #u64)))
+(#enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64)))
 
-(#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
+(#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
   (#return (#match task
-    (#case (Check index) (ConditionPending (Recheck index)))
-    (#case (Recheck index) (ConditionReady (#u64.< index 2u64))))))
+    (#case (ConditionTask.Check index) (ConditionPoll.ConditionPending (ConditionTask.Recheck index)))
+    (#case (ConditionTask.Recheck index) (ConditionPoll.ConditionReady (#u64::lt index 2u64))))))
 
 (#struct StepState () (: position #u64 : body-ran #bool))
-(#enum StepTask (#linear) ((Start StepState) (Resume StepState)))
+(#enum StepTask (#linear) ((StepTask.Start StepState) (StepTask.Resume StepState)))
 
-(#enum StepPoll () ((StepPending StepTask) (StepReady #u64)))
+(#enum StepPoll () ((StepPoll.StepPending StepTask) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start state)
-      (#block (#assert (#get state body-ran)) (StepPending (Resume state))))
-    (#case (Resume state)
-      (#block (#assert (#get state body-ran)) (StepReady (#u64.+.wrap (#get state position) 1u64)))))))
+    (#case (StepTask.Start state)
+      (#block (#assert (#get state body-ran)) (StepPoll.StepPending (StepTask.Resume state))))
+    (#case (StepTask.Resume state)
+      (#block (#assert (#get state body-ran)) (StepPoll.StepReady (#u64::add-wrap (#get state position) 1u64)))))))
 
 (#fn touch ((counter (#ref-mut #u64))) #u64
-  (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
+  (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))
   (#return 1u64))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#let-mut touches #u64 0u64)
     (#for ()
-      (#await #bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))
-      (#set index (#u64.+.wrap
+      (#await #bool ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady condition-poll (ConditionTask.Check index))
+      (#set index (#u64::add-wrap
         (#call touch (: counter (#borrow-mut touches)))
-        (#await #u64 StepTask StepPending StepReady step-poll
-          (Start (#struct-literal StepState (: position index : body-ran body-ran))))))
+        (#await #u64 StepTask StepPoll.StepPending StepPoll.StepReady step-poll
+          (StepTask.Start (#struct-literal StepState (: position index : body-ran body-ran))))))
       (#let body-ran #bool true))
-    (#assert (#u64.== index 2u64))
-    (#assert (#u64.== touches 1u64))
+    (#assert (#u64::eq index 2u64))
+    (#assert (#u64::eq touches 1u64))
     (#return 42u64))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Work::Pending condition-task) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending condition-task) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task condition-task : waker (#borrow waker))))
-  (#let-else (Work::Pending step-task) Work::Poll second (#unreachable))
+  (#let-else (Work::Poll.Pending step-task) Work::Poll second (#unreachable))
   (#let third Work::Poll (#call Work::poll (: task step-task : waker (#borrow waker))))
-  (#let-else (Work::Pending last-condition) Work::Poll third (#unreachable))
+  (#let-else (Work::Poll.Pending last-condition) Work::Poll third (#unreachable))
   (#let fourth Work::Poll (#call Work::poll (: task last-condition : waker (#borrow waker))))
   (#return (#match fourth
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

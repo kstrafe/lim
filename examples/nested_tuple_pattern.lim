@@ -5,5 +5,5 @@
         (#tuple (#tuple #u64 #u64) 10 20)
         32)
       (#case (#tuple (#tuple _ inner) tail)
-        (#u64.+.wrap inner tail))
+        (#u64::add-wrap inner tail))
       (#case _ 0))))

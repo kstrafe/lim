@@ -1,11 +1,11 @@
-(@#result (: ok #u64 : error #u32 : name Result))
+(#generate #result (: ok #u64 : error #u32 : name Result))
 
 (#fn classify ((value Result)) #u64
   (#return
     (#match value
-      (#case (Result-ok-value 42) 1)
-      (#case (Result-err-value _) 0))))
+      (#case (Result.Ok 42) 1)
+      (#case (Result.Err _) 0))))
 
 (#fn main () #u64
-  (#let value Result (#call Result-ok (: value 42)))
+  (#let value Result (#call Result::ok (: value 42)))
   (#return (#call classify (: value value))))

@@ -1,7 +1,7 @@
-(#enum Result () ((Ok 7 #u64) (Err 99 #u64)))
+(#enum Result () ((Result.Ok 7 #u64) (Result.Err 99 #u64)))
 
 (#fn main () #u64
-  (#let value Result (Ok 42))
+  (#let value Result (Result.Ok 42))
   (#return (#match value
-    (#case (Ok payload) payload)
-    (#case (Err _) 0))))
+    (#case (Result.Ok payload) payload)
+    (#case (Result.Err _) 0))))

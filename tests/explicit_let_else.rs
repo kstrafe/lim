@@ -3,7 +3,7 @@ mod support;
 use lim::{check_types, generate_assembly, parse_program};
 use std::{fs, process::Command, time::Duration};
 
-const ENUM: &str = "(#enum Outcome () ((Success #u64) Failure))";
+const ENUM: &str = "(#enum Outcome () ((Outcome.Success #u64) Outcome.Failure))";
 
 fn check(source: &str) -> Result<(), String> {
     check_types(&parse_program(source)?)
@@ -32,13 +32,13 @@ fn run(source: &str, expected: i32) {
 
 #[test]
 fn return_fallback_and_success_bindings_execute_on_distinct_paths() {
-    for (value, expected) in [("(Success 42u64)", 42), ("Failure", 7)] {
+    for (value, expected) in [("(Outcome.Success 42u64)", 42), ("Outcome.Failure", 7)] {
         run(
             &format!(
                 "{ENUM}
           (#fn main () #u64
             (#let outcome Outcome {value})
-            (#let-else (Success answer) outcome
+            (#let-else (Outcome.Success answer) outcome
               (#else (#let fallback #u64 7u64) (#return fallback)))
             (#return answer))"
             ),
@@ -53,10 +53,10 @@ fn break_and_continue_skip_all_success_code_in_loop_while_and_for() {
         for (header, tail) in [
             (
                 "#loop",
-                "(#if (#u64.== (#clone count) 2u64) (#block (#break)) ())",
+                "(#if (#u64::eq (#clone count) 2u64) (#block (#break)) ())",
             ),
-            ("#while (#u64.< (#clone count) 2u64)", ""),
-            ("#for () (#u64.< (#clone count) 2u64) ()", ""),
+            ("#while (#u64::lt (#clone count) 2u64)", ""),
+            ("#for () (#u64::lt (#clone count) 2u64) ()", ""),
         ] {
             // First iteration fails; the second succeeds only with continue.
             // Reaching the success code after Failure would either read an
@@ -69,11 +69,11 @@ fn break_and_continue_skip_all_success_code_in_loop_while_and_for() {
                 (#let-mut count #u64 0u64)
                 (#let-mut total #u64 0u64)
                 ({header}
-                  (#set count (#u64.+.wrap (#clone count) 1u64))
-                  (#let outcome Outcome (#if (#u64.== (#clone count) 1u64) Failure (Success 40u64)))
-                  (#let-else (Success answer) outcome
-                    (#else (#set total (#u64.+.wrap (#clone total) 1u64)) ({transfer})))
-                  (#set total (#u64.+.wrap (#clone total) (#u64.+.wrap answer 1u64)))
+                  (#set count (#u64::add-wrap (#clone count) 1u64))
+                  (#let outcome Outcome (#if (#u64::eq (#clone count) 1u64) Outcome.Failure (Outcome.Success 40u64)))
+                  (#let-else (Outcome.Success answer) outcome
+                    (#else (#set total (#u64::add-wrap (#clone total) 1u64)) ({transfer})))
+                  (#set total (#u64::add-wrap (#clone total) (#u64::add-wrap answer 1u64)))
                   {tail})
                 (#return total))"
                 ),
@@ -95,19 +95,19 @@ fn all_fallback_paths_must_exit_and_success_binding_is_not_in_else_scope() {
     ] {
         let source = format!(
             "{ENUM} (#fn main () #u64
-          (#let-else (Success answer) Failure (#else {fallback})) (#return answer))"
+          (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer))"
         );
         let error = check(&source).unwrap_err();
         assert!(error.contains("diverge"), "{fallback}: {error}");
     }
     let source = format!(
         "{ENUM} (#fn main () #u64
-      (#let-else (Success answer) Failure (#else (#return answer))) (#return answer))"
+      (#let-else (Outcome.Success answer) Outcome.Failure (#else (#return answer))) (#return answer))"
     );
     assert!(check(&source).unwrap_err().contains("answer"));
     let source = format!(
         "{ENUM} (#fn main () #u64
-      (#let-else (Success answer) Failure (#else (#break))) (#return answer))"
+      (#let-else (Outcome.Success answer) Outcome.Failure (#else (#break))) (#return answer))"
     );
     assert!(check(&source).unwrap_err().contains("outside a loop"));
 }
@@ -118,7 +118,7 @@ fn named_outer_transfers_and_all_path_returns_are_accepted() {
         let source = format!(
             "{ENUM} (#fn main () #u64
           (#label outer (#loop
-            (#let-else (Success answer) Failure (#else {transfer}))
+            (#let-else (Outcome.Success answer) Outcome.Failure (#else {transfer}))
             (#return answer))) (#return 0u64))"
         );
         let program = parse_program(&source).unwrap();
@@ -132,7 +132,7 @@ fn named_outer_transfers_and_all_path_returns_are_accepted() {
     ] {
         check(&format!(
             "{ENUM} (#fn main () #u64
-          (#let-else (Success answer) Failure (#else {fallback})) (#return answer))"
+          (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer))"
         ))
         .unwrap();
     }
@@ -142,18 +142,18 @@ fn named_outer_transfers_and_all_path_returns_are_accepted() {
 fn enum_owner_is_resolved_from_the_variant_not_the_value() {
     check(&format!(
         "{ENUM} (#fn main () #u64
-      (#let-else (Success answer) 42u64 (#else (#return 0u64))) (#return answer))"
+      (#let-else (Outcome.Success answer) 42u64 (#else (#return 0u64))) (#return answer))"
     ))
     .unwrap_err();
     let error = check(
         "(#fn main () #u64
-      (#let-else (Missing answer) 42u64 (#else (#return 0u64))) (#return answer))",
+      (#let-else (missing answer) 42u64 (#else (#return 0u64))) (#return answer))",
     )
     .unwrap_err();
-    assert!(error.contains("unknown enum variant 'Missing'"), "{error}");
+    assert!(error.contains("unknown enum variant 'missing'"), "{error}");
     check(&format!(
         "{ENUM} (#fn main () #u64
-      (#let-else Failure Failure (#else (#return 0u64))) (#return 42u64))"
+      (#let-else Outcome.Failure Outcome.Failure (#else (#return 0u64))) (#return 42u64))"
     ))
     .unwrap();
 }
@@ -164,18 +164,18 @@ fn initializer_block_is_evaluated_once_and_fallback_locals_do_not_escape() {
         &format!(
             "{ENUM} (#fn main () #u64
       (#let-mut calls #u64 0u64)
-      (#let-else (Success answer)
-        (#block (#set calls (#u64.+.wrap (#clone calls) 1u64)) (Success 41u64))
+      (#let-else (Outcome.Success answer)
+        (#block (#set calls (#u64::add-wrap (#clone calls) 1u64)) (Outcome.Success 41u64))
         (#else (#return 0u64)))
-      (#return (#u64.+.wrap calls answer)))"
+      (#return (#u64::add-wrap calls answer)))"
         ),
         42,
     );
     let error = check(&format!(
         "{ENUM} (#fn main () #u64
-      (#let-else (Success answer) Failure
+      (#let-else (Outcome.Success answer) Outcome.Failure
         (#else (#let fallback #u64 0u64) (#return fallback)))
-      (#return (#u64.+.wrap answer fallback)))"
+      (#return (#u64::add-wrap answer fallback)))"
     ))
     .unwrap_err();
     assert!(error.contains("fallback"), "{error}");
@@ -184,11 +184,11 @@ fn initializer_block_is_evaluated_once_and_fallback_locals_do_not_escape() {
 fn projection_source(value: &str) -> String {
     format!(
         "(#std)
-      (#enum Task () ((Work #u64) Idle))
-      (@#enum-project (: enum Task : variant Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
+      (#enum Task () ((Task.Work #u64) Task.Idle))
+      (#generate #enum-project (: enum Task : variant Task.Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
       (#fn main () #u64
         (#let-mut task Task {value})
-        (#let-else (WorkProjection::Some frame)
+        (#let-else (WorkProjection.Some frame)
           (#call WorkProjection::project (: source (#pin-borrow-mut task)))
           (#else (#forget task) (#return 7u64)))
         (#let answer #u64 (#unsafe (#pin-read frame)))
@@ -200,10 +200,10 @@ fn projection_source(value: &str) -> String {
 
 #[test]
 fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owner() {
-    run(&projection_source("(Work 42u64)"), 42);
-    run(&projection_source("Idle"), 7);
-    for mutation in ["(#forget task)", "(#set task Idle)"] {
-        let invalid = projection_source("(Work 42u64)").replace(
+    run(&projection_source("(Task.Work 42u64)"), 42);
+    run(&projection_source("Task.Idle"), 7);
+    for mutation in ["(#forget task)", "(#set task Task.Idle)"] {
+        let invalid = projection_source("(Task.Work 42u64)").replace(
             "(#let answer #u64",
             &format!("{mutation}\n (#let answer #u64"),
         );
@@ -213,15 +213,16 @@ fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owne
             "{error}"
         );
     }
-    let mismatch = projection_source("Idle").replace(": payload #u64", ": payload #u32");
+    let mismatch = projection_source("Task.Idle").replace(": payload #u64", ": payload #u32");
     assert!(check(&mismatch).is_err());
-    let unknown = projection_source("Idle").replace(": payload #u64", ": typo #u64");
+    let unknown = projection_source("Task.Idle").replace(": payload #u64", ": typo #u64");
     assert!(check(&unknown)
         .unwrap_err()
         .contains("missing key 'payload'"));
-    let extra = projection_source("Idle").replace(": payload #u64", ": payload #u64 : typo #u64");
+    let extra =
+        projection_source("Task.Idle").replace(": payload #u64", ": payload #u64 : typo #u64");
     assert!(check(&extra).unwrap_err().contains("requires exactly"));
-    let duplicate = projection_source("Idle").replace(": payload #u64", ": enum #u64");
+    let duplicate = projection_source("Task.Idle").replace(": payload #u64", ": enum #u64");
     assert!(check(&duplicate)
         .unwrap_err()
         .contains("repeats key 'enum'"));
@@ -229,7 +230,8 @@ fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owne
 
 #[test]
 fn compact_formatting_is_idempotent_and_keeps_else_statements_in_the_body() {
-    let source = "(#let-else (Success answer) outcome (#else (#forget owner) (#return 0u64)))";
+    let source =
+        "(#let-else (Outcome.Success answer) outcome (#else (#forget owner) (#return 0u64)))";
     let formatted = lim::format_source(source).unwrap();
     assert!(formatted.contains("(#else\n"), "{formatted}");
     assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
@@ -244,20 +246,20 @@ fn imported_and_generator_defined_variants_resolve_without_rhs_inference() {
         format!(
             "{ENUM}
       (#fn read (: value Outcome) #u64
-        (#let-else (Success number) value (#else (#return 0u64)))
+        (#let-else (Outcome.Success number) value (#else (#return 0u64)))
         (#return number))"
         ),
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" Ext-)
-      (#fn main () #u64 (#return (#call Ext-read (: Ext-value (Ext-Success 42u64)))))";
+    let source = "(#import-external \"module.lim\" Ext)
+      (#fn main () #u64 (#return (#call Ext::read (: Ext::value (Ext@Success 42u64)))))";
     let program = lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
     generate_assembly(&program).unwrap();
     check(
-        "(@#optional (: type #u64 : name Number))
+        "(#generate #optional (: type #u64 : name Number))
       (#fn main () #u64
-        (#let-else (Number-some number) (Number-some 42u64)
+        (#let-else (Number.Some number) (Number.Some 42u64)
           (#else (#return 0u64)))
         (#return number))",
     )
@@ -268,15 +270,15 @@ fn imported_and_generator_defined_variants_resolve_without_rhs_inference() {
 fn compact_patterns_work_in_async_source_and_generated_poll_consumers() {
     let source = format!(
         "{ENUM}
-      (@#async-fn-pinned (: protocol Work::Await : waker #u64
+      (#generate #async-fn-pinned (: protocol Work::Await : waker #u64
         : function (#fn work () #u64
-          (#let-else (Success answer) (Success 42u64)
+          (#let-else (Outcome.Success answer) (Outcome.Success 42u64)
             (#else (#return 0u64)))
           (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut task Work::Frame (#call work (:)))
-        (#let-else (Work::Ready answer)
+        (#let-else (Work::Poll.Ready answer)
           (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
           (#else (#forget task) (#return 0u64)))
         (#forget task)

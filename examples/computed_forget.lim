@@ -3,20 +3,20 @@
 
 (#struct Holder (#linear) (: view (#ref-mut Resource)))
 
-(#enum Envelope (#linear) ((Wrapped Holder)))
+(#enum Envelope (#linear) ((Envelope.Wrapped Holder)))
 
 
 (#fn release (: owner Envelope) ()
   (#forget
     (#block
       (#match owner
-        (#case (Wrapped held) held))))
+        (#case (Envelope.Wrapped held) held))))
   (#return ()))
 
 (#fn main () #u64
   (#let-mut resource Resource (#struct-literal Resource (: value 42u64)))
   (#call release
-    (: owner (Wrapped (#struct-literal Holder (: view (#borrow-mut resource))))))
+    (: owner (Envelope.Wrapped (#struct-literal Holder (: view (#borrow-mut resource))))))
   (#let answer #u64 (#get resource value))
   (#forget resource)
   (#return answer))

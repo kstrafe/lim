@@ -415,11 +415,14 @@ impl<'a> RenderContext<'a> {
                     let mode = numeric
                         .overflow_mode()
                         .map_or(String::new(), |mode| format!(".{mode}"));
-                    symbol(format!(
-                        "#{}.{}{mode}",
+                    let internal = format!(
+                        "{}.{}{mode}",
                         numeric.scalar_name().trim_start_matches('#'),
                         numeric.operation.as_str()
-                    ))
+                    );
+                    symbol(crate::names::numeric_source(&internal).ok_or_else(|| {
+                        error(Some(operation.source), "unknown checked numeric operation")
+                    })?)
                 } else if operation.head.starts_with('#') {
                     symbol(&operation.head)
                 } else if operation.head == "array" {
@@ -499,7 +502,7 @@ impl<'a> RenderContext<'a> {
                         | Expr::Float(_)
                         | Expr::Char(_)
                         | Expr::String(_)
-                        | Expr::At
+                        | Expr::Generate
                 ) =>
             {
                 Ok(value.clone())
@@ -773,7 +776,7 @@ mod tests {
         let declarations_source = "
           (#fn effect () #u32 (#return 7))
           (#fn combine ((first #u32) (second #u32)) #u32
-            (#return (#u32.+.saturate first second)))";
+            (#return (#u32::add-saturate first second)))";
         let source = format!(
             "{declarations_source}
           (#fn main () #u32 (#return (#call combine
@@ -857,7 +860,7 @@ mod tests {
         let (declarations, graph) = prepare(
             "
           (#fn main ((count #usize)) #usize
-            (#return (#usize.+.wrap count (#size-of (#tuple #u64 (#ref #u32))))))",
+            (#return (#usize::add-wrap count (#size-of (#tuple #u64 (#ref #u32))))))",
             "main",
         );
         let context =
@@ -876,7 +879,7 @@ mod tests {
                     .render_compute(numeric, &stored(numeric, "stored"))
                     .unwrap()
             ),
-            "(#usize.+.wrap stored0 stored1)"
+            "(#usize::add-wrap stored0 stored1)"
         );
     }
 
@@ -943,10 +946,10 @@ mod tests {
     #[test]
     fn normalized_structs_render_explicit_keyed_literals_and_variants_stay_direct() {
         let declarations_source =
-            "(#struct Pair () ((left #u32) (right #u64))) (#enum Choice () ((Some Pair) Empty))";
+            "(#struct Pair () ((left #u32) (right #u64))) (#enum Choice () ((Choice.Some Pair) Choice.Empty))";
         let source = format!(
             "{declarations_source}
-          (#fn main () Choice (#return (Some
+          (#fn main () Choice (#return (Choice.Some
             (#struct-literal Pair ((right 4u64) (left 3u32))))))"
         );
         let (declarations, graph) = prepare(&source, "main");
@@ -964,11 +967,11 @@ mod tests {
             "{declarations_source} (#fn again ((stored0 #u32) (stored1 #u64)) Pair (#return {}))",
             text(&rendered)
         ));
-        let compute = operation(&graph, "Some");
+        let compute = operation(&graph, "Choice.Some");
         let rendered = context
             .render_compute(compute, &stored(compute, "stored"))
             .unwrap();
-        assert_eq!(text(&rendered), "(Some stored0)");
+        assert_eq!(text(&rendered), "(Choice.Some stored0)");
         check(&format!(
             "{declarations_source} (#fn again ((stored0 Pair)) Choice (#return {}))",
             text(&rendered)
@@ -979,9 +982,9 @@ mod tests {
     fn patterns_rename_even_unused_checked_binding_ids_without_preview_copies() {
         let (declarations, graph) = prepare(
             "
-          (#enum Choice () ((Some #u64) Empty))
+          (#enum Choice () ((Choice.Some #u64) Choice.Empty))
           (#fn main ((choice Choice)) #u64 (#return (#match choice
-            (#case (Some unused) 1u64) (#case Empty 0u64))))",
+            (#case (Choice.Some unused) 1u64) (#case Choice.Empty 0u64))))",
             "main",
         );
         let context =
@@ -1001,12 +1004,12 @@ mod tests {
         let mut names = HashMap::from([(pattern.bindings[0], "committed".to_owned())]);
         assert_eq!(
             text(&context.render_pattern(pattern.source, &names).unwrap()),
-            "(Some committed)"
+            "(Choice.Some committed)"
         );
         names.insert(pattern.bindings[0], "_".to_owned());
         assert_eq!(
             text(&context.render_pattern(pattern.source, &names).unwrap()),
-            "(Some _)"
+            "(Choice.Some _)"
         );
     }
 
@@ -1041,9 +1044,9 @@ mod tests {
     #[test]
     fn enum_tag_test_replaces_only_the_handle_and_retains_variant_identity() {
         let (declarations, graph) = prepare(
-            "(#enum Choice (#linear) ((Some #u64) Empty))
+            "(#enum Choice (#linear) ((Choice.Some #u64) Choice.Empty))
              (#fn inspect ((value (#pin-ref Choice))) #bool
-               (#return (#variant-is value Some)))",
+               (#return (#variant-is value Choice.Some)))",
             "inspect",
         );
         let compute = operation(&graph, "#variant-is");
@@ -1056,9 +1059,9 @@ mod tests {
         let rendered = context
             .render_compute(compute, &stored(compute, "stored"))
             .unwrap();
-        assert_eq!(text(&rendered), "(#variant-is stored0 Some)");
+        assert_eq!(text(&rendered), "(#variant-is stored0 Choice.Some)");
         check(&format!(
-            "(#enum Choice (#linear) ((Some #u64) Empty))
+            "(#enum Choice (#linear) ((Choice.Some #u64) Choice.Empty))
           (#fn again ((stored0 (#pin-ref Choice))) #bool (#return {}))",
             text(&rendered)
         ));

@@ -1,30 +1,30 @@
 ; Struct pattern positions follow declaration order, not alphabetical order.
 (#struct Values () ((z #u16) (a #u64)))
-(#enum Choice () ((Chosen Values) Empty))
-(#enum Step () ((Start #u64) (Resume #u64)))
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
+(#enum Choice () ((Choice.Chosen Values) Choice.Empty))
+(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start value) (StepPending (Resume value)))
-    (#case (Resume value) (StepReady value)))))
+    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+    (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
     (#return (#match choice
-      (#case (Chosen (Values value bias))
-        (#u64.+.wrap
-          (#await #u64 Step StepPending StepReady step-poll (Start (#as value #u64)))
+      (#case (Choice.Chosen (Values value bias))
+        (#u64::add-wrap
+          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as value #u64)))
           bias))
-      (#case Empty 0u64))))))
+      (#case Choice.Empty 0u64))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task Work::Task
-    (#call work (: choice (Chosen (#struct-literal Values (: a 22u64 : z 20u16))))))
+    (#call work (: choice (Choice.Chosen (#struct-literal Values (: a 22u64 : z 20u16))))))
   (#for-range (attempt #u64) 0u64 3u64
     (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (Work::Pending next) (#block (#set task next) ()))
-      (#case (Work::Ready value) (#block (#return value)))))
+      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+      (#case (Work::Poll.Ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))

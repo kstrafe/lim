@@ -2,8 +2,8 @@
   #enum
   Maybe ()
   (
-    (Some #u64)
-    None
+    (Maybe.Some #u64)
+    Maybe.None
   )
 )
 
@@ -16,12 +16,12 @@
     #return
     (
       #match
-      (Some 42)
+      (Maybe.Some 42)
       (#case
-        (Some value)
+        (Maybe.Some value)
         value
       )
-      (#case None 0)
+      (#case Maybe.None 0)
     )
   )
 )

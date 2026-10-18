@@ -30,7 +30,7 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
       (#let byte #u64 67u64)
       (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))
-      (#assert (#i64.== written 1i64))",
+      (#assert (#i64::eq written 1i64))",
     );
     let assembly = compile(&source, &scratch).unwrap();
     let binary = scratch.path().join("program");
@@ -56,8 +56,8 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
         .join("\n");
     for expected in [
         "(#opaque PinnedFrame)",
-        "(#fn PinnedFrame::value::read",
-        "(#fn PinnedFrame::value::write",
+        "(#fn PinnedFrame::Read::value",
+        "(#fn PinnedFrame::Write::value",
         "(#fn with-pinned-frame",
         "(#let-mut storage Frame value)",
         "(#call destroy-frame",
@@ -82,7 +82,7 @@ fn opaque_pins_cannot_be_unwrapped_forged_or_cloned_in_safe_code() {
         ("clone", "(#fn bad (: pin PinnedFrame) () (#let duplicate PinnedFrame (#clone pin)) (#forget duplicate) (#forget pin) (#return ()))", "cloned"),
         ("nested-clone", "(#fn bad (: pin PinnedFrame) () (#let wrapped (#tuple PinnedFrame) (#tuple pin)) (#let duplicate (#tuple PinnedFrame) (#clone wrapped)) (#forget wrapped) (#forget duplicate) (#return ()))", "cloned"),
         ("private-storage", "(#fn bad (: pin PinnedFrame) () (#forget pin) (#forget storage) (#return ()))", "unknown"),
-        ("generated-field", "(#gn steal () `((#fn bad (: pin PinnedFrame) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))) (@steal)", "opaque"),
+        ("generated-field", "(#gn steal () `((#fn bad (: pin PinnedFrame) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))) (#generate steal)", "opaque"),
     ] {
         let scratch = support::Scratch::new(&format!("pin-api-{name}"));
         let error = compile(&format!("{}\n{extra}", source()), &scratch).unwrap_err();
@@ -165,7 +165,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
     let source = format!(
         "{}
       (#struct Held () (: reference (#ref-mut #u64)))
-      (@#pin (: type Held : name PinnedHeld : copy true))",
+      (#generate #pin (: type Held : name PinnedHeld : copy true))",
         source()
     );
     assert!(
@@ -179,15 +179,15 @@ fn projection_source() -> String {
         "(#import \"{}/library/pin.lim\")
       (#struct Inner (#linear) (: value #u64))
       (#struct Outer (#linear) (: child Inner))
-      (@#pin (: type Inner : name PinnedInner : fields (: value #u64)))
-      (@#pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
-      (@#pin-scope (: type Outer : pin PinnedOuter : name with-outer
+      (#generate #pin (: type Inner : name PinnedInner : fields (: value #u64)))
+      (#generate #pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
+      (#generate #pin-scope (: type Outer : pin PinnedOuter : name with-outer
         : run drive-outer : destroy destroy-outer : result #u64))
       (#fn drive-outer (: pin PinnedOuter) #u64
         (#let-mut handle PinnedOuter pin)
-        (#let-mut child PinnedInner (#call PinnedOuter::child::project-mut (: pin handle)))
-        (#call PinnedInner::value::write (: pin (#borrow-mut child) : value 42u64))
-        (#let result #u64 (#call PinnedInner::value::read (: pin (#borrow child))))
+        (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle)))
+        (#call PinnedInner::Write::value (: pin (#borrow-mut child) : value 42u64))
+        (#let result #u64 (#call PinnedInner::Read::value (: pin (#borrow child))))
         (#forget child) (#return result))
       (#fn destroy-outer (: pin PinnedOuter) () (#forget pin) (#return ()))
       (#fn main () #u64 (#return (#call with-outer
@@ -216,8 +216,8 @@ fn pinned_linear_fields_are_projected_without_moving_them() {
 fn projected_handles_cannot_escape_or_overlap_exclusively() {
     let source = projection_source();
     let overlapping = source.replace(
-        "(#call PinnedInner::value::write",
-        "(#let duplicate PinnedInner (#call PinnedOuter::child::project-mut (: pin handle))) (#forget duplicate)\n        (#call PinnedInner::value::write");
+        "(#call PinnedInner::Write::value",
+        "(#let duplicate PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle))) (#forget duplicate)\n        (#call PinnedInner::Write::value");
     let escaping = source
         .replace(": result #u64", ": result PinnedInner")
         .replace("(#fn drive-outer (: pin PinnedOuter) #u64", "(#fn drive-outer (: pin PinnedOuter) PinnedInner")

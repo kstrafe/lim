@@ -76,7 +76,7 @@ fn cloning_a_builtin_raw_pointer_preserves_disjoint_selector_facts() {
 fn custom_clone_through_a_raw_pointer_invalidates_selector_facts() {
     let source = "(#struct Holder () (: value (#ref #u64)))
       (#struct Payload () (: target (#ptr-mut #u64)))
-      (#fn Payload-clone (: value Payload) Payload
+      (#fn Payload::clone (: value Payload) Payload
         (#unsafe (#ptr-write (#get value target) 1u64)) (#return value))
       (#fn main () #u64
         (#let-mut selector #u64 0u64)
@@ -125,7 +125,7 @@ fn pure_disjoint_read_preserves_returned_conditional_word_guarantee() {
              (: state 0u64 : words (#array-repeat 0u64))))
            (#let observed #u64 (#call observe (: value 7u64)))
            (#let answer #u64 (#call read (: frame frame)))
-           (#return (#u64.+.wrap answer observed)))"
+           (#return (#u64::add-wrap answer observed)))"
     );
     compile(&source).expect("a proven read-only disjoint call preserves the returned guarantee");
 }
@@ -174,12 +174,12 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
     let source = "(#struct Holder () (: value (#ref #u64)))
       (#struct Frame () (: state #u64 : words (#array #u64 1)))
       (#struct Container () (: target (#ref-mut #u64)))
-      (#enum Handle () ((Empty) (Full (#ref-mut Container))))
-      (#fn empty () Handle (#return (Empty)))
+      (#enum Handle () ((Handle.Empty) (Handle.Full (#ref-mut Container))))
+      (#fn empty () Handle (#return (Handle.Empty)))
       (#fn mutate (: handle Handle) ()
         (#match handle
-          (#case (Empty) ())
-          (#case (Full container) (#block
+          (#case (Handle.Empty) ())
+          (#case (Handle.Full container) (#block
             (#deref-set (#get container target) 1u64) (#forget container) ())))
         (#return ()))
       (#fn read (: frame (#ref Frame)) #u64
@@ -194,7 +194,7 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
         (#call mutate (: handle (#call empty ())))
         (#let-mut unrelated #u64 0u64)
         (#let-mut container Container (#struct-literal Container (: target (#borrow-mut unrelated))))
-        (#call mutate (: handle (Full (#borrow-mut container))))
+        (#call mutate (: handle (Handle.Full (#borrow-mut container))))
         (#forget container)
         (#let answer #u64 (#call read (: frame (#borrow frame))))
         (#forget frame) (#return answer))";
@@ -217,12 +217,12 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
 
 const CONDITIONAL_SCALAR_OUTCOME: &str = "(#struct Holder () (: value (#ref #u64)))
   (#struct Frame () (: state #u64 : words (#array #u64 1)))
-  (#enum Outcome () ((Empty) (Full)))
+  (#enum Outcome () ((Outcome.Empty) (Outcome.Full)))
   (#fn choose (: state (#ref-mut #u64) : full #bool) Outcome
     (#if full
-      (#block (#deref-set state 1u64) (#return (Full)))
-      (#block (#deref-set state 0u64) (#return (Empty))))
-    (#return (Empty)))
+      (#block (#deref-set state 1u64) (#return (Outcome.Full)))
+      (#block (#deref-set state 0u64) (#return (Outcome.Empty))))
+    (#return (Outcome.Empty)))
   (#fn read (: frame Frame) #u64
     (#loop (#match (#get frame state)
       (#case 1 (#block
@@ -239,13 +239,13 @@ fn conditional_outcome_main(intervening: &str) -> String {
            (#let-mut frame Frame (#struct-literal Frame
              (: state 1u64 : words (#array-repeat 0u64))))
            (#let counter (#atomic #u64) (#atomic-init #u64 0u64))
-           (#let full #bool (#u64.== (#atomic-load (#borrow counter) #memory-relaxed) 1u64))
+           (#let full #bool (#u64::eq (#atomic-load (#borrow counter) #memory-relaxed) 1u64))
            (#let outcome Outcome (#call choose
              (: state (#borrow-mut (#get frame state)) : full full)))
            {intervening}
            (#let answer #u64 (#match outcome
-             (#case Empty (#call read (: frame frame)))
-             (#case Full (#block (#forget frame) 7u64))))
+             (#case Outcome.Empty (#call read (: frame frame)))
+             (#case Outcome.Full (#block (#forget frame) 7u64))))
            (#forget counter) (#return answer))"
     )
 }

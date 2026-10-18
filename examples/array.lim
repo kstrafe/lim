@@ -12,7 +12,7 @@
   (#set-index values 1 40)
   (
     #return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#index values 0)
       (#index values 1)
     )

@@ -2675,7 +2675,7 @@ impl Graph {
                     let target = self
                         .blocks
                         .get(ready.target.0)
-                        .ok_or_else(|| error(None, "invalid Ready destination"))?;
+                        .ok_or_else(|| error(None, "invalid ChildPoll.Ready destination"))?;
                     if target.parameters.len() != 1
                         || self
                             .values
@@ -2685,7 +2685,7 @@ impl Graph {
                     {
                         return Err(error(
                             Some(site.result_node),
-                            "Ready destination lost the checked await result",
+                            "ChildPoll.Ready destination lost the checked await result",
                         ));
                     }
                 }
@@ -2710,13 +2710,13 @@ impl Graph {
                             {
                                 return Err(error(
                                     None,
-                                    "Ready value appears outside its producing await edge",
+                                    "ChildPoll.Ready value appears outside its producing await edge",
                                 ));
                             }
                             &self
                                 .awaits
                                 .get(*site)
-                                .ok_or_else(|| error(None, "unknown Ready result"))?
+                                .ok_or_else(|| error(None, "unknown ChildPoll.Ready result"))?
                                 .result_type
                         }
                     };
@@ -2951,15 +2951,15 @@ mod tests {
     use crate::typed_ir::Declarations;
 
     const CONTEXT: &str = "
-      (#enum Child (#linear) ((Waiting #u64)))
-      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+      (#enum Child (#linear) ((Child.Waiting #u64)))
+      (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
-          (#case (Waiting count) (#if (#u64.== count 0u64)
-            (Ready 42u64) (Pending (Waiting (#u64.-.wrap count 1u64))))))))
+          (#case (Child.Waiting count) (#if (#u64::eq count 0u64)
+            (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64))))))))
       (#fn first () #u64 (#return 11u64))
       (#fn combine ((first #u64) (second #u64)) #u64
-        (#return (#u64.+.wrap first second)))";
+        (#return (#u64::add-wrap first second)))";
 
     fn prepare(source: &str) -> (Lowered, Declarations) {
         prepare_with_context("", source)
@@ -2987,11 +2987,11 @@ mod tests {
     #[test]
     fn let_else_commits_the_failure_pattern_from_the_same_scrutinee() {
         let (lowered, declarations) = prepare_with_context(
-            "(#enum Choice () (: Some #u64 : Error #u64))",
+            "(#enum Choice () (: Choice.Some #u64 : Choice.Error #u64))",
             "(#fn work (: choice Choice) #u64
-              (#let-else (Some amount) Choice choice
-                (#else (Error error) (#return error)))
-              (#return (#await #u64 Child Pending Ready step-poll (Waiting amount))))",
+              (#let-else (Choice.Some amount) Choice choice
+                (#else (Choice.Error error) (#return error)))
+              (#return (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting amount))))",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let sites = mapped(&lowered, &declarations);
@@ -3028,7 +3028,7 @@ mod tests {
               (#let first #u64 (#deref shared)) (#forget shared)
               (#let exclusive (#pin-ref-mut #u64) (#pin local))
               (#let answer #u64 (#deref exclusive)) (#forget exclusive)
-              (#return (#u64.+.wrap first answer)))",
+              (#return (#u64::add-wrap first answer)))",
         );
         let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
         let borrows = graph
@@ -3061,7 +3061,7 @@ mod tests {
               (#let view (#pin-ref #u64) (#borrow (#get owner left)))
               (#drop view)
               (#let result #u64 (#borrow (#get owner right)
-                (#await #u64 Child Pending Ready step-poll (Waiting 0u64))))
+                (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64))))
               (#return result))",
         );
         let body = &declarations.bodies[&lowered.body_name];
@@ -3086,13 +3086,13 @@ mod tests {
     #[test]
     fn mutable_destructure_and_immutable_match_bindings_remain_distinct() {
         let (lowered, declarations) = prepare_with_context(
-            "(#struct Pair () ((left #u64) (right #u64))) (#enum Choice () ((Some #u64) None))",
+            "(#struct Pair () ((left #u64) (right #u64))) (#enum Choice () ((Choice.Some #u64) Choice.None))",
             "(#fn work ((pair Pair) (choice Choice)) #u64
               (#let-mut (Pair left right) Pair pair)
               (#set left (#call first (:)))
               (#return (#match choice
-                (#case (Some payload) (#u64.+.wrap payload left))
-                (#case None right))))",
+                (#case (Choice.Some payload) (#u64::add-wrap payload left))
+                (#case Choice.None right))))",
         );
         let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
         let commits = graph
@@ -3121,7 +3121,7 @@ mod tests {
             "(#fn work () #u64
           (#let-mut array (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
           (#set-index array (#call first (:))
-            (#await #u64 Child Pending Ready step-poll (Waiting 0u64)))
+            (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64)))
           (#forget array) (#return 0u64))",
         );
         let sites = mapped(&lowered, &declarations);
@@ -3181,9 +3181,9 @@ mod tests {
     #[test]
     fn payload_checks_are_explicit_and_missing_or_reordered_operands_are_rejected() {
         let (lowered, declarations) = prepare_with_context(
-            "(#enum Choice () ((Some #u64) None))",
+            "(#enum Choice () ((Choice.Some #u64) Choice.None))",
             "(#fn work ((choice (#ref Choice))) #u64
-              (#return (#call combine (: first (#get-payload choice Some 0)
+              (#return (#call combine (: first (#get-payload choice Choice.Some 0)
                 : second (#call first (:))))))",
         );
         let body = &declarations.bodies[&lowered.body_name];
@@ -3260,7 +3260,7 @@ mod tests {
         let (lowered, declarations) = prepare(
             "(#fn work ((choose #bool) (seed #u64)) #u64
           (#return (#call combine
-            (: second (#await #u64 Child Pending Ready step-poll (Waiting seed))
+            (: second (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting seed))
              : first (#if choose (#call first (:)) 3u64)))))",
         );
         let body = &declarations.bodies[&lowered.body_name];
@@ -3325,8 +3325,8 @@ mod tests {
     fn unsafe_context_and_collapsed_spans_do_not_change_execution_order() {
         let (lowered, mut declarations) = prepare(
             "(#fn work ((seed #u64)) #u64
-          (#return (#unsafe (#u64.+.wrap (#call first (:))
-            (#await #u64 Child Pending Ready step-poll (Waiting seed))))))",
+          (#return (#unsafe (#u64::add-wrap (#call first (:))
+            (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting seed))))))",
         );
         let sites = mapped(&lowered, &declarations);
         let graph = build(&declarations.bodies[&lowered.body_name], &sites).unwrap();

@@ -4,23 +4,23 @@
     (#gn-if (#gn-equal mode #ref-mut) #case-ref-mut
       (#gn-if (#gn-equal mode #pin-ref) #case-pin
         (#gn-if (#gn-equal mode #pin-ref-mut) #case-pin-mut
-          (#gn-error "@#enum-project mode must be #ref, #ref-mut, #pin-ref or #pin-ref-mut"))))))
+          (#gn-error "#generate #enum-project mode must be #ref, #ref-mut, #pin-ref or #pin-ref-mut"))))))
 
 (#gn-fn enum-project-build (options projected mode case)
   `((#enum ,(#gn-get options name) ()
-      ((,(#gn-symbol-append (#gn-get options name) "Some")
+      ((,(#gn-variant (#gn-get options name) "Some")
          (,mode ,(#gn-get options payload)))
-       ,(#gn-symbol-append (#gn-get options name) "None")))
+       ,(#gn-variant (#gn-get options name) "None")))
     (#fn ,(#gn-symbol-append (#gn-get options name) "project")
       (: source (,mode ,(#gn-get options enum)))
       ,(#gn-get options name)
       (#return (#match source
         (,case (,(#gn-get options variant) ,projected)
-          (#enum-literal ,(#gn-symbol-append (#gn-get options name) "Some") ,projected))
-        (#case _ (#enum-literal ,(#gn-symbol-append (#gn-get options name) "None"))))))))
+          (#enum-literal ,(#gn-variant (#gn-get options name) "Some") ,projected))
+        (#case _ (#enum-literal ,(#gn-variant (#gn-get options name) "None"))))))))
 
 (#gn #enum-project (options)
   (#gn-if (#gn-equal (#gn-length options) 5)
     (#gn-call enum-project-build options (#gn-gensym "payload")
       (#gn-get options mode) (#gn-call enum-project-case (#gn-get options mode)))
-    (#gn-error "@#enum-project requires exactly enum, variant, payload, mode and name")))
+    (#gn-error "#generate #enum-project requires exactly enum, variant, payload, mode and name")))

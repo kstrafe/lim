@@ -7,7 +7,7 @@ const SOURCE: &str = r#"
     (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
     (#pin-set-field target view view) (#return target))
   (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-    (#let observed #u64 (#get target value)) (#assert (#u64.== observed 42u64))
+    (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
     (#return target))
   (#fn driver (: outside (#pin-ref #u64)) #u64
     (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view outside)))
@@ -53,7 +53,7 @@ fn ordinary_owner_shared_reads_and_child_reads_run_natively() {
 fn loaded_internal_child_survives_disjoint_owner_call_natively() {
     let source = SOURCE
         .replace(
-            "(#let observed #u64 (#get target value)) (#assert (#u64.== observed 42u64))",
+            "(#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))",
             "(#pin-set-field target state 2u32)",
         )
         .replace(
@@ -92,7 +92,7 @@ fn loaded_internal_child_survives_disjoint_owner_call_natively() {
 #[test]
 fn a_shared_internal_child_blocks_an_exclusive_borrow_at_the_actual_call_argument() {
     let source = SOURCE.replace(
-        "(#let observed #u64 (#get target value)) (#assert (#u64.== observed 42u64))",
+        "(#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))",
         "(#let another (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value))) (#drop another)",
     );
     let scratch = support::Scratch::new("internal-owner-exclusive-borrow");
@@ -120,7 +120,7 @@ const EXCLUSIVE_SOURCE: &str = r#"
     (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
     (#return target))
   (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-    (#let observed #u64 (#get target value)) (#assert (#u64.== observed 42u64))
+    (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
     (#return target))
   (#fn finish (: target (#pin-ref-mut Link) : outside (#pin-ref-mut #u64)) #u64
     (#let answer #u64 (#deref (#get target view)))
@@ -141,8 +141,8 @@ const EXCLUSIVE_SOURCE: &str = r#"
 fn an_exclusive_internal_child_blocks_owner_reads_but_preserves_child_access() {
     let source = EXCLUSIVE_SOURCE
         .replace(
-            "(#let observed #u64 (#get target value)) (#assert (#u64.== observed 42u64))",
-            "(#let observed #u32 (#get target state)) (#assert (#u32.== observed 0u32))
+            "(#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))",
+            "(#let observed #u32 (#get target state)) (#assert (#u32::eq observed 0u32))
          (#unsafe (#pin-write (#get target view) 42u64))",
         )
         .replace(": value 42u64", ": value 10u64");

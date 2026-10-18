@@ -4,4 +4,4 @@
   (#return input))
 
 (#fn main () #u64
-  (#return (#u64.+.wrap (#call read (: input 42u64)) value)))
+  (#return (#u64::add-wrap (#call read (: input 42u64)) value)))

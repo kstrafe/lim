@@ -1,12 +1,12 @@
-(#enum Maybe () ((Some #u64) None))
-(#enum Child (#linear) ((Waiting #u64)))
-(#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
+(#enum Child (#linear) ((Child.Waiting #u64)))
+(#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
 
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-  (#return (#match task (#case (Waiting value) (ChildReady value)))))
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+  (#return (#match task (#case (Child.Waiting value) (ChildPoll.ChildReady value)))))
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((input Maybe)) #u64
-    (#let-else (Some value) Maybe input
-      (#return (#u64.+.wrap 1u64
-        (#await #u32 Child ChildPending ChildReady child-poll (Waiting 7u64)))))
+    (#let-else (Maybe.Some value) Maybe input
+      (#return (#u64::add-wrap 1u64
+        (#await #u32 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 7u64)))))
     (#return value))))

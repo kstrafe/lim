@@ -338,7 +338,7 @@ fn accepts_adversarial_non_aliasing_controls() {
                (#let owner #u64 9u64)
                (#let first (#ref #u64) (#borrow owner))
                (#let second (#ref #u64) (#borrow owner))
-               (#let result #u64 (#u64.+.wrap (#deref first) (#deref second)))
+               (#let result #u64 (#u64::add-wrap (#deref first) (#deref second)))
                (#drop first) (#drop second) (#return result))",
         ),
         (
@@ -350,7 +350,7 @@ fn accepts_adversarial_non_aliasing_controls() {
                (#let right (#ref-mut #u64) (#borrow-mut (#get pair right)))
                (#deref-set left 40u64) (#deref-set right 2u64)
                (#drop left) (#drop right)
-               (#return (#u64.+.wrap (#get pair left) (#get pair right))))",
+               (#return (#u64::add-wrap (#get pair left) (#get pair right))))",
         ),
     ];
 

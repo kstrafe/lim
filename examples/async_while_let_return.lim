@@ -1,40 +1,40 @@
-(#enum Choice () ((Chosen #u64) Empty))
-(#enum ChoiceTask () ((ChoiceStart Choice) (ChoiceResume Choice)))
-(#enum ChoicePoll () ((ChoicePending ChoiceTask) (ChoiceReady Choice)))
+(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))
+(#enum ChoiceTask () ((ChoiceTask.ChoiceStart Choice) (ChoiceTask.ChoiceResume Choice)))
+(#enum ChoicePoll () ((ChoicePoll.ChoicePending ChoiceTask) (ChoicePoll.ChoiceReady Choice)))
 (#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
   (#return (#match task
-    (#case (ChoiceStart value) (ChoicePending (ChoiceResume value)))
-    (#case (ChoiceResume value) (ChoiceReady value)))))
-(#enum Step () ((Start #u64) (Resume #u64)))
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
+    (#case (ChoiceTask.ChoiceStart value) (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value)))
+    (#case (ChoiceTask.ChoiceResume value) (ChoicePoll.ChoiceReady value)))))
+(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start value) (StepPending (Resume value)))
-    (#case (Resume value) (StepReady value)))))
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+    (#case (Step.Resume value) (StepPoll.StepReady value)))))
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
-    (#while-let (Chosen value)
-      (#await Choice ChoiceTask ChoicePending ChoiceReady choice-poll (ChoiceStart choice))
-      (#let first #u64 (#await #u64 Step StepPending StepReady step-poll (Start value)))
-      (#let second #u64 (#await #u64 Step StepPending StepReady step-poll (Start first)))
+    (#while-let (Choice.Chosen value)
+      (#await Choice ChoiceTask ChoicePoll.ChoicePending ChoicePoll.ChoiceReady choice-poll (ChoiceTask.ChoiceStart choice))
+      (#let first #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start value)))
+      (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
       (#return second))
     (#return 5u64))))
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
   (#let first Work::Poll (#call Work::poll (: task (#call work (: choice choice)) : waker waker)))
-  (#let-else (Work::Pending after-condition) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending after-condition) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task after-condition : waker waker)))
   (#return (#match second
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending after-first)
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending after-first)
       (#block
         (#let third Work::Poll (#call Work::poll (: task after-first : waker waker)))
-        (#let-else (Work::Pending after-second) Work::Poll third (#unreachable))
+        (#let-else (Work::Poll.Pending after-second) Work::Poll third (#unreachable))
         (#let fourth Work::Poll (#call Work::poll (: task after-second : waker waker)))
         (#match fourth
-          (#case (Work::Ready value) value)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
+          (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let chosen #u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))
-  (#let empty #u64 (#call run (: choice Empty : waker (#borrow waker))))
-  (#return (#u64.+.wrap chosen empty)))
+  (#let chosen #u64 (#call run (: choice (Choice.Chosen 37u64) : waker (#borrow waker))))
+  (#let empty #u64 (#call run (: choice Choice.Empty : waker (#borrow waker))))
+  (#return (#u64::add-wrap chosen empty)))

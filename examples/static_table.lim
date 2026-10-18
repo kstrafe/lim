@@ -1,12 +1,12 @@
 ; A fixed table is ordinary data, not a distributed syntax registry.
-(#static Table (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
+(#static table (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
 
 (#fn main () #u64
   (#return (#unsafe (#block
-    (#let values (#slice #u64) (#borrow-slice Table))
-    (#assert (#usize.== (#slice-len values) 2usize))
+    (#let values (#slice #u64) (#borrow-slice table))
+    (#assert (#usize::eq (#slice-len values) 2usize))
     (#let tail (#slice #u64) (#slice-range values 1usize 2usize))
-    (#assert (#u64.== (#deref (#slice-idx tail 0usize)) 22u64))
-    (#u64.+.wrap
+    (#assert (#u64::eq (#deref (#slice-idx tail 0usize)) 22u64))
+    (#u64::add-wrap
       (#deref (#slice-idx values 0usize))
       (#deref (#slice-idx values 1usize)))))))

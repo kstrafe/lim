@@ -4,7 +4,7 @@
   #u64
   (#let left-item (#tuple #u128 #u64) (#index left 3u64))
   (#let right-item (#tuple #u128 #u64) (#index right 3u64))
-  (#return (#u64.+.wrap (#get left-item 1) (#get right-item 1))))
+  (#return (#u64::add-wrap (#get left-item 1) (#get right-item 1))))
 
 (#fn main () #u64
   (#return

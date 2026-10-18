@@ -1,4 +1,4 @@
-(#let VALUE #u128 42)
+(#let vALUE #u128 42)
 
 (
   #fn
@@ -9,7 +9,7 @@
     #return
     (
       #if
-      (#u128.==  VALUE 42)
+      (#u128::eq  vALUE 42)
       42
       0
     )

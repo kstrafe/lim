@@ -46,8 +46,8 @@ change its public cleanup name. Source file/line changes do not. Inspect the
 generated declaration when defining a cleanup contract for computed operands.
 
 Each field is an ordinary linear tagged cell. For example, `owner` has type
-`Work::Frame::Cleanup-owner`, with variants `Work::Frame::Cleanup::owner::Empty` and
-`(Work::Frame::Cleanup::owner::Full Source)`. Cleanup can inspect and explicitly
+`Work::Frame::Cleanup-owner`, with variants `Work::Frame::Cleanup::owner.Empty` and
+`(Work::Frame::Cleanup::owner.Full Source)`. Cleanup can inspect and explicitly
 consume this record using ordinary Lim, independently of the generator.
 Non-owning reference handles, including scoped tokens, are cleared before
 owners are drained. Omitted owning temporaries have physical Empty proofs at
@@ -56,7 +56,7 @@ the cancellation boundaries and emitted tag assertions.
 Graph cancellation configuration uses these source slots:
 
 ```lim
-(@#async-fn-pinned (: protocol WorkAwait : waker Wake
+(#generate #async-fn-pinned (: protocol WorkAwait : waker Wake
   : cancel (work-cancel
     ((owner destroy-owner) (await-0 cancel-child)))
   : function (#fn work (...) #u64 ...)))
@@ -110,7 +110,7 @@ Pinned graph functions can explicitly request access to reference-free Copy
 parameters after Ready or public cleanup:
 
 ```lim
-(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
   : access (: amount amount-access)
   : function (#fn work (: amount #u64) #u64 (#return amount))))
 ```
@@ -395,7 +395,7 @@ An ordinary slice reference and a pinned reference cannot be branch alternatives
 of the same value: their types differ. These tests do not introduce an implicit
 pin upgrade/downgrade or prove arbitrary allocation/static mixed anchors.
 
-On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
+On the graph route, `#generate #async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
 struct/tuple projections. Declare them with `#borrow`/`#borrow-mut` as in an
 ordinary function. The factory initializes only arguments; owner construction
@@ -442,7 +442,7 @@ that signature, so a parent can use it directly as its child's handler. Both
 public cleanup and private cancellation perform this phase. Dependent cleanup
 record fields are Empty; they never export live pointers into the parent.
 Repeated destruction is idempotent. Missing handlers and dependency cycles fail
-closed. Movable `@#async-fn` frames cannot use internal raw-reference storage.
+closed. Movable `#generate #async-fn` frames cannot use internal raw-reference storage.
 
 At this checkpoint, the default switch was gated on legacy public task/state
 layout adapters,

@@ -110,13 +110,13 @@ impl Nested {
             indices.insert(position, index.clone());
             let rest = self.probe(base, address, position + 1, indices, fresh);
             format!(
-                "(#bool.&& {} (#block (#let {index} #usize {}) {rest}))",
+                "(#bool::and {} (#block (#let {index} #usize {}) {rest}))",
                 recipe.probe_address(&array, address),
                 recipe.index_address(&array, address)
             )
         } else {
             format!(
-                "(#usize.== {address} (#ptr-address (#ref-ptr {})))",
+                "(#usize::eq {address} (#ptr-address (#ref-ptr {})))",
                 self.project(self.place.segments.len(), false, base, indices)
             )
         }
@@ -302,40 +302,40 @@ impl Recipes {
             };
             let measurements = format!("(#let {base} #usize {})
               (#let {next} #usize {})
-              (#let {descending} #bool (#usize.< {next} {base}))
-              (#let {stride} #usize (#if {descending} (#usize.-.wrap {base} {next}) (#usize.-.wrap {next} {base})))
-              (#let {delta} #usize (#if {descending} (#usize.-.wrap {base} {address}) (#usize.-.wrap {address} {base})))", at("0usize"), at("1usize"));
+              (#let {descending} #bool (#usize::lt {next} {base}))
+              (#let {stride} #usize (#if {descending} (#usize::sub-wrap {base} {next}) (#usize::sub-wrap {next} {base})))
+              (#let {delta} #usize (#if {descending} (#usize::sub-wrap {base} {address}) (#usize::sub-wrap {address} {base})))", at("0usize"), at("1usize"));
             let direction = format!(
-                "(#if {descending} (#usize.<= {address} {base}) (#usize.>= {address} {base}))"
+                "(#if {descending} (#usize::le {address} {base}) (#usize::ge {address} {base}))"
             );
             let alignment = if has_nested {
                 "true".into()
             } else {
-                format!("(#usize.== (#usize.%.wrap {delta} {stride}) 0usize)")
+                format!("(#usize::eq (#usize::rem-wrap {delta} {stride}) 0usize)")
             };
-            let valid = format!("(#if (#usize.== {stride} 0usize) (#usize.== {address} {base}) (#bool.&& {direction} (#bool.&& {alignment} (#usize.< (#usize./.wrap {delta} {stride}) {length}))))");
+            let valid = format!("(#if (#usize::eq {stride} 0usize) (#usize::eq {address} {base}) (#bool::and {direction} (#bool::and {alignment} (#usize::lt (#usize::div-wrap {delta} {stride}) {length}))))");
             let single_valid = if has_nested {
                 "true".into()
             } else {
-                format!("(#usize.== {address} {})", at("0usize"))
+                format!("(#usize::eq {address} {})", at("0usize"))
             };
             recipes.declarations.push(format!("(#fn {index} (: {owner} {input} : {address} #usize) #usize
-              (#let {length} #usize {len}) (#assert (#usize.> {length} 0usize))
-              (#if (#usize.== {length} 1usize) (#block (#assert {single_valid}) (#return 0usize)) ())
+              (#let {length} #usize {len}) (#assert (#usize::gt {length} 0usize))
+              (#if (#usize::eq {length} 1usize) (#block (#assert {single_valid}) (#return 0usize)) ())
               {measurements} (#assert {valid})
-              (#return (#if (#usize.== {stride} 0usize) 0usize (#usize./.wrap {delta} {stride}))))"));
+              (#return (#if (#usize::eq {stride} 0usize) 0usize (#usize::div-wrap {delta} {stride}))))"));
             let mut probe_body = if let Some(coordinate) = coordinate {
                 let match_address = if has_nested {
                     "true".into()
                 } else {
                     format!(
-                        "(#usize.== {address} {})",
+                        "(#usize::eq {address} {})",
                         at(&format!("{coordinate}usize"))
                     )
                 };
-                format!("(#bool.&& (#usize.< {coordinate}usize {length}) {match_address})")
+                format!("(#bool::and (#usize::lt {coordinate}usize {length}) {match_address})")
             } else {
-                format!("(#if (#usize.== {length} 0usize) false (#if (#usize.== {length} 1usize) {single_valid} (#block {measurements} {valid})))")
+                format!("(#if (#usize::eq {length} 0usize) false (#if (#usize::eq {length} 1usize) {single_valid} (#block {measurements} {valid})))")
             };
             let mut nested_project = None;
             if let Some(nested) = nested {
@@ -355,7 +355,7 @@ impl Recipes {
                 );
                 let nested_probe = nested.probe(&base, &address, 0, &mut HashMap::new(), &fresh);
                 probe_body =
-                    format!("(#bool.&& {probe_body} (#block {base_binding} {nested_probe}))");
+                    format!("(#bool::and {probe_body} (#block {base_binding} {nested_probe}))");
                 let mut functions = [None, None];
                 for mutable in [false, true] {
                     if mutable && !exclusive {

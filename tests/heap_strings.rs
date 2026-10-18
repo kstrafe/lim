@@ -80,43 +80,43 @@ fn string_utf8_capacity_mutation_and_clone_contract() {
       (#fn main () #u64
         (#let chars (#array #char 3) "Aé🙂")
         (#let-mut text String
-          (#match (#call String-from-chars (: text (#slice-of (#borrow chars))))
-            (#case (StringCreated owner) owner)
-            (#case (StringCreateFailed error) (#panic))))
-        (#assert (#usize.== (#call String-len (: string (#borrow text))) 7usize))
-        (#assert (#usize.>= (#call String-capacity (: string (#borrow text))) 7usize))
+          (#match (#call String::from-chars (: text (#slice-of (#borrow chars))))
+            (#case (StringCreateResult.StringCreated owner) owner)
+            (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+        (#assert (#usize::eq (#call String::len (: string (#borrow text))) 7usize))
+        (#assert (#usize::ge (#call String::capacity (: string (#borrow text))) 7usize))
         (#let copy String
-          (#match (#call String-try-clone (: string (#borrow text)))
-            (#case (StringCreated cloned) cloned)
-            (#case (StringCreateFailed error) (#panic))))
-        (#assert (#match (#call String-reserve (: string (#borrow-mut text) : additional 64usize))
-          (#case StringOk true) (#case _ false)))
-        (#let capacity #usize (#call String-capacity (: string (#borrow text))))
+          (#match (#call String::try-clone (: string (#borrow text)))
+            (#case (StringCreateResult.StringCreated cloned) cloned)
+            (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+        (#assert (#match (#call String::reserve (: string (#borrow-mut text) : additional 64usize))
+          (#case StringStatus.StringOk true) (#case _ false)))
+        (#let capacity #usize (#call String::capacity (: string (#borrow text))))
         (#let spare (#array #char 2) "xy")
-        (#assert (#match (#call String-push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow spare))))
-          (#case StringOk true) (#case _ false)))
-        (#assert (#usize.== (#call String-len (: string (#borrow text))) 9usize))
-        (#assert (#usize.== (#call String-len (: string (#borrow copy))) 7usize))
-        (#assert (#match (#call String-byte-at (: string (#borrow text) : index 1usize))
-          (#case (StringByte value) (#u8.== value 195u8)) (#case _ false)))
-        (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-          (#case (StringPopped value) (#char.== value #\y)) (#case _ false)))
-        (#call String-clear (: string (#borrow-mut text)))
-        (#assert (#call String-is-empty (: string (#borrow text))))
-        (#assert (#usize.== (#call String-capacity (: string (#borrow text))) capacity))
-        (#assert (#match (#call String-push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow chars))))
-          (#case StringOk true) (#case _ false)))
-        (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-          (#case (StringPopped value) (#char.== value #\🙂)) (#case _ false)))
-        (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-          (#case (StringPopped value) (#char.== value #\é)) (#case _ false)))
-        (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-          (#case (StringPopped value) (#char.== value #\A)) (#case _ false)))
-        (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-          (#case StringEmpty true) (#case _ false)))
+        (#assert (#match (#call String::push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow spare))))
+          (#case StringStatus.StringOk true) (#case _ false)))
+        (#assert (#usize::eq (#call String::len (: string (#borrow text))) 9usize))
+        (#assert (#usize::eq (#call String::len (: string (#borrow copy))) 7usize))
+        (#assert (#match (#call String::byte-at (: string (#borrow text) : index 1usize))
+          (#case (StringByteResult.StringByte value) (#u8::eq value 195u8)) (#case _ false)))
+        (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+          (#case (StringPopResult.StringPopped value) (#char::eq value #\y)) (#case _ false)))
+        (#call String::clear (: string (#borrow-mut text)))
+        (#assert (#call String::is-empty (: string (#borrow text))))
+        (#assert (#usize::eq (#call String::capacity (: string (#borrow text))) capacity))
+        (#assert (#match (#call String::push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow chars))))
+          (#case StringStatus.StringOk true) (#case _ false)))
+        (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+          (#case (StringPopResult.StringPopped value) (#char::eq value #\🙂)) (#case _ false)))
+        (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+          (#case (StringPopResult.StringPopped value) (#char::eq value #\é)) (#case _ false)))
+        (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+          (#case (StringPopResult.StringPopped value) (#char::eq value #\A)) (#case _ false)))
+        (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+          (#case StringPopResult.StringEmpty true) (#case _ false)))
         (#let moved String text)
-        (#call String-free (: string moved))
-        (#call String-free (: string copy))
+        (#call String::free (: string moved))
+        (#call String::free (: string copy))
         (#return 42u64))
     "#,
         import = string_import()
@@ -130,8 +130,8 @@ fn string_utf8_validation_matrix_and_embedded_nul() {
         r#"
       (#import {import:?})
       (#fn valid ((bytes (#slice #u8))) #bool
-        (#return (#match (#call String-from-utf8 (: bytes bytes))
-          (#case (StringCreated text) (#block (#call String-free (: string text)) true))
+        (#return (#match (#call String::from-utf8 (: bytes bytes))
+          (#case (StringCreateResult.StringCreated text) (#block (#call String::free (: string text)) true))
           (#case _ false))))
       (#fn main () #u64
         (#let nul (#array #u8 3) (#array-of (#array #u8 3) 65u8 0u8 66u8))
@@ -142,10 +142,10 @@ fn string_utf8_validation_matrix_and_embedded_nul() {
         (#let too-large (#array #u8 4) (#array-of (#array #u8 4) 244u8 144u8 128u8 128u8))
         (#assert (#call valid (: bytes (#slice-of (#borrow nul)))))
         (#assert (#call valid (: bytes (#slice-of (#borrow good)))))
-        (#assert (#bool.! (#call valid (: bytes (#slice-of (#borrow overlong))))))
-        (#assert (#bool.! (#call valid (: bytes (#slice-of (#borrow surrogate))))))
-        (#assert (#bool.! (#call valid (: bytes (#slice-of (#borrow truncated))))))
-        (#assert (#bool.! (#call valid (: bytes (#slice-of (#borrow too-large))))))
+        (#assert (#bool::not (#call valid (: bytes (#slice-of (#borrow overlong))))))
+        (#assert (#bool::not (#call valid (: bytes (#slice-of (#borrow surrogate))))))
+        (#assert (#bool::not (#call valid (: bytes (#slice-of (#borrow truncated))))))
+        (#assert (#bool::not (#call valid (: bytes (#slice-of (#borrow too-large))))))
         (#return 42u64))
     "#,
         import = string_import()
@@ -189,31 +189,31 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
     let mut source = format!("(#import {:?})\n", string_import());
     source.push_str(r#"
       (#fn check-valid (: input (#slice #u8)) #bool
-        (#return (#match (#call String-from-utf8 (: bytes input))
-          (#case (StringCreated text)
+        (#return (#match (#call String::from-utf8 (: bytes input))
+          (#case (StringCreateResult.StringCreated text)
             (#block
-              (#let view StringBytes (#call String-bytes (: string (#borrow text))))
-              (#let length #usize (#call StringBytes-len (: bytes view)))
-              (#assert (#usize.== length (#slice-len input)))
+              (#let view StringBytes (#call String::bytes (: string (#borrow text))))
+              (#let length #usize (#call StringBytes::len (: bytes view)))
+              (#assert (#usize::eq length (#slice-len input)))
               (#let-mut cursor #usize 0usize)
-              (#while (#usize.< cursor length)
-                (#assert (#match (#call StringBytes-byte-at (: bytes view : index cursor))
-                  (#case (StringByte byte) (#u8.== byte (#deref (#slice-idx input cursor))))
-                  (#case StringByteOutOfBounds false)))
-                (#set cursor (#usize.+.wrap cursor 1usize)))
-              (#assert (#match (#call StringBytes-byte-at (: bytes view : index length))
-                (#case StringByteOutOfBounds true) (#case _ false)))
-              (#assert (#match (#call StringBytes-byte-at (: bytes view : index 18446744073709551615usize))
-                (#case StringByteOutOfBounds true) (#case _ false)))
+              (#while (#usize::lt cursor length)
+                (#assert (#match (#call StringBytes::byte-at (: bytes view : index cursor))
+                  (#case (StringByteResult.StringByte byte) (#u8::eq byte (#deref (#slice-idx input cursor))))
+                  (#case StringByteResult.StringByteOutOfBounds false)))
+                (#set cursor (#usize::add-wrap cursor 1usize)))
+              (#assert (#match (#call StringBytes::byte-at (: bytes view : index length))
+                (#case StringByteResult.StringByteOutOfBounds true) (#case _ false)))
+              (#assert (#match (#call StringBytes::byte-at (: bytes view : index 18446744073709551615usize))
+                (#case StringByteResult.StringByteOutOfBounds true) (#case _ false)))
               (#drop view)
-              (#call String-free (: string text))
+              (#call String::free (: string text))
               true))
-          (#case (StringCreateFailed error) false))))
+          (#case (StringCreateResult.StringCreateFailed error) false))))
       (#fn check-invalid (: input (#slice #u8)) #bool
-        (#return (#match (#call String-from-utf8 (: bytes input))
-          (#case (StringCreated text) (#block (#call String-free (: string text)) false))
-          (#case (StringCreateFailed error) (#match error
-            (#case StringInvalidUtf8 true) (#case _ false))))))
+        (#return (#match (#call String::from-utf8 (: bytes input))
+          (#case (StringCreateResult.StringCreated text) (#block (#call String::free (: string text)) false))
+          (#case (StringCreateResult.StringCreateFailed error) (#match error
+            (#case StringError.StringInvalidUtf8 true) (#case _ false))))))
       (#fn main () #u64
     "#);
     for (index, (bytes, valid)) in cases.iter().enumerate() {
@@ -253,34 +253,34 @@ fn character_encoding_and_popping_cover_every_utf8_width_and_invalid_scalars() {
           0u32 127u32 128u32 2047u32 2048u32 55295u32 57344u32 65535u32 65536u32 1114111u32))
         (#let widths (#array #usize 10) (#array-of (#array #usize 10)
           1usize 1usize 2usize 2usize 3usize 3usize 3usize 3usize 4usize 4usize))
-        (#let-mut text String (#call String-new ()))
+        (#let-mut text String (#call String::new ()))
         (#let-mut index #usize 0usize)
-        (#while (#usize.< index 10usize)
+        (#while (#usize::lt index 10usize)
           (#let code #u32 (#index values index))
-          (#assert (#match (#call String-push-char (: string (#borrow-mut text) : value (#as code #char)))
-            (#case StringOk true) (#case _ false)))
-          (#assert (#usize.== (#call String-len (: string (#borrow text))) (#index widths index)))
-          (#assert (#match (#call String-pop-char (: string (#borrow-mut text)))
-            (#case (StringPopped value) (#u32.== (#as value #u32) code)) (#case _ false)))
-          (#assert (#call String-is-empty (: string (#borrow text))))
-          (#set index (#usize.+.wrap index 1usize)))
+          (#assert (#match (#call String::push-char (: string (#borrow-mut text) : value (#as code #char)))
+            (#case StringStatus.StringOk true) (#case _ false)))
+          (#assert (#usize::eq (#call String::len (: string (#borrow text))) (#index widths index)))
+          (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+            (#case (StringPopResult.StringPopped value) (#u32::eq (#as value #u32) code)) (#case _ false)))
+          (#assert (#call String::is-empty (: string (#borrow text))))
+          (#set index (#usize::add-wrap index 1usize)))
         (#let invalid (#array #u32 3) (#array-of (#array #u32 3) 55296u32 57343u32 1114112u32))
-        (#let capacity #usize (#call String-capacity (: string (#borrow text))))
+        (#let capacity #usize (#call String::capacity (: string (#borrow text))))
         (#let-mut invalid-index #usize 0usize)
-        (#while (#usize.< invalid-index 3usize)
-          (#assert (#match (#call String-push-char (: string (#borrow-mut text) : value (#as (#index invalid invalid-index) #char)))
-            (#case (StringErr StringInvalidChar) true) (#case _ false)))
-          (#set invalid-index (#usize.+.wrap invalid-index 1usize)))
+        (#while (#usize::lt invalid-index 3usize)
+          (#assert (#match (#call String::push-char (: string (#borrow-mut text) : value (#as (#index invalid invalid-index) #char)))
+            (#case (StringStatus.StringErr StringError.StringInvalidChar) true) (#case _ false)))
+          (#set invalid-index (#usize::add-wrap invalid-index 1usize)))
         (#let invalid-text (#array #char 2) (#array-of (#array #char 2) (#as 97u32 #char) (#as 55296u32 #char)))
-        (#assert (#match (#call String-push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow invalid-text))))
-          (#case (StringErr StringInvalidChar) true) (#case _ false)))
-        (#assert (#call String-is-empty (: string (#borrow text))))
-        (#assert (#usize.== (#call String-capacity (: string (#borrow text))) capacity))
-        (#let view StringBytes (#call String-bytes (: string (#borrow text))))
-        (#assert (#usize.== (#call StringBytes-len (: bytes view)) 0usize))
+        (#assert (#match (#call String::push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow invalid-text))))
+          (#case (StringStatus.StringErr StringError.StringInvalidChar) true) (#case _ false)))
+        (#assert (#call String::is-empty (: string (#borrow text))))
+        (#assert (#usize::eq (#call String::capacity (: string (#borrow text))) capacity))
+        (#let view StringBytes (#call String::bytes (: string (#borrow text))))
+        (#assert (#usize::eq (#call StringBytes::len (: bytes view)) 0usize))
         (#drop view)
-        (#call String-clear (: string (#borrow-mut text)))
-        (#call String-free (: string text))
+        (#call String::clear (: string (#borrow-mut text)))
+        (#call String::free (: string text))
         (#return 42u64))
     "#,
         import = string_import()
@@ -294,20 +294,20 @@ fn returned_and_copied_byte_views_retain_the_owner_borrow() {
         r#"
       (#import {import:?})
       (#fn view-of (: string (#ref String)) StringBytes
-        (#return (#call String-bytes (: string string))))
+        (#return (#call String::bytes (: string string))))
       (#fn main () #u64
-        (#let-mut text String (#call String-new ()))
-        (#assert (#match (#call String-push-char (: string (#borrow-mut text) : value (#as 65u32 #char)))
-          (#case StringOk true) (#case _ false)))
+        (#let-mut text String (#call String::new ()))
+        (#assert (#match (#call String::push-char (: string (#borrow-mut text) : value (#as 65u32 #char)))
+          (#case StringStatus.StringOk true) (#case _ false)))
         (#let original StringBytes (#call view-of (: string (#borrow text))))
         (#let copy StringBytes (#clone original))
         (#drop original)
-        (#assert (#usize.== (#call StringBytes-len (: bytes copy)) 1usize))
-        (#assert (#match (#call StringBytes-byte-at (: bytes copy : index 0usize))
-          (#case (StringByte byte) (#u8.== byte 65u8)) (#case _ false)))
+        (#assert (#usize::eq (#call StringBytes::len (: bytes copy)) 1usize))
+        (#assert (#match (#call StringBytes::byte-at (: bytes copy : index 0usize))
+          (#case (StringByteResult.StringByte byte) (#u8::eq byte 65u8)) (#case _ false)))
         (#drop copy)
-        (#call String-clear (: string (#borrow-mut text)))
-        (#call String-free (: string text))
+        (#call String::clear (: string (#borrow-mut text)))
+        (#call String::free (: string text))
         (#return 42u64))
     "#,
         import = string_import()
@@ -318,42 +318,42 @@ fn returned_and_copied_byte_views_retain_the_owner_borrow() {
 #[test]
 fn string_linear_ownership_and_borrow_diagnostics() {
     rejected(
-        "(#fn main () #u64 (#let text String (#call String-new ())) (#return 42u64))",
+        "(#fn main () #u64 (#let text String (#call String::new ())) (#return 42u64))",
         "string-leak",
         "E4200",
         "must be consumed before returning",
         "text",
     );
-    rejected("(#fn main () #u64 (#let text String (#call String-new ())) (#call String-free (: string text)) (#call String-free (: string text)) (#return 42u64))",
+    rejected("(#fn main () #u64 (#let text String (#call String::new ())) (#call String::free (: string text)) (#call String::free (: string text)) (#return 42u64))",
         "string-use-after-free", "E4200", "was used more than once", "text");
-    rejected("(#fn main () #u64 (#let text String (#call String-new ())) (#let copy String (#clone text)) (#call String-free (: string text)) (#call String-free (: string copy)) (#return 42u64))",
+    rejected("(#fn main () #u64 (#let text String (#call String::new ())) (#let copy String (#clone text)) (#call String::free (: string text)) (#call String::free (: string copy)) (#return 42u64))",
         "string-direct-clone", "E4000", "opaque", "(#clone text)");
-    rejected("(#fn main () #u64 (#let text String (#struct-literal String (: pointer (#ptr-null (#ptr-mut #u8)) : length 0usize : capacity 0usize))) (#call String-free (: string text)) (#return 42u64))",
+    rejected("(#fn main () #u64 (#let text String (#struct-literal String (: pointer (#ptr-null (#ptr-mut #u8)) : length 0usize : capacity 0usize))) (#call String::free (: string text)) (#return 42u64))",
         "string-forged-owner", "E4000", "cannot construct opaque type 'String'", "String");
-    rejected("(#fn main () #u64 (#let text String (#call String-new ())) (#let pointer (#ptr-mut #u8) (#get text pointer)) (#call String-free (: string text)) (#return 42u64))",
+    rejected("(#fn main () #u64 (#let text String (#call String::new ())) (#let pointer (#ptr-mut #u8) (#get text pointer)) (#call String::free (: string text)) (#return 42u64))",
         "string-exposed-pointer", "E4000", "cannot access fields of opaque type 'String'", "pointer");
-    rejected("(#fn dangling () StringBytes (#let text String (#call String-new ())) (#let view StringBytes (#call String-bytes (: string (#borrow text)))) (#forget text) (#return view))",
+    rejected("(#fn dangling () StringBytes (#let text String (#call String::new ())) (#let view StringBytes (#call String::bytes (: string (#borrow text)))) (#forget text) (#return view))",
         "string-dead-byte-view", "E4200", "returned reference may point to a consumed linear referent", "(#return view)");
     for operation in [
-        "(#call String-clear (: string (#borrow-mut text)))",
-        "(#call String-free (: string text))",
+        "(#call String::clear (: string (#borrow-mut text)))",
+        "(#call String::free (: string text))",
     ] {
-        let cleanup = if operation.contains("String-clear") {
+        let cleanup = if operation.contains("String::clear") {
             "(#forget text)"
         } else {
             "()"
         };
         let body = format!(
             "(#fn main () #u64
-          (#let-mut text String (#call String-new ()))
-          (#let bytes StringBytes (#call String-bytes (: string (#borrow text))))
+          (#let-mut text String (#call String::new ()))
+          (#let bytes StringBytes (#call String::bytes (: string (#borrow text))))
           {operation}
-          (#let length #usize (#call StringBytes-len (: bytes bytes)))
+          (#let length #usize (#call StringBytes::len (: bytes bytes)))
           (#drop bytes)
           {cleanup}
           (#return (#as length #u64)))"
         );
-        let (label, message, fragment) = if operation.contains("String-clear") {
+        let (label, message, fragment) = if operation.contains("String::clear") {
             (
                 "string-live-byte-mutation",
                 "cannot borrow 'text' mutably",

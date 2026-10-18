@@ -7,12 +7,12 @@ const SAMPLES: usize = 7;
 
 fn source(functions: usize) -> String {
     let mut source = String::from(
-        "(#enum Child (#linear) ((Start #u64) (Resume #u64)))
-      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+        "(#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
+      (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
-          (#case (Start value) (Pending (Resume value)))
-          (#case (Resume value) (Ready value)))))\n",
+          (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
+          (#case (Child.Resume value) (ChildPoll.Ready value)))))\n",
     );
     for index in 0..128 {
         source.push_str(&format!(
@@ -21,9 +21,9 @@ fn source(functions: usize) -> String {
     }
     for index in 0..functions {
         source.push_str(&format!(
-            "(@#async-fn (: protocol Work{index}Await : waker #u64
+            "(#generate #async-fn (: protocol Work{index}Await : waker #u64
           : function (#fn work{index} (: seed #u64) #u64
-            (#return (#await Child Pending Ready child-poll (Start seed))))))\n"
+            (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))\n"
         ));
     }
     source.push_str("(#fn main () #u64 (#return 42u64))");

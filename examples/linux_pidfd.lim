@@ -21,33 +21,33 @@
   (#let duplicated #i64
     (#call linux-pidfd-getfd (: pidfd pidfd : target-fd pidfd : flags 0u32)))
   (#let duplicate-flags #i64
-    (#if (#i64.>= duplicated 0i64)
+    (#if (#i64::ge duplicated 0i64)
       (#unsafe (#unsafe-call linux-fcntl (: fd duplicated : command 1i32 : argument 0usize)))
       -1i64))
   (#let duplicate-closed #i64
-    (#if (#i64.>= duplicated 0i64)
+    (#if (#i64::ge duplicated 0i64)
       (#call linux-close (: fd duplicated))
       -1i64))
   (#let original-closed #i64 (#call linux-close (: fd pidfd)))
   (#let closed-pidfd-signal #i64
     (#unsafe (#unsafe-call linux-pidfd-send-signal (: pidfd pidfd : signal 0i32 : info no-info : flags 0u32))))
   (#let getfd-ok #bool
-    (#bool.|| (#i64.== duplicated -1i64)
-      (#bool.&& (#i64.>= duplicated 0i64)
-        (#bool.&& (#i64.== duplicate-flags 1i64)
-          (#i64.== duplicate-closed 0i64)))))
+    (#bool::or (#i64::eq duplicated -1i64)
+      (#bool::and (#i64::ge duplicated 0i64)
+        (#bool::and (#i64::eq duplicate-flags 1i64)
+          (#i64::eq duplicate-closed 0i64)))))
   (#let checks-ok #bool
-    (#bool.&& (#i64.> pid 0i64)
-      (#bool.&& (#i64.== invalid-pid -22i64)
-        (#bool.&& (#i64.== invalid-open-flags -22i64)
-          (#bool.&& (#i64.>= pidfd 0i64)
-            (#bool.&& (#i64.== self-alive 0i64)
-              (#bool.&& (#i64.== invalid-signal -22i64)
-                (#bool.&& (#i64.== invalid-signal-fd -9i64)
-                  (#bool.&& (#i64.== invalid-getfd -9i64)
-                    (#bool.&& getfd-ok
-                      (#bool.&& (#i64.== original-closed 0i64)
-                        (#i64.== closed-pidfd-signal -9i64))))))))))))
+    (#bool::and (#i64::gt pid 0i64)
+      (#bool::and (#i64::eq invalid-pid -22i64)
+        (#bool::and (#i64::eq invalid-open-flags -22i64)
+          (#bool::and (#i64::ge pidfd 0i64)
+            (#bool::and (#i64::eq self-alive 0i64)
+              (#bool::and (#i64::eq invalid-signal -22i64)
+                (#bool::and (#i64::eq invalid-signal-fd -9i64)
+                  (#bool::and (#i64::eq invalid-getfd -9i64)
+                    (#bool::and getfd-ok
+                      (#bool::and (#i64::eq original-closed 0i64)
+                        (#i64::eq closed-pidfd-signal -9i64))))))))))))
   (#return
     (#if checks-ok
       (#block
@@ -57,6 +57,6 @@
         (#set byte 10u8)
         (#let second-write #i64
           (#call linux-write-byte (: source (#borrow byte))))
-        (#if (#bool.&& (#i64.== first-write 1i64)
-            (#i64.== second-write 1i64)) 42u64 1u64))
+        (#if (#bool::and (#i64::eq first-write 1i64)
+            (#i64::eq second-write 1i64)) 42u64 1u64))
       1u64)))

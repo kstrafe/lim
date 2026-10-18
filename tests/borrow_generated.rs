@@ -67,7 +67,7 @@ fn generated_nested_field_projection_matrix() {
         expect_borrow(&format!("nested-{depth}-overlap"), &overlap);
 
         let shared_controls = format!(
-            "{decls}(#fn main () #u64\n  (#let owner {ty} {literal})\n  (#let a (#ref #u64) (#borrow {left}))\n  (#let b (#ref #u64) (#borrow {left}))\n  (#let result #u64 (#u64.+.wrap (#deref a) (#deref b)))\n  (#drop a) (#drop b) (#return result))"
+            "{decls}(#fn main () #u64\n  (#let owner {ty} {literal})\n  (#let a (#ref #u64) (#borrow {left}))\n  (#let b (#ref #u64) (#borrow {left}))\n  (#let result #u64 (#u64::add-wrap (#deref a) (#deref b)))\n  (#drop a) (#drop b) (#return result))"
         );
         let shared_conflict = format!(
             "{decls}(#fn main () #u64\n  (#let-mut owner {ty} {literal})\n  (#let a (#ref #u64) (#borrow {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {left}))\n  (#drop a) (#drop b) (#return 0u64))"

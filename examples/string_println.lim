@@ -24,16 +24,16 @@
       #match
       (
         #call
-        String-from-chars
+        String::from-chars
         (: text (#borrow-slice greeting))      )
       (
         #case
-        (StringCreated created-message)
+        (StringCreateResult.StringCreated created-message)
         created-message
       )
       (
         #case
-        (StringCreateFailed error)
+        (StringCreateResult.StringCreateFailed error)
         (#panic)
       )    )  )
   (
@@ -44,16 +44,16 @@
       #match
       (
         #call
-        String-from-chars
+        String::from-chars
         (: text (#borrow-slice suffix))      )
       (
         #case
-        (StringCreated created-tail)
+        (StringCreateResult.StringCreated created-tail)
         created-tail
       )
       (
         #case
-        (StringCreateFailed error)
+        (StringCreateResult.StringCreateFailed error)
         (#panic)
       )    )  )
   (
@@ -62,9 +62,9 @@
       #match
       (
         #call
-        String-push-string
+        String::push-string
         (: string (#borrow-mut message) : text (#borrow tail))      )
-      (#case StringOk true)
+      (#case StringStatus.StringOk true)
       (#case _ false)    )  )
   (
     #assert
@@ -72,14 +72,14 @@
       #match
       (
         #call
-        String-push-char
+        String::push-char
         (: string (#borrow-mut message) : value #\!)      )
-      (#case StringOk true)
+      (#case StringStatus.StringOk true)
       (#case _ false)    )  )
   (
     #assert
     (
-      #i64.==
+      #i64::eq
       (
         #println
         (#borrow message)
@@ -89,11 +89,11 @@
   )
   (
     #call
-    String-free
+    String::free
     (: string tail)  )
   (
     #call
-    String-free
+    String::free
     (: string message)  )
   (
     #return

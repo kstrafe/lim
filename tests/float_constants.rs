@@ -6,26 +6,26 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
     let scratch = support::Scratch::new("float-constants");
     let root = scratch.path();
     let source = "
-      (#const Rounded #f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
-      (#const Forward #f64 (#f64.+ Base 0.5f64))
-      (#const Base #f64 1.5f64)
-      (#const NegativeZero #f64 -0.0f64)
-      (#const Infinity #f64 (#f64./ 1.0f64 0.0f64))
-      (#const Nan #f64 (#f64./ 0.0f64 0.0f64))
+      (#const rounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
+      (#const forward #f64 (#f64::add base 0.5f64))
+      (#const base #f64 1.5f64)
+      (#const negativeZero #f64 -0.0f64)
+      (#const infinity #f64 (#f64::div 1.0f64 0.0f64))
+      (#const nan #f64 (#f64::div 0.0f64 0.0f64))
       (#struct Floats () ((small #f32) (large #f64)))
-      (#static Pair Floats (#struct-literal Floats ((large Forward) (small Rounded))))
-      (#static Values (#array #f64 2) (#array-of (#array #f64 2) NegativeZero Infinity))
+      (#static pair Floats (#struct-literal Floats ((large forward) (small rounded))))
+      (#static values (#array #f64 2) (#array-of (#array #f64 2) negativeZero infinity))
       (#fn main () #u64
-        (#let rounded #f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
-        (#assert (#f32.== Rounded rounded))
-        (#assert (#f32.== Rounded 0.0f32))
-        (#assert (#f64.== Forward 2.0f64))
-        (#assert (#f64.!= Nan Nan))
-        (#assert (#f64.== Infinity (#f64./ 1.0f64 0.0f64)))
-        (#assert (#f64.< (#f64./ 1.0f64 NegativeZero) 0.0f64))
+        (#let rounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
+        (#assert (#f32::eq rounded rounded))
+        (#assert (#f32::eq rounded 0.0f32))
+        (#assert (#f64::eq forward 2.0f64))
+        (#assert (#f64::ne nan nan))
+        (#assert (#f64::eq infinity (#f64::div 1.0f64 0.0f64)))
+        (#assert (#f64::lt (#f64::div 1.0f64 negativeZero) 0.0f64))
         (#unsafe (#block
-          (#assert (#f64.== (#get Pair large) Forward))
-          (#assert (#f64.== (#index Values 1) Infinity))))
+          (#assert (#f64::eq (#get pair large) forward))
+          (#assert (#f64::eq (#index values 1) infinity))))
         (#return 42u64))";
     fs::write(root.join("main.lim"), source).unwrap();
     let result = support::run(
@@ -50,8 +50,8 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
         Some(42)
     );
     for invalid in [
-        "(#const A #f64 B) (#const B #f64 A)",
-        "(#fn value () #f64 (#return 1.0f64)) (#const A #f64 (#call value (:)))",
+        "(#const a #f64 b) (#const b #f64 a)",
+        "(#fn value () #f64 (#return 1.0f64)) (#const a #f64 (#call value (:)))",
     ] {
         let error = lim::compile_source_to_assembly(
             invalid,

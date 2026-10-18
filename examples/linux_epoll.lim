@@ -18,11 +18,11 @@
       (#block
         (#ptr-write poll-fds (#as event-fd-bits #u8))
         (#ptr-write (#ptr-offset poll-fds 1usize)
-          (#as (#u64.>> event-fd-bits 8u64) #u8))
+          (#as (#u64::shr event-fd-bits 8u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 2usize)
-          (#as (#u64.>> event-fd-bits 16u64) #u8))
+          (#as (#u64::shr event-fd-bits 16u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 3usize)
-          (#as (#u64.>> event-fd-bits 24u64) #u8))
+          (#as (#u64::shr event-fd-bits 24u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 4usize) 1u8)
         (#ptr-write (#ptr-offset poll-fds 5usize) 0u8)
         (#ptr-write (#ptr-offset poll-fds 6usize) 0u8)
@@ -110,39 +110,39 @@
   (#let event-unmapped #i64
     (#unsafe (#unsafe-call linux-munmap (: address event-memory : length 4096usize))))
   (#let epoll-ok #bool
-    (#bool.&& (#i64.>= epoll-fd 0i64)
-      (#bool.&& (#i64.>= event-fd 0i64)
-        (#bool.&& (#i64.== registered 0i64)
-          (#bool.&& (#i64.== counter-written 8i64)
-            (#bool.&& (#i64.== ready-count 1i64)
-              (#bool.&& (#u8.== readiness-mask 1u8)
-                (#bool.&& (#u8.== data-byte-0 136u8)
-                  (#bool.&& (#u8.== data-byte-7 17u8)
-                    (#bool.&& (#i64.== counter-read 8i64)
-                      (#bool.&& (#u8.== counter-byte-0 1u8)
-                        (#bool.&& (#u8.== counter-byte-7 0u8)
-                        (#bool.&& (#i64.== no-longer-ready 0i64)
-                          (#bool.&& (#i64.== event-closed 0i64)
-                            (#bool.&& (#i64.== epoll-closed 0i64)
-                              (#i64.== event-unmapped 0i64))))))))))))))))
+    (#bool::and (#i64::ge epoll-fd 0i64)
+      (#bool::and (#i64::ge event-fd 0i64)
+        (#bool::and (#i64::eq registered 0i64)
+          (#bool::and (#i64::eq counter-written 8i64)
+            (#bool::and (#i64::eq ready-count 1i64)
+              (#bool::and (#u8::eq readiness-mask 1u8)
+                (#bool::and (#u8::eq data-byte-0 136u8)
+                  (#bool::and (#u8::eq data-byte-7 17u8)
+                    (#bool::and (#i64::eq counter-read 8i64)
+                      (#bool::and (#u8::eq counter-byte-0 1u8)
+                        (#bool::and (#u8::eq counter-byte-7 0u8)
+                        (#bool::and (#i64::eq no-longer-ready 0i64)
+                          (#bool::and (#i64::eq event-closed 0i64)
+                            (#bool::and (#i64::eq epoll-closed 0i64)
+                              (#i64::eq event-unmapped 0i64))))))))))))))))
   (#let wait-variants-ok #bool
-    (#bool.&& (#i64.== poll-before 0i64)
-      (#bool.&& (#i64.== ppoll-before 0i64)
-        (#bool.&& (#i64.== poll-ready 1i64)
-          (#bool.&& (#u8.== poll-mask 1u8)
-            (#bool.&& (#i64.== ppoll-ready 1i64)
-              (#bool.&& (#u8.== ppoll-mask 1u8)
-                (#bool.&& (#i64.== pwait-ready 1i64)
-                  (#bool.&& (#i64.== pwait2-ready 1i64)
-                    (#bool.&& (#i64.== poll-after 0i64)
-                      (#bool.&& (#i64.== ppoll-after 0i64)
-                        (#bool.&& (#i64.== pwait-after 0i64)
-                          (#i64.== pwait2-after 0i64)))))))))))))
+    (#bool::and (#i64::eq poll-before 0i64)
+      (#bool::and (#i64::eq ppoll-before 0i64)
+        (#bool::and (#i64::eq poll-ready 1i64)
+          (#bool::and (#u8::eq poll-mask 1u8)
+            (#bool::and (#i64::eq ppoll-ready 1i64)
+              (#bool::and (#u8::eq ppoll-mask 1u8)
+                (#bool::and (#i64::eq pwait-ready 1i64)
+                  (#bool::and (#i64::eq pwait2-ready 1i64)
+                    (#bool::and (#i64::eq poll-after 0i64)
+                      (#bool::and (#i64::eq ppoll-after 0i64)
+                        (#bool::and (#i64::eq pwait-after 0i64)
+                          (#i64::eq pwait2-after 0i64)))))))))))))
   (#return
-    (#if (#i64.!= invalid-create -22i64) 2u64
-      (#if (#i64.!= invalid-eventfd -22i64) 3u64
-        (#if (#i64.!= invalid-ctl -9i64) 4u64
-          (#if (#i64.!= invalid-wait -22i64) 5u64
-            (#if (#i64.!= invalid-pwait -22i64) 6u64
-              (#if (#i64.!= invalid-pwait2 -22i64) 7u64
-                (#if (#bool.&& epoll-ok wait-variants-ok) 42u64 1u64)))))))))
+    (#if (#i64::ne invalid-create -22i64) 2u64
+      (#if (#i64::ne invalid-eventfd -22i64) 3u64
+        (#if (#i64::ne invalid-ctl -9i64) 4u64
+          (#if (#i64::ne invalid-wait -22i64) 5u64
+            (#if (#i64::ne invalid-pwait -22i64) 6u64
+              (#if (#i64::ne invalid-pwait2 -22i64) 7u64
+                (#if (#bool::and epoll-ok wait-variants-ok) 42u64 1u64)))))))))

@@ -4,8 +4,8 @@
   #enum
   Box ()
   (
-    (Some Value)
-    None
+    (Box.Some Value)
+    Box.None
   )
 )
 
@@ -18,12 +18,12 @@
     #return
     (
       #match
-      (Some 42)
+      (Box.Some 42)
       (#case
-        (Some value)
+        (Box.Some value)
         value
       )
-      (#case None 0)
+      (#case Box.None 0)
     )
   )
 )

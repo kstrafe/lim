@@ -11,7 +11,7 @@
   (#let result #u64 (#deref y))
   (#drop y)
   (#let pinned-x (#pin-ref #u64) (#pin-borrow (#get (#get object position) x)))
-  (#assert (#u64.== (#deref pinned-x) 1u64))
+  (#assert (#u64::eq (#deref pinned-x) 1u64))
   (#drop pinned-x)
   (#forget object)
   (#return result))

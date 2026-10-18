@@ -20,7 +20,7 @@
     #return
     (
       #if
-      (#f32.>
+      (#f32::gt
         (#call choose (: flag true))
         1.0
       )

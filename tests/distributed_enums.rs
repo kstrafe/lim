@@ -15,14 +15,14 @@ fn generated_headers_and_contributions_merge_after_expansion() {
     let source = "(#gn declare (name) `((#distributed-enum ,name (#linear))))
         (#gn contribute (name variant payload)
           `((#enum-contribute ,name (,variant ,payload))))
-        (@contribute Error Last #u32)
-        (@declare Error)
-        (@contribute Error First #u64)
-        (#enum-contribute Error (First #u64))
+        (#generate contribute Error Last #u32)
+        (#generate declare Error)
+        (#generate contribute Error Error.First #u64)
+        (#enum-contribute Error (Error.First #u64))
         (#fn main () #u64
-          (#let error Error (First 42u64))
+          (#let error Error (Error.First 42u64))
           (#return (#match error
-            (#case (First value) value)
+            (#case (Error.First value) value)
             (#case (Last value) (#as value #u64)))))";
     let program = check(source).unwrap();
     let (linear, variants) = program
@@ -44,7 +44,7 @@ fn generated_headers_and_contributions_merge_after_expansion() {
             .iter()
             .map(|variant| variant.name.as_str())
             .collect::<Vec<_>>(),
-        ["First", "Last"]
+        ["Error.First", "Last"]
     );
 }
 
@@ -60,12 +60,12 @@ fn imports_and_cache_hits_keep_the_complete_enum() {
     .unwrap();
     fs::write(
         root.join("first.lim"),
-        "(#import \"enum.lim\") (@error-case First #u64)",
+        "(#import \"enum.lim\") (#generate error-case AppError.First #u64)",
     )
     .unwrap();
     fs::write(
         root.join("last.lim"),
-        "(#import \"enum.lim\") (@error-case Last #u32)",
+        "(#import \"enum.lim\") (#generate error-case Last #u32)",
     )
     .unwrap();
     for imports in [
@@ -73,10 +73,10 @@ fn imports_and_cache_hits_keep_the_complete_enum() {
         "(#import \"first.lim\") (#import \"last.lim\")",
     ] {
         let source = format!(
-            "{imports} (#enum-contribute AppError (First #u64))
+            "{imports} (#enum-contribute AppError (AppError.First #u64))
           (#fn main () #u64
-            (#return (#match (First 42u64)
-              (#case (First value) value)
+            (#return (#match (AppError.First 42u64)
+              (#case (AppError.First value) value)
               (#case (Last value) (#as value #u64)))))"
         );
         fs::write(root.join("main.lim"), &source).unwrap();
@@ -108,18 +108,18 @@ fn cfg_and_external_import_prefixes_apply_before_merging() {
     fs::write(
         scratch.path().join("errors.lim"),
         "(#distributed-enum Error ())
-        (#enum-contribute Error (Stable #u64))
-        (#cfg-if (#cfg-is #extra yes) (#enum-contribute Error (Extra #u32)))
-        (#fn value () #u64 (#return (#match (Stable 42u64)
-          (#case (Stable value) value) (#case _ 0u64))))",
+        (#enum-contribute Error (Error.Stable #u64))
+        (#cfg-if (#cfg-is #extra yes) (#enum-contribute Error (Error.Extra #u32)))
+        (#fn value () #u64 (#return (#match (Error.Stable 42u64)
+          (#case (Error.Stable value) value) (#case _ 0u64))))",
     )
     .unwrap();
     for extra in ["no", "yes"] {
         let mut config = lim::CompileConfig::default();
         config.set("extra", extra);
         lim::compile_source_to_assembly(
-            "(#import-external \"errors.lim\" ext-)
-          (#fn main () #u64 (#return (#call ext-value (:))))",
+            "(#import-external \"errors.lim\" ext)
+          (#fn main () #u64 (#return (#call ext@value (:))))",
             &scratch.path().join("main.lim"),
             &config,
             &scratch.path().join("cache"),
@@ -132,8 +132,8 @@ fn cfg_and_external_import_prefixes_apply_before_merging() {
 #[test]
 fn conflicts_and_unknown_targets_have_precise_diagnostics() {
     for (source, token, expected) in [
-        ("(#enum-contribute Missing (Case #u64))", "Missing", "missing distributed enum"),
-        ("(#distributed-enum Error ())\n(#enum-contribute Error (Case #u64))\n(#enum-contribute Error (Case #u32))", "(Case #u32)", "conflicting definitions"),
+        ("(#enum-contribute missing (Missing.Case #u64))", "missing", "missing distributed enum"),
+        ("(#distributed-enum Error ())\n(#enum-contribute Error (Error.Case #u64))\n(#enum-contribute Error (Error.Case #u32))", "(Error.Case #u32)", "conflicting definitions"),
         ("(#distributed-enum Error ()) (#distributed-enum Error ())", "Error", "duplicate distributed enum"),
     ] {
         let scratch = support::Scratch::new("distributed-enum-errors");
@@ -151,9 +151,9 @@ fn conflicts_and_unknown_targets_have_precise_diagnostics() {
 fn linear_payloads_propagate_without_marking_the_distributed_enum() {
     let source = "(#struct Resource (#linear) (: value #u64))
         (#distributed-enum Error ())
-        (#enum-contribute Error (Failure Resource))
+        (#enum-contribute Error (Error.Outcome.Failure Resource))
         (#fn main () ()
-          (#let error Error (Failure (#struct-literal Resource (: value 1u64))))
+          (#let error Error (Error.Outcome.Failure (#struct-literal Resource (: value 1u64))))
           (#return ()))";
     assert!(check(source).is_err());
     check(&source.replace("(#return ())", "(#forget error) (#return ())")).unwrap();
@@ -178,7 +178,7 @@ fn unprefixed_imported_payloads_point_to_the_contributing_file() {
         "(#distributed-enum Error ())",
     )
     .unwrap();
-    let contribution = "(#enum-contribute Error (Failure u64))";
+    let contribution = "(#enum-contribute Error (Error.Outcome.Failure u64))";
     fs::write(scratch.path().join("contribution.lim"), contribution).unwrap();
     let error = lim::compile_source_to_assembly(
         "(#import \"enum.lim\") (#import \"contribution.lim\")",

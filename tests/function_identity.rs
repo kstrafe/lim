@@ -13,20 +13,20 @@ const PROGRAM: &str = r#"
 (#fn u64.< ((left #u64) (right #u64)) #bool (#return true))
 (#fn main () #u64
   (#let value #u64 42u64)
-  (#assert (#u64.== (#call panic (: value (#borrow value))) 42u64))
-  (#assert (#u64.== (#call unreachable (: value 42u64)) 42u64))
-  (#assert (#u64.== (#call borrow (: value 42u64)) 42u64))
-  (#assert (#u64.== (#call clone (: value 42u64)) 42u64))
-  (#assert (#u64.== (#call forget (: value 42u64)) 42u64))
-  (#assert (#u64.== (#call pin-read (: value 42u64)) 42u64))
-  (#assert (#u64.== (#call u64.+.wrap (: left 42u64 : right 99u64)) 42u64))
+  (#assert (#u64::eq (#call panic (: value (#borrow value))) 42u64))
+  (#assert (#u64::eq (#call unreachable (: value 42u64)) 42u64))
+  (#assert (#u64::eq (#call borrow (: value 42u64)) 42u64))
+  (#assert (#u64::eq (#call clone (: value 42u64)) 42u64))
+  (#assert (#u64::eq (#call forget (: value 42u64)) 42u64))
+  (#assert (#u64::eq (#call pin-read (: value 42u64)) 42u64))
+  (#assert (#u64::eq (#call u64.+.wrap (: left 42u64 : right 99u64)) 42u64))
   (#assert (#call u64.< (: left 99u64 : right 42u64)))
-  (#assert (#bool.! (#u64.< 99u64 42u64)))
+  (#assert (#bool::not (#u64::lt 99u64 42u64)))
   (#let copied #u64 (#clone value))
   (#forget copied)
   (#if false (#panic) ())
   (#if false (#unreachable) ())
-  (#return (#u64.+.wrap value 0u64)))
+  (#return (#u64::add-wrap value 0u64)))
 "#;
 
 fn assert_runs(binary: &std::path::Path) {
@@ -70,7 +70,7 @@ fn api_generator_emission_and_reused_cache_preserve_function_identity() {
         )
         .replace(
             "(#fn main () #u64",
-            "(#gn-fn emit-identity () `((#fn panic ((value (#ref #u64))) #u64 (#return (#deref value)))))\n(#gn make-identity () (#gn-call emit-identity))\n(@make-identity)\n(#fn main () #u64",
+            "(#gn-fn emit-identity () `((#fn panic ((value (#ref #u64))) #u64 (#return (#deref value)))))\n(#gn make-identity () (#gn-call emit-identity))\n(#generate make-identity)\n(#fn main () #u64",
         );
     let cache = scratch.path().join("cache");
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
@@ -100,10 +100,10 @@ fn named_arguments_keep_declaration_evaluation_order_for_colliding_identity() {
     let scratch = support::Scratch::new("function-identity-order");
     let source = "
       (#fn next ((counter (#ref-mut #u64)) (value #u64)) #u64
-        (#assert (#u64.== (#deref counter) value))
-        (#deref-set counter (#u64.+.wrap (#deref counter) 1u64)) (#return value))
+        (#assert (#u64::eq (#deref counter) value))
+        (#deref-set counter (#u64::add-wrap (#deref counter) 1u64)) (#return value))
       (#fn panic ((a #u64) (b #u64)) #u64
-        (#assert (#u64.== a 0u64)) (#assert (#u64.== b 1u64)) (#return 42u64))
+        (#assert (#u64::eq a 0u64)) (#assert (#u64::eq b 1u64)) (#return 42u64))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#call panic
@@ -286,8 +286,8 @@ fn external_import_prefixes_colliding_function_and_argument_names() {
         "(#fn panic ((clone #u64)) #u64 (#return clone))",
     )
     .unwrap();
-    let source = "(#import-external \"library.lim\" ext.)
-      (#fn main () #u64 (#return (#call ext.panic (: ext.clone 42u64))))";
+    let source = "(#import-external \"library.lim\" ext)
+      (#fn main () #u64 (#return (#call ext@panic (: ext@clone 42u64))))";
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
     let assembly = lim::compile_source_to_assembly(
         source,
@@ -315,7 +315,7 @@ fn colliding_calls_keep_aggregate_abi_and_eager_boolean_arguments() {
         (#let values (#array #u64 8) (#call clone (:)))
         (#let-mut counter #u64 0u64)
         (#assert (#call bool.&& (: left false : right (#call effect (: counter (#borrow-mut counter))))))
-        (#assert (#u64.== counter 42u64))
+        (#assert (#u64::eq counter 42u64))
         (#return (#index values 0u64)))";
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
     let assembly = lim::compile_source_to_assembly(

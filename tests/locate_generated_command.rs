@@ -2,7 +2,7 @@ mod support;
 
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 
-const SOURCE: &str = "(#gn first () `((#type First #u64)))\n(#gn second () `((#type Second #u64)))\n(@first) (@second)\n(#fn main () #u64 (#return 0u64))\n";
+const SOURCE: &str = "(#gn first () `((#type First #u64)))\n(#gn second () `((#type Second #u64)))\n(#generate first) (#generate second)\n(#fn main () #u64 (#return 0u64))\n";
 
 fn run(arguments: &[&str]) -> (bool, String, String) {
     let (status, stdout, stderr) = support::run(
@@ -29,9 +29,9 @@ fn locates_points_and_overlapping_ranges_without_native_output() {
         ("3-4", 2),
         ("3:2", 1),
         ("3:4-3:6", 1),
-        ("3:7-3:11", 2),
-        ("3:9", 0),
-        ("3:1-3:9", 1),
+        ("3:16-3:21", 2),
+        ("3:18", 0),
+        ("3:1-3:18", 1),
         ("4", 0),
     ] {
         let selection = format!("{entry}:{suffix}");
@@ -41,7 +41,7 @@ fn locates_points_and_overlapping_ranges_without_native_output() {
         let paths: Vec<_> = stdout
             .lines()
             .map(|line| {
-                assert!(line.starts_with("direct @"), "{line}");
+                assert!(line.starts_with("direct #generate "), "{line}");
                 PathBuf::from(line.split_once(" -> ").unwrap().1)
             })
             .collect();
@@ -65,7 +65,7 @@ fn imported_selection_uses_cfg_target_module_paths_and_writes_lsp_context() {
     let selected = modules.join("selected.lim");
     fs::write(
         &selected,
-        "(#cfg-if (#cfg-is #feature enabled) (#gn first () `((#type First #u64))))\n(@first)\n",
+        "(#cfg-if (#cfg-is #feature enabled) (#gn first () `((#type First #u64))))\n(#generate first)\n",
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
@@ -160,7 +160,7 @@ fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() 
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "(#gn inner () `((#type Value #u64)))\n(#gn outer () `((@inner)))\n(@outer)\n(@inner)\n",
+        "(#gn inner () `((#type Value #u64)))\n(#gn outer () `((#generate inner)))\n(#generate outer)\n(#generate inner)\n",
     )
     .unwrap();
     let selection = format!("{}:3", input.display());
@@ -169,8 +169,8 @@ fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() 
     assert!(success, "{stderr}");
     let lines = cold.lines().collect::<Vec<_>>();
     assert_eq!(lines.len(), 2, "{cold}");
-    assert!(lines[0].starts_with("direct @outer -> "), "{cold}");
-    assert!(lines[1].starts_with("nested @inner -> "), "{cold}");
+    assert!(lines[0].starts_with("direct #generate outer -> "), "{cold}");
+    assert!(lines[1].starts_with("nested #generate inner -> "), "{cold}");
     for line in &lines {
         assert!(std::path::Path::new(line.split_once(" -> ").unwrap().1).is_file());
     }
@@ -183,7 +183,7 @@ fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() 
         run(&[input.to_str().unwrap(), "--locate-generated", &selection]);
     assert!(success, "{stderr}");
     assert_eq!(stdout.lines().count(), 1, "{stdout}");
-    assert!(stdout.starts_with("direct @inner -> "), "{stdout}");
+    assert!(stdout.starts_with("direct #generate inner -> "), "{stdout}");
 
     let selection = format!("{}:3-4", input.display());
     let (success, stdout, stderr) =
@@ -191,7 +191,9 @@ fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() 
     assert!(success, "{stderr}");
     assert_eq!(stdout.lines().count(), 2, "{stdout}");
     assert!(
-        stdout.lines().all(|line| line.starts_with("direct @")),
+        stdout
+            .lines()
+            .all(|line| line.starts_with("direct #generate ")),
         "{stdout}"
     );
 }

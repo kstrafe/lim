@@ -4,38 +4,38 @@
   (#let invalid TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 0u64)))
   (#assert (#match invalid
-    (#case (TimerCreateFailed1 error) (#i64.== error -22i64))
-    (#case (TimerCreated1 timer) (#block (#forget timer) false))))
+    (#case (TimerCreate1.TimerCreateFailed1 error) (#i64::eq error -22i64))
+    (#case (TimerCreate1.TimerCreated1 timer) (#block (#forget timer) false))))
   (#let excessive TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 1000000000u64)))
   (#assert (#match excessive
-    (#case (TimerCreateFailed1 error) (#i64.== error -22i64))
-    (#case (TimerCreated1 timer) (#block (#forget timer) false))))
+    (#case (TimerCreate1.TimerCreateFailed1 error) (#i64::eq error -22i64))
+    (#case (TimerCreate1.TimerCreated1 timer) (#block (#forget timer) false))))
   (#let created TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 1000000u64)))
-  (#let-else (TimerCreated1 reactor) TimerCreate1 created (#unreachable))
+  (#let-else (TimerCreate1.TimerCreated1 reactor) TimerCreate1 created (#unreachable))
   (#let first TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow reactor))))
   (#assert (#match first
-    (#case TimerPending1 true)
-    (#case (TimerReady1 value) false)
-    (#case (TimerPollFailed1 error) false)))
+    (#case TimerPoll1.TimerPending1 true)
+    (#case (TimerPoll1.TimerReady1 value) false)
+    (#case (TimerPoll1.TimerPollFailed1 error) false)))
   (#let wake TimerWait1
     (#call timer-reactor1-wait (: timer (#borrow reactor))))
   (#assert (#match wake
-    (#case TimerWoken1 true)
-    (#case (TimerWaitFailed1 error) false)))
+    (#case TimerWait1.TimerWoken1 true)
+    (#case (TimerWait1.TimerWaitFailed1 error) false)))
   (#let second TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow reactor))))
   (#let ready #bool (#match second
-    (#case TimerPending1 false)
-    (#case (TimerReady1 expirations) (#u64.>= expirations 1u64))
-    (#case (TimerPollFailed1 error) false)))
+    (#case TimerPoll1.TimerPending1 false)
+    (#case (TimerPoll1.TimerReady1 expirations) (#u64::ge expirations 1u64))
+    (#case (TimerPoll1.TimerPollFailed1 error) false)))
   (#let closed #i64 (#call timer-reactor1-cancel (: timer reactor)))
   (#let created-later TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 500000000u64)))
-  (#let-else (TimerCreated1 pending) TimerCreate1 created-later (#unreachable))
+  (#let-else (TimerCreate1.TimerCreated1 pending) TimerCreate1 created-later (#unreachable))
   (#let cancelled #i64 (#call timer-reactor1-cancel (: timer pending)))
-  (#return (#if (#bool.&& ready
-    (#bool.&& (#i64.== closed 0i64) (#i64.== cancelled 0i64)))
+  (#return (#if (#bool::and ready
+    (#bool::and (#i64::eq closed 0i64) (#i64::eq cancelled 0i64)))
     42u64 0u64)))

@@ -2,7 +2,7 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let usage-result #i64
     (#unsafe (#unsafe-call linux-getrusage (: resource 0i64 : usage memory))))
@@ -22,7 +22,7 @@
   (#let initial-hard-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 21usize))))
   (#let reduced-soft-limit #i64
-    (#if (#i64.> initial-soft-limit 32i64) 32i64 initial-soft-limit))
+    (#if (#i64::gt initial-soft-limit 32i64) 32i64 initial-soft-limit))
   (#let limit-update ()
     (#unsafe
       (#block
@@ -49,27 +49,27 @@
   (#let restore-mask #i64
     (#call linux-umask (: mask (#as previous-mask #usize))))
   (#let unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let resources-ok #bool
-    (#bool.&& (#i64.== usage-result 0i64)
-      (#bool.&& (#i64.>= user-seconds 0i64)
-        (#bool.&& (#i64.>= user-microseconds 0i64)
-          (#bool.&& (#i64.< user-microseconds 1000000i64)
-            (#bool.&& (#i64.>= system-seconds 0i64)
-              (#bool.&& (#i64.>= system-microseconds 0i64)
-                (#bool.&& (#i64.< system-microseconds 1000000i64)
-                  (#bool.&& (#i64.>= maximum-resident-set 0i64)
-                    (#bool.&& (#i64.== initial-limit-result 0i64)
-                      (#bool.&& (#i64.> initial-hard-limit 0i64)
-                        (#bool.&& (#i64.== set-limit-result 0i64)
-                          (#bool.&& (#i64.== current-limit-result 0i64)
-                            (#bool.&& (#i64.== current-soft-limit reduced-soft-limit)
-                              (#bool.&& (#i64.== current-hard-limit initial-hard-limit)
-                                (#bool.&& (#i64.== restore-limit-result 0i64)
-                                  (#bool.&& (#i64.== queried-limit-result 0i64)
-                                    (#bool.&& (#i64.== restored-soft-limit initial-soft-limit)
-                                      (#bool.&& (#i64.== restored-hard-limit initial-hard-limit)
-                                        (#bool.&& (#i64.>= previous-mask 0i64)
-                                          (#bool.&& (#i64.== restore-mask 18i64)
-                                            (#i64.== unmapped 0i64))))))))))))))))))))))
+    (#bool::and (#i64::eq usage-result 0i64)
+      (#bool::and (#i64::ge user-seconds 0i64)
+        (#bool::and (#i64::ge user-microseconds 0i64)
+          (#bool::and (#i64::lt user-microseconds 1000000i64)
+            (#bool::and (#i64::ge system-seconds 0i64)
+              (#bool::and (#i64::ge system-microseconds 0i64)
+                (#bool::and (#i64::lt system-microseconds 1000000i64)
+                  (#bool::and (#i64::ge maximum-resident-set 0i64)
+                    (#bool::and (#i64::eq initial-limit-result 0i64)
+                      (#bool::and (#i64::gt initial-hard-limit 0i64)
+                        (#bool::and (#i64::eq set-limit-result 0i64)
+                          (#bool::and (#i64::eq current-limit-result 0i64)
+                            (#bool::and (#i64::eq current-soft-limit reduced-soft-limit)
+                              (#bool::and (#i64::eq current-hard-limit initial-hard-limit)
+                                (#bool::and (#i64::eq restore-limit-result 0i64)
+                                  (#bool::and (#i64::eq queried-limit-result 0i64)
+                                    (#bool::and (#i64::eq restored-soft-limit initial-soft-limit)
+                                      (#bool::and (#i64::eq restored-hard-limit initial-hard-limit)
+                                        (#bool::and (#i64::ge previous-mask 0i64)
+                                          (#bool::and (#i64::eq restore-mask 18i64)
+                                            (#i64::eq unmapped 0i64))))))))))))))))))))))
   (#return (#if resources-ok 42u64 1u64)))

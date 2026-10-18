@@ -3,9 +3,9 @@
 (#struct Token (#linear) (: value #u64))
 
 (#struct Owner () (: kept (#ref #u64) : item Token))
-(#enum Storage () (Empty (Full Owner)))
-(@#enum-project
-  (: enum Storage : variant Full : payload Owner : mode #pin-ref-mut : name OwnerView))
+(#enum Storage () (Storage.Empty (Storage.Full Owner)))
+(#generate #enum-project
+  (: enum Storage : variant Storage.Full : payload Owner : mode #pin-ref-mut : name OwnerView))
 (#unsafe-fn take-item (: item (#pin-ref-mut Token)) ()
   (#let moved Token (#unsafe (#pin-read item)))
   (#forget moved)
@@ -16,9 +16,9 @@
 (#fn main () #u64
   (#let-mut seed #u64 40u64)
   (#let-mut storage Storage
-    (Full (#struct-literal Owner
+    (Storage.Full (#struct-literal Owner
       (: kept (#borrow seed) : item (#struct-literal Token (: value 1u64))))))
-  (#let-else (OwnerView::Some owner)
+  (#let-else (OwnerView.Some owner)
     (#call OwnerView::project (: source (#pin-borrow-mut storage)))
     (#else (#forget storage) (#return 0u64)))
   (#let kept (#pin-ref (#ref #u64)) (#pin-borrow (#get owner kept)))
@@ -27,9 +27,9 @@
   (#unsafe (#unsafe-call restore-item (: item (#pin-borrow-mut (#get owner item)))))
   (#let restored (#ref Owner) (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
   (#let selected (#ref (#ref #u64)) (#borrow (#get restored kept)))
-  (#assert (#usize.== address (#ptr-address (#ref-ptr selected))))
+  (#assert (#usize::eq address (#ptr-address (#ref-ptr selected))))
   (#let answer #u64
-    (#u64.+.wrap (#deref (#get restored kept)) (#get (#get restored item) value)))
+    (#u64::add-wrap (#deref (#get restored kept)) (#get (#get restored item) value)))
   (#forget selected)
   (#forget kept)
   (#forget restored)

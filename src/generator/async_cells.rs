@@ -564,30 +564,30 @@ mod tests {
     fn pending_retires_only_dead_exclusive_bindings() {
         let context = crate::parse_program(
             "(#type View (#ref-mut #u64))
-              (#enum ChildPoll () ((Pending View) (Ready #u64)))
+              (#enum ChildPoll () ((ChildPoll.Pending View) (ChildPoll.Ready #u64)))
               (#fn step-poll (: task View : waker (#ref #u64)) ChildPoll
-                (#return (Pending task)))",
+                (#return (ChildPoll.Pending task)))",
         )
         .unwrap();
         for (body, dead) in [
             (
-                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                "(#let answer #u64 (#await #u64 View ChildPoll.Pending ChildPoll.Ready step-poll view))
                 (#return answer)",
                 true,
             ),
             (
-                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                "(#let answer #u64 (#await #u64 View ChildPoll.Pending ChildPoll.Ready step-poll view))
                 (#forget answer) (#return (#deref view))",
                 false,
             ),
             (
-                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                "(#let answer #u64 (#await #u64 View ChildPoll.Pending ChildPoll.Ready step-poll view))
                 (#return (#if selected (#deref view) answer))",
                 false,
             ),
             (
-                "(#while (#u64.< (#deref view) 2u64)
-                (#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                "(#while (#u64::lt (#deref view) 2u64)
+                (#let answer #u64 (#await #u64 View ChildPoll.Pending ChildPoll.Ready step-poll view))
                 (#forget answer)) (#return 2u64)",
                 false,
             ),
@@ -655,16 +655,16 @@ mod tests {
     #[test]
     fn pending_preserves_only_the_restored_owned_child() {
         let context = crate::parse_program(
-            "(#enum Child (#linear) ((Waiting (#ref-mut #u64))))
-              (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+            "(#enum Child (#linear) ((Child.Waiting (#ref-mut #u64))))
+              (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
               (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
-                (#return (#match task (#case (Waiting view) (Pending (Waiting view))))))",
+                (#return (#match task (#case (Child.Waiting view) (ChildPoll.Pending (Child.Waiting view))))))",
         )
         .unwrap();
         let source = crate::parse(
             "(#fn work (: view (#ref-mut #u64)) #u64
-              (#let child Child (Waiting view))
-              (#return (#await #u64 Child Pending Ready step-poll child)))",
+              (#let child Child (Child.Waiting view))
+              (#return (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll child)))",
         )
         .unwrap()
         .remove(0);
@@ -698,7 +698,7 @@ mod tests {
         let cells = &plan.pending_empty[&block];
         assert!(
             !cells.contains(&Cell::Value(child)),
-            "Pending restores, not clears, its actual child"
+            "ChildPoll.Pending restores, not clears, its actual child"
         );
         assert!(
             cells.contains(&Cell::Binding(BindingId(0))),
@@ -707,7 +707,7 @@ mod tests {
         for cells in plan.exit_empty.values() {
             assert!(
                 cells.contains(&Cell::Value(child)),
-                "Ready consumes the child"
+                "ChildPoll.Ready consumes the child"
             );
         }
     }

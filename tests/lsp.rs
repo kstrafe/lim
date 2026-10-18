@@ -122,12 +122,12 @@ fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positi
         let path = base.join("main.lim");
         let uri = lsp::path_to_uri(&path).unwrap();
         let text = format!(
-            "(#enum Choice () ((Full #u64) Empty))\n
+            "(#enum Choice () ((Choice.Full #u64) Choice.Empty))\n
           (#fn inspect (: input {ty}) #u64
             (#return (#match input
-              ({keyword} (Full payload) (#when true)
+              ({keyword} (Choice.Full payload) (#when true)
                 (#let answer #u64 {read}) answer)
-              ({keyword} Empty 0u64)
+              ({keyword} Choice.Empty 0u64)
               (#case _ 1u64))))"
         );
         lim::check_types(&lim::parse_program(&text).unwrap()).unwrap();
@@ -137,21 +137,27 @@ fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positi
             2,
             &uri,
             &text,
-            &format!("({keyword} (Full"),
+            &format!("({keyword} (Choice.Full"),
             keyword.len() + 3,
         ));
         messages.push(definition_offset(
             3,
             &uri,
             &text,
-            &format!("({keyword} Empty"),
+            &format!("({keyword} Choice.Empty"),
             keyword.len() + 2,
         ));
-        messages.push(definition_offset(4, &uri, &text, "(Full payload)", 6));
+        messages.push(definition_offset(
+            4,
+            &uri,
+            &text,
+            "(Choice.Full payload)",
+            13,
+        ));
         messages.push(definition_offset(5, &uri, &text, "(#case _", 7));
         finish(&mut messages);
         let (_, replies) = session(messages);
-        for (id, name) in [(2, "Full"), (3, "Empty")] {
+        for (id, name) in [(2, "Choice.Full"), (3, "Choice.Empty")] {
             let locations = definition_locations(&replies, id);
             assert_eq!(locations.len(), 1, "{keyword}: {replies:?}");
             assert_definition_token(locations[0], &uri, &text, text.find(name).unwrap(), name);
@@ -175,30 +181,35 @@ fn enum_case_variants_navigate_in_nested_and_or_patterns() {
     let base = std::env::temp_dir().join(format!("lim-lsp-nested-cases-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
-    let text = "(#enum Color () (Red Green Blue))
-      (#enum Wrapped () ((Wrap Color)))
+    let text = "(#enum Color () (Color.Red Color.Green Color.Blue))
+      (#enum Wrapped () ((Wrapped.Wrap Color)))
       (#fn nested (: input Wrapped) #u64 (#return (#match input
-        (#case (Wrap inner) (#match inner (#case Red 1u64) (#case _ 0u64))))))
+        (#case (Wrapped.Wrap inner) (#match inner (#case Color.Red 1u64) (#case _ 0u64))))))
       (#fn alternatives (: input Color) #u64 (#return (#match input
-        (#case (#or Red Green) 42u64) (#case Blue 0u64))))";
+        (#case (#or Color.Red Color.Green) 42u64) (#case Color.Blue 0u64))))";
     lim::check_types(&lim::parse_program(text).unwrap()).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, text));
     for (id, needle, offset) in [
-        (2, "(Wrap inner)", 1),
-        (3, "(#case Red", 7),
-        (4, "#or Red", 4),
-        (5, "#or Red Green", 8),
+        (2, "(Wrapped.Wrap inner)", 1),
+        (3, "(#case Color.Red", 7),
+        (4, "#or Color.Red", 4),
+        (5, "#or Color.Red Color.Green", 14),
     ] {
         messages.push(definition_offset(id, &uri, text, needle, offset));
     }
     finish(&mut messages);
     let (_, replies) = session(messages);
-    for (id, name) in [(2, "Wrap"), (3, "Red"), (4, "Red"), (5, "Green")] {
+    for (id, name) in [
+        (2, "Wrapped.Wrap"),
+        (3, "Color.Red"),
+        (4, "Color.Red"),
+        (5, "Color.Green"),
+    ] {
         let locations = definition_locations(&replies, id);
         assert_eq!(locations.len(), 1, "{replies:?}");
-        let declaration = if name == "Wrap" {
-            text.find("Wrap Color").unwrap()
+        let declaration = if name == "Wrapped.Wrap" {
+            text.find("Wrapped.Wrap Color").unwrap()
         } else {
             text.find(name).unwrap()
         };
@@ -214,14 +225,14 @@ fn enum_case_variants_resolve_transitive_external_import_names() {
     let types = base.join("types.lim");
     let child = base.join("child.lim");
     let entry = base.join("main.lim");
-    let types_text = "(#enum Choice () ((Full #u64) Empty))";
+    let types_text = "(#enum Choice () ((Choice.Full #u64) Choice.Empty))";
     let child_text = "(#import \"types.lim\")
       (#fn read (: input Choice) #u64 (#return (#match input
-        (#case (Full payload) (#let answer #u64 payload) answer)
-        (#case Empty 0u64))))";
-    let entry_text = "(#import-external \"child.lim\" ext-)
-      (#fn main () #u64 (#let input ext-Choice (ext-Full 42u64))
-        (#return (#match input (#case (ext-Full payload) payload) (#case ext-Empty 0u64))))";
+        (#case (Choice.Full payload) (#let answer #u64 payload) answer)
+        (#case Choice.Empty 0u64))))";
+    let entry_text = "(#import-external \"child.lim\" ext)
+      (#fn main () #u64 (#let input ext@Choice (#enum-literal ext@Choice.Full 42u64))
+        (#return (#match input (#case (ext@Choice.Full payload) payload) (#case ext@Choice.Empty 0u64))))";
     for (path, text) in [
         (&types, types_text),
         (&child, child_text),
@@ -242,26 +253,26 @@ fn enum_case_variants_resolve_transitive_external_import_names() {
         2,
         &child_uri,
         child_text,
-        "(#case (Full",
+        "(#case (Choice.Full",
         8,
     ));
     messages.push(definition_offset(
         3,
         &entry_uri,
         entry_text,
-        "(#case (ext-Full",
+        "(#case (ext@Choice.Full",
         8,
     ));
     messages.push(definition_offset(
         4,
         &child_uri,
         child_text,
-        "(#case Empty",
+        "(#case Choice.Empty",
         7,
     ));
     finish(&mut messages);
     let (_, replies) = session(messages);
-    for (id, name) in [(2, "Full"), (3, "Full"), (4, "Empty")] {
+    for (id, name) in [(2, "Choice.Full"), (3, "Choice.Full"), (4, "Choice.Empty")] {
         let locations = definition_locations(&replies, id);
         assert_eq!(locations.len(), 1, "{replies:?}");
         assert_definition_token(
@@ -280,19 +291,19 @@ fn enum_case_variants_navigate_to_user_and_builtin_generated_definitions() {
     for (label, declarations, ty, variant, empty, value) in [
         (
             "user",
-            "(#gn make () `((#enum Work () ((Work::Ready #u64) Work::Pending))))\n(@make)",
+            "(#gn make () `((#enum Work () ((Work.Ready #u64) Work.Pending))))\n(#generate make)",
             "Work",
-            "Work::Ready",
-            "Work::Pending",
-            "(Work::Ready 42u64)",
+            "Work.Ready",
+            "Work.Pending",
+            "(Work.Ready 42u64)",
         ),
         (
             "builtin",
-            "(@#optional (: type #u64 : name Maybe))",
+            "(#generate #optional (: type #u64 : name Maybe))",
             "Maybe",
-            "Maybe-some",
-            "Maybe-none",
-            "(#call Maybe-construct (: value 42u64))",
+            "Maybe.Some",
+            "Maybe.None",
+            "(#call Maybe::construct (: value 42u64))",
         ),
     ] {
         let base = std::env::temp_dir().join(format!(
@@ -353,19 +364,19 @@ fn enum_case_variants_use_the_distributed_contributions_source_identity() {
         let entry = base.join("main.lim");
         let contribution = base.join("contribution.lim");
         let source = "(#distributed-enum Event ())\n(#import \"contribution.lim\")
-          (#fn main () #u64 (#let input Event (Ready 42u64))
-            (#return (#match input (#case (Ready payload) payload))))";
+          (#fn main () #u64 (#let input Event (Event.Ready 42u64))
+            (#return (#match input (#case (Event.Ready payload) payload))))";
         let contribution_text = if generated {
-            "(#gn contribute () `((#enum-contribute Event (Ready #u64))))\n(@contribute)"
+            "(#gn contribute () `((#enum-contribute Event (Event.Ready #u64))))\n(#generate contribute)"
         } else {
-            "(#enum-contribute Event (Ready #u64))"
+            "(#enum-contribute Event (Event.Ready #u64))"
         };
         std::fs::write(&entry, source).unwrap();
         std::fs::write(&contribution, contribution_text).unwrap();
         let uri = lsp::path_to_uri(&entry).unwrap();
         let mut messages = start();
         messages.push(open(&uri, 1, source));
-        messages.push(definition_offset(2, &uri, source, "(#case (Ready", 8));
+        messages.push(definition_offset(2, &uri, source, "(#case (Event.Ready", 8));
         finish(&mut messages);
         let (_, replies) = session(messages);
         let locations = definition_locations(&replies, 2);
@@ -382,8 +393,8 @@ fn enum_case_variants_use_the_distributed_contributions_source_identity() {
             locations[0],
             target_uri,
             &declaration,
-            declaration.find("Ready").unwrap(),
-            "Ready",
+            declaration.find("Event.Ready").unwrap(),
+            "Event.Ready",
         );
         std::fs::remove_dir_all(base).unwrap();
     }
@@ -397,8 +408,9 @@ fn enum_case_variants_return_separate_definitions_for_independent_entry_points()
     let app = base.join("app.lim");
     let test = base.join("test.lim");
     let library_text = "(#fn classify (: input Choice) #u64
-      (#return (#match input (#case (Ready payload) payload) (#case Pending 0u64))))";
-    let entry_text = "(#import \"library.lim\")\n(#enum Choice () ((Ready #u64) Pending))";
+      (#return (#match input (#case (Choice.Ready payload) payload) (#case Choice.Pending 0u64))))";
+    let entry_text =
+        "(#import \"library.lim\")\n(#enum Choice () ((Choice.Ready #u64) Choice.Pending))";
     std::fs::write(&library, library_text).unwrap();
     for path in [&app, &test] {
         std::fs::write(path, entry_text).unwrap();
@@ -414,7 +426,13 @@ fn enum_case_variants_return_separate_definitions_for_independent_entry_points()
     let uri = lsp::path_to_uri(&library).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, library_text));
-    messages.push(definition_offset(2, &uri, library_text, "(#case (Ready", 8));
+    messages.push(definition_offset(
+        2,
+        &uri,
+        library_text,
+        "(#case (Choice.Ready",
+        8,
+    ));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let locations = definition_locations(&replies, 2);
@@ -427,8 +445,8 @@ fn enum_case_variants_return_separate_definitions_for_independent_entry_points()
             location,
             target_uri,
             entry_text,
-            entry_text.find("Ready").unwrap(),
-            "Ready",
+            entry_text.find("Choice.Ready").unwrap(),
+            "Choice.Ready",
         );
     }
     std::fs::remove_dir_all(base).unwrap();
@@ -440,13 +458,14 @@ fn enum_case_variants_do_not_resolve_quoted_inactive_or_ambiguous_uses() {
     std::fs::create_dir_all(&base).unwrap();
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     for source in [
-        "(#enum Choice () (Ready)) (#gn data () '(#match x (#case Ready 0u64)))",
-        "(#enum Choice () (Ready)) (#cfg-if (#cfg-is #feature enabled) (#fn inactive () #u64 (#return (#match Ready (#case Ready 0u64)))))",
-        "(#enum First () (Ready)) (#enum Second () (Ready)) (#fn main () #u64 (#return (#match Ready (#case Ready 0u64))))",
+        "(#enum Choice () (Choice.Ready)) (#gn data () '(#match x (#case Choice.Ready 0u64)))",
+        "(#enum Choice () (Choice.Ready)) (#cfg-if (#cfg-is #feature enabled) (#fn inactive () #u64 (#return (#match Choice.Ready (#case Choice.Ready 0u64)))))",
+        "(#enum First () (Second.Ready)) (#enum Second () (Second.Ready)) (#fn main () #u64 (#return (#match Second.Ready (#case Second.Ready 0u64))))",
     ] {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
-        messages.push(definition_offset(2, &uri, source, "(#case Ready", 7));
+        let needle = if source.contains("(#case Second.Ready") { "(#case Second.Ready" } else { "(#case Choice.Ready" };
+        messages.push(definition_offset(2, &uri, source, needle, 7));
         finish(&mut messages);
         let (_, replies) = session(messages);
         assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null), "{source}: {replies:?}");
@@ -634,7 +653,7 @@ fn multi_context_generated_calls_macro_names_and_artifacts_keep_both_producers()
     let base = std::env::temp_dir().join(format!("lim-lsp-multi-generated-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
-    let library_text = "(@emit)\n(#fn read-value () #u64 (#return (#call provide ())))";
+    let library_text = "(#generate emit)\n(#fn read-value () #u64 (#return (#call provide ())))";
     std::fs::write(&library, library_text).unwrap();
     let mut contexts = Vec::new();
     for (name, value) in [("app", 10), ("test", 20)] {
@@ -649,7 +668,7 @@ fn multi_context_generated_calls_macro_names_and_artifacts_keep_both_producers()
     messages.push(open(&uri, 1, library_text));
     messages.push(definition(2, &uri, library_text, "provide"));
     messages.push(definition(3, &uri, library_text, "emit"));
-    messages.push(definition(4, &uri, library_text, "@"));
+    messages.push(definition(4, &uri, library_text, "#generate"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     assert_eq!(definition_locations(&replies, 2).len(), 2);
@@ -712,7 +731,7 @@ fn multi_context_import_paths_and_external_names_follow_each_entries_module_path
         let import = if prefix.is_empty() {
             "(#import \"library.lim\")"
         } else {
-            "(#import-external \"library.lim\" Ext-)"
+            "(#import-external \"library.lim\" Ext)"
         };
         std::fs::write(
             &entry,
@@ -841,7 +860,7 @@ fn cfg_excluded_calls_do_not_add_another_entries_matching_name() {
 #[test]
 fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
     let uri = "file:///tmp/lim-lsp-unused-types.lim";
-    let source = "(#enum Unused () (Only))";
+    let source = "(#enum Unused () (Unused.Only))";
     let updated =
         format!("{source}\n(#fn consume (: value Unused) () (#forget value) (#return ()))");
     let mut messages = start();
@@ -885,16 +904,16 @@ fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let source = "; 😀 UTF-16 position\n(#gn emit (name) `((#type ,name #u64)))\n(\n  @emit First\n)\n(#type Emoji😀 #u8) (@emit Second)";
+    let source = "; 😀 UTF-16 position\n(#gn emit (name) `((#type ,name #u64)))\n(\n  #generate emit First\n)\n(#type Emoji😀 #u8) (#generate emit Second)";
     std::fs::write(&path, source).unwrap();
     let updated = source.replace("#u64", "#u32");
     let mut messages = start();
     messages.push(open(&uri, 1, source));
-    messages.push(definition(2, &uri, source, "@emit First"));
-    messages.push(definition(3, &uri, source, "@emit First"));
-    messages.push(definition(4, &uri, source, "@emit Second"));
+    messages.push(definition(2, &uri, source, "#generate emit First"));
+    messages.push(definition(3, &uri, source, "#generate emit First"));
+    messages.push(definition(4, &uri, source, "#generate emit Second"));
     messages.push(change(&uri, 2, &updated));
-    messages.push(definition(5, &uri, &updated, "@emit First"));
+    messages.push(definition(5, &uri, &updated, "#generate emit First"));
     messages.push(definition(6, &uri, &updated, "emit First"));
     finish(&mut messages);
     let (_, replies) = session(messages);
@@ -944,7 +963,7 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     std::fs::write(&generator, ")").unwrap();
     let entry_source = "(#import \"generator.lim\") (#import \"child.lim\")";
     let generator_source = "\n(#cfg-if (#cfg-is #feature selected) (#gn emit (name) `((#type ,name #u32))) (#cfg-else (#gn emit (name) `((#type ,name #u64)))))";
-    let child_source = "(\n @emit Number\n)";
+    let child_source = "(\n #generate emit Number\n)";
     let mut config = CompileConfig::default();
     config.set("feature", "selected");
     config.add_module_path(base.join("modules"));
@@ -962,14 +981,14 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     messages.push(open(&entry_uri, 1, entry_source));
     messages.push(open(&generator_uri, 1, generator_source));
     messages.push(open(&uri, 1, child_source));
-    messages.push(definition(2, &uri, child_source, "@"));
+    messages.push(definition(2, &uri, child_source, "#generate"));
     messages.push(definition(3, &uri, child_source, "emit"));
     messages.push(change(
         &generator_uri,
         2,
         &generator_source.replace("#u32", "#u16"),
     ));
-    messages.push(definition(4, &uri, child_source, "@"));
+    messages.push(definition(4, &uri, child_source, "#generate"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let before = artifact_paths(&replies, 2);
@@ -1013,7 +1032,7 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     // A subsequent session must not inherit scoped buffers.
     let mut messages = start();
     messages.push(open(&uri, 1, child_source));
-    messages.push(definition(2, &uri, child_source, "@"));
+    messages.push(definition(2, &uri, child_source, "#generate"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null));
@@ -1028,7 +1047,7 @@ fn generator_name_resolves_original_span_through_external_prefixes_and_duplicate
     let child = base.join("child.lim");
     // The same source is loaded under two prefixes; its name token has two
     // semantic names, both referring to exactly the same declaration span.
-    let source = "(#import-external \"child.lim\" a-) (#import-external \"child.lim\" b-)";
+    let source = "(#import-external \"child.lim\" a) (#import-external \"child.lim\" b)";
     std::fs::write(&entry, source).unwrap();
     lim::lsp_context::LspContext {
         entry: entry.clone(),
@@ -1038,12 +1057,12 @@ fn generator_name_resolves_original_span_through_external_prefixes_and_duplicate
     .write(&base.join("lim.lsp"))
     .unwrap();
     let child_source =
-        "; unsaved generator\n(#gn emit (name) `((#type ,name #u64)))\n(@emit Number)";
+        "; unsaved generator\n(#gn emit (name) `((#type ,name #u64)))\n(#generate emit Number)";
     let uri = lsp::path_to_uri(&child).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, child_source));
     messages.push(definition(2, &uri, child_source, "emit Number"));
-    messages.push(definition(3, &uri, child_source, "@"));
+    messages.push(definition(3, &uri, child_source, "#generate"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let declaration = reply(&replies, 2).get("result").unwrap();
@@ -1077,8 +1096,8 @@ fn generator_name_resolves_original_span_through_external_prefixes_and_duplicate
         .map(|path| std::fs::read_to_string(path).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(contents.contains("a-Number"), "{contents}");
-    assert!(contents.contains("b-Number"), "{contents}");
+    assert!(contents.contains("a@Number"), "{contents}");
+    assert!(contents.contains("b@Number"), "{contents}");
     assert!(!child.exists());
     std::fs::remove_dir_all(base).unwrap();
 }
@@ -1087,11 +1106,11 @@ fn generator_name_resolves_original_span_through_external_prefixes_and_duplicate
 fn builtin_macro_at_navigates_but_builtin_name_and_noninvocations_do_not() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-builtin-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
-    let source = "(@#optional (: type #u64 : name Maybe))";
+    let source = "(#generate #optional (: type #u64 : name Maybe))";
     let mut messages = start();
     messages.push(open(&uri, 1, source));
     messages.push(definition(2, &uri, source, "#optional"));
-    messages.push(definition(3, &uri, source, "@"));
+    messages.push(definition(3, &uri, source, "#generate"));
     messages.push(definition(4, &uri, source, "Maybe"));
     finish(&mut messages);
     let (_, replies) = session(messages);
@@ -1101,7 +1120,7 @@ fn builtin_macro_at_navigates_but_builtin_name_and_noninvocations_do_not() {
         .iter()
         .any(|path| std::fs::read_to_string(path)
             .unwrap()
-            .contains("Maybe-construct")));
+            .contains("Maybe::construct")));
     std::fs::remove_dir_all(base).unwrap();
 }
 
@@ -1110,12 +1129,12 @@ fn imported_generator_name_navigation_needs_no_valid_expansion_or_artifacts() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-name-only-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     let generator_uri = lsp::path_to_uri(&base.join("generator.lim")).unwrap();
-    let source = "(#import-external \"generator.lim\" ext-)\n(@ext-emit)";
+    let source = "(#import-external \"generator.lim\" ext)\n(#generate ext@emit)";
     let generator = "; unsaved\n(#gn emit () (#gn-error \"not implemented\"))";
     let mut messages = start();
     messages.push(open(&generator_uri, 1, generator));
     messages.push(open(&uri, 1, source));
-    messages.push(definition(2, &uri, source, "ext-emit"));
+    messages.push(definition(2, &uri, source, "ext@emit"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let declaration = reply(&replies, 2).get("result").unwrap();
@@ -1151,15 +1170,15 @@ fn macro_navigation_returns_no_artifact_for_inactive_invalid_or_quoted_calls() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-invalid-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     for source in [
-        "(#gn emit () `((#type Number #u64))) (#cfg-if (#cfg-is #feature never-enabled) (@emit))",
-        "(#gn bad () `((#fn broken () #u64 (#return false)))) (@bad)",
-        "(#gn bad () (#gn-error \"failed\")) (@bad)",
-        "(#gn template () `((@missing)))",
-        "(@unknown)",
+        "(#gn emit () `((#type Number #u64))) (#cfg-if (#cfg-is #feature never-enabled) (#generate emit))",
+        "(#gn bad () `((#fn broken () #u64 (#return false)))) (#generate bad)",
+        "(#gn bad () (#gn-error \"failed\")) (#generate bad)",
+        "(#gn template () `((#generate missing)))",
+        "(#generate unknown)",
     ] {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
-        messages.push(definition(2, &uri, source, "@"));
+        messages.push(definition(2, &uri, source, "#generate"));
         finish(&mut messages);
         let (_, replies) = session(messages);
         assert_eq!(
@@ -1182,7 +1201,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("main.lim");
     let child = base.join("child.lim");
-    let text = "(#import \"child.lim\")\n(#import-external \"child.lim\" ext-)\n(#fn main () #u64 (#let value ext-Number 42u64) (#return (#call ext-read (: ext-value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder () ((field Number)))\n(#enum Choice () ((Present Number) (Absent ())))";
+    let text = "(#import \"child.lim\")\n(#import-external \"child.lim\" ext)\n(#fn main () #u64 (#let value ext@Number 42u64) (#return (#call ext@read (: ext@value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder () ((field Number)))\n(#enum Choice () ((Choice.Present Number) (Choice.Absent ())))";
     let imported = "(#type Number #u64)\n(#fn read ((value Number)) #u64 (#return value))";
     std::fs::write(&root, text).unwrap();
     std::fs::write(&child, imported).unwrap();
@@ -1193,14 +1212,14 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     for (id, needle) in [
         (2, "child.lim"),
         (3, "#import-external"),
-        (4, "ext-read"),
-        (5, "ext-Number"),
+        (4, "ext@read"),
+        (5, "ext@Number"),
     ] {
         messages.push(definition(id, &uri, text, needle));
     }
-    messages.push(definition(6, &uri, text, "ext-)"));
+    messages.push(definition(6, &uri, text, "ext)"));
     messages.push(definition(7, &uri, text, "Number)))"));
-    messages.push(definition(8, &uri, text, "Number) (Absent"));
+    messages.push(definition(8, &uri, text, "Number) (Choice.Absent"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     for id in [2, 3, 4, 5, 7, 8] {
@@ -1246,7 +1265,7 @@ fn external_import_internal_calls_and_types_use_the_compilation_names() {
     let root = base.join("main.lim");
     let child = base.join("child.lim");
     let text = "(#cfg-if (#cfg-is #os linux)\n(#type Number #u64)\n(#fn read () Number (#return 42u64))\n(#fn invoke () Number (#return (#call read ()))))";
-    std::fs::write(&root, "(#import-external \"child.lim\" first-)\n(#import-external \"child.lim\" second-)\n(#fn main () #u64 (#return (#call first-invoke ())))").unwrap();
+    std::fs::write(&root, "(#import-external \"child.lim\" first)\n(#import-external \"child.lim\" second)\n(#fn main () #u64 (#return (#call first@invoke ())))").unwrap();
     std::fs::write(&child, text).unwrap();
     lim::lsp_context::LspContext {
         entry: root,
@@ -1570,12 +1589,12 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = format!("file://{}", path.display());
-    let source = "(@#optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe-construct (: value 42u64))) (#forget value) (#return ()))";
+    let source = "(#generate #optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe::construct (: value 42u64))) (#forget value) (#return ()))";
     let character = source
         .lines()
         .nth(1)
         .unwrap()
-        .find("Maybe-construct")
+        .find("Maybe::construct")
         .unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, source));
@@ -1587,11 +1606,11 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     let target = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
     assert!(target.starts_with(base.join(".lim/generated")));
     let generated = std::fs::read_to_string(&target).unwrap();
-    assert!(generated.contains("Maybe-construct"));
+    assert!(generated.contains("Maybe::construct"));
     let range_start = result.get("range").unwrap().get("start").unwrap();
     let line = range_start.get("line").unwrap().integer().unwrap() as usize;
     let column = range_start.get("character").unwrap().integer().unwrap() as usize;
-    assert!(generated.lines().nth(line).unwrap()[column..].starts_with("Maybe-construct"));
+    assert!(generated.lines().nth(line).unwrap()[column..].starts_with("Maybe::construct"));
     assert!(!base.join(".lim/cache").exists());
     let modified = std::fs::metadata(&target).unwrap().modified().unwrap();
     let mut messages = start();
@@ -1621,7 +1640,7 @@ fn generated_type_navigation_tracks_unsaved_generator_changes() {
     let base = std::env::temp_dir().join(format!("lim-lsp-generated-type-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
-    let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(#fn main () Number (#return 42u64))";
+    let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(#generate emit Number)\n(#fn main () Number (#return 42u64))";
     let position = source.lines().nth(2).unwrap().find("Number").unwrap();
     let params = format!(
         "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":2,\"character\":{position}}}}}",
@@ -1665,7 +1684,7 @@ fn generated_definition_uses_unsaved_imports_and_rejects_invalid_expansions() {
     let imported_uri = format!("file://{}", base.join("types.lim").display());
     let source = "(#import \"types.lim\")\n(#fn main () Number (#return 42u64))";
     let imported =
-        "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (@emit Number)";
+        "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#generate emit Number)";
     let character = source.lines().nth(1).unwrap().find("Number").unwrap();
     let params = format!(
         "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}",
@@ -1701,7 +1720,7 @@ fn compilation_context_resolves_entry_symbols_from_an_unsaved_external_module() 
     std::fs::create_dir_all(&external).unwrap();
     let entry = base.join("main.lim");
     let child = external.join("child.lim");
-    std::fs::write(&entry, format!("(#type Number #u64)\n(#fn target () Number (#return 42u64))\n(#import {})\n(@#optional (: type #u64 : name Maybe))\n(#fn main () Number (#return (#call child ())))", diagnostic_json::quoted(child.to_str().unwrap()))).unwrap();
+    std::fs::write(&entry, format!("(#type Number #u64)\n(#fn target () Number (#return 42u64))\n(#import {})\n(#generate #optional (: type #u64 : name Maybe))\n(#fn main () Number (#return (#call child ())))", diagnostic_json::quoted(child.to_str().unwrap()))).unwrap();
     lim::lsp_context::LspContext {
         entry: entry.clone(),
         target: lim::TargetDescription::X86_64_SYSTEM_V,
@@ -1711,11 +1730,11 @@ fn compilation_context_resolves_entry_symbols_from_an_unsaved_external_module() 
     .unwrap();
     let uri = format!("file://{}", child.display());
     let root = format!("file://{}", base.display());
-    let source = "(#fn child () Number (#return (#call target ()))) (#fn wrap () Maybe (#return (#call Maybe-construct (: value 42u64))))";
+    let source = "(#fn child () Number (#return (#call target ()))) (#fn wrap () Maybe (#return (#call Maybe::construct (: value 42u64))))";
     let mut messages = vec![request(1, "initialize", &format!("{{\"rootUri\":{},\"capabilities\":{{\"workspace\":{{\"didChangeWatchedFiles\":{{\"dynamicRegistration\":true}}}}}}}}", diagnostic_json::quoted(&root))), notify("initialized", "{}")];
     messages.push("{\"jsonrpc\":\"2.0\",\"id\":\"lim-context-watch\",\"result\":null}".into());
     messages.push(open(&uri, 1, source));
-    for (id, symbol) in [(2, "target"), (3, "Number"), (4, "Maybe-construct")] {
+    for (id, symbol) in [(2, "target"), (3, "Number"), (4, "Maybe::construct")] {
         let character = source.find(symbol).unwrap();
         messages.push(request(id, "textDocument/definition", &format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":0,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
     }
@@ -2062,7 +2081,7 @@ fn binary_stdio_generated_diagnostic_maps_to_invocation_without_artifacts() {
     let scratch = std::env::temp_dir().join(format!("lim-lsp-artifacts-{}", std::process::id()));
     std::fs::create_dir(&scratch).unwrap();
     let uri = lsp::path_to_uri(&scratch.join("unsaved.lim")).unwrap();
-    let source = "(#gn bad () `((#fn broken () #u64 (#return false))))\n(@bad)";
+    let source = "(#gn bad () `((#fn broken () #u64 (#return false))))\n(#generate bad)";
     let mut messages = start();
     messages.push(open(&uri, 1, source));
     finish(&mut messages);

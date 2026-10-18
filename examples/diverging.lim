@@ -1,5 +1,5 @@
 (#fn main () #u64
   (#return
-    (#if (#bool.== true true)
+    (#if (#bool::eq true true)
       42
       (#unreachable))))

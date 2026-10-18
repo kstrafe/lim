@@ -6,13 +6,13 @@
 
 (#struct Owner () (: kept #u64 : item Token))
 (#fn inspect (: owner (#ref Owner)) #u64
-  (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
-(#enum Step (#linear) (Start Resume))
+  (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value))))
+(#enum Step (#linear) (Step.Start Step.Resume))
 
-(#enum StepPoll () ((Pending Step) (Ready ())))
+(#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
-  (#return (#match task (#case Start (Pending Resume)) (#case Resume (Ready ())))))
-(@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+  (#return (#match task (#case Step.Start (StepPoll.Pending Step.Resume)) (#case Step.Resume (StepPoll.Ready ())))))
+(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut owner Owner
       (#struct-literal Owner
@@ -20,12 +20,12 @@
     (#let kept (#ref #u64) (#borrow (#get owner kept)))
     (#let moved Token (#get owner item))
     (#forget moved)
-    (#let ready () (#await () Step Pending Ready step-poll Start))
+    (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
     (#set-field owner item (#struct-literal Token (: value 2u64)))
     (#let whole (#ref Owner) (#borrow owner))
     (#let selected (#ref #u64) (#borrow (#get whole kept)))
     (#let equal #bool
-      (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+      (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
     (#let answer #u64 (#call inspect (: owner whole)))
     (#forget selected)
     (#forget whole)
@@ -37,10 +37,10 @@
   (#let-mut frame Work::Frame (#call work (:)))
   (#let first Work::Poll
     (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
   (#let result #u64
     (#match (#call Work::poll (: task pending : waker (#borrow waker)))
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
   (#return result))

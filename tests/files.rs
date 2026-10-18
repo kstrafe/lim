@@ -42,7 +42,7 @@ fn minimal_std_entry_compiles_with_the_file_api_loaded() {
 
 fn path_binding(path: &std::path::Path) -> String {
     let value = path.to_str().unwrap();
-    format!("(#let chars (#array #char {}) {value:?})\n(#let created StringCreateResult (#call String-from-chars (: text (#slice-of (#borrow chars)))))\n(#let-else (StringCreated path) StringCreateResult created (#unreachable))", value.chars().count())
+    format!("(#let chars (#array #char {}) {value:?})\n(#let created StringCreateResult (#call String::from-chars (: text (#slice-of (#borrow chars)))))\n(#let-else (StringCreateResult.StringCreated path) StringCreateResult created (#unreachable))", value.chars().count())
 }
 
 #[test]
@@ -53,18 +53,18 @@ fn buffered_binary_reads_cross_refill_boundaries_and_preserve_eof() {
             let path = scratch.path().join("binary-λ");
             fs::write(&path, &data).unwrap();
             let checks = data.iter().map(|byte| format!(
-                "(#assert (#match (#call FileReader-next-byte (: reader (#borrow-mut reader)))\n(#case (FileByte byte) (#u8.== byte {byte}u8)) (#case _ false)))"
+                "(#assert (#match (#call FileReader::next-byte (: reader (#borrow-mut reader)))\n(#case (FileByteResult.FileByte byte) (#u8::eq byte {byte}u8)) (#case _ false)))"
             )).collect::<Vec<_>>().join("\n");
             execute(&format!("(#std) (#fn main () #u64\n{}\n\
-                (#let opened FileOpenResult (#call File-open-read (: path (#borrow path))))\n\
-                (#call String-free (: string path))\n\
-                (#let-else (FileOpened file) FileOpenResult opened (#unreachable))\n\
-                (#let buffered FileReaderCreateResult (#call FileReader-create (: file file : capacity {capacity}usize)))\n\
-                (#let-else (FileReaderCreated initial) FileReaderCreateResult buffered (#unreachable))\n\
+                (#let opened FileOpenResult (#call File::open-read (: path (#borrow path))))\n\
+                (#call String::free (: string path))\n\
+                (#let-else (FileOpenResult.FileOpened file) FileOpenResult opened (#unreachable))\n\
+                (#let buffered FileReaderCreateResult (#call FileReader::create (: file file : capacity {capacity}usize)))\n\
+                (#let-else (FileReaderCreateResult.FileReaderCreated initial) FileReaderCreateResult buffered (#unreachable))\n\
                 (#let-mut reader FileReader initial)\n{checks}\n\
-                (#assert (#match (#call FileReader-next-byte (: reader (#borrow-mut reader))) (#case FileByteEof true) (#case _ false)))\n\
-                (#assert (#match (#call FileReader-next-byte (: reader (#borrow-mut reader))) (#case FileByteEof true) (#case _ false)))\n\
-                (#assert (#match (#call FileReader-close (: reader reader)) (#case FileOk true) (#case _ false)))\n\
+                (#assert (#match (#call FileReader::next-byte (: reader (#borrow-mut reader))) (#case FileByteResult.FileByteEof true) (#case _ false)))\n\
+                (#assert (#match (#call FileReader::next-byte (: reader (#borrow-mut reader))) (#case FileByteResult.FileByteEof true) (#case _ false)))\n\
+                (#assert (#match (#call FileReader::close (: reader reader)) (#case FileStatus.FileOk true) (#case _ false)))\n\
                 (#return 42u64))", path_binding(&path)), &scratch);
         }
     }
@@ -75,17 +75,17 @@ fn file_creation_writes_utf8_nul_and_closes_explicitly() {
     let scratch = support::Scratch::new("file-write");
     let path = scratch.path().join("output");
     execute(&format!("(#std) (#fn main () #u64\n{}\n\
-        (#let opened FileOpenResult (#call File-create (: path (#borrow path) : permissions 384u32)))\n\
-        (#call String-free (: string path))\n\
-        (#let-else (FileOpened initial) FileOpenResult opened (#unreachable))\n\
+        (#let opened FileOpenResult (#call File::create (: path (#borrow path) : permissions 384u32)))\n\
+        (#call String::free (: string path))\n\
+        (#let-else (FileOpenResult.FileOpened initial) FileOpenResult opened (#unreachable))\n\
         (#let-mut file File initial)\n\
         (#let text-chars (#array #char 4) \"Aλ\\u{{0}}Z\")\n\
-        (#let text-created StringCreateResult (#call String-from-chars (: text (#slice-of (#borrow text-chars)))))\n\
-        (#let-else (StringCreated text) StringCreateResult text-created (#unreachable))\n\
-        (#assert (#match (#call File-write-string (: file (#borrow-mut file) : text (#borrow text)))\n\
-          (#case (FileWritten count) (#usize.== count 5usize)) (#case _ false)))\n\
-        (#call String-free (: string text))\n\
-        (#assert (#match (#call File-close (: file file)) (#case FileOk true) (#case _ false)))\n\
+        (#let text-created StringCreateResult (#call String::from-chars (: text (#slice-of (#borrow text-chars)))))\n\
+        (#let-else (StringCreateResult.StringCreated text) StringCreateResult text-created (#unreachable))\n\
+        (#assert (#match (#call File::write-string (: file (#borrow-mut file) : text (#borrow text)))\n\
+          (#case (FileWriteResult.FileWritten count) (#usize::eq count 5usize)) (#case _ false)))\n\
+        (#call String::free (: string text))\n\
+        (#assert (#match (#call File::close (: file file)) (#case FileStatus.FileOk true) (#case _ false)))\n\
         (#return 42u64))", path_binding(&path)), &scratch);
     assert_eq!(fs::read(path).unwrap(), "Aλ\0Z".as_bytes());
 }
@@ -97,47 +97,47 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
     execute(&format!("(#std)
         (#fn is-missing-file-error (: error FileError) #bool
           (#return (#match error
-            (#case (FileIoError code) (#i64.== code -2i64))
+            (#case (FileError.FileIoError code) (#i64::eq code -2i64))
             (#case _ false))))
         (#fn closes-successfully (: file File) #bool
-          (#return (#match (#call File-close (: file file))
-            (#case FileOk true) (#case _ false))))
+          (#return (#match (#call File::close (: file file))
+            (#case FileStatus.FileOk true) (#case _ false))))
         (#fn main () #u64
  {}\n\
-        (#let opened FileOpenResult (#call File-open-read (: path (#borrow path))))\n\
-        (#call String-free (: string path))\n\
-        (#assert (#match opened (#case (FileOpenFailed failure) (#call is-missing-file-error (: error failure)))\n\
-          (#case (FileOpened unexpected) (#block (#call closes-successfully (: file unexpected)) false))\n\
+        (#let opened FileOpenResult (#call File::open-read (: path (#borrow path))))\n\
+        (#call String::free (: string path))\n\
+        (#assert (#match opened (#case (FileOpenResult.FileOpenFailed failure) (#call is-missing-file-error (: error failure)))\n\
+          (#case (FileOpenResult.FileOpened unexpected) (#block (#call closes-successfully (: file unexpected)) false))\n\
           (#case _ false))) (#return 42u64))", path_binding(&missing)), &scratch);
     let existing = scratch.path().join("existing");
     fs::write(&existing, b"data").unwrap();
     execute(&format!("(#std)
         (#fn is-invalid-system-allocation-size (: error SystemAllocationError) #bool
           (#return (#match error
-            (#case SystemAllocationInvalidSize true)
+            (#case SystemAllocationError.SystemAllocationInvalidSize true)
             (#case _ false))))
         (#fn is-invalid-size-error (: error FileError) #bool
           (#return (#match error
-            (#case (FileAllocationError allocation-error)
+            (#case (FileError.FileAllocationError allocation-error)
               (#call is-invalid-system-allocation-size (: error allocation-error)))
             (#case _ false))))
         (#fn closes-successfully (: file File) #bool
-          (#return (#match (#call File-close (: file file))
-            (#case FileOk true) (#case _ false))))
+          (#return (#match (#call File::close (: file file))
+            (#case FileStatus.FileOk true) (#case _ false))))
         (#fn main () #u64
  {}\n\
-        (#let opened FileOpenResult (#call File-open-read (: path (#borrow path))))\n\
-        (#call String-free (: string path))\n\
-        (#let-else (FileOpened file) FileOpenResult opened (#unreachable))\n\
-        (#let failed FileReaderCreateResult (#call FileReader-create (: file file : capacity 0usize)))\n\
+        (#let opened FileOpenResult (#call File::open-read (: path (#borrow path))))\n\
+        (#call String::free (: string path))\n\
+        (#let-else (FileOpenResult.FileOpened file) FileOpenResult opened (#unreachable))\n\
+        (#let failed FileReaderCreateResult (#call FileReader::create (: file file : capacity 0usize)))\n\
         (#assert (#match failed\n\
-          (#case (FileReaderCreateFailed (FileReaderCreateFailure retained error))\n\
+          (#case (FileReaderCreateResult.FileReaderCreateFailed (FileReaderCreateFailure retained error))\n\
             (#block\n\
               (#let invalid-size #bool (#call is-invalid-size-error (: error error)))\n\
               (#let closed #bool (#call closes-successfully (: file retained)))\n\
-              (#bool.&& invalid-size closed)))\n\
-          (#case (FileReaderCreated unexpected)\n\
-            (#block (#call FileReader-close (: reader unexpected)) false))))\n\
+              (#bool::and invalid-size closed)))\n\
+          (#case (FileReaderCreateResult.FileReaderCreated unexpected)\n\
+            (#block (#call FileReader::close (: reader unexpected)) false))))\n\
         (#return 42u64))", path_binding(&existing)), &scratch);
 }
 
@@ -147,13 +147,13 @@ fn files_cannot_be_duplicated_abandoned_or_closed_while_borrowed() {
     for (name, body, expected) in [
         (
             "double-close",
-            "(#call File-close (: file file)) (#call File-close (: file file))",
+            "(#call File::close (: file file)) (#call File::close (: file file))",
             lim::DiagnosticCode::Linear,
         ),
         ("abandon", "()", lim::DiagnosticCode::Linear),
         (
             "close-borrowed",
-            "(#let view (#ref File) (#borrow file)) (#call File-close (: file file)) (#drop view)",
+            "(#let view (#ref File) (#borrow file)) (#call File::close (: file file)) (#drop view)",
             lim::DiagnosticCode::Borrow,
         ),
     ] {

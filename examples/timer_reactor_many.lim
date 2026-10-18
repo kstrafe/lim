@@ -15,7 +15,7 @@
       (: nanoseconds 10000000u64)    )  )
   (
     #let-else
-    (TimerCreated1 a)
+    (TimerCreate1.TimerCreated1 a)
     TimerCreate1
     created-a
     (#unreachable)
@@ -30,7 +30,7 @@
       (: nanoseconds 20000000u64)    )  )
   (
     #let-else
-    (TimerCreated1 b)
+    (TimerCreate1.TimerCreated1 b)
     TimerCreate1
     created-b
     (#unreachable)
@@ -45,7 +45,7 @@
       (: nanoseconds 30000000u64)    )  )
   (
     #let-else
-    (TimerCreated1 c)
+    (TimerCreate1.TimerCreated1 c)
     TimerCreate1
     created-c
     (#unreachable)
@@ -96,16 +96,16 @@
       duplicate-result
       (
         #case
-        (TimerManyFailed error)
+        (TimerManyWait.TimerManyFailed error)
         (
-          #i64.==
+          #i64::eq
           error
           (#literal #i64 -22)
         )
       )
       (
         #case
-        (TimerManyReady mask)
+        (TimerManyWait.TimerManyReady mask)
         false
       )
     )
@@ -159,11 +159,11 @@
       wake
       (
         #case
-        (TimerManyReady mask)
+        (TimerManyWait.TimerManyReady mask)
         (
-          #u64.!=
+          #u64::ne
           (
-            #u64.&
+            #u64::bit-and
             mask
             (#literal #u64 1)
           )
@@ -172,7 +172,7 @@
       )
       (
         #case
-        (TimerManyFailed error)
+        (TimerManyWait.TimerManyFailed error)
         false
       )
     )
@@ -194,9 +194,9 @@
       first-poll
       (
         #case
-        (TimerReady1 count)
+        (TimerPoll1.TimerReady1 count)
         (
-          #u64.==
+          #u64::eq
           count
           (#literal #u64 1)
         )
@@ -233,27 +233,27 @@
     (
       #if
       (
-        #bool.&&
+        #bool::and
         first-ready
         (
-          #bool.&&
+          #bool::and
           first-done
           (
-            #bool.&&
+            #bool::and
             (
-              #i64.==
+              #i64::eq
               closed-a
               (#literal #i64 0)
             )
             (
-              #bool.&&
+              #bool::and
               (
-                #i64.==
+                #i64::eq
                 closed-b
                 (#literal #i64 0)
               )
               (
-                #i64.==
+                #i64::eq
                 closed-c
                 (#literal #i64 0)
               )

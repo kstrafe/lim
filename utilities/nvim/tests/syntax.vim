@@ -29,17 +29,18 @@ for [s:token, s:group] in [
       \ ['#case-ref', 'limConditional'], ['#case-ref-mut', 'limConditional'],
       \ ['#pin-own', 'limTypeForm'], ['#pin-borrow', 'limKeyword'],
       \ ['#pin-borrow-mut', 'limKeyword'], ['#pin-custom', 'limKeyword'],
-      \ ['#u64.+.wrap', 'limOperator'], ['#u128./', 'limOperator'],
-      \ ['#u128.%', 'limOperator'], ['#i8.*.saturate', 'limOperator'],
-      \ ['#u64.==', 'limOperator'], ['#u32.&', 'limOperator'],
-      \ ['#bool.||', 'limOperator'], ['#fn', 'limDeclaration'],
+      \ ['#u64::add-wrap', 'limOperator'], ['#u128::div', 'limOperator'],
+      \ ['#u128::rem', 'limOperator'], ['#i8::mul-saturate', 'limOperator'],
+      \ ['#u64::eq', 'limOperator'], ['#u32::bit-and', 'limOperator'],
+      \ ['#bool::or', 'limOperator'], ['#fn', 'limDeclaration'],
       \ ['#let-mut', 'limDeclaration'], ['#case', 'limConditional'],
       \ ['#case-pin', 'limConditional'], ['#case-pin-mut', 'limConditional'],
       \ ['#let-else', 'limConditional'], ['#while', 'limRepeat'],
       \ ['#return', 'limControl'], ['#unsafe', 'limUnsafe'],
       \ ['#gn', 'limGeneratorKeyword'], ['#gn-for-each', 'limGeneratorKeyword'],
-      \ ['#cfg-if', 'limCfg'], ['@#vec', 'limGenerated'],
-      \ ['@#cell', 'limGenerated'], ['@make-record', 'limGenerated'],
+      \ ['#cfg-if', 'limCfg'], ['#generate', 'limGenerated'],
+      \ ['#vec', 'limKeyword'], ['#cell', 'limKeyword'],
+      \ ['collection@Vec', 'limExternal'], ['#export', 'limDeclaration'],
       \ ['#call', 'limKeyword'], ['#u64-custom', 'limKeyword'],
       \ ['#enum-literal', 'limKeyword'], ['#struct-literal', 'limKeyword'],
       \ ['#return-value', 'limKeyword'], ['42u64', 'limNumber'],
@@ -54,9 +55,9 @@ for [s:token, s:group] in [
   endif
 endfor
 
-call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64.+.wrap value 1)))')
+call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64::add-wrap value 1)))')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
-      \ ['#return', 'limControl'], ['#u64.+.wrap', 'limOperator']]
+      \ ['#return', 'limControl'], ['#u64::add-wrap', 'limOperator']]
   let s:column = stridx(getline(1), s:token) + 1
   call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
 endfor

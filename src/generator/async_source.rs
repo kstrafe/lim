@@ -1122,13 +1122,13 @@ mod tests {
     use super::*;
 
     const CONTEXT: &str = "
-      (#enum Child (#linear) ((Waiting #u64)))
-      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+      (#enum Child (#linear) ((Child.Waiting #u64)))
+      (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
-          (#case (Waiting count)
-            (#if (#u64.== count 0u64) (Ready 42u64)
-              (Pending (Waiting (#u64.-.wrap count 1u64))))))))";
+          (#case (Child.Waiting count)
+            (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64)
+              (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64))))))))";
 
     fn prepare(context: &str, source: &str) -> (Program, SpannedExpr, Lowered) {
         let text = format!("{context}\n{source}");
@@ -1167,8 +1167,8 @@ mod tests {
         let (base, original, lowered) = prepare(
             CONTEXT,
             "(#fn work ((seed #u64)) #u64
-               (#let child Child (Waiting seed))
-               (#let result #u64 (#await #u64 Child Pending Ready step-poll child))
+               (#let child Child (Child.Waiting seed))
+               (#let result #u64 (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll child))
                (#return result))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1196,15 +1196,15 @@ mod tests {
     fn nested_await_child_is_evaluated_before_its_outer_driver() {
         let context = format!(
             "{CONTEXT}
-          (#enum BuilderPoll () ((BuilderPending Child) (BuilderReady Child)))
+          (#enum BuilderPoll () ((BuilderPoll.BuilderPending Child) (BuilderPoll.BuilderReady Child)))
           (#fn build-poll ((task Child) (waker (#ref #u64))) BuilderPoll
-            (#return (BuilderReady task)))"
+            (#return (BuilderPoll.BuilderReady task)))"
         );
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work () #u64
-               (#return (#await Child Pending Ready step-poll
-                 (#await Child BuilderPending BuilderReady build-poll (Waiting 1u64)))))",
+               (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll
+                 (#await Child BuilderPoll.BuilderPending BuilderPoll.BuilderReady build-poll (Child.Waiting 1u64)))))",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1222,13 +1222,13 @@ mod tests {
     fn normal_named_argument_order_is_preserved_across_awaits() {
         let context = format!(
             "{CONTEXT}
-          (#fn combine ((first #u64) (second #u64)) #u64 (#return (#u64.+.wrap first second)))"
+          (#fn combine ((first #u64) (second #u64)) #u64 (#return (#u64::add-wrap first second)))"
         );
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work () #u64 (#return (#call combine
-               (: second (#await Child Pending Ready step-poll (Waiting 2u64))
-                : first (#await Child Pending Ready step-poll (Waiting 1u64))))))",
+               (: second (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 2u64))
+                : first (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1251,7 +1251,7 @@ mod tests {
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work ((token Token)) #u64
-               (#let result #u64 (#await Child Pending Ready step-poll (Waiting 1u64)))
+               (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
                (#return result))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1268,14 +1268,14 @@ mod tests {
     #[test]
     fn child_result_reference_keeps_original_source_borrow() {
         let context = "
-          (#enum Child (#linear) ((Holding (#ref #u64))))
-          (#enum ChildPoll () ((Pending Child) (Ready (#ref #u64))))
+          (#enum Child (#linear) ((Child.Holding (#ref #u64))))
+          (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready (#ref #u64))))
           (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
-            (#return (#match task (#case (Holding view) (Ready view)))))";
+            (#return (#match task (#case (Child.Holding view) (ChildPoll.Ready view)))))";
         let (base, _, lowered) = prepare(
             context,
             "(#fn work ((view (#ref #u64))) (#ref #u64)
-               (#return (#await Child Pending Ready step-poll (Holding view))))",
+               (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding view))))",
         );
         let program = lowered.program(&base).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
@@ -1284,7 +1284,7 @@ mod tests {
             context,
             "(#fn work () (#ref #u64)
                (#let owner #u64 42u64)
-               (#return (#await Child Pending Ready step-poll (Holding (#borrow owner)))))",
+               (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding (#borrow owner)))))",
         );
         let program = lowered.program(&base).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -1310,8 +1310,8 @@ mod tests {
                  (#match choose
                    (#case true (#block
                      (#for-range (index #usize) 0usize 3usize
-                       (#set total (#await Child Pending Ready step-poll (Waiting 1u64)))
-                       (#if (#usize.== index 1usize) (#block (#break-to outer) (#unreachable)) ()))
+                       (#set total (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
+                       (#if (#usize::eq index 1usize) (#block (#break-to outer) (#unreachable)) ()))
                      (#continue-to outer)))
                    (#case false (#block (#break-to outer) (#unreachable))))))
                (#return total))",
@@ -1342,16 +1342,16 @@ mod tests {
     fn explicit_contract_errors_point_to_the_original_protocol_operand() {
         for (awaited, offending) in [
             (
-                "(#await #u32 Child Pending Ready step-poll (Waiting 1u64))",
+                "(#await #u32 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))",
                 "#u32",
             ),
             (
-                "(#await Other Pending Ready step-poll (Waiting 1u64))",
+                "(#await Other ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))",
                 "Other",
             ),
             (
-                "(#await Child Pending Missing step-poll (Waiting 1u64))",
-                "Missing",
+                "(#await Child ChildPoll.Pending missing step-poll (Child.Waiting 1u64))",
+                "missing",
             ),
         ] {
             let source = format!("{CONTEXT}\n(#fn work () #u64 (#return {awaited}))");
@@ -1367,7 +1367,7 @@ mod tests {
         let (base, _, lowered) = prepare(
             CONTEXT,
             "(#fn work () #u32
-               (#let wrong #u32 (#await Child Pending Ready step-poll (Waiting 1u64)))
+               (#let wrong #u32 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
                (#return wrong))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1379,7 +1379,7 @@ mod tests {
         assert_eq!(span.source_id, 0);
         assert_eq!(
             &base.source_files[0].source[span.start..span.end],
-            "(#await Child Pending Ready step-poll (Waiting 1u64))"
+            "(#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))"
         );
     }
 
@@ -1388,8 +1388,8 @@ mod tests {
         let (base, mut original, _) = prepare(
             CONTEXT,
             "(#fn work () #u64
-               (#let first #u64 (#await Child Pending Ready step-poll (Waiting 1u64)))
-               (#return (#await Child Pending Ready step-poll (Waiting first))))",
+               (#let first #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
+               (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first))))",
         );
         let shared = original.children[4].children[3].span;
         original.children[5].children[1].span = shared;
@@ -1414,8 +1414,8 @@ mod tests {
     fn compiled_async_retains_original_tree_without_emitting_analysis_helpers() {
         let source = format!(
             "{CONTEXT}
-          (@#async-fn (: protocol work-await : waker #u64 : function (#fn work () #u64
-              (#return (#await Child Pending Ready step-poll (Waiting 1u64))))))"
+          (#generate #async-fn (: protocol work-await : waker #u64 : function (#fn work () #u64
+              (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))"
         );
         let program = crate::parse_program(&source).unwrap();
         let witnesses = program
@@ -1440,7 +1440,7 @@ mod tests {
         let (mut base, original, _) = prepare(
             CONTEXT,
             "(#fn work () #u64
-              (#let wrong #u32 (#await Child Pending Ready step-poll (Waiting 1u64)))
+              (#let wrong #u32 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
               (#return 0u64))",
         );
         // Supply a valid runtime context: source checking must still reject the
@@ -1462,7 +1462,7 @@ mod tests {
         let span = error.2.unwrap();
         assert_eq!(
             &base.source_files[0].source[span.start..span.end],
-            "(#await Child Pending Ready step-poll (Waiting 1u64))"
+            "(#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))"
         );
     }
 
@@ -1471,11 +1471,11 @@ mod tests {
         let context = CONTEXT.replace("(#fn step-poll", "(#unsafe-fn step-poll");
         for (expression, allowed) in [
             (
-                "(#await Child Pending Ready step-poll (Waiting 0u64))",
+                "(#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64))",
                 false,
             ),
             (
-                "(#unsafe (#await Child Pending Ready step-poll (Waiting 0u64)))",
+                "(#unsafe (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64)))",
                 true,
             ),
         ] {
@@ -1506,9 +1506,9 @@ mod tests {
     fn original_suspension_retains_evaluated_values_not_replayed_operands() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "(#fn work () #u64 (#return (#u64.+.wrap
-              (#u64.+.wrap 20u64 1u64)
-              (#await Child Pending Ready step-poll (Waiting 1u64)))))",
+            "(#fn work () #u64 (#return (#u64::add-wrap
+              (#u64::add-wrap 20u64 1u64)
+              (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1526,7 +1526,7 @@ mod tests {
         let span = body.nodes[storage.values[0].value.0].span.unwrap();
         assert_eq!(
             &base.source_files[0].source[span.start..span.end],
-            "(#u64.+.wrap 20u64 1u64)"
+            "(#u64::add-wrap 20u64 1u64)"
         );
     }
 
@@ -1539,14 +1539,14 @@ mod tests {
             (#return (#struct-literal Held ((view view)))))
           (#fn combine ((held Held) (value #u64)) #u64
             (#let view (#ref #u64) (#get held view))
-            (#forget held) (#return (#u64.+.wrap (#deref view) value)))"
+            (#forget held) (#return (#u64::add-wrap (#deref view) value)))"
         );
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work () #u64
               (#let owner #u64 40u64)
               (#return (#call combine
-                (: value (#await Child Pending Ready step-poll (Waiting 1u64))
+                (: value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))
                  : held (#call make-held (: view (#borrow owner)))))))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1578,8 +1578,8 @@ mod tests {
         let (base, _, lowered) = prepare(
             CONTEXT,
             "(#fn work () #u64
-              (#let child Child (Waiting 1u64))
-              (#let result #u64 (#await Child Pending Ready step-poll child))
+              (#let child Child (Child.Waiting 1u64))
+              (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll child))
               (#return result))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1602,7 +1602,7 @@ mod tests {
         let (base, _, lowered) = prepare(
             CONTEXT,
             "(#fn work () #u64 (#return 1u64)
-              (#let result #u64 (#await Child Pending Ready step-poll (Waiting 1u64)))
+              (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
               (#return result))",
         );
         let program = lowered.program(&base).unwrap();
@@ -1626,7 +1626,7 @@ mod tests {
         let source = include_str!("../../examples/async_fn_local_self_reference.lim").replace(
             "(#struct LocalOwner () ((payload LocalPayload)))",
             "(#struct LocalOwner (#linear) ((payload LocalPayload))) ",
-        ).replace("(#return (#u64.+.wrap (#deref view) result))", "(#let answer #u64 (#u64.+.wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
+        ).replace("(#return (#u64::add-wrap (#deref view) result))", "(#let answer #u64 (#u64::add-wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
         let program = parse(&source).unwrap();
         let mut runtime = program.clone();
         runtime.generator_validation = None;
@@ -1699,8 +1699,8 @@ mod tests {
         let (base, _, lowered) = prepare(
             CONTEXT,
             "(#fn work () #u64
-              (#let first #u64 (#await Child Pending Ready step-poll (Waiting 1u64)))
-              (#return (#await Child Pending Ready step-poll (Waiting first))))",
+              (#let first #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
+              (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first))))",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();

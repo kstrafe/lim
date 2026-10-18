@@ -44,7 +44,7 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                     (
                         "Pair",
                         "(#struct-literal Pair (: left 40u64 : right 2u64))",
-                        "(#u64.+.wrap (#get restored left) (#get restored right))",
+                        "(#u64::add-wrap (#get restored left) (#get restored right))",
                     ),
                 ] {
                     let pin = if pinned { "pin-" } else { "" };
@@ -58,8 +58,8 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                         (#let-mut owner {ty} {init})
                         (#let view (#{pin}ref{suffix} {ty}) (#{pin}borrow{suffix} owner))
                         (#let pointer (#ptr{suffix} {ty}) (#ref-ptr view))
-                        (#assert (#usize.== (#ptr-address pointer) (#ptr-address (#ref-ptr view))))
-                        (#assert (#usize.== (#ptr-address pointer) (#ptr-address (#call extract (: view view)))))
+                        (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#ref-ptr view))))
+                        (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#call extract (: view view)))))
                         (#let restored (#{pin}ref{suffix} {ty})
                           (#unsafe (#{pin}ptr-borrow{suffix} view pointer)))
                         (#drop view)
@@ -85,13 +85,13 @@ fn extraction_does_not_retain_a_loan_and_reference_remains_writable() {
         (#drop view) (#set owner 0u64) (#return pointer))
       (#fn main () #u64
         (#let pointer (#ptr-mut #u64) (#call escape ()))
-        (#assert (#bool.! (#ptr-is-null pointer)))
+        (#assert (#bool::not (#ptr-is-null pointer)))
         (#let-mut value #u64 1u64)
         (#let expected (#ptr-mut #u64) (#unsafe (#addr-of-mut value)))
         (#let view (#ref-mut #u64) (#borrow-mut value))
         (#let address (#ptr-mut #u64) (#ref-ptr view))
-        (#assert (#usize.== (#ptr-address address) (#ptr-address expected)))
-        (#assert (#u64.== (#unsafe (#ptr-read address)) 1u64))
+        (#assert (#usize::eq (#ptr-address address) (#ptr-address expected)))
+        (#assert (#u64::eq (#unsafe (#ptr-read address)) 1u64))
         (#deref-set view 42u64)
         (#return (#deref view)))"#,
         lim::TargetDescription::X86_64_SYSTEM_V,
@@ -109,7 +109,7 @@ fn projected_exclusive_handles_are_lent_without_being_moved() {
             (#let holder Holder (#struct-literal Holder (: view (#{pin}borrow-mut value))))
             (#let first (#ptr-mut #u64) (#ref-ptr (#get holder view)))
             (#let second (#ptr-mut #u64) (#ref-ptr (#get holder view)))
-            (#assert (#usize.== (#ptr-address first) (#ptr-address second)))
+            (#assert (#usize::eq (#ptr-address first) (#ptr-address second)))
             (#let answer #u64 (#deref (#get holder view)))
             (#forget holder) (#return answer))"#
         );

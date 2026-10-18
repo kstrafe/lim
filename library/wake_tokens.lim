@@ -8,8 +8,8 @@
 (#opaque WakeTable4)
 
 (#enum WakeRegister4 ()
-  ((WakeRegistered4 WakeToken4) WakeBusy4 WakeInvalid4 WakeExhausted4))
-(#enum WakeRetire4 () (WakeRetired4 WakeStale4))
+  ((WakeRegister4.WakeRegistered4 WakeToken4) WakeRegister4.WakeBusy4 WakeRegister4.WakeInvalid4 WakeRegister4.WakeExhausted4))
+(#enum WakeRetire4 () (WakeRetire4.WakeRetired4 WakeRetire4.WakeStale4))
 
 (#fn wake-table4-create () WakeTable4
   (#return (#struct-literal WakeTable4
@@ -31,18 +31,18 @@
 
 (#fn wake-table4-register ((table (#ref-mut WakeTable4)) (slot #usize)) WakeRegister4
   (#return
-    (#if (#usize.>= slot 4usize)
-      WakeInvalid4
+    (#if (#usize::ge slot 4usize)
+      WakeRegister4.WakeInvalid4
       (#if (#index (#clone (#get table active)) slot)
-        WakeBusy4
-        (#if (#u64.== (#index (#clone (#get table generations)) slot)
+        WakeRegister4.WakeBusy4
+        (#if (#u64::eq (#index (#clone (#get table generations)) slot)
               18446744073709551615u64)
-          WakeExhausted4
+          WakeRegister4.WakeExhausted4
           (#block
             (#let-mut flags (#array #bool 4) (#clone (#get table active)))
             (#set-index flags slot true)
             (#deref-set (#borrow-mut (#get table active)) flags)
-            (WakeRegistered4 (#struct-literal WakeToken4
+            (WakeRegister4.WakeRegistered4 (#struct-literal WakeToken4
               ((slot slot)
                (generation (#index (#clone (#get table generations)) slot)))))))))))
 
@@ -50,10 +50,10 @@
   (#let slot #usize (#get token slot))
   (#let generation #u64 (#get token generation))
   (#return
-    (#if (#usize.< slot 4usize)
-      (#bool.&&
+    (#if (#usize::lt slot 4usize)
+      (#bool::and
         (#index (#clone (#get table active)) slot)
-        (#u64.== (#index (#clone (#get table generations)) slot)
+        (#u64::eq (#index (#clone (#get table generations)) slot)
           generation))
       false)))
 
@@ -61,11 +61,11 @@
   (#let slot #usize (#get token slot))
   (#let generation #u64 (#get token generation))
   (#return
-    (#if (#usize.>= slot 4usize)
-      WakeStale4
-      (#if (#bool.&&
+    (#if (#usize::ge slot 4usize)
+      WakeRetire4.WakeStale4
+      (#if (#bool::and
             (#index (#clone (#get table active)) slot)
-            (#u64.== (#index (#clone (#get table generations)) slot)
+            (#u64::eq (#index (#clone (#get table generations)) slot)
               generation))
         (#block
           (#let-mut flags (#array #bool 4) (#clone (#get table active)))
@@ -73,7 +73,7 @@
           (#deref-set (#borrow-mut (#get table active)) flags)
           (#let-mut generations (#array #u64 4) (#clone (#get table generations)))
           (#set-index generations slot
-            (#u64.+.saturate (#index generations slot) 1u64))
+            (#u64::add-saturate (#index generations slot) 1u64))
           (#deref-set (#borrow-mut (#get table generations)) generations)
-          WakeRetired4)
-        WakeStale4))))
+          WakeRetire4.WakeRetired4)
+        WakeRetire4.WakeStale4))))

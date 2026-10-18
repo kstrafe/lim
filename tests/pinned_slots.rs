@@ -13,7 +13,7 @@ fn resolve_pin_slot_import(source: &str) -> String {
 #[test]
 fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (#generate #pin-slot (StableU64 StableU64.StableU64::Empty StableU64.StableU64::Full stable-u64-empty stable-u64-take StableU64Insert StableU64Insert.StableU64::Inserted StableU64Insert.StableU64::Occupied stable-u64-try-insert) #u64)
       (#struct Frame (#linear) ((value #u64) (view (#pin-ref #u64)) (payload StableU64)))
 
       (#fn main () #u64
@@ -21,7 +21,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
         (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut frame Frame
           (#struct-literal Frame
-            ((value 41u64) (view external) (payload (StableU64-full 1u64)))))
+            ((value 41u64) (view external) (payload (StableU64.StableU64::Full 1u64)))))
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned view view)
@@ -31,15 +31,15 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
               (: slot (#pin-borrow-mut (#get pinned payload))))))
         (#let extracted #u64
           (#match slot
-            (#case (StableU64-full value) value)
-            (#case StableU64-empty (#unreachable))))
+            (#case (StableU64.StableU64::Full value) value)
+            (#case StableU64.StableU64::Empty (#unreachable))))
         (#let empty-slot StableU64
           (#unsafe
             (#unsafe-call stable-u64-take
               (: slot (#pin-borrow-mut (#get pinned payload))))))
         (#assert (#match empty-slot
-          (#case StableU64-empty true)
-          (#case (StableU64-full unexpected)
+          (#case StableU64.StableU64::Empty true)
+          (#case (StableU64.StableU64::Full unexpected)
             (#block (#forget unexpected) false))))
         (#let observed #u64 (#deref view))
         (#pin-set-field pinned view external)
@@ -48,7 +48,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
         (#forget frame)
         (#drop external)
         (#forget outside)
-        (#return (#u64.+.wrap observed extracted)))";
+        (#return (#u64::add-wrap observed extracted)))";
     let scratch = support::Scratch::new("pinned-linear-slot");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -91,12 +91,12 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
 #[test]
 fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (#generate #pin-slot (StableU64 StableU64.StableU64::Empty StableU64.StableU64::Full stable-u64-empty stable-u64-take StableU64Insert StableU64Insert.StableU64::Inserted StableU64Insert.StableU64::Occupied stable-u64-try-insert) #u64)
       (#struct Frame (#linear) ((payload StableU64)))
 
       (#fn main () ()
         (#let-mut frame Frame
-          (#struct-literal Frame ((payload (StableU64-full 41u64)))))
+          (#struct-literal Frame ((payload (StableU64.StableU64::Full 41u64)))))
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let view (#pin-ref StableU64) (#pin-borrow (#get pinned payload)))
         (#unsafe
@@ -117,30 +117,30 @@ fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
 #[test]
 fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (#generate #pin-slot (StableU64 StableU64.StableU64::Empty StableU64.StableU64::Full stable-u64-empty stable-u64-take StableU64Insert StableU64Insert.StableU64::Inserted StableU64Insert.StableU64::Occupied stable-u64-try-insert) #u64)
       (#fn main () #u64
         (#let-mut slot StableU64 (#call stable-u64-empty (:)))
         (#let pinned (#pin-ref-mut StableU64) (#pin-borrow-mut slot))
         (#let first StableU64Insert
           (#call stable-u64-try-insert (: slot pinned : value 41u64)))
         (#match first
-          (#case StableU64-inserted ())
-          (#case (StableU64-occupied value) (#forget value)))
+          (#case StableU64Insert.StableU64::Inserted ())
+          (#case (StableU64Insert.StableU64::Occupied value) (#forget value)))
         (#let second StableU64Insert
           (#call stable-u64-try-insert (: slot pinned : value 99u64)))
         (#let returned #u64
           (#match second
-            (#case StableU64-inserted (#unreachable))
-            (#case (StableU64-occupied value) value)))
+            (#case StableU64Insert.StableU64::Inserted (#unreachable))
+            (#case (StableU64Insert.StableU64::Occupied value) value)))
         (#let contents StableU64
           (#unsafe (#unsafe-call stable-u64-take (: slot pinned))))
         (#let stored #u64
           (#match contents
-            (#case StableU64-empty (#unreachable))
-            (#case (StableU64-full value) value)))
+            (#case StableU64.StableU64::Empty (#unreachable))
+            (#case (StableU64.StableU64::Full value) value)))
         (#drop pinned)
         (#forget slot)
-        (#return (#u64.+.wrap returned stored)))";
+        (#return (#u64::add-wrap returned stored)))";
     let scratch = support::Scratch::new("pinned-slot-try-insert");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -176,18 +176,18 @@ fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
 #[test]
 fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (#generate #pin-slot (StableU64 StableU64.StableU64::Empty StableU64.StableU64::Full stable-u64-empty stable-u64-take StableU64Insert StableU64Insert.StableU64::Inserted StableU64Insert.StableU64::Occupied stable-u64-try-insert) #u64)
       (#struct Frame (#linear) ((payload StableU64) (view (#pin-ref #u64))))
 
       (#fn main () #u64
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut frame Frame
-          (#struct-literal Frame ((payload (StableU64-full 41u64)) (view external))))
+          (#struct-literal Frame ((payload (StableU64.StableU64::Full 41u64)) (view external))))
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let slot (#pin-ref-mut StableU64) (#pin-borrow-mut (#get pinned payload)))
         (#let payload-view (#pin-ref #u64)
-          (#unsafe (#pin-get-payload-unchecked slot StableU64-full)))
+          (#unsafe (#pin-get-payload-unchecked slot StableU64.StableU64::Full)))
         (#pin-set-field pinned view payload-view)
         (#let observed #u64 (#deref payload-view))
         (#pin-set-field pinned view external)
@@ -220,16 +220,16 @@ fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
 #[test]
 fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (#generate #pin-slot (StableU64 StableU64.StableU64::Empty StableU64.StableU64::Full stable-u64-empty stable-u64-take StableU64Insert StableU64Insert.StableU64::Inserted StableU64Insert.StableU64::Occupied stable-u64-try-insert) #u64)
       (#struct Frame (#linear) ((payload StableU64)))
 
       (#fn main () ()
         (#let-mut frame Frame
-          (#struct-literal Frame ((payload (StableU64-full 41u64)))))
+          (#struct-literal Frame ((payload (StableU64.StableU64::Full 41u64)))))
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let slot (#pin-ref-mut StableU64) (#pin-borrow-mut (#get pinned payload)))
         (#let payload-view (#pin-ref #u64)
-          (#unsafe (#pin-get-payload-unchecked slot StableU64-full)))
+          (#unsafe (#pin-get-payload-unchecked slot StableU64.StableU64::Full)))
         (#unsafe (#unsafe-call stable-u64-take (: slot slot)))
         (#drop payload-view)
         (#drop slot)
@@ -246,9 +246,9 @@ fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
 
 #[test]
 fn pinned_enum_payloads_cannot_be_extracted_by_value() {
-    let source = "(#enum ValueSlot () ((Full #u64) Empty))
+    let source = "(#enum ValueSlot () ((ValueSlot.Full #u64) ValueSlot.Empty))
       (#fn read ((slot (#pin-ref ValueSlot))) #u64
-        (#return (#get-payload slot Full 0)))";
+        (#return (#get-payload slot ValueSlot.Full 0)))";
     let program = parse_program(source).unwrap();
     let error = check_types(&program).unwrap_err();
     assert!(
@@ -259,9 +259,9 @@ fn pinned_enum_payloads_cannot_be_extracted_by_value() {
 
 #[test]
 fn pinned_enum_payload_mut_borrow_requires_mutable_pin() {
-    let source = "(#enum ValueSlot () ((Full #u64) Empty))
+    let source = "(#enum ValueSlot () ((ValueSlot.Full #u64) ValueSlot.Empty))
       (#fn read ((slot (#pin-ref ValueSlot))) (#pin-ref-mut #u64)
-        (#return (#unsafe (#pin-get-payload-unchecked-mut slot Full))))";
+        (#return (#unsafe (#pin-get-payload-unchecked-mut slot ValueSlot.Full))))";
     let program = parse_program(source).unwrap();
     let error = check_types(&program).unwrap_err();
     assert!(

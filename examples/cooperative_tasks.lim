@@ -1,22 +1,22 @@
 (#import "../library/tasks.lim")
 
-(@#task (CountTask CountPoll CountPending CountReady) #u64
-  ((Counting #u64)))
+(#generate #task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
+  ((CountTask.Counting #u64)))
 
 (#fn count-poll ((task CountTask)) CountPoll
   (#return
     (#match task
-      (#case (Counting remaining)
-        (#if (#u64.== (#clone remaining) 0u64)
-          (#block (#forget remaining) (CountReady 21u64))
-          (CountPending (Counting (#u64.-.wrap remaining 1u64))))))))
+      (#case (CountTask.Counting remaining)
+        (#if (#u64::eq (#clone remaining) 0u64)
+          (#block (#forget remaining) (CountPoll.CountReady 21u64))
+          (CountPoll.CountPending (CountTask.Counting (#u64::sub-wrap remaining 1u64))))))))
 
-(@#executor run-counts Counts
-  ((first CountTask CountPoll CountPending CountReady count-poll #u64 first-input)
-   (second CountTask CountPoll CountPending CountReady count-poll #u64 second-input)))
+(#generate #executor run-counts Counts
+  ((first CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 first-input)
+   (second CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input)))
 
 (#fn main () #u64
   (#let results Counts
     (#call run-counts
-      (: first-input (Counting 2u64) : second-input (Counting 3u64))))
-  (#return (#u64.+.wrap (#get results first) (#get results second))))
+      (: first-input (CountTask.Counting 2u64) : second-input (CountTask.Counting 3u64))))
+  (#return (#u64::add-wrap (#get results first) (#get results second))))

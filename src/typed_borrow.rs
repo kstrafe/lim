@@ -3135,7 +3135,7 @@ mod tests {
     fn earlier_reference_argument_blocks_writes_in_later_operands() {
         let source = "(#struct Holder () (: value (#ref-mut #u64) : other (#ref-mut #u64)))
           (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
-            (#return (#u64.+.wrap (#deref view) amount)))
+            (#return (#u64::add-wrap (#deref view) amount)))
           (#fn work (: held Holder) #u64
             (#let answer #u64 (#call read
               (: view (#get held value)
@@ -3386,16 +3386,16 @@ mod tests {
         let source = "(#struct Token () ((value #u64)))
           (#struct RefBox () ((value (#ref Token))))
           (#opaque RefBox)
-          (#enum Maybe () ((Some RefBox) None))
+          (#enum Maybe () ((Maybe.Some RefBox) Maybe.None))
           (#fn wrap ((input (#ref Token))) Maybe
-            (#return (Some (#struct-literal RefBox ((value input))))))
+            (#return (Maybe.Some (#struct-literal RefBox ((value input))))))
           (#fn main () ()
             (#let-mut owner Token (#struct-literal Token ((value 1u64))))
             (#let option Maybe (#call wrap (: input (#borrow owner))))
             (#let result RefBox
               (#match option
-                (#case (Some box) box)
-                (#case None (#unreachable))))
+                (#case (Maybe.Some box) box)
+                (#case Maybe.None (#unreachable))))
             (#drop owner)
             (#forget result)
             (#return ()))";
@@ -3458,12 +3458,12 @@ mod tests {
 
     #[test]
     fn static_returned_loans_are_checked_without_local_borrow_events() {
-        let source = "(#static VALUE #u64 1u64)
-          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow VALUE))))
+        let source = "(#static vALUE #u64 1u64)
+          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow vALUE))))
           (#fn inspect () #u64
             (#let view (#ref #u64) (#call obtain ()))
             (#forget view)
-            (#let observed #u64 (#unsafe VALUE)) (#return observed))";
+            (#let observed #u64 (#unsafe vALUE)) (#return observed))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["inspect"];
@@ -4199,7 +4199,7 @@ mod tests {
             (#let-mut right #u64 2u64)
             (#let view (#ref-mut #u64) (#borrow-mut left))
             (#let copy #u64 (#clone right))
-            (#return (#u64.+.wrap (#deref view) copy)))";
+            (#return (#u64::add-wrap (#deref view) copy)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -4270,7 +4270,7 @@ mod tests {
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
             (#let view (#ref-mut #u64) (#borrow-mut (#get pair-ref left)))
             (#let right #u64 (#get pair-ref right))
-            (#return (#u64.+.wrap (#deref view) right)))";
+            (#return (#u64::add-wrap (#deref view) right)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -4295,25 +4295,25 @@ mod tests {
     #[test]
     fn caller_loop_preserves_initial_and_resumed_exclusive_aggregate_slots() {
         let source = "
-          (#enum LeftSlot () ((LeftEmpty) (LeftFull (#ref-mut #u64))))
-          (#enum RightSlot () ((RightEmpty) (RightFull (#ref-mut #u64))))
+          (#enum LeftSlot () ((LeftSlot.LeftEmpty) (LeftSlot.LeftFull (#ref-mut #u64))))
+          (#enum RightSlot () ((RightSlot.RightEmpty) (RightSlot.RightFull (#ref-mut #u64))))
           (#struct Frame () (: left LeftSlot : right RightSlot))
           (#fn shift (: frame Frame) Frame
             (#let left LeftSlot (#get frame left))
             (#let right RightSlot (#get frame right))
             (#forget frame)
             (#return (#match left
-              (#case (LeftFull view) (#block (#forget right)
-                (#struct-literal Frame (: left LeftEmpty : right (RightFull view)))))
-              (#case LeftEmpty (#match right
-                (#case (RightFull view)
-                  (#struct-literal Frame (: left LeftEmpty : right (RightFull view))))
-                (#case RightEmpty
-                  (#struct-literal Frame (: left LeftEmpty : right RightEmpty))))))))
+              (#case (LeftSlot.LeftFull view) (#block (#forget right)
+                (#struct-literal Frame (: left LeftSlot.LeftEmpty : right (RightSlot.RightFull view)))))
+              (#case LeftSlot.LeftEmpty (#match right
+                (#case (RightSlot.RightFull view)
+                  (#struct-literal Frame (: left LeftSlot.LeftEmpty : right (RightSlot.RightFull view))))
+                (#case RightSlot.RightEmpty
+                  (#struct-literal Frame (: left LeftSlot.LeftEmpty : right RightSlot.RightEmpty))))))))
           (#fn run (: count #u64) #u64
             (#let-mut owner #u64 40u64)
             (#let-mut frame Frame (#struct-literal Frame
-              (: left (LeftFull (#borrow-mut owner)) : right RightEmpty)))
+              (: left (LeftSlot.LeftFull (#borrow-mut owner)) : right RightSlot.RightEmpty)))
             (#for-range (turn #u64) 0u64 count
               (#let next Frame (#call shift (: frame frame)))
               (#set frame next))
@@ -4341,7 +4341,7 @@ mod tests {
     #[test]
     fn two_shared_direct_borrows_are_allowed() {
         let source = "(#fn inspect ((left (#ref #u64)) (right (#ref #u64))) #u64
-            (#return (#u64.+.wrap (#deref left) (#deref right))))
+            (#return (#u64::add-wrap (#deref left) (#deref right))))
           (#fn main () #u64
             (#let value #u64 1u64)
             (#return (#call inspect (: left (#borrow value) : right (#borrow value)))))";
@@ -4563,13 +4563,13 @@ mod tests {
 
     #[test]
     fn borrow_inside_enum_argument_conflicts_with_another_argument() {
-        let source = "(#enum Holder () ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Holder.Has (#ref #u64))))
           (#fn inspect ((left Holder) (right (#ref-mut #u64))) #u64
-            (#let-else (Has item) Holder left (#return 0u64))
+            (#let-else (Holder.Has item) Holder left (#return 0u64))
             (#drop item) (#drop right) (#return 0u64))
           (#fn main () #u64
             (#let-mut value #u64 1u64)
-            (#return (#call inspect (: left (Has (#borrow value)) : right (#borrow-mut value)))))";
+            (#return (#call inspect (: left (Holder.Has (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -4706,14 +4706,14 @@ mod tests {
 
     #[test]
     fn enum_payload_destructuring_retains_loan_paths() {
-        let source = "(#enum Holder () ((Held (#ref #u64)) (Empty)))
+        let source = "(#enum Holder () ((Holder.Held (#ref #u64)) (Holder.Empty)))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
             (#let-mut value #u64 1u64)
             (#let-mut other #u64 2u64)
-            (#let holder Holder (Held (#borrow value)))
-            (#let-else (Held left) Holder holder (#return 0u64))
+            (#let holder Holder (Holder.Held (#borrow value)))
+            (#let-else (Holder.Held left) Holder holder (#return 0u64))
             (#return (#call inspect
               (: left left : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
@@ -4727,17 +4727,17 @@ mod tests {
 
     #[test]
     fn enum_match_binding_retains_payload_loan_path() {
-        let source = "(#enum Holder () ((Held (#ref #u64)) (Empty)))
+        let source = "(#enum Holder () ((Holder.Held (#ref #u64)) (Holder.Empty)))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
             (#let-mut value #u64 1u64)
             (#let-mut other #u64 2u64)
-            (#let holder Holder (Held (#borrow value)))
+            (#let holder Holder (Holder.Held (#borrow value)))
             (#return (#match holder
-              (#case (Held left)
+              (#case (Holder.Held left)
                 (#call inspect (: left left : right (#borrow-mut value))))
-              (#case Empty 0u64))))";
+              (#case Holder.Empty 0u64))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -4996,11 +4996,12 @@ mod tests {
         assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
         assert!(combine(alternatives, shared(2), "inspect", None).is_ok());
 
-        let source = "(#enum Choice () ((First (#ref-mut #u64)) (Second (#ref-mut #u64))))
+        let source =
+            "(#enum Choice () ((Choice.First (#ref-mut #u64)) (Choice.Second (#ref-mut #u64))))
             (#fn inspect ((choice Choice)) #u64
               (#return (#match choice
-                (#case (First first) (#block (#drop first) 0u64))
-                (#case (Second second) (#block (#drop second) 0u64)))))";
+                (#case (Choice.First first) (#block (#drop first) 0u64))
+                (#case (Choice.Second second) (#block (#drop second) 0u64)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["inspect"];

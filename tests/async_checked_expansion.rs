@@ -4,23 +4,23 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const SOURCE: &str = "
-  (#enum Child (#linear) ((Start #u64) (Resume #u64)))
-  (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+  (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
+  (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
-      (#case (Start value) (Pending (Resume value)))
-      (#case (Resume value) (Ready value)))))
-  (@#async-fn (: protocol WorkAwait : waker #u64
+      (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
+      (#case (Child.Resume value) (ChildPoll.Ready value)))))
+  (#generate #async-fn (: protocol WorkAwait : waker #u64
     : function (#fn work (: seed #u64) #u64
-      (#return (#await Child Pending Ready child-poll (Start seed))))))
+      (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))
   (#fn main () #u64
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll
       (: task (#call work (: seed 42u64)) : waker (#borrow waker))))
-    (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+    (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
     (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending bad) (#block (#forget bad) (#unreachable))))))";
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -111,7 +111,7 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
     let invocation = lim::parse(SOURCE)
         .unwrap()
         .into_iter()
-        .find(|node| SOURCE[node.span.start..node.span.end].starts_with("(@#async-fn"))
+        .find(|node| SOURCE[node.span.start..node.span.end].starts_with("(#generate #async-fn"))
         .unwrap();
     // Also import the inspectable output as ordinary Lim: source planning must
     // not be the only thing preventing edits to the generated representation.
@@ -156,9 +156,9 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
             for source in [caller.as_str(), SOURCE] {
                 let invalid = source
                     .replace(
-                        "(#let-else (Work::Pending next) Work::Poll first (#unreachable))",
+                        "(#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))",
                         &format!(
-                    "(#let-else (Work::Pending next) Work::Poll first (#unreachable)) {edit}"
+                    "(#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable)) {edit}"
                 ),
                     )
                     .replace(": task next", &format!(": task {receiver}"));

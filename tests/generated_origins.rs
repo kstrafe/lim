@@ -53,8 +53,16 @@ fn absolute_origin(root: &Path, file: &str, line: usize) -> String {
 fn identical_builtin_invocations_from_imports_share_an_artifact_and_keep_both_origins() {
     let scratch = support::Scratch::new("generated-origins-builtin");
     let root = scratch.path();
-    write_module(root, "a.lim", "(@#optional (: type #u64 : name Shared?))\n");
-    write_module(root, "b.lim", "(@#optional (: type #u64 : name Shared?))\n");
+    write_module(
+        root,
+        "a.lim",
+        "(#generate #optional (: type #u64 : name Shared?))\n",
+    );
+    write_module(
+        root,
+        "b.lim",
+        "(#generate #optional (: type #u64 : name Shared?))\n",
+    );
     write_module(
         root,
         "main.lim",
@@ -64,7 +72,7 @@ fn identical_builtin_invocations_from_imports_share_an_artifact_and_keep_both_or
     let generated = materialize(root, "main.lim", "generated", "cache");
     let artifact = generated
         .iter()
-        .find(|source| source.contains("Shared?-construct"))
+        .find(|source| source.contains("Shared?::construct"))
         .expect("optional expansion was materialized");
     assert_eq!(
         generated.len(),
@@ -89,8 +97,16 @@ fn identical_user_generator_calls_from_imports_keep_both_origins() {
         "defs.lim",
         "(#gn emit-shared () `((#type Shared #u64)))\n",
     );
-    write_module(root, "a.lim", "(#import \"defs.lim\")\n(@emit-shared)\n");
-    write_module(root, "b.lim", "(#import \"defs.lim\")\n(@emit-shared)\n");
+    write_module(
+        root,
+        "a.lim",
+        "(#import \"defs.lim\")\n(#generate emit-shared)\n",
+    );
+    write_module(
+        root,
+        "b.lim",
+        "(#import \"defs.lim\")\n(#generate emit-shared)\n",
+    );
     write_module(
         root,
         "main.lim",
@@ -123,14 +139,18 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
     write_module(
         root,
         "defs.lim",
-        "(#gn child (name) `((#type ,name #u64)))\n(#gn parent (name) `((@child ,name)))\n",
+        "(#gn child (name) `((#type ,name #u64)))\n(#gn parent (name) `((#generate child ,name)))\n",
     );
     write_module(
         root,
         "a.lim",
-        "(#import \"defs.lim\")\n(@parent First)\n(@child Second)\n",
+        "(#import \"defs.lim\")\n(#generate parent First)\n(#generate child Second)\n",
     );
-    write_module(root, "b.lim", "(#import \"defs.lim\")\n(@parent First)\n");
+    write_module(
+        root,
+        "b.lim",
+        "(#import \"defs.lim\")\n(#generate parent First)\n",
+    );
     write_module(
         root,
         "main.lim",
@@ -201,7 +221,7 @@ fn inspectable_user_generator_output_cannot_be_silently_discarded() {
     let cache = root.join("cache");
     fs::write(&cache, "this is a file, not a cache directory").unwrap();
     let result = lim::write_generated_sources_from_path_with_config_and_cache(
-        "(#gn emit () `((#type Value #u64))) (@emit)",
+        "(#gn emit () `((#type Value #u64))) (#generate emit)",
         &root.join("main.lim"),
         &root.join("generated"),
         &lim::CompileConfig::default(),
@@ -220,8 +240,8 @@ fn duplicate_invocations_load_once_and_publish_all_origins_once() {
     let input = root.join("main.lim");
     let cache = root.join("cache");
     let source = format!(
-        "(#gn child () `((#type Shared #u64)))\n(#gn parent () `((@child)))\n{}",
-        "(@parent)\n".repeat(64)
+        "(#gn child () `((#type Shared #u64)))\n(#gn parent () `((#generate child)))\n{}",
+        "(#generate parent)\n".repeat(64)
     );
     let run = |source: &str| {
         lim::with_cache_report(|| {
@@ -273,7 +293,7 @@ fn repeated_builtin_materialization_uses_one_cache_lookup() {
     let scratch = support::Scratch::new("builtin-ram-lookup");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(@#optional (: type #u64 : name Shared))\n".repeat(64);
+    let source = "(#generate #optional (: type #u64 : name Shared))\n".repeat(64);
     let run = || {
         lim::with_cache_report(|| {
             lim::write_generated_sources_from_path_with_config_and_cache(
@@ -307,10 +327,18 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     write_module(
         root,
         "defs.lim",
-        "(#gn wrap-shared () `((@#optional (: type #u64 : name Nested?))))\n",
+        "(#gn wrap-shared () `((#generate #optional (: type #u64 : name Nested?))))\n",
     );
-    write_module(root, "a.lim", "(#import \"defs.lim\")\n(@wrap-shared)\n");
-    write_module(root, "b.lim", "(#import \"defs.lim\")\n(@wrap-shared)\n");
+    write_module(
+        root,
+        "a.lim",
+        "(#import \"defs.lim\")\n(#generate wrap-shared)\n",
+    );
+    write_module(
+        root,
+        "b.lim",
+        "(#import \"defs.lim\")\n(#generate wrap-shared)\n",
+    );
     write_module(
         root,
         "main.lim",
@@ -331,12 +359,14 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     ];
     let artifact = warm
         .iter()
-        .find(|source| source.contains("Nested?-construct"))
+        .find(|source| source.contains("Nested?::construct"))
         .expect("nested optional expansion was materialized");
     assert_origins(artifact, &origins);
     let invocation = warm
         .iter()
-        .find(|source| source.contains("(@ #optional") && !source.contains("Nested?-construct"))
+        .find(|source| {
+            source.contains("(#generate #optional") && !source.contains("Nested?::construct")
+        })
         .expect("nested user-generator invocation was materialized");
     assert_origins(invocation, &origins);
 }
@@ -345,8 +375,16 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
 fn warm_generation_retains_one_artifact_and_its_deduplicated_origins() {
     let scratch = support::Scratch::new("generated-origins-warm");
     let root = scratch.path();
-    write_module(root, "a.lim", "(@#optional (: type #u64 : name Warm?))\n");
-    write_module(root, "b.lim", "(@#optional (: type #u64 : name Warm?))\n");
+    write_module(
+        root,
+        "a.lim",
+        "(#generate #optional (: type #u64 : name Warm?))\n",
+    );
+    write_module(
+        root,
+        "b.lim",
+        "(#generate #optional (: type #u64 : name Warm?))\n",
+    );
     write_module(
         root,
         "main.lim",
@@ -377,7 +415,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         .into_iter()
         .find(|node| {
             matches!(&node.expr, lim::Expr::List(items)
-            if matches!(items.first(), Some(lim::Expr::At))
+            if matches!(items.first(), Some(lim::Expr::Generate))
                 && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "#async-fn"))
         })
         .expect("example contains an async generator invocation")

@@ -25,7 +25,7 @@ fn and(left: Expr, right: Expr) -> Expr {
     } else if right == symbol("true") {
         left
     } else {
-        form("#bool.&&", [left, right])
+        form("#bool::and", [left, right])
     }
 }
 
@@ -45,7 +45,7 @@ impl Inspector<'_> {
             return Ok(symbol("true"));
         }
         let name = loop {
-            let candidate = format!("{}.{}", self.prefix, self.next);
+            let candidate = format!("{}-{}", self.prefix, self.next);
             self.next += 1;
             if self.reserved.insert(candidate.clone()) {
                 break candidate;
@@ -75,7 +75,10 @@ impl Inspector<'_> {
                 // than constructing nested copies of its pin handle.
                 let mut result = self.inspect(alternatives.next().unwrap(), ty, handle)?;
                 for alternative in alternatives {
-                    result = form("#bool.||", [result, self.inspect(alternative, ty, handle)?]);
+                    result = form(
+                        "#bool::or",
+                        [result, self.inspect(alternative, ty, handle)?],
+                    );
                 }
                 return Ok(result);
             }
@@ -431,11 +434,11 @@ mod tests {
     #[test]
     fn borrowed_inspection_never_emits_an_owning_read_or_consumption() {
         let source = "(#struct Payload (#linear) ((value #u64)))
-          (#enum Choice (#linear) ((Some Payload) Empty))
+          (#enum Choice (#linear) ((Choice.Some Payload) Choice.Empty))
           (#fn unused () () (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let pattern = crate::parse("(Some (Payload 42u64))")
+        let pattern = crate::parse("(Choice.Some (Payload 42u64))")
             .unwrap()
             .remove(0)
             .expr;
@@ -445,7 +448,7 @@ mod tests {
             &Type::Named("Choice".into()),
             symbol("value"),
             "inspect",
-            &mut HashSet::from(["inspect.0".into()]),
+            &mut HashSet::from(["inspect-0".into()]),
         )
         .unwrap();
         let text = crate::expression_source(&expression).unwrap();
@@ -454,14 +457,14 @@ mod tests {
         }
         assert!(text.contains("#variant-is"), "{text}");
         assert!(text.contains("#pin-get-payload-unchecked"), "{text}");
-        assert!(!text.contains("(#let inspect.0 "), "{text}");
+        assert!(!text.contains("(#let inspect-0 "), "{text}");
         let checked_source = format!(
             "{source}
           (#fn inspect ((value (#pin-ref Choice))) #bool (#return {text}))"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&checked_source).unwrap()).unwrap();
 
-        let alternative = crate::parse("(#or (Some (Payload 42u64)) Empty)")
+        let alternative = crate::parse("(#or (Choice.Some (Payload 42u64)) Choice.Empty)")
             .unwrap()
             .remove(0)
             .expr;
@@ -484,10 +487,11 @@ mod tests {
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
 
-        let literal_alternatives = crate::parse("(#or (Some (Payload (#literal #u64 42))) Empty)")
-            .unwrap()
-            .remove(0)
-            .expr;
+        let literal_alternatives =
+            crate::parse("(#or (Choice.Some (Payload (#literal #u64 42))) Choice.Empty)")
+                .unwrap()
+                .remove(0)
+                .expr;
         assert!(preview(
             checked.declarations(),
             &literal_alternatives,

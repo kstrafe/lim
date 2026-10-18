@@ -1,10 +1,10 @@
-; Ordinary Pending results cannot export a reference to consumed storage.
+; Ordinary PendingResult.Pending results cannot export a reference to consumed storage.
 ; This is a negative architecture control, not generated async output.
 (#struct Token (#linear) (: value #u64))
 
-(#enum PendingResult () ((Pending (#pin-ref-mut Token))))
+(#enum PendingResult () ((PendingResult.Pending (#pin-ref-mut Token))))
 (#fn suspend (: item (#pin-ref-mut Token)) PendingResult
   (#let old Token (#unsafe (#pin-read item)))
   (#forget old)
-  (#return (Pending item)))
+  (#return (PendingResult.Pending item)))
 (#fn main () #u64 (#return 42u64))

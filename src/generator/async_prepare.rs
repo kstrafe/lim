@@ -321,10 +321,10 @@ mod tests {
     use crate::Type;
 
     const CONTEXT: &str = "
-      (#enum Child (#linear) ((Waiting #u64)))
-      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Child.Waiting #u64)))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
-        (#return (#match task (#case (Waiting count) (ChildReady count)))))";
+        (#return (#match task (#case (Child.Waiting count) (ChildPoll.ChildReady count)))))";
 
     fn syntax(source: &str) -> PreparedProgramSyntax {
         crate::prepare_program_syntax(
@@ -340,7 +340,7 @@ mod tests {
     fn work(body: &str) -> String {
         format!(
             "{CONTEXT}\n
-          (@#async-fn (: protocol work-await : waker #u64
+          (#generate #async-fn (: protocol work-await : waker #u64
             : function (#fn work ((choose #bool)) #u64 {body})))"
         )
     }
@@ -349,9 +349,9 @@ mod tests {
     fn source_ownership_and_emission_share_classification_for_all_functions() {
         let text = format!(
             "{}
-          (@#async-fn (: protocol OtherAwait : waker #u64
+          (#generate #async-fn (: protocol OtherAwait : waker #u64
             : function (#fn other () #u64 (#return 42u64))))",
-            work("1u64 (#return (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))")
+            work("1u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))")
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 2);
@@ -372,8 +372,8 @@ mod tests {
             (#if choose
               (#block
                 (#for-range (index #usize) 0usize 3usize
-                  (#set total (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))
-                  (#if (#usize.== index 1usize) (#block (#break-to outer) (#unreachable)) ()))
+                  (#set total (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))
+                  (#if (#usize::eq index 1usize) (#block (#break-to outer) (#unreachable)) ()))
                 (#continue-to outer))
               (#block (#break-to outer) (#unreachable)))))
           (#return total)",
@@ -405,7 +405,7 @@ mod tests {
         let text = work(
             "
           (#let value #u64 (#if choose
-            (#await Child ChildPending ChildReady step-poll (Waiting 1u64))
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64))
             true))
           (#return value)",
         );
@@ -420,10 +420,10 @@ mod tests {
     fn async_calls_use_deferred_interfaces_not_fake_definitions() {
         let text = format!(
             "{CONTEXT}
-          (@#async-fn (: protocol FirstAwait : waker #u64 : function (#fn first ((seed #u64)) #u64
-              (#return (#await Child ChildPending ChildReady step-poll (Waiting seed))))))
-          (@#async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((seed #u64)) #u64
-              (#return (#await First::Task First::Pending First::Ready First::poll
+          (#generate #async-fn (: protocol FirstAwait : waker #u64 : function (#fn first ((seed #u64)) #u64
+              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed))))))
+          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((seed #u64)) #u64
+              (#return (#await First::Task First::Poll.Pending First::Poll.Ready First::poll
                 (#call first (: seed seed)))))))"
         );
         let planning = prepare(&syntax(&text)).unwrap();
@@ -444,8 +444,8 @@ mod tests {
     fn deferred_frame_has_no_fields_until_physical_layout_exists() {
         let text = format!(
             "{CONTEXT}
-          (@#async-fn (: protocol FirstAwait : waker #u64 : function (#fn first () #u64 (#return 1u64))))
-          (@#async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((child First::Task)) #u64
+          (#generate #async-fn (: protocol FirstAwait : waker #u64 : function (#fn first () #u64 (#return 1u64))))
+          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((child First::Task)) #u64
               (#return (#get child state)))))"
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn rejects_generated_name_conflicting_with_non_async_builtin() {
         let text = format!(
-            "(@#optional (: type #u64 : name Work::Task)) {}",
+            "(#generate #optional (: type #u64 : name Work::Task)) {}",
             work("(#return 1u64)")
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -466,12 +466,12 @@ mod tests {
     #[test]
     fn non_async_generated_declarations_are_available_before_source_planning() {
         let text = format!(
-            "(@#optional (: type #u64 : name Maybe)) {}",
+            "(#generate #optional (: type #u64 : name Maybe)) {}",
             work(
                 "
-          (#let optional Maybe (#call Maybe-construct (: value
-            (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))))
-          (#return (#call Maybe-unwrap-or (: value optional : fallback 0u64)))"
+          (#let optional Maybe (#call Maybe::construct (: value
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))))
+          (#return (#call Maybe::unwrap-or (: value optional : fallback 0u64)))"
             )
         );
         let planning = prepare(&syntax(&text)).unwrap();
@@ -482,9 +482,12 @@ mod tests {
             .any(|item| matches!(item, Item::Enum { name, .. } if name == "Maybe")));
         assert!(planning
             .declarations
-            .function_id("Maybe-construct")
+            .function_id("Maybe::construct")
             .is_some());
-        assert!(!planning.declarations.bodies.contains_key("Maybe-construct"));
+        assert!(!planning
+            .declarations
+            .bodies
+            .contains_key("Maybe::construct"));
         assert_eq!(planning.functions[0].graph.awaits.len(), 1);
     }
 
@@ -496,7 +499,7 @@ mod tests {
         let error = prepare(&syntax(&text)).err().unwrap();
         assert!(error.message.contains("conflict"), "{error:?}");
         let span = error.span.unwrap();
-        assert!(span.start > text.find("(@#async-fn").unwrap());
+        assert!(span.start > text.find("(#generate #async-fn").unwrap());
     }
 
     #[test]
@@ -504,11 +507,11 @@ mod tests {
         let text = format!(
             "{CONTEXT}
           (#gn produce ()
-            `( (@#async-fn
+            `( (#generate #async-fn
               (: protocol work-await : waker #u64
                : function (#fn work ((seed #u64)) #u64
-                 (#return (#await Child ChildPending ChildReady step-poll (Waiting seed)))))) ))
-          (@produce)"
+                 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed)))))) ))
+          (#generate produce)"
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 1);
@@ -527,14 +530,14 @@ mod tests {
     #[test]
     fn unsafe_child_poll_requires_explicit_original_unsafe_scope() {
         let text =
-            work("(#return (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))")
+            work("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))")
                 .replace("(#fn step-poll", "(#unsafe-fn step-poll");
         let error = prepare(&syntax(&text)).err().unwrap();
         assert_eq!(error.code, DiagnosticCode::Unsafe);
         assert!(error.message.contains("unsafe"), "{error:?}");
         let safe = text
             .replace("(#return (#await", "(#return (#unsafe (#await")
-            .replace("(Waiting 1u64)))))", "(Waiting 1u64))))))");
+            .replace("(Child.Waiting 1u64)))))", "(Child.Waiting 1u64))))))");
         prepare(&syntax(&safe)).unwrap();
     }
 }

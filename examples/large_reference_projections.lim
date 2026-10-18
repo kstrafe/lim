@@ -1,8 +1,8 @@
 (#struct Wide () ((byte #u8) (a #u64) (single #f32) (pair #u128) (empty ()) (short #i16) (double #f64) (g #u64) (h #u64)))
 (#struct Inner () ((wide Wide) (tag #u16)))
 (#struct Outer () ((inner Inner) (tail #u64)))
-(#enum WidePayload () ((Value Wide) Empty))
-(#static GlobalOuter Outer
+(#enum WidePayload () ((WidePayload.Value Wide) WidePayload.Empty))
+(#static globalOuter Outer
   (#struct-literal Outer
     ((inner
       (#struct-literal Inner
@@ -25,18 +25,18 @@
   (#let outer-reference (#ref Outer) (#borrow outer))
   (#let struct-projection Wide (#get (#get outer-reference inner) wide))
   (#let payload WidePayload
-    (Value
+    (WidePayload.Value
       (#struct-literal Wide
         ((byte 1u8) (a 2u64) (single 3.0f32) (pair 4u128)
          (empty ()) (short 5i16) (double 6.0f64) (g 7u64) (h 22u64)))))
   (#let payload-reference (#ref WidePayload) (#borrow payload))
   (#let enum-projection Wide
-    (#get-payload payload-reference Value 0))
+    (#get-payload payload-reference WidePayload.Value 0))
   (#let global-reference (#ref Outer)
-    (#unsafe (#borrow GlobalOuter)))
+    (#unsafe (#borrow globalOuter)))
   (#let global-projection Wide
     (#get (#get global-reference inner) wide))
-  (#return (#u64.+.wrap
-    (#u64.+.wrap (#get struct-projection h) (#get enum-projection h))
-    (#if (#u64.== (#get global-projection h) (#clone (#get struct-projection h)))
+  (#return (#u64::add-wrap
+    (#u64::add-wrap (#get struct-projection h) (#get enum-projection h))
+    (#if (#u64::eq (#get global-projection h) (#clone (#get struct-projection h)))
       0u64 1u64))))

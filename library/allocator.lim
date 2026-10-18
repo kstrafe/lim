@@ -14,18 +14,18 @@
     (#gn-if (#gn-equal
       (#gn-for-each key keys (#gn-if (#gn-equal (#gn-first option) key) true false))
       (#gn-for-each key keys false))
-      (#gn-error "@#allocator-for has an unknown named option") ())
-    (#gn-error "@#allocator-for options must be (key value) pairs")))
+      (#gn-error "#generate #allocator-for has an unknown named option") ())
+    (#gn-error "#generate #allocator-for options must be (key value) pairs")))
 
 (#gn-fn allocator-for-result (root value-type name allocation)
   `(#match ,allocation
-    (#case (,(#gn-symbol-append root "Allocated") allocated-pointer)
+    (#case (,(#gn-variant (#gn-symbol-append root "Allocation") "Allocated") allocated-pointer)
       (#block
         (#let allocated-bytes (#ptr-mut #u8) allocated-pointer)
-        (,(#gn-symbol-append name "Allocated")
+        (,(#gn-variant (#gn-symbol-append name "Allocation") "Allocated")
           (#unsafe (#asm (#ptr-mut ,value-type) ((rdi allocated-bytes)) "mov rax, rdi")))))
-    (#case (,(#gn-symbol-append root "AllocationFailed") error)
-      (,(#gn-symbol-append name "AllocationFailed") error))))
+    (#case (,(#gn-variant (#gn-symbol-append root "Allocation") "AllocationFailed") error)
+      (,(#gn-variant (#gn-symbol-append name "Allocation") "AllocationFailed") error))))
 
 (#gn-fn allocator-for-allocate (root value-type name)
   `(#fn ,(#gn-symbol-append name "allocate")
@@ -66,14 +66,14 @@
       (#gn-call allocator-for-grow root value-type name)
       (#gn-if (#gn-equal operation deallocate)
         (#gn-call allocator-for-deallocate root value-type name)
-        (#gn-error "@#allocator-for unknown operation; expected allocate, grow or deallocate")))))
+        (#gn-error "#generate #allocator-for unknown operation; expected allocate, grow or deallocate")))))
 
 (#gn-fn allocator-for-build (root value-type name operations checked)
   `((#type ,(#gn-symbol-append name "State") ,(#gn-symbol-append root "State"))
     (#type ,(#gn-symbol-append name "Error") ,(#gn-symbol-append root "Error"))
     (#enum ,(#gn-symbol-append name "Allocation") (#linear)
-      ((,(#gn-symbol-append name "Allocated") (#ptr-mut ,value-type))
-       (,(#gn-symbol-append name "AllocationFailed") ,(#gn-symbol-append name "Error"))))
+      ((,(#gn-variant (#gn-symbol-append name "Allocation") "Allocated") (#ptr-mut ,value-type))
+       (,(#gn-variant (#gn-symbol-append name "Allocation") "AllocationFailed") ,(#gn-symbol-append name "Error"))))
     ,@(#gn-for-each operation operations
       (#gn-call allocator-for-operation root value-type name operation))))
 

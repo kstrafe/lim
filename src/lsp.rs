@@ -1022,7 +1022,7 @@ fn import_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> 
             continue;
         }
         let head = expression.children.first().map(|e| &e.expr);
-        if matches!(head, Some(Expr::At))
+        if matches!(head, Some(Expr::Generate))
             || matches!(head, Some(Expr::Symbol(name)) if name == "#gn" || name == "#gn-fn")
         {
             continue;
@@ -1180,8 +1180,8 @@ fn declaration_name_index(expression: &SpannedExpr) -> usize {
         1
     }
 }
-// The @ token and generator name have distinct navigation roles. Use token
-// spans rather than the containing list: @ may occur on a later line.
+// The #generate token and generator name have distinct navigation roles. Use token
+// spans rather than the containing list: #generate may occur on a later line.
 fn generator_reference(expressions: &[SpannedExpr], byte: usize) -> Option<(Span, Option<String>)> {
     for expression in expressions {
         if byte < expression.span.start || byte >= expression.span.end {
@@ -1197,7 +1197,7 @@ fn generator_reference(expressions: &[SpannedExpr], byte: usize) -> Option<(Span
         if let Some(at) = expression
             .children
             .first()
-            .filter(|child| matches!(child.expr, Expr::At))
+            .filter(|child| matches!(child.expr, Expr::Generate))
         {
             if at.span.start <= byte && byte < at.span.end {
                 return Some((at.span, None));
@@ -1262,7 +1262,7 @@ fn case_variant_reference(expressions: &[SpannedExpr], byte: usize) -> Option<St
         }
         let head = node.children.first().map(|child| &child.expr);
         if matches!(head, Some(Expr::Symbol(name)) if matches!(name.as_str(), "#gn" | "#gn-fn"))
-            || matches!(head, Some(Expr::At))
+            || matches!(head, Some(Expr::Generate))
         {
             continue;
         }
@@ -1344,7 +1344,7 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             _ => None,
         });
         if matches!(head, Some("#gn" | "#gn-fn"))
-            || matches!(expr.children.first().map(|e| &e.expr), Some(Expr::At))
+            || matches!(expr.children.first().map(|e| &e.expr), Some(Expr::Generate))
         {
             continue;
         }
@@ -1579,7 +1579,8 @@ pub fn path_to_uri(path: &Path) -> Option<String> {
 mod tests {
     #[test]
     fn distributed_enum_declarations_and_payloads_are_indexed() {
-        let source = "(#distributed-enum Error ()) (#enum-contribute Error (Failure Payload))";
+        let source =
+            "(#distributed-enum Error ()) (#enum-contribute Error (Error.Failure Payload))";
         let definitions = super::declarations(source);
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "Error");
@@ -1587,12 +1588,20 @@ mod tests {
         let forms = crate::parse(source).unwrap();
         for name in ["Error", "Payload"] {
             assert_eq!(
-                super::type_reference(&forms, source.rfind(name).unwrap()).as_deref(),
+                super::type_reference(
+                    &forms,
+                    if name == "Error" {
+                        source.rfind("Error (").unwrap()
+                    } else {
+                        source.rfind(name).unwrap()
+                    }
+                )
+                .as_deref(),
                 Some(name)
             );
         }
         assert_eq!(
-            super::type_reference(&forms, source.find("Failure").unwrap()),
+            super::type_reference(&forms, source.find("Error.Failure").unwrap()),
             None
         );
     }
@@ -1602,7 +1611,7 @@ mod tests {
     fn generated_diagnostic_uses_file_invocation_and_related_provenance() {
         let root = Document {
             path: PathBuf::from("/tmp/lsp-generated-root.lim"),
-            text: "😀\n(@broken)".into(),
+            text: "😀\n(#generate broken)".into(),
             version: 1,
         };
         let invocation = Span {

@@ -2,68 +2,68 @@
 (#import "../library/linux_x86_64.lim")
 (#import "../library/cell.lim")
 
-(@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
     (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
-    (#assert (#i64.==
+    (#assert (#i64::eq
       (#call linux-write-byte (: source (#borrow byte))) 1i64)))
   (#return ()))
 
 ; A small wake context: the child records each time it asks to be polled again.
 (#struct Wake () ((notifications CellU64)))
 
-(@#task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(#generate #task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref Wake))) StepPoll
   (#return (#match task
-    (#case (Waiting remaining)
-      (#if (#u64.== (#clone remaining) 0u64)
-        (#block (#forget remaining) (StepReady 20u64))
+    (#case (Step.Waiting remaining)
+      (#if (#u64::eq (#clone remaining) 0u64)
+        (#block (#forget remaining) (StepPoll.StepReady 20u64))
         (#block
-          (#call CellU64-set (: cell (#borrow (#get waker notifications)) : value (#u64.+.wrap
-              (#call CellU64-get (: cell (#borrow (#get waker notifications))))
+          (#call CellU64::set (: cell (#borrow (#get waker notifications)) : value (#u64::add-wrap
+              (#call CellU64::get (: cell (#borrow (#get waker notifications))))
               1u64)))
-          (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
+          (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))))))))
 
-; @#async-fn generates Two-steps::Task, Two-steps::Poll, and the start/poll functions.
+; #generate #async-fn generates Two-steps::Task, Two-steps::Poll, and the start/poll functions.
 ; #async-fn infers which locals must live across each suspension point.
-(@#async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
-    (#let first Step (Waiting 1u64))
+(#generate #async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
+    (#let first Step (Step.Waiting 1u64))
     (#let left #u64
-      (#await Step StepPending StepReady step-poll first))
-    (#let second Step (Waiting 1u64))
+      (#await Step StepPoll.StepPending StepPoll.StepReady step-poll first))
+    (#let second Step (Step.Waiting 1u64))
     (#let right #u64
-      (#await Step StepPending StepReady step-poll second))
-    (#return (#u64.+.wrap (#u64.+.wrap left right) extra)))))
+      (#await Step StepPoll.StepPending StepPoll.StepReady step-poll second))
+    (#return (#u64::add-wrap (#u64::add-wrap left right) extra)))))
 
 (#fn main () #u64
   (#let start (#array #char 6) "start\n")
   (#call print-text (: text (#borrow-slice start)))
   (#let wake Wake (#struct-literal Wake ((notifications
-    (#call CellU64-create (: value 0u64))))))
+    (#call CellU64::create (: value 0u64))))))
   (#let first Two-steps::Poll
     (#call Two-steps::poll (: task (#call two-steps (: extra 0u64)) : waker (#borrow wake))))
-  (#let-else (Two-steps::Pending state1) Two-steps::Poll first (#unreachable))
+  (#let-else (Two-steps::Poll.Pending state1) Two-steps::Poll first (#unreachable))
   (#let first-pending (#array #char 16) "poll 1: pending\n")
   (#call print-text (: text (#borrow-slice first-pending)))
   (#let second Two-steps::Poll
     (#call Two-steps::poll (: task state1 : waker (#borrow wake))))
-  (#let-else (Two-steps::Pending state2) Two-steps::Poll second (#unreachable))
+  (#let-else (Two-steps::Poll.Pending state2) Two-steps::Poll second (#unreachable))
   (#let second-pending (#array #char 16) "poll 2: pending\n")
   (#call print-text (: text (#borrow-slice second-pending)))
   (#let third Two-steps::Poll
     (#call Two-steps::poll (: task state2 : waker (#borrow wake))))
   (#let result #u64
     (#match third
-      (#case (Two-steps::Ready value) value)
-      (#case (Two-steps::Pending state)
+      (#case (Two-steps::Poll.Ready value) value)
+      (#case (Two-steps::Poll.Pending state)
         (#block (#forget state) (#unreachable)))))
   (#let ready (#array #char 14) "poll 3: ready\n")
   (#call print-text (: text (#borrow-slice ready)))
   (#let wake-ref (#ref Wake) (#borrow wake))
-  (#let notifications #u64 (#call CellU64-get (: cell (#borrow (#get wake-ref notifications)))))
+  (#let notifications #u64 (#call CellU64::get (: cell (#borrow (#get wake-ref notifications)))))
   (#drop wake-ref)
   (#forget wake)
-  (#return (#u64.+.wrap result notifications)))
+  (#return (#u64::add-wrap result notifications)))

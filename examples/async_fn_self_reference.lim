@@ -1,20 +1,20 @@
 ; The pinned frame owns `owner`; its immutable self-reference is formed only
 ; after the caller pins the Frame and is retained safely across Pending.
 ; Compile with --cfg async-lowering=graph during the remaining migration.
-(#enum Child (#linear) ((Waiting #u64)))
+(#enum Child (#linear) ((Child.Waiting #u64)))
 
-(#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+(#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task
-    (#case (Waiting count)
-      (#if (#u64.== count 0u64)
-        (ChildPending (Waiting 1u64))
-        (ChildReady 2u64))))))
+    (#case (Child.Waiting count)
+      (#if (#u64::eq count 0u64)
+        (ChildPoll.ChildPending (Child.Waiting 1u64))
+        (ChildPoll.ChildReady 2u64))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 (#struct Payload () ((left #u64) (right #u64)))
 (#struct Owner () ((payload Payload)))
 
-(@#async-fn-pinned ( : protocol ReadAfterAwaitAwait : waker #u64
+(#generate #async-fn-pinned ( : protocol ReadAfterAwaitAwait : waker #u64
   : access (: owner read-after-await-owner) : function
   (#fn read-after-await ((owner Owner)) #u64
     (#let view (#pin-ref #u64)
@@ -22,8 +22,8 @@
     (#let right-view (#pin-ref #u64)
       (#pin-borrow (#get (#get owner payload) right)))
     (#let result #u64
-      (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
-    (#return (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)))))
+      (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+    (#return (#u64::add-wrap (#u64::add-wrap (#deref view) (#deref right-view)) result)))))
 
 (#fn main () #u64
   (#let-mut frame Read-after-await::Frame
@@ -34,20 +34,20 @@
   (#let first Read-after-await::Poll
     (#call Read-after-await::poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (Read-after-await::Pending pending-frame) Read-after-await::Poll first (#unreachable))
+  (#let-else (Read-after-await::Poll.Pending pending-frame) Read-after-await::Poll first (#unreachable))
   (#let second Read-after-await::Poll
     (#call Read-after-await::poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (Read-after-await::Ready value) value)
-      (#case (Read-after-await::Pending unexpected)
+      (#case (Read-after-await::Poll.Ready value) value)
+      (#case (Read-after-await::Poll.Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#call read-after-await-owner-replace
     (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
       ((payload (#struct-literal Payload ((left 41u64) (right 5u64))))))))
   (#let completed-owner Owner
     (#call read-after-await-owner-read (: task (#pin-borrow frame))))
-  (#assert (#u64.== (#get (#get completed-owner payload) left) 41u64))
+  (#assert (#u64::eq (#get (#get completed-owner payload) left) 41u64))
   (#forget frame)
 
   (#let-mut cancelled Read-after-await::Frame
@@ -57,13 +57,13 @@
   (#let first-cancel Read-after-await::Poll
     (#call Read-after-await::poll
       (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-  (#let-else (Read-after-await::Pending cancel-pin) Read-after-await::Poll first-cancel (#unreachable))
+  (#let-else (Read-after-await::Poll.Pending cancel-pin) Read-after-await::Poll first-cancel (#unreachable))
   (#block
     (#let cleanup Read-after-await::Frame::Cleanup
-      (#call Read-after-await::poll::cleanup (: task cancel-pin)))
+      (#call Read-after-await::Poll::cleanup (: task cancel-pin)))
     (#match (#get cleanup await-0)
-      (#case Read-after-await::Frame::Cleanup::await-0::Empty ())
-      (#case (Read-after-await::Frame::Cleanup::await-0::Full child)
+      (#case Read-after-await::Frame::Cleanup::Await-0.Empty ())
+      (#case (Read-after-await::Frame::Cleanup::Await-0.Full child)
         (#call cancel-child (: task child))))
     (#forget cleanup))
   (#call read-after-await-owner-replace
@@ -74,4 +74,4 @@
   (#let cancelled-owner #u64 (#get (#get cancelled-value payload) left))
   (#forget cancelled)
   (#forget waker)
-  (#return (#u64.+.wrap result cancelled-owner)))
+  (#return (#u64::add-wrap result cancelled-owner)))

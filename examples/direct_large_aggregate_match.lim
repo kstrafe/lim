@@ -12,7 +12,7 @@
 
 (#fn main () #u64
   (#return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#match (#call make-tuple (:))
         (#case (#tuple first second third fourth fifth sixth last) last)
         (#case _ 0u64))

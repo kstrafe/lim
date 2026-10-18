@@ -18,13 +18,13 @@
   (#let unmapped #i64
     (#unsafe (#unsafe-call linux-munmap (: address memory : length 4096usize))))
   (#return
-    (#if (#bool.&& (#i64.== locked 0i64)
-          (#bool.&& (#i64.== unlocked 0i64)
-            (#bool.&& (#i64.== locked-on-fault 0i64)
-              (#bool.&& (#i64.== invalid-lock-flags -22i64)
-                (#bool.&& (#i64.== invalid-all-flags -22i64)
-                  (#bool.&& (#i64.== all-unlocked 0i64)
-                    (#i64.== unmapped 0i64)))))))
+    (#if (#bool::and (#i64::eq locked 0i64)
+          (#bool::and (#i64::eq unlocked 0i64)
+            (#bool::and (#i64::eq locked-on-fault 0i64)
+              (#bool::and (#i64::eq invalid-lock-flags -22i64)
+                (#bool::and (#i64::eq invalid-all-flags -22i64)
+                  (#bool::and (#i64::eq all-unlocked 0i64)
+                    (#i64::eq unmapped 0i64)))))))
       (#block
         (#let letter #u8 77u8)
         (#let newline #u8 10u8)
@@ -32,7 +32,7 @@
           (#call linux-write-byte (: source (#borrow letter))))
         (#let second-write #i64
           (#call linux-write-byte (: source (#borrow newline))))
-        (#if (#bool.&& (#i64.== first-write 1i64)
-                     (#i64.== second-write 1i64))
+        (#if (#bool::and (#i64::eq first-write 1i64)
+                     (#i64::eq second-write 1i64))
           42u64 2u64))
       1u64)))

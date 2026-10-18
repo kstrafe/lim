@@ -1,8 +1,8 @@
-(#enum Maybe () ((Some #u64) None))
+(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
 
 (#fn main () #u64
-  (#let value Maybe (#enum-literal Some 42u64))
-  (#let-else (Some payload) value
+  (#let value Maybe (#enum-literal Maybe.Some 42u64))
+  (#let-else (Maybe.Some payload) value
     (#else
       (#unreachable)))
   (#return payload))

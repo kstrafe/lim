@@ -13,19 +13,19 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "enum-literal-unknown-variant",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value Outcome (#enum-literal Missing 42u64))",
+            offending_line: "  (#let value Outcome (#enum-literal missing 42u64))",
             line_number: 3,
         },
         Case {
             name: "enum-literal-payload-type",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value Outcome (#enum-literal Success false))",
+            offending_line: "  (#let value Outcome (#enum-literal Outcome.Success false))",
             line_number: 3,
         },
         Case {
             name: "enum-literal-extra-payload",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value Outcome (#enum-literal Success 41u64 2u64))",
+            offending_line: "  (#let value Outcome (#enum-literal Outcome.Success 41u64 2u64))",
             line_number: 3,
         },
         Case {
@@ -37,7 +37,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "let-else-owner-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#let-else (Success answer) 42u64",
+            offending_line: "  (#let-else (Outcome.Success answer) 42u64",
             line_number: 3,
         },
         Case {
@@ -55,13 +55,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "borrowed-case-requires-mut",
             diagnostic_code: "E4100",
-            offending_line: "    (#case-ref-mut (Full value) (#deref value)))))",
+            offending_line: "    (#case-ref-mut (Choice.Full value) (#deref value)))))",
             line_number: 4,
         },
         Case {
             name: "borrowed-case-mixed-modes",
             diagnostic_code: "E4000",
-            offending_line: "    (#case-pin Empty 0u64))))",
+            offending_line: "    (#case-pin Choice.Empty 0u64))))",
             line_number: 5,
         },
         Case {
@@ -73,7 +73,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "pinned-case-requires-exclusive",
             diagnostic_code: "E4100",
-            offending_line: "    (#case-pin-mut (Full value) (#deref value)))))",
+            offending_line: "    (#case-pin-mut (Choice.Full value) (#deref value)))))",
             line_number: 4,
         },
         Case {
@@ -145,7 +145,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "string-borrow-mutation",
             diagnostic_code: "E4100",
-            offending_line: "  (#call String-clear (: string (#borrow-mut text)))",
+            offending_line: "  (#call String::clear (: string (#borrow-mut text)))",
             line_number: 6,
         },
         Case {
@@ -163,13 +163,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "gensym-invalid-hint",
             diagnostic_code: "E3000",
-            offending_line: "(@emit)",
+            offending_line: "(#generate emit)",
             line_number: 2,
         },
         Case {
             name: "gensym-forged-symbol",
             diagnostic_code: "E3000",
-            offending_line: "(@emit)",
+            offending_line: "(#generate emit)",
             line_number: 2,
         },
         Case {
@@ -355,7 +355,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "type",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#u64.+.wrap value missing))",
+            offending_line: "  (#return (#u64::add-wrap value missing))",
             line_number: 3,
         },
         Case {
@@ -403,7 +403,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "nested-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#u64.+.wrap 1u64 false))",
+            offending_line: "  (#return (#u64::add-wrap 1u64 false))",
             line_number: 2,
         },
         Case {
@@ -427,7 +427,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "operator-arity",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#u64.+.wrap 1u64))",
+            offending_line: "  (#return (#u64::add-wrap 1u64))",
             line_number: 2,
         },
         Case {
@@ -445,7 +445,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "out-of-range-shift-count",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#u8.<< 1u8 8))",
+            offending_line: "  (#return (#u8::shl 1u8 8))",
             line_number: 2,
         },
         Case {
@@ -457,7 +457,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "top-level-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "(#let TOTAL #u64 true)",
+            offending_line: "(#let tOTAL #u64 true)",
             line_number: 1,
         },
         Case {
@@ -475,7 +475,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "enum-payload-type-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value Payload (Pair (#tuple true false)))",
+            offending_line: "  (#let value Payload (Payload.Pair (#tuple true false)))",
             line_number: 3,
         },
         Case {
@@ -554,13 +554,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "shadowing-if-let",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#if-let (Some value) maybe value value))",
+            offending_line: "  (#return (#if-let (Maybe.Some value) maybe value value)))",
             line_number: 3,
         },
         Case {
             name: "shadowing-let-else",
             diagnostic_code: "E4000",
-            offending_line: "  (#let-else (Some value) Maybe maybe (#return 0u64))",
+            offending_line: "  (#let-else (Maybe.Some value) Maybe maybe (#return 0u64))",
             line_number: 3,
         },
         Case {
@@ -602,7 +602,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "nested-case-pattern-error",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (#case (Nested Ready) false) (#case Stop 0u64)))",
+            offending_line: "  (#return (#match value (#case (Outer.Nested Inner.Ready) false) (#case Outer.Stop 0u64))))",
             line_number: 4,
         },
         Case {
@@ -656,7 +656,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "match-reference-escape",
             diagnostic_code: "E4100",
-            offending_line: "  (#return (#match holder (#case (Has view) view))))",
+            offending_line: "  (#return (#match holder (#case (Holder.Has view) view))))",
             line_number: 5,
         },
         Case {
@@ -712,7 +712,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "unsafe",
             diagnostic_code: "E4300",
-            offending_line: "  (#return VALUE)",
+            offending_line: "  (#return vALUE)",
             line_number: 3,
         },
         Case {
@@ -760,13 +760,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "generator",
             diagnostic_code: "E3000",
-            offending_line: "(@fail)",
+            offending_line: "(#generate fail)",
             line_number: 2,
         },
         Case {
             name: "generator-imported",
             diagnostic_code: "E3000",
-            offending_line: "(@fail)",
+            offending_line: "(#generate fail)",
             line_number: 2,
         },
         Case {
@@ -815,13 +815,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "codegen",
             diagnostic_code: "E5000",
-            offending_line: "(#const First #u64 (#u64.+.wrap Second 1u64))",
+            offending_line: "(#const first #u64 (#u64::add-wrap second 1u64))",
             line_number: 1,
         },
         Case {
             name: "nonconstant-static",
             diagnostic_code: "E5000",
-            offending_line: "(#static VALUE #u64 (#call get-value (:)))",
+            offending_line: "(#static vALUE #u64 (#call get-value (:)))",
             line_number: 2,
         },
         Case {
@@ -857,14 +857,14 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-variant",
             diagnostic_code: "E2000",
-            offending_line: "(#enum State () (Open Closed Open))",
+            offending_line: "(#enum State () (State.Open State.Closed State.Open))",
             line_number: 1,
         },
         Case {
-            name: "duplicate-variant-global",
-            diagnostic_code: "E4000",
-            offending_line: "(#enum Other () (Open))",
-            line_number: 2,
+            name: "variant-wrong-owner",
+            diagnostic_code: "E3000",
+            offending_line: "(#enum State () (Other.Open State.Closed))",
+            line_number: 1,
         },
         Case {
             name: "recursive-alias",
@@ -875,7 +875,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-global",
             diagnostic_code: "E4000",
-            offending_line: "(#let COUNT #u64 2u64)",
+            offending_line: "(#let cOUNT #u64 2u64)",
             line_number: 2,
         },
         Case {
@@ -887,13 +887,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "repr-c-discriminant",
             diagnostic_code: "E4000",
-            offending_line: "(#enum Code (#repr-c) ((TooLarge 2147483648)))",
+            offending_line: "(#enum Code (#repr-c) ((Code.TooLarge 2147483648)))",
             line_number: 1,
         },
         Case {
             name: "unsafe-impl",
             diagnostic_code: "E4000",
-            offending_line: "(#unsafe-impl #send Missing)",
+            offending_line: "(#unsafe-impl #send missing)",
             line_number: 1,
         },
         Case {
@@ -917,13 +917,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-worker-unknown-type",
             diagnostic_code: "E4000",
-            offending_line: "(#fn worker ((argument Missing)) #u64 (#return 1u64))",
+            offending_line: "(#fn worker ((argument missing)) #u64 (#return 1u64))",
             line_number: 4,
         },
         Case {
             name: "unknown-local-type",
             diagnostic_code: "E4000",
-            offending_line: "(#fn main () #u64 (#let value Missing 1u64) (#return 0u64))",
+            offending_line: "(#fn main () #u64 (#let value missing 1u64) (#return 0u64))",
             line_number: 1,
         },
         Case {
@@ -1007,57 +1007,57 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "variant-is-not-reference",
             diagnostic_code: "E4000",
-            offending_line: "  (#variant-is value Ready)",
+            offending_line: "  (#variant-is value Choice.Ready)",
             line_number: 4,
         },
         Case {
             name: "variant-is-wrong-variant",
             diagnostic_code: "E4000",
-            offending_line: "  (#variant-is (#borrow value) Missing)",
+            offending_line: "  (#variant-is (#borrow value) missing)",
             line_number: 4,
         },
         Case {
             name: "variant-is-borrowed-parent",
             diagnostic_code: "E4100",
-            offending_line: "  (#variant-is parent Number)",
+            offending_line: "  (#variant-is parent Choice.Number)",
             line_number: 10,
         },
         Case {
             name: "unknown-match-variant",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (#case Missing 0u64) (#case Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case missing 0u64) (#case State.Ready 1u64))))",
             line_number: 4,
         },
         Case {
             name: "non-exhaustive-match",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (#case Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case State.Ready 1u64))))",
             line_number: 4,
         },
         Case {
             name: "unknown-let-else-variant",
             diagnostic_code: "E4000",
-            offending_line: "  (#let-else Missing State value (#return 1u64))",
+            offending_line: "  (#let-else missing State value (#return 1u64))",
             line_number: 4,
         },
         Case {
             name: "async-let-else-await",
             diagnostic_code: "E4000",
             offending_line:
-                "        (#await #u32 Child ChildPending ChildReady child-poll (Waiting 7u64)))))",
+                "        (#await #u32 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 7u64)))))",
             line_number: 11,
         },
         Case {
             name: "duplicate-enum-match-pattern",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (#case Ready 0u64) (#case Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case State.Ready 0u64) (#case State.Ready 1u64))))",
             line_number: 4,
         },
         Case {
             name: "enum-match-payload-arity",
             diagnostic_code: "E4000",
             offending_line:
-                "  (#return (#match value (#case (One left right) 0u64) (#case Done 1u64)))",
+                "  (#return (#match value (#case (Choice.One left right) 0u64) (#case Choice.Done 1u64))))",
             line_number: 4,
         },
         Case {
@@ -1236,7 +1236,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
-                source_row.find("Missing"),
+                source_row.find("missing"),
                 underline_row.find('^'),
                 "unknown type diagnostic is not aligned under the unknown type name for {}:\n{stderr}",
                 case.name
@@ -1302,7 +1302,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "imported" => Some("\"missing-dependency.lim\""),
             "cycle-a" => Some("\"cycle-a.lim\""),
             "cfg" => Some("#platfrom"),
-            "operator-arity" => Some("#u64.+.wrap"),
+            "operator-arity" => Some("#u64::add-wrap"),
             "unknown-function" => Some("missing"),
             "nonboolean-if-condition" => Some("(#if 1u64 2u64 3u64)"),
             "if-branch-mismatch" => Some("false"),
@@ -1312,16 +1312,17 @@ fn compilation_errors_render_the_offending_source_line() {
             "out-of-range-shift-count" => Some("8"),
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
-            "codegen" => Some("Second"),
+            "codegen" => Some("second"),
             "recursive-call" => Some("worker"),
             "recursive-clone-hook" => Some("#clone"),
             "duplicate-type" => Some("Token"),
             "duplicate-field" => Some("x"),
-            "duplicate-variant" | "duplicate-variant-global" => Some("Open"),
+            "duplicate-variant" => Some("State.Open"),
+            "variant-wrong-owner" => Some("Other.Open"),
             "duplicate-parameter" => Some("value"),
-            "duplicate-global" => Some("COUNT"),
-            "unsafe-impl" => Some("Missing"),
-            "unknown-local-type" => Some("Missing"),
+            "duplicate-global" => Some("cOUNT"),
+            "unsafe-impl" => Some("missing"),
+            "unknown-local-type" => Some("missing"),
             "destructure-type-mismatch" => Some("Point"),
             "immutable-assignment" => Some("value"),
             "immutable-mutable-borrow" => Some("value"),
@@ -1339,20 +1340,20 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-get-field" => Some("missing"),
             "unknown-payload-variant" => Some("MissingVariant"),
             "variant-is-not-reference" => Some("value"),
-            "variant-is-wrong-variant" => Some("Missing"),
+            "variant-is-wrong-variant" => Some("missing"),
             "variant-is-borrowed-parent" => Some("#variant-is"),
-            "unknown-match-variant" => Some("Missing"),
+            "unknown-match-variant" => Some("missing"),
             "non-exhaustive-match" => Some("#match"),
             "integer-match-coverage-gap" | "guarded-boolean-match-not-exhaustive" => Some("#match"),
-            "enum-literal-unknown-variant" => Some("Missing"),
+            "enum-literal-unknown-variant" => Some("missing"),
             "enum-literal-payload-type" => Some("false"),
             "enum-literal-extra-payload" => Some("2u64"),
             "let-else-fallthrough" => Some("#else"),
             "let-else-owner-mismatch" => Some("42u64"),
-            "unknown-let-else-variant" => Some("Missing"),
+            "unknown-let-else-variant" => Some("missing"),
             "async-let-else-await" => Some("#u32"),
-            "duplicate-enum-match-pattern" => Some("Ready"),
-            "enum-match-payload-arity" => Some("One"),
+            "duplicate-enum-match-pattern" => Some("State.Ready"),
+            "enum-match-payload-arity" => Some("Choice.One"),
             "duplicate-wildcard-match-pattern" => Some("_"),
             "out-of-range-match-integer" => Some("300"),
             "duplicate-match-integer" => Some("2"),
@@ -1381,7 +1382,7 @@ fn compilation_errors_render_the_offending_source_line() {
             }
             "duplicate-generator" => Some("make"),
             "duplicate-generator-parameter" => Some("x"),
-            "unsafe" => Some("VALUE"),
+            "unsafe" => Some("vALUE"),
             "unsafe-external-call" => Some("external-value"),
             "unsafe-external-reference-return" => Some("external-reference"),
             "unsafe-function-call" => Some("answer"),
@@ -1396,7 +1397,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local))"),
             "destructure-reference-escape" => Some("(#tuple (#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local)))"),
             "call-reference-escape" => Some("(#block (#let local #u64 7u64) (#borrow local))"),
-            "match-reference-escape" => Some("(#return (#match holder (#case (Has view) view)))"),
+            "match-reference-escape" => Some("(#return (#match holder (#case (Holder.Has view) view)))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
             "use-after-reference-release" => Some("view"),
@@ -1405,9 +1406,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "linear-partial-parent" => Some("pair"),
             "linear-copy-after-owner" => Some("(#get pair other)"),
             "opaque-token-constructor" => Some("WakeToken4"),
-            "generator" | "generator-imported" => Some("(@fail)"),
+            "generator" | "generator-imported" => Some("(#generate fail)"),
             "gensym-reserved-source" => Some("lim.gensym.fake"),
-            "gensym-invalid-hint" | "gensym-forged-symbol" => Some("(@emit)"),
+            "gensym-invalid-hint" | "gensym-forged-symbol" => Some("(#generate emit)"),
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),
             "call-argument-type-mismatch" => Some("false"),
@@ -1425,16 +1426,16 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-reference-replacement" => Some("pinned"),
             "pinned-reference-escape" => Some("(#return (#pin-borrow owner))"),
             "pinned-self-reference-conflict" => Some("#pin-set-field"),
-            "pinned-case-requires-exclusive" => Some("Full"),
-            "borrowed-case-requires-mut" => Some("Full"),
-            "borrowed-case-mixed-modes" => Some("Empty"),
+            "pinned-case-requires-exclusive" => Some("Choice.Full"),
+            "borrowed-case-requires-mut" => Some("Choice.Full"),
+            "borrowed-case-mixed-modes" => Some("Choice.Empty"),
             "borrowed-case-owner-escape" => Some("(#return (#match (#borrow value)"),
             "pinned-case-parent-reborrow" => Some("choice"),
             "call-self-loan-owner-mutation" => Some("running"),
             "call-self-loan-owner-borrow" => Some("running"),
             "reordered-named-argument-error" => Some("1u64"),
             "nested-case-pattern-error" => {
-                Some("(#match value (#case (Nested Ready) false) (#case Stop 0u64))")
+                Some("(#match value (#case (Outer.Nested Inner.Ready) false) (#case Outer.Stop 0u64))")
             }
             "positional-call" => Some("add"),
             "generic-function" => Some("(#fn"),
@@ -1540,7 +1541,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
-                    source_row.find("Second"),
+                    source_row.find("second"),
                     underline_row.find('^'),
                     "codegen underline is not aligned under the offending symbol:\n{stderr}"
                 );
@@ -1564,7 +1565,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
-                    source_row.find("(@fail)"),
+                    source_row.find("(#generate fail)"),
                     underline_row.find('^'),
                     "imported generator underline is not aligned under its invocation:\n{stderr}"
                 );
@@ -1595,10 +1596,7 @@ fn compilation_errors_render_the_offending_source_line() {
             }
             if matches!(
                 case.name,
-                "duplicate-parameter"
-                    | "duplicate-field"
-                    | "duplicate-variant"
-                    | "duplicate-variant-global"
+                "duplicate-parameter" | "duplicate-field" | "duplicate-variant"
             ) {
                 let source_row = stderr
                     .lines()
@@ -1608,9 +1606,9 @@ fn compilation_errors_render_the_offending_source_line() {
                 let duplicated_name = match case.name {
                     "duplicate-parameter" => "value",
                     "duplicate-field" => "x",
-                    _ => "Open",
+                    _ => "State.Open",
                 };
-                let occurrence_index = usize::from(case.name != "duplicate-variant-global");
+                let occurrence_index = 1;
                 let second_value = source_row
                     .match_indices(duplicated_name)
                     .nth(occurrence_index)
@@ -1662,7 +1660,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
             stderr.contains("generated from this invocation"),
             "{stderr}"
         );
-        assert!(stderr.contains("(@bad generated)"), "{stderr}");
+        assert!(stderr.contains("(#generate bad generated)"), "{stderr}");
         let generated_row = stderr
             .lines()
             .find(|line| line.contains("#fn generated"))
@@ -1681,7 +1679,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
         );
         let invocation_row = stderr
             .lines()
-            .find(|line| line.contains("(@bad generated)"))
+            .find(|line| line.contains("(#generate bad generated)"))
             .unwrap();
         let invocation_underline = stderr
             .lines()
@@ -1692,7 +1690,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
                 .split_once("| ")
                 .unwrap()
                 .1
-                .find("(@bad generated)"),
+                .find("(#generate bad generated)"),
             invocation_underline
                 .split_once("| ")
                 .unwrap()
@@ -1715,7 +1713,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
     let input = directory.join("input.lim");
     let output = directory.join("output.s");
     let source =
-        "(@#optional (: type #u64 : name Maybe?))\n(@#optional (: type #u32 : name Maybe?))\n";
+        "(#generate #optional (: type #u64 : name Maybe?))\n(#generate #optional (: type #u32 : name Maybe?))\n";
     std::fs::write(&input, source).unwrap();
     for _ in 0..2 {
         let result = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -1736,7 +1734,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
         );
         let invocation_row = stderr
             .lines()
-            .find(|line| line.contains("(@#optional (: type #u32 : name Maybe?))"))
+            .find(|line| line.contains("(#generate #optional (: type #u32 : name Maybe?))"))
             .unwrap();
         let invocation_underline = stderr
             .lines()
@@ -1747,7 +1745,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
                 .split_once("| ")
                 .unwrap()
                 .1
-                .find("(@#optional (: type #u32 : name Maybe?))"),
+                .find("(#generate #optional (: type #u32 : name Maybe?))"),
             invocation_underline
                 .split_once("| ")
                 .unwrap()

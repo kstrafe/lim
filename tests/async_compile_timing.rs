@@ -87,15 +87,15 @@ fn async_compile_shapes_and_warm_cache() {
     let straight = fixture(
         &scratch.0,
         "straight-async",
-        r#"(#enum Child () ((Start #u64) (Resume #u64)))
-(#enum ChildPoll () ((Pending Child) (Ready #u64)))
+        r#"(#enum Child () ((Child.Start #u64) (Child.Resume #u64)))
+(#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task
-    (#case (Start value) (Pending (Resume value)))
-    (#case (Resume value) (Ready value)))))
-(@#async-fn ( : protocol Await : waker #u64 : function
+    (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
+    (#case (Child.Resume value) (ChildPoll.Ready value)))))
+(#generate #async-fn ( : protocol Await : waker #u64 : function
   (#fn work ((value #u64)) #u64
-    (#let result #u64 (#await #u64 Child Pending Ready child-poll (Start value)))
+    (#let result #u64 (#await #u64 Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start value)))
     (#return result))))
 (#fn main () #u64 (#return 0u64))
 "#,

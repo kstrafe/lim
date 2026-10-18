@@ -67,7 +67,7 @@ fn run_with_role(source: &str, expected_stdout: &[u8], role: &str) {
             .into_iter()
             .find(|node| {
                 matches!(&node.expr, lim::Expr::List(items)
-                if matches!(items.first(), Some(lim::Expr::At))
+                if matches!(items.first(), Some(lim::Expr::Generate))
                 && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "#async-fn"))
             })
             .unwrap();
@@ -110,34 +110,34 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
           (#call touch (: target (#borrow-mut (#get container value))))
           (#call touch (: target (#borrow-mut (#get container value))))
           (#forget container)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#let answer #u64 (#get counter value)) (#forget counter) (#return answer)",
         "(#let left #u64 40u64) (#let right #u64 50u64)
           (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
           (#let answer #u64 (#deref view)) (#forget view)
-          (#assert (#u64.== answer (#if choose 40u64 50u64)))
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#assert (#u64::eq answer (#if choose 40u64 50u64)))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return 42u64)",
         "(#let left Wide (#struct-literal Wide (: padding 7u8 : value 40u128)))
           (#let right (#array #u128 2) (#array-of (#array #u128 2) 1u128 50u128))
           (#let view (#ref #u128)
             (#if choose (#borrow (#get left value)) (#borrow (#index right 1usize))))
           (#let answer #u128 (#deref view)) (#forget view)
-          (#assert (#u128.== answer (#if choose 40u128 50u128)))
+          (#assert (#u128::eq answer (#if choose 40u128 50u128)))
           (#forget left) (#forget right)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return 42u64)",
         "(#let-mut left #u64 40u64)
           (#let-mut right Counter (#struct-literal Counter (: value 50u64)))
           (#let view (#ref-mut #u64)
             (#if choose (#borrow-mut left) (#borrow-mut (#get right value))))
-          (#deref-set view (#u64.+.wrap (#deref view) 2u64))
+          (#deref-set view (#u64::add-wrap (#deref view) 2u64))
           (#let answer #u64 (#deref view)) (#forget view)
-          (#assert (#u64.== answer (#if choose 42u64 52u64)))
-          (#assert (#u64.== left (#if choose 42u64 40u64)))
-          (#assert (#u64.== (#get right value) (#if choose 50u64 52u64)))
+          (#assert (#u64::eq answer (#if choose 42u64 52u64)))
+          (#assert (#u64::eq left (#if choose 42u64 40u64)))
+          (#assert (#u64::eq (#get right value) (#if choose 50u64 52u64)))
           (#forget right)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return 42u64)",
         "(#let left Wide (#struct-literal Wide (: padding 7u8 : value 40u128)))
           (#let right (#array #u128 2) (#array-of (#array #u128 2) 1u128 50u128))
@@ -146,9 +146,9 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
             (#if choose (#borrow (#get left value)) (#borrow (#index right index))))
           (#set index 0usize)
           (#let answer #u128 (#deref view)) (#forget view)
-          (#assert (#u128.== answer (#if choose 40u128 50u128)))
+          (#assert (#u128::eq answer (#if choose 40u128 50u128)))
           (#forget left) (#forget right)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return 42u64)",
         "(#let-mut items (#array Counter 2)
             (#array-of (#array Counter 2)
@@ -159,13 +159,13 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
           (#set index 0usize)
           (#call touch (: target (#borrow-mut (#get (#index items index) value))))
           (#let answer #u64
-            (#u64.+.wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
+            (#u64::add-wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
           (#forget items)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return answer)",
         "(#let owner #u64 40u64)
-          (#let answer #u64 (#borrow owner (#u64.+.wrap owner 2u64)))
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let answer #u64 (#borrow owner (#u64::add-wrap owner 2u64)))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return answer)",
     ] {
         for choose in [false, true] {
@@ -173,22 +173,22 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
                 "(#struct Counter () (: value #u64))
                 (#struct Wide () (: padding #u8 : value #u128))
                 (#fn touch (: target (#ref-mut #u64)) ()
-                  (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
-                (#enum Child (#linear) (Start Resume))
-                (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+                  (#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return ()))
+                (#enum Child (#linear) (Child.Start Child.Resume))
+                (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
                 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-                  (#return (#match task (#case Start (ChildPending Resume))
-                    (#case Resume (ChildReady 0u64)))))
-                (@#async-fn (: protocol WorkAwait : waker #u64
+                  (#return (#match task (#case Child.Start (ChildPoll.ChildPending Child.Resume))
+                    (#case Child.Resume (ChildPoll.ChildReady 0u64)))))
+                (#generate #async-fn (: protocol WorkAwait : waker #u64
                   : function (#fn work (: choose #bool) #u64 {body})))
                 (#fn main () #u64
                   (#let waker #u64 0u64)
                   (#let first Work::Poll (#call Work::poll
                     (: task (#call work (: choose {choose})) : waker (#borrow waker))))
-                  (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+                  (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
                   (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
-                    (#case (Work::Ready answer) answer)
-                    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+                    (#case (Work::Poll.Ready answer) answer)
+                    (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
             );
             run_with_role(&source, &[], "owner-project");
         }
@@ -204,14 +204,14 @@ fn whole_array_element_source() -> &'static str {
     "(#struct Counter (#linear) (: value #u64))
       (#fn touch-counter (: target (#ref-mut Counter)) ()
         (#deref-set (#borrow-mut (#get target value))
-          (#u64.+.wrap (#get target value) 1u64))
+          (#u64::add-wrap (#get target value) 1u64))
         (#return ()))
-      (#enum Child (#linear) (Start Resume))
-      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) (Child.Start Child.Resume))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-        (#return (#match task (#case Start (ChildPending Resume))
-          (#case Resume (ChildReady 0u64)))))
-      (@#async-fn (: protocol WorkAwait : waker #u64
+        (#return (#match task (#case Child.Start (ChildPoll.ChildPending Child.Resume))
+          (#case Child.Resume (ChildPoll.ChildReady 0u64)))))
+      (#generate #async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work () #u64
           (#let-mut items (#array Counter 2)
             (#array-of (#array Counter 2)
@@ -224,18 +224,18 @@ fn whole_array_element_source() -> &'static str {
           (#let second (#ref-mut Counter) (#borrow-mut (#index items index)))
           (#call touch-counter (: target second))
           (#let answer #u64
-            (#u64.+.wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
+            (#u64::add-wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
           (#forget items)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))
           (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let first Work::Poll (#call Work::poll
           (: task (#call work ()) : waker (#borrow waker))))
-        (#let-else (Work::Pending task) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
         (#return (#match (#call Work::poll (: task task : waker (#borrow waker)))
-          (#case (Work::Ready answer) answer)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+          (#case (Work::Poll.Ready answer) answer)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn whole_array_element_storage_preserves_source_and_boundary_checks() {
         ),
         (
             "(#set index 0usize)",
-            "(#let early #u64 (#await Child ChildPending ChildReady child-poll Start))",
+            "(#let early #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Start))",
             "pinned async frame",
         ),
     ] {
@@ -326,7 +326,7 @@ fn poll_local_pointer_storage_does_not_authorize_source_aliasing() {
           (#return answer)",
     ] {
         let source = format!(
-            "(@#async-fn (: protocol WorkAwait : waker #u64
+            "(#generate #async-fn (: protocol WorkAwait : waker #u64
               : function (#fn work (: choose #bool) #u64 {body})))"
         );
         let scratch = support::Scratch::new("async-poll-local-alias");
@@ -368,17 +368,17 @@ fn poll_local_pointer_storage_does_not_authorize_source_aliasing() {
 fn shared_array_slice_and_range_borrow_actual_local_storage() {
     let source = r#"
       (#fn sum (: items (#slice #u64)) #u64
-        (#return (#u64.+.wrap (#deref (#slice-idx items 0usize))
+        (#return (#u64::add-wrap (#deref (#slice-idx items 0usize))
           (#deref (#slice-idx items 1usize)))))
-      (@#async-fn (: protocol WorkAwait : waker #u64
+      (#generate #async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work () #u64
           (#let values (#array #u64 3) (#array-of (#array #u64 3) 1u64 20u64 22u64))
           (#return (#call sum (: items (#borrow-slice values 1usize 3usize)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
-          (#case (Work::Ready answer) answer)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Poll.Ready answer) answer)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#;
     run(source);
     run(&source
@@ -397,12 +397,12 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
       (#fn bound (: value #usize) #usize
         (#let byte #u8 120u8)
         (#let pointer #usize (#ptr-address (#ref-ptr (#borrow byte))))
-        (#assert (#i64.== (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))) 1i64))
+        (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))) 1i64))
         (#return value))
       (#fn sum (: items (#slice #u64)) #u64
-        (#return (#u64.+.wrap (#deref (#slice-idx items 0usize))
+        (#return (#u64::add-wrap (#deref (#slice-idx items 0usize))
           (#deref (#slice-idx items 1usize)))))
-      (@#async-fn (: protocol WorkAwait : waker #u64
+      (#generate #async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work () #u64
           (#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
           (#let answer #u64 (#call sum (: items (#borrow-slice values
@@ -412,8 +412,8 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
-          (#case (Work::Ready answer) answer)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Poll.Ready answer) answer)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#,
         b"xx",
     );
@@ -423,9 +423,9 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
 fn slices_of_reference_elements_preserve_the_elements_referents() {
     run(r#"
       (#fn sum (: items (#slice (#ref #u64))) #u64
-        (#return (#u64.+.wrap (#deref (#deref (#slice-idx items 0usize)))
+        (#return (#u64::add-wrap (#deref (#deref (#slice-idx items 0usize)))
           (#deref (#deref (#slice-idx items 1usize))))))
-      (@#async-fn (: protocol WorkAwait : waker #u64
+      (#generate #async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work (: first (#ref #u64) : second (#ref #u64)) #u64
           (#let values (#array (#ref #u64) 2)
             (#array-of (#array (#ref #u64) 2) first second))
@@ -435,8 +435,8 @@ fn slices_of_reference_elements_preserve_the_elements_referents() {
         (#return (#match (#call Work::poll
           (: task (#call work (: first (#borrow first) : second (#borrow second)))
            : waker (#borrow waker)))
-          (#case (Work::Ready answer) answer)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+          (#case (Work::Poll.Ready answer) answer)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
     "#);
 }
 
@@ -460,7 +460,8 @@ fn slice_borrows_do_not_allow_local_escape_or_mutation_of_live_referents() {
             ordinary_error.contains("reference to local") || ordinary_error.contains("borrow"),
             "{ordinary_error}"
         );
-        let source = format!("(@#async-fn (: protocol WorkAwait : waker #u64 : function {body}))");
+        let source =
+            format!("(#generate #async-fn (: protocol WorkAwait : waker #u64 : function {body}))");
         let scratch = support::Scratch::new("async-slice-rejection");
         let error = lim::compile_source_to_assembly(
             &source,
@@ -488,7 +489,7 @@ fn noncopy_array_slices_require_a_nonmoving_storage_lease() {
 
       (#fn inspect (: items (#slice Token)) #u64
         (#return (#get (#slice-idx items 0usize) value)))
-      (@#async-fn (: protocol WorkAwait : waker #u64
+      (#generate #async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work () #u64
           (#let values (#array Token 1)
             (#array-of (#array Token 1) (#struct-literal Token ((value 42u64)))))
@@ -506,7 +507,7 @@ fn noncopy_array_slices_require_a_nonmoving_storage_lease() {
     )
     .unwrap_err();
     assert!(
-        error.message.contains("non-Copy array slice borrowing"),
+        error.message.contains("Non-Copy array slice borrowing"),
         "{}",
         error.message
     );
@@ -542,14 +543,14 @@ fn computed_step_retains_body_binding_through_awaits_and_continue() {
 const PAIR_SOURCE: &str = "(#struct Pair () (: left #u64 : right #u64))
   (#fn touch (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
     (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
-  (@#async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64
+  (#generate #async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64
     (#let-mut pair Pair (#struct-literal Pair (: left 0u64 : right 0u64)))
     (#call touch (: left (#borrow-mut (#get pair left)) : right (#borrow-mut (#get pair right))))
-    (#return (#u64.+.wrap (#get pair left) (#get pair right))))))
+    (#return (#u64::add-wrap (#get pair left) (#get pair right))))))
   (#fn main () #u64 (#let waker #u64 0u64)
     (#return (#match (#call Work::poll (: task (#call work ()) : waker (#borrow waker)))
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
 
 #[test]
 fn one_synchronous_call_borrows_disjoint_struct_fields() {

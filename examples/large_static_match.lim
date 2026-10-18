@@ -1,9 +1,9 @@
-(#static Values (#array #u64 7)
+(#static values (#array #u64 7)
   (#array (#array #u64 7)
     1u64 2u64 3u64 4u64 5u64 6u64 42u64))
 
 (#fn main () #u64
   (#return
-    (#match (#unsafe Values)
+    (#match (#unsafe values)
       (#case (#array first second third fourth fifth sixth last) last)
       (#case _ 0u64))))

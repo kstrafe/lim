@@ -11,30 +11,30 @@ fn wake_token_table_reports_invalid_busy_and_exhausted_slots() {
            (#let invalid WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 4usize)))
            (#let invalid-ok #bool (#match invalid
-             (#case WakeInvalid4 true) (#case _ false)))
+             (#case WakeRegister4.WakeInvalid4 true) (#case _ false)))
            (#let first WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
            (#let token WakeToken4 (#match first
-             (#case (WakeRegistered4 value) value)
+             (#case (WakeRegister4.WakeRegistered4 value) value)
              (#case _ (#unreachable))))
            (#let busy WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
            (#let busy-ok #bool (#match busy
-             (#case WakeBusy4 true) (#case _ false)))
+             (#case WakeRegister4.WakeBusy4 true) (#case _ false)))
            (#let retired WakeRetire4
              (#call wake-table4-retire (: table (#borrow-mut table) : token token)))
            (#let retired-ok #bool (#match retired
-             (#case WakeRetired4 true) (#case WakeStale4 false)))
+             (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
            (#let-mut exhausted-table WakeTable4
              (#call wake-table4-create-exhausted (:)))
            (#let exhausted WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut exhausted-table) : slot 1usize)))
            (#let exhausted-ok #bool (#match exhausted
-             (#case WakeExhausted4 true) (#case _ false)))
+             (#case WakeRegister4.WakeExhausted4 true) (#case _ false)))
            (#forget table) (#forget exhausted-table)
            (#return (#if
-             (#bool.&& invalid-ok
-               (#bool.&& busy-ok (#bool.&& retired-ok exhausted-ok)))
+             (#bool::and invalid-ok
+               (#bool::and busy-ok (#bool::and retired-ok exhausted-ok)))
              42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
@@ -73,7 +73,7 @@ fn wake_authority_is_private_to_its_module() {
         ),
         (
             "forge-global",
-            "(#const TOKEN WakeToken4 (#struct-literal WakeToken4
+            "(#const tOKEN WakeToken4 (#struct-literal WakeToken4
                ((slot 0usize) (generation 1u64))))
              (#fn main () #u64 (#return 0u64))",
             "cannot construct opaque type 'WakeToken4'",
@@ -126,10 +126,10 @@ fn wake_authority_is_private_to_its_module() {
 fn external_import_prefix_does_not_remove_opacity() {
     let scratch = support::Scratch::new("wake-authority-external");
     let source = format!(
-        "(#import-external \"{}/library/wake_tokens.lim\" ext-)
+        "(#import-external \"{}/library/wake_tokens.lim\" ext)
          (#fn main () #u64
-           (#let token ext-WakeToken4 (#struct-literal ext-WakeToken4
-             ((ext-slot 0usize) (ext-generation 1u64))))
+           (#let token ext@WakeToken4 (#struct-literal ext@WakeToken4
+             ((ext@slot 0usize) (ext@generation 1u64))))
            (#return 0u64))",
         env!("CARGO_MANIFEST_DIR")
     );
@@ -144,7 +144,7 @@ fn external_import_prefix_does_not_remove_opacity() {
     assert!(
         error
             .message
-            .contains("cannot construct opaque type 'ext-WakeToken4'"),
+            .contains("cannot construct opaque type 'ext@WakeToken4'"),
         "{error:?}"
     );
 }
@@ -156,12 +156,12 @@ fn opaque_field_is_not_readable_from_a_foreign_global_initializer() {
         scratch.path().join("module.lim"),
         "(#struct Private () ((value #u64)))
          (#opaque Private)
-         (#const VALUE Private (#struct-literal Private ((value 42u64))))",
+         (#const vALUE Private (#struct-literal Private ((value 42u64))))",
     )
     .unwrap();
     let source = "(#import \"module.lim\")
-      (#const LEAK #u64 (#get VALUE value))
-      (#fn main () #u64 (#return LEAK))";
+      (#const lEAK #u64 (#get vALUE value))
+      (#fn main () #u64 (#return lEAK))";
     let result = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

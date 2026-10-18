@@ -11,7 +11,7 @@
   (#let residence-result #i64
     (#unsafe (#unsafe-call linux-mincore (: address memory : length 4096usize : residency residency))))
   (#let resident-bit #u8
-    (#u8.& (#unsafe (#ptr-read residency)) 1u8))
+    (#u8::bit-and (#unsafe (#ptr-read residency)) 1u8))
   (#let unaligned-mincore #i64
     (#unsafe (#unsafe-call linux-mincore (: address (#ptr-offset memory 1usize) : length 1usize : residency residency))))
   (#let synced #i64
@@ -29,16 +29,16 @@
   (#let unmapped #i64
     (#unsafe (#unsafe-call linux-munmap (: address memory : length 4096usize))))
   (#return
-    (#if (#bool.&& (#u8.== value 201u8)
-          (#bool.&& (#i64.== residence-result 0i64)
-            (#bool.&& (#u8.== resident-bit 1u8)
-              (#bool.&& (#i64.== unaligned-mincore -22i64)
-                (#bool.&& (#i64.== synced 0i64)
-                  (#bool.&& (#i64.== invalid-sync-flags -22i64)
-                    (#bool.&& (#i64.>= barrier-capabilities 0i64)
-                      (#bool.&& (#i64.== invalid-barrier-flags -22i64)
-                        (#bool.&& (#i64.== readable 0i64)
-                          (#bool.&& (#i64.== unaligned-protection -22i64)
-                            (#i64.== unmapped 0i64)))))))))))
+    (#if (#bool::and (#u8::eq value 201u8)
+          (#bool::and (#i64::eq residence-result 0i64)
+            (#bool::and (#u8::eq resident-bit 1u8)
+              (#bool::and (#i64::eq unaligned-mincore -22i64)
+                (#bool::and (#i64::eq synced 0i64)
+                  (#bool::and (#i64::eq invalid-sync-flags -22i64)
+                    (#bool::and (#i64::ge barrier-capabilities 0i64)
+                      (#bool::and (#i64::eq invalid-barrier-flags -22i64)
+                        (#bool::and (#i64::eq readable 0i64)
+                          (#bool::and (#i64::eq unaligned-protection -22i64)
+                            (#i64::eq unmapped 0i64)))))))))))
       42u64
       1u64)))

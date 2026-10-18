@@ -1,5 +1,5 @@
-(#const Minimum #i128 -170141183460469231731687303715884105728)
-(#const Saturated #i128 (#i128.-.saturate Minimum 1))
+(#const minimum #i128 -170141183460469231731687303715884105728)
+(#const saturated #i128 (#i128::sub-saturate minimum 1))
 
 (#fn main () #u64
-  (#return (#if (#i128.== Saturated Minimum) 42 0)))
+  (#return (#if (#i128::eq saturated minimum) 42 0)))

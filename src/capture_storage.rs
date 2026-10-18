@@ -580,9 +580,9 @@ mod tests {
     fn callee_consumes_only_the_projected_linear_field() {
         let (program, declarations, facts) = prepare_staged(
             "(#struct Resource (#linear) ((value #u64)))
-             (#struct Pair () (: left.part Resource : right Resource))
+             (#struct Pair () (: left-part Resource : right Resource))
              (#fn consume ((value (#ref-mut Pair))) ()
-               (#forget (#get value left.part)) (#return ()))
+               (#forget (#get value left-part)) (#return ()))
              (#fn work ((#mut owner Pair)) ()
                (#call consume (: value (#borrow-mut owner))) (#call checkpoint (:))
                (#return (#unreachable)))",
@@ -698,11 +698,11 @@ mod tests {
     fn selected_initializer_outcome_refines_full_and_empty_slots() {
         let (program, declarations, facts) = prepare_staged(
             "(#struct Resource (#linear) ((value #u64)))
-             (#enum Outcome () ((Ready) (Pending)))
+             (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
              (#fn initialize ((value (#ref-mut Resource)) (complete #bool)) Outcome
                (#return (#if complete
-                 (#block (#deref-set value (#struct-literal Resource (: value 42u64))) (Ready))
-                 (Pending))))
+                 (#block (#deref-set value (#struct-literal Resource (: value 42u64))) (Outcome.Ready))
+                 (Outcome.Pending))))
              (#fn work ((complete #bool)) ()
                (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
                (#let view (#ref-mut Resource) (#borrow-mut owner))
@@ -710,8 +710,8 @@ mod tests {
                (#let outcome Outcome (#call initialize (: value view : complete complete)))
                (#let before-match #bool false)
                (#match outcome
-                 (#case (Ready) (#block (#call checkpoint (:)) (#forget (#deref view))))
-                 (#case (Pending) (#call checkpoint (:))))
+                 (#case (Outcome.Ready) (#block (#call checkpoint (:)) (#forget (#deref view))))
+                 (#case (Outcome.Pending) (#call checkpoint (:))))
                (#drop view) (#return (#unreachable)))",
         );
         let body = &declarations.bodies["work"];
@@ -749,12 +749,12 @@ mod tests {
     #[test]
     fn clearing_borrowed_contents_retires_their_address_dependency() {
         let (program, declarations, facts) = prepare_staged(
-            "(#enum Choice () ((Empty) (Full (#ref #u64))))
+            "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
              (#fn clear ((target (#ref-mut Choice))) ()
-               (#deref-set target (Empty)) (#return ()))
+               (#deref-set target (Choice.Empty)) (#return ()))
              (#fn work () ()
                (#let owner #u64 42u64)
-               (#let-mut holder Choice (Full (#borrow owner)))
+               (#let-mut holder Choice (Choice.Full (#borrow owner)))
                (#let target (#ref-mut Choice) (#borrow-mut holder))
                (#call checkpoint (:)) (#call clear (: target target)) (#drop target)
                (#call checkpoint (:)) (#forget holder) (#return ()))",
@@ -875,11 +875,11 @@ mod tests {
     fn partially_consumed_aggregate_is_never_a_full_loadable_value() {
         let (program, declarations) = prepare(
             "(#struct Resource (#linear) ((value #u64)))
-             (#struct Pair () (: left.part Resource : right Resource))
-             (#fn work ((owner.part Pair)) ()
-               (#let extracted Resource (#get owner.part left.part))
+             (#struct Pair () (: left-part Resource : right Resource))
+             (#fn work ((owner-part Pair)) ()
+               (#let extracted Resource (#get owner-part left-part))
                (#call checkpoint (:))
-               (#forget extracted) (#forget owner.part) (#return ()))",
+               (#forget extracted) (#forget owner-part) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -887,7 +887,7 @@ mod tests {
         let facts = StorageFacts::local_for_test(body, flow, &types);
         let analysis = Analysis::new(body, &facts, &types, &declarations);
         let snapshot = analysis.before(checkpoint(body, flow, 0)).unwrap();
-        let owner = slot(body, &snapshot, "owner.part");
+        let owner = slot(body, &snapshot, "owner-part");
         assert!(owner.cleanup_needed());
         assert!(owner
             .obligations

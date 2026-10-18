@@ -7,6 +7,6 @@
     (#struct-literal Point
       ((y 22u64)
        (x 20u64))))
-  (#return (#u64.+.wrap
+  (#return (#u64::add-wrap
     (#get point x)
     (#get point y))))

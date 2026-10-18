@@ -774,7 +774,7 @@ mod tests {
       (#fn await-b () #u64 (#return 2u64))
       (#fn await-value ((value #u64)) #u64 (#return value))
       (#fn combine ((first #u64) (second #u64)) #u64
-        (#return (#u64.+.wrap first second)))";
+        (#return (#u64::add-wrap first second)))";
 
     fn prepare(source: &str) -> (crate::Program, Declarations) {
         let program = crate::parse_program(&format!("{CONTEXT}\n{source}")).unwrap();
@@ -831,7 +831,7 @@ mod tests {
         let (_, declarations) = prepare(
             "(#struct Pair () ((left #u64) (right #u64)))
           (#fn work () Pair (#return (#struct-literal Pair
-            (: right (#u64.+.wrap (#call second (:)) (#call await-a (:)))
+            (: right (#u64::add-wrap (#call second (:)) (#call await-a (:)))
              : left (#call first (:))))))",
         );
         let body = &declarations.bodies["work"];
@@ -910,12 +910,12 @@ mod tests {
     #[test]
     fn guards_retain_the_scrutinee_but_committed_arm_bodies_do_not() {
         let (_, declarations) = prepare(
-            "(#enum Choice () ((Some #u64) None))
-          (#fn make-choice () Choice (#return (Some 4u64)))
+            "(#enum Choice () ((Choice.Some #u64) Choice.None))
+          (#fn make-choice () Choice (#return (Choice.Some 4u64)))
           (#fn await-guard () #bool (#return true))
           (#fn work () #u64 (#return (#call combine
             (: first (#call first (:)) : second (#match (#call make-choice (:))
-              (#case (Some value) (#when (#call await-guard (:))) (#call await-a (:)))
+              (#case (Choice.Some value) (#when (#call await-guard (:))) (#call await-a (:)))
               (#case _ (#call await-b (:))))))))",
         );
         let body = &declarations.bodies["work"];
@@ -942,15 +942,15 @@ mod tests {
     ) -> (crate::Program, Declarations) {
         prepare(&format!(
             "(#struct Token {properties} ((value #u64)))
-          (#enum Choice () ((Owned {payload}) Empty))
+          (#enum Choice () ((Choice.Owned {payload}) Choice.Empty))
           (#fn await-guard () #bool (#return true))
           (#fn work ((choice Choice) (selected #bool)) #u64
             {prefix}
             (#return (#match choice
-              (#case (Owned preview) (#when {guard})
+              (#case (Choice.Owned preview) (#when {guard})
                 (#block (#forget preview) (#call await-a (:))))
-              (#case (Owned committed) (#block (#forget committed) 0u64))
-              (#case Empty 0u64))))"
+              (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
+              (#case Choice.Empty 0u64))))"
         ))
     }
 
@@ -996,14 +996,14 @@ mod tests {
                 // An exclusive field is move-only without an explicit linear
                 // annotation. Match the nested field, not the aggregate itself.
                 "(#struct Token (#linear) ((value (#ref-mut #u64))))
-                  (#enum Choice () ((Owned Token) Empty))
+                  (#enum Choice () ((Choice.Owned Token) Choice.Empty))
                   (#fn await-guard () #bool (#return true))
                   (#fn work ((choice Choice)) #u64
                     (#return (#match choice
-                      (#case (Owned (Token preview)) (#when (#call await-guard (:)))
+                      (#case (Choice.Owned (Token preview)) (#when (#call await-guard (:)))
                         (#block (#forget preview) 1u64))
-                      (#case (Owned committed) (#block (#forget committed) 0u64))
-                      (#case Empty 0u64))))"
+                      (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
+                      (#case Choice.Empty 0u64))))"
             } else {
                 ""
             };
@@ -1072,10 +1072,10 @@ mod tests {
     #[test]
     fn production_scalar_previews_can_suspend() {
         let (program, declarations) = prepare(
-            "(#enum Choice () ((Some #u64) None))
+            "(#enum Choice () ((Choice.Some #u64) Choice.None))
           (#fn await-guard () #bool (#return true))
           (#fn work ((choice Choice)) #u64 (#return (#match choice
-            (#case (Some preview) (#when (#call await-guard (:))) preview)
+            (#case (Choice.Some preview) (#when (#call await-guard (:))) preview)
             (#case _ 0u64))))",
         );
         let types = LinearTypes::from_program(&program);
@@ -1138,7 +1138,7 @@ mod tests {
             "(#struct Holder ()
           ((links (#ref (#array (#ref (#array #u64 2)) 2)))))
           (#fn work ((holder (#ref Holder))) #u64
-            (#return (#u64.+.wrap (#call first (:))
+            (#return (#u64::add-wrap (#call first (:))
               (#index (#index (#get holder links) 0usize) (#call await-a (:))))))",
         );
         let body = &declarations.bodies["work"];
@@ -1208,7 +1208,7 @@ mod tests {
             "(#fn await-bool () #bool (#return true))
           (#fn work ((choose #bool)) #bool
             (#call first (:))
-            (#return (#bool.&& choose (#call await-bool (:)))))",
+            (#return (#bool::and choose (#call await-bool (:)))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-bool");

@@ -46,18 +46,18 @@ fn block_wrapped_loop_cannot_return_a_reference_to_its_local_owner() {
 #[test]
 fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
     for result in [
-        "(#loop (#break (Present (Second (#borrow owner)))))",
-        "(#block (#label result (#loop (#break-to result (Present (Second (#borrow owner)))))))",
+        "(#loop (#break (Outer.Present (Inner.Second (#borrow owner)))))",
+        "(#block (#label result (#loop (#break-to result (Outer.Present (Inner.Second (#borrow owner)))))))",
     ] {
         let source = format!(
-            "(#enum Inner () (: First (#ref #u64) : Second (#ref #u64)))
-          (#enum Outer () (: Present Inner : Absent #u64))
+            "(#enum Inner () (: Inner.First (#ref #u64) : Inner.Second (#ref #u64)))
+          (#enum Outer () (: Outer.Present Inner : Outer.Absent #u64))
           (#fn use-value (: input Outer) #u64
             (#return (#match input
-              (#case (Present child) (#match child
-                (#case (First view) (#deref view))
-                (#case (Second view) (#deref view))))
-              (#case (Absent value) value))))
+              (#case (Outer.Present child) (#match child
+                (#case (Inner.First view) (#deref view))
+                (#case (Inner.Second view) (#deref view))))
+              (#case (Outer.Absent value) value))))
           (#fn main () #u64 (#let owner #u64 42u64)
             (#let packet Outer {result})
             (#return (#call use-value (: input packet))))"
@@ -70,16 +70,16 @@ fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
 
 #[test]
 fn loop_result_bounds_keep_unknown_alternatives_conservative() {
-    let source = "(#enum Choice () (: Borrowed (#ref #u64) : Value #u64))
+    let source = "(#enum Choice () (: Choice.Borrowed (#ref #u64) : Choice.Value #u64))
       (#fn select (: input Choice : choose #bool) Choice
         (#return (#block (#label result (#loop
           (#if choose (#block (#break-to result input))
-            (#block (#forget input) (#break-to result (Value 42u64)))))))))
+            (#block (#forget input) (#break-to result (Choice.Value 42u64)))))))))
       (#fn main () #u64 (#let-mut owner #u64 1u64)
-        (#let saved Choice (#call select (: input (Borrowed (#borrow owner)) : choose true)))
+        (#let saved Choice (#call select (: input (Choice.Borrowed (#borrow owner)) : choose true)))
         (#set owner 2u64)
         (#return (#match saved
-          (#case (Borrowed view) (#deref view)) (#case (Value value) value))))";
+          (#case (Choice.Borrowed view) (#deref view)) (#case (Choice.Value value) value))))";
     let error = lim::check_types(&lim::parse_program(source).unwrap()).unwrap_err();
     assert!(
         error.contains("borrow") || error.contains("access"),

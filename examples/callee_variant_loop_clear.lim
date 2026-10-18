@@ -1,34 +1,34 @@
 ; Continue once, then move a clearing call result through the loop's break.
-(#enum Choice () ((Empty) (Full (#ref #u64))))
-(#enum Outcome () ((Ready) (Pending)))
+(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+(#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 
 (#fn step-choice (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome
   (#return
     (#if complete
-      (#block (#deref-set target (Empty)) (Ready))
-      (#block (#deref-set target (Full value)) (Pending)))))
+      (#block (#deref-set target (Choice.Empty)) (Outcome.Ready))
+      (#block (#deref-set target (Choice.Full value)) (Outcome.Pending)))))
 
 (#fn loop-run (: selected #bool) #u64
   (#let old #u64 7u64)
   (#let-mut value #u64 42u64)
-  (#let-mut holder Choice (Full (#borrow old)))
+  (#let-mut holder Choice (Choice.Full (#borrow old)))
   (#let target (#ref-mut Choice) (#borrow-mut holder))
   (#let first Outcome
     (#call step-choice (: target target : value (#borrow value) : complete false)))
   (#drop target)
   (#let result #u64
     (#match first
-      (#case (Ready) 0u64)
-      (#case (Pending)
+      (#case (Outcome.Ready) 0u64)
+      (#case (Outcome.Pending)
         (#match holder
-          (#case (Empty) 0u64)
-          (#case (Full view) (#deref view))))))
+          (#case (Choice.Empty) 0u64)
+          (#case (Choice.Full view) (#deref view))))))
   (#let next-target (#ref-mut Choice) (#borrow-mut holder))
   (#let-mut passes #u32 0u32)
   (#let second Outcome
     (#loop
-      (#if (#u32.< passes 1u32)
-        (#block (#set passes (#u32.+.wrap passes 1u32)) (#continue))
+      (#if (#u32::lt passes 1u32)
+        (#block (#set passes (#u32::add-wrap passes 1u32)) (#continue))
         ())
       (#if selected
         (#block
@@ -38,12 +38,12 @@
   (#drop next-target)
   (#let output #u64
     (#match second
-      (#case (Ready) (#block (#set value 1u64) result))
-      (#case (Pending) (#unreachable))))
+      (#case (Outcome.Ready) (#block (#set value 1u64) result))
+      (#case (Outcome.Pending) (#unreachable))))
   (#forget holder)
   (#return output))
 
 (#fn main () #u64
   (#let left #u64 (#call loop-run (: selected true)))
   (#let right #u64 (#call loop-run (: selected false)))
-  (#return (#u64.+.wrap left right)))
+  (#return (#u64::add-wrap left right)))

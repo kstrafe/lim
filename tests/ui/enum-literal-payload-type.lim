@@ -1,5 +1,5 @@
-(#enum Outcome () ((Success #u64) Failure))
+(#enum Outcome () ((Outcome.Success #u64) Outcome.Failure))
 (#fn main () #u64
-  (#let value Outcome (#enum-literal Success false))
+  (#let value Outcome (#enum-literal Outcome.Success false))
   (#forget value)
   (#return 0u64))

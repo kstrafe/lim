@@ -586,7 +586,7 @@ fn locate_generated_command(mut arguments: Vec<String>) -> ExitCode {
             for artifact in artifacts {
                 let relationship = if artifact.nested { "nested" } else { "direct" };
                 println!(
-                    "{relationship} @{} -> {}",
+                    "{relationship} #generate {} -> {}",
                     artifact.generator,
                     artifact.path.display()
                 );
@@ -1302,7 +1302,7 @@ mod tests {
                (#let call-result #u64 (#call ordered-call (: read-value (#call read-value (: target (#borrow state))) : write-step (#call set-value (: target (#borrow-mut state))))))\n\
                (#set state 0u64)\n\
                (#let pair Pair (#struct-literal Pair ((slot-b (#call read-value (: target (#borrow state)))) (slot-a (#call set-value (: target (#borrow-mut state)))))))\n\
-               (#return (#u64.+.wrap call-result (#get pair slot-b))))",
+               (#return (#u64::add-wrap call-result (#get pair slot-b))))",
         )
         .unwrap();
 
@@ -1329,7 +1329,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("program.lim");
         let output = directory.join("program");
-        fs::write(&input, "(#fn main () #u64 (#let values (#array #u64 3) (#array (#array #u64 3) 4u64 8u64 15u64)) (#let all (#slice #u64) (#slice-of (#borrow values))) (#let empty (#slice #u64) (#slice-range all 3usize 3usize)) (#let middle (#slice #u64) (#slice-range all 1usize 3usize)) (#assert (#usize.== (#slice-len empty) 0usize)) (#return (#deref (#slice-idx middle 1usize))))").unwrap();
+        fs::write(&input, "(#fn main () #u64 (#let values (#array #u64 3) (#array (#array #u64 3) 4u64 8u64 15u64)) (#let all (#slice #u64) (#slice-of (#borrow values))) (#let empty (#slice #u64) (#slice-range all 3usize 3usize)) (#let middle (#slice #u64) (#slice-range all 1usize 3usize)) (#assert (#usize::eq (#slice-len empty) 0usize)) (#return (#deref (#slice-idx middle 1usize))))").unwrap();
         assert_eq!(
             compile(
                 input.to_str().unwrap(),
@@ -1355,7 +1355,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("program.lim");
         let output = directory.join("program");
-        fs::write(&input, "(#fn main () #u64 (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result #u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))").unwrap();
+        fs::write(&input, "(#fn main () #u64 (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result #u64 (#u64::add-wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))").unwrap();
         assert_eq!(
             compile(
                 input.to_str().unwrap(),
@@ -1380,7 +1380,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("program.lim");
         let output = directory.join("program");
-        let source = "(#fn increment ((counter (#ref (#atomic #u64)))) #u64 (#return (#u64.+.wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64))) (@#thread-spawn (: task AtomicTask : worker increment)) (@#thread-spawn (: task AtomicTaskTwo : worker increment)) (#fn main () #u64 (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#let-mut byte (#atomic #i8) (#atomic-init #i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result #u64 (#match (#call AtomicTask-spawn (: counter (#borrow counter))) (#case (AtomicTask-spawn-ok task) (#match (#call AtomicTask-join (: task task)) (#case (AtomicTask-join-ok value) value) (#case (AtomicTask-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTask-spawn-error error) (#panic)))) (#let second-result #u64 (#match (#call AtomicTaskTwo-spawn (: counter (#borrow counter))) (#case (AtomicTaskTwo-spawn-ok task) (#match (#call AtomicTaskTwo-join (: task task)) (#case (AtomicTaskTwo-join-ok value) value) (#case (AtomicTaskTwo-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo-spawn-error error) (#panic)))) (#let observed #u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed))";
+        let source = "(#fn increment ((counter (#ref (#atomic #u64)))) #u64 (#return (#u64::add-wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64))) (#generate #thread-spawn (: task AtomicTask : worker increment)) (#generate #thread-spawn (: task AtomicTaskTwo : worker increment)) (#fn main () #u64 (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#let-mut byte (#atomic #i8) (#atomic-init #i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result #u64 (#match (#call AtomicTask::spawn (: counter (#borrow counter))) (#case (AtomicTask::SpawnResult.Ok task) (#match (#call AtomicTask::join (: task task)) (#case (AtomicTask::JoinResult.Ok value) value) (#case (AtomicTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTask::SpawnResult.Error error) (#panic)))) (#let second-result #u64 (#match (#call AtomicTaskTwo::spawn (: counter (#borrow counter))) (#case (AtomicTaskTwo::SpawnResult.Ok task) (#match (#call AtomicTaskTwo::join (: task task)) (#case (AtomicTaskTwo::JoinResult.Ok value) value) (#case (AtomicTaskTwo::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo::SpawnResult.Error error) (#panic)))) (#let observed #u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed))";
         fs::write(&input, source).unwrap();
         assert_eq!(
             compile(
@@ -1470,7 +1470,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#fn zero ((value #u64)) #u64 (#return 0)) (@#thread-spawn (: task ZeroTask : worker zero)) (#fn main () #u64 (#return (#match (#call ZeroTask-spawn (: value 41)) (#case (ZeroTask-spawn-ok task) (#match (#call ZeroTask-join (: task task)) (#case (ZeroTask-join-ok value) (#if (#u64.== value 0) 42 0)) (#case (ZeroTask-join-error (#tuple retry error)) (#panic)))) (#case (ZeroTask-spawn-error error) (#panic)))))",
+            "(#fn zero ((value #u64)) #u64 (#return 0)) (#generate #thread-spawn (: task ZeroTask : worker zero)) (#fn main () #u64 (#return (#match (#call ZeroTask::spawn (: value 41)) (#case (ZeroTask::SpawnResult.Ok task) (#match (#call ZeroTask::join (: task task)) (#case (ZeroTask::JoinResult.Ok value) (#if (#u64::eq value 0) 42 0)) (#case (ZeroTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (ZeroTask::SpawnResult.Error error) (#panic)))))",
         )
         .unwrap();
 
@@ -1500,7 +1500,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn identity ((value Large)) Large (#return value)) (@#thread-spawn (: task LargeTask : worker identity)) (#fn main () #u64 (#return (#match (#call LargeTask-spawn (: value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42))))) (#case (LargeTask-spawn-ok task) (#match (#call LargeTask-join (: task task)) (#case (LargeTask-join-ok value) (#get value g)) (#case (LargeTask-join-error (#tuple retry error)) (#panic)))) (#case (LargeTask-spawn-error error) (#panic)))))",
+            "(#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn identity ((value Large)) Large (#return value)) (#generate #thread-spawn (: task LargeTask : worker identity)) (#fn main () #u64 (#return (#match (#call LargeTask::spawn (: value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42))))) (#case (LargeTask::SpawnResult.Ok task) (#match (#call LargeTask::join (: task task)) (#case (LargeTask::JoinResult.Ok value) (#get value g)) (#case (LargeTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (LargeTask::SpawnResult.Error error) (#panic)))))",
         )
         .unwrap();
 
@@ -1528,7 +1528,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "(#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task-spawn (: value 41)) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 43) (#case Task-spawn-allocation-error 0))))))";
+        let source = "(#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task::spawn (: value 41)) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 43) (#case Task::SpawnError.AllocationError 0))))))";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1568,7 +1568,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "(#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task-spawn (: value 41)) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 0) (#case Task-spawn-allocation-error 44))))))";
+        let source = "(#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task::spawn (: value 41)) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 0) (#case Task::SpawnError.AllocationError 44))))))";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1607,7 +1607,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "(#extern-fn #abi-c exit ((status #i32)) ()) (#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task-spawn (: value 41)) (#case (Task-spawn-ok task) (#match (#call Task-join (: task task)) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#unsafe-call exit (: status 43))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
+        let source = "(#extern-fn #abi-c exit ((status #i32)) ()) (#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#return (#match (#call Task::spawn (: value 41)) (#case (Task::SpawnResult.Ok task) (#match (#call Task::join (: task task)) (#case (Task::JoinResult.Ok value) 42) (#case (Task::JoinResult.Error (#tuple retry error)) (#if (#i32::eq error 11) (#panic) (#block (#unsafe (#unsafe-call exit (: status 43))) (#panic)))))) (#case (Task::SpawnResult.Error error) (#panic)))))";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1791,19 +1791,19 @@ mod tests {
     fn allocator_backed_vector_reports_allocation_failure_without_losing_vector() {
         let source = r#"
 (#struct Arena () ((identity #u64)))
-(#enum AllocError () (OutOfMemory))
+(#enum AllocError () (AllocError.OutOfMemory))
 (#type Arena::Allocator::State Arena)
 (#type Arena::Allocator::Error AllocError)
 (#enum Arena::Allocator::Allocation ()
-  ((Arena::Allocator::Allocated (#ptr-mut #u8)) (Arena::Allocator::AllocationFailed AllocError)))
-(@#vec (: element #u64 : allocator Arena : name VecU64))
-(@#vec-alloc (: element #u64 : allocator Arena::Allocator : vector VecU64 : destroy drop-u64))
+  ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8)) (Arena::Allocator::Allocation.AllocationFailed AllocError)))
+(#generate #vec (: element #u64 : allocator Arena : name VecU64))
+(#generate #vec-alloc (: element #u64 : allocator Arena::Allocator : vector VecU64 : destroy drop-u64))
 (#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
-  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+  (#return (Arena::Allocator::Allocation.AllocationFailed AllocError.OutOfMemory)))
 (#unsafe-fn Arena::Allocator::grow ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
                 (old-layout #usize) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
   (#forget pointer)
-  (#return (Arena::Allocator::AllocationFailed OutOfMemory)))
+  (#return (Arena::Allocator::Allocation.AllocationFailed AllocError.OutOfMemory)))
 (#unsafe-fn Arena::Allocator::deallocate ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
                  (layout #usize) (alignment #usize)) ()
   (#forget pointer)
@@ -1811,13 +1811,13 @@ mod tests {
 (#fn drop-u64 ((allocator (#ref Arena)) (value #u64)) () (#return ()))
 (#fn main () #u64
   (#let-mut arena Arena (#struct-literal Arena ((identity 0u64))))
-  (#let-mut vector VecU64 (#call VecU64-new (: allocator (#borrow arena))))
-  (#let result VecU64-PushResult (#call VecU64-push (: vector (#borrow-mut vector) : element 42u64)))
+  (#let-mut vector VecU64 (#call VecU64::new (: allocator (#borrow arena))))
+  (#let result VecU64::PushResult (#call VecU64::push (: vector (#borrow-mut vector) : element 42u64)))
   (#let status #u64
     (#match result
-      (#case (VecU64-PushResult-ok-value _) 0u64)
-      (#case (VecU64-PushResult-err-value _) 42u64)))
-  (#call VecU64-free (: vector vector))
+      (#case (VecU64::PushResult.Ok _) 0u64)
+      (#case (VecU64::PushResult.Err _) 42u64)))
+  (#call VecU64::free (: vector vector))
   (#forget arena)
   (#return status))
 "#;

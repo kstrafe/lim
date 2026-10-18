@@ -1,40 +1,40 @@
 ; A synchronous scrutinee runs once per iteration; only the body suspends.
-(#enum Value () ((Some #u64) None))
+(#enum Value () ((Value.Some #u64) Value.None))
 
 (#fn next-value ((counter (#ref-mut #u64))) Value
   (#let index #u64 (#deref counter))
-  (#deref-set counter (#u64.+.wrap index 1u64))
+  (#deref-set counter (#u64::add-wrap index 1u64))
   (#return (#match index
-    (#case 0u64 (Some 20u64))
-    (#case 1u64 (Some 22u64))
-    (#case _ None))))
+    (#case 0u64 (Value.Some 20u64))
+    (#case 1u64 (Value.Some 22u64))
+    (#case _ Value.None))))
 
-(#enum BodyTask (#linear) ((Start #u64) (Resume #u64)))
+(#enum BodyTask (#linear) ((BodyTask.Start #u64) (BodyTask.Resume #u64)))
 
-(#enum BodyPoll () ((BodyPending BodyTask) (BodyReady #u64)))
+(#enum BodyPoll () ((BodyPoll.BodyPending BodyTask) (BodyPoll.BodyReady #u64)))
 
 (#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll
   (#return (#match task
-    (#case (Start value) (BodyPending (Resume value)))
-    (#case (Resume value) (BodyReady value)))))
+    (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
+    (#case (BodyTask.Resume value) (BodyPoll.BodyReady value)))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut counter #u64 0u64)
     (#let-mut total #u64 0u64)
-    (#while-let (Some amount) (#call next-value (: counter (#borrow-mut counter)))
-      (#let result #u64 (#await BodyTask BodyPending BodyReady body-poll (Start amount)))
-      (#set total (#u64.+.wrap total result)))
-    (#assert (#u64.== counter 3u64))
+    (#while-let (Value.Some amount) (#call next-value (: counter (#borrow-mut counter)))
+      (#let result #u64 (#await BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start amount)))
+      (#set total (#u64::add-wrap total result)))
+    (#assert (#u64::eq counter 3u64))
     (#return total))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Work::Pending first-task) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending first-task) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task first-task : waker (#borrow waker))))
-  (#let-else (Work::Pending second-task) Work::Poll second (#unreachable))
+  (#let-else (Work::Poll.Pending second-task) Work::Poll second (#unreachable))
   (#let third Work::Poll (#call Work::poll (: task second-task : waker (#borrow waker))))
   (#return (#match third
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

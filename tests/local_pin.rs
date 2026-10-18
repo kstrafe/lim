@@ -40,7 +40,7 @@ fn reject(source: &str, expected: &str) {
 const JOB: &str = "(#struct Job (#linear) (: state #u64)) ";
 const POLL: &str = "(#fn poll (: target (#pin-ref-mut Job)) #u64
   (#let answer #u64 (#get target state))
-  (#pin-set-field target state (#u64.+.wrap answer 1u64))
+  (#pin-set-field target state (#u64::add-wrap answer 1u64))
   (#forget target) (#return answer))";
 
 #[test]
@@ -167,12 +167,12 @@ fn each_loop_iteration_initializes_fresh_pinned_storage() {
             "{JOB} {POLL} (#fn main () #u64
               (#let-mut total #u64 0u64)
               (#for (#let-mut index #u64 0u64)
-                (#u64.< index 2u64)
-                (#set index (#u64.+.wrap index 1u64))
+                (#u64::lt index 2u64)
+                (#set index (#u64::add-wrap index 1u64))
                 (#let-mut job Job (#struct-literal Job (: state 21u64)))
                 (#let view (#pin-ref-mut Job) (#pin job))
                 (#let value #u64 (#call poll (: target view)))
-                (#set total (#u64.+.wrap total value))
+                (#set total (#u64::add-wrap total value))
                 (#forget job))
               (#return total))"
         ),
@@ -192,7 +192,7 @@ fn frozen_copy_storage_remains_readable_after_pin_loan_ends() {
                   (#let copied #u64 number)
                   (#let cloned #u64 (#clone number))
                   (#forget number)
-                  (#return (#u64.+.wrap copied cloned)))"
+                  (#return (#u64::add-wrap copied cloned)))"
             ),
             42,
         );

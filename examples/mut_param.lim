@@ -8,7 +8,7 @@
   (
     #set
     value
-    (#u64.+.wrap  value 1)
+    (#u64::add-wrap  value 1)
   )
   (#return value)
 )

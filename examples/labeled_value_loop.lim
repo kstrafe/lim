@@ -3,8 +3,8 @@
   (#let result #u64
     (#label outer
       (#loop
-        (#set count (#u64.+.wrap count 1u64))
-        (#if (#u64.< count 3u64)
+        (#set count (#u64::add-wrap count 1u64))
+        (#if (#u64::lt count 3u64)
           (#block (#continue-to outer))
           ())
         (#break-to outer 42u64))))

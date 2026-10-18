@@ -1,10 +1,10 @@
-(#enum Maybe () ((Some #u64) None))
+(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
 
 (#fn main () #u64
-  (#let value Maybe (Some 20))
+  (#let value Maybe (Maybe.Some 20))
   (#return
     (#match value
-      (#case (Some payload) (#when (#u64.>.wrap payload 40))
-        (#u64.+.wrap payload 8))
-      (#case (Some _) 7)
-      (#case None 0))))
+      (#case (Maybe.Some payload) (#when (#u64::gt-wrap payload 40))
+        (#u64::add-wrap payload 8))
+      (#case (Maybe.Some _) 7)
+      (#case Maybe.None 0))))

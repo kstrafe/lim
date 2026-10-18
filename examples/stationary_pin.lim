@@ -3,14 +3,14 @@
 (#import "../library/pin.lim")
 (#struct Frame (#linear) (: value #u64))
 
-(@#pin (: type Frame : name PinnedFrame : fields (: value #u64)))
-(@#pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
+(#generate #pin (: type Frame : name PinnedFrame : fields (: value #u64)))
+(#generate #pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))
 
 (#fn drive-frame (: pin PinnedFrame) #u64
   (#let-mut handle PinnedFrame pin)
-  (#call PinnedFrame::value::write (: pin (#borrow-mut handle) : value 42u64))
-  (#let result #u64 (#call PinnedFrame::value::read (: pin (#borrow handle))))
+  (#call PinnedFrame::Write::value (: pin (#borrow-mut handle) : value 42u64))
+  (#let result #u64 (#call PinnedFrame::Read::value (: pin (#borrow handle))))
   (#forget handle)
   (#return result))
 

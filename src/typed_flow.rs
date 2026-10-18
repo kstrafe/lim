@@ -15983,7 +15983,7 @@ mod stored_handle_parent_tests {
         (#let-mut holder Holder (#struct-literal Holder
           (: first (#borrow-mut left) : second (#borrow right))))
         (#let selected (#ref-mut #u64) (#call forward (: input (#borrow-mut holder))))
-        (#assert (#u64.== (#deref (#get holder second)) 9u64))
+        (#assert (#u64::eq (#deref (#get holder second)) 9u64))
         (#call touch (: value selected))
         (#forget selected) (#forget holder) (#let answer #u64 (#get left value)) (#forget left) (#return answer))";
 
@@ -16062,12 +16062,12 @@ mod pinned_payload_projection_tests {
         ] {
             let source = format!(
                 "(#struct Owner () (: view (#ref #u64)))
-              (#enum Storage () (Empty (Full Owner)))
+              (#enum Storage () (Storage.Empty (Storage.Full Owner)))
               (#unsafe-fn work (: seed (#ref #u64) : pointer (#ptr-mut Storage)) (#ref #u64)
                 (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
-                  (Full (#struct-literal Owner (: view seed))))))
+                  (Storage.Full (#struct-literal Owner (: view seed))))))
               (#let owner ({result} Owner) (#unsafe (#{operator}
-                  (#pin-own-borrow-mut storage) Full)))
+                  (#pin-own-borrow-mut storage) Storage.Full)))
                 (#let holder (#pin-ref (#ref #u64)) (#pin-borrow (#get owner view)))
                 (#let value (#ref #u64) (#deref holder))
                 (#forget holder) (#forget owner) (#forget storage) (#return value))"
@@ -16114,12 +16114,12 @@ mod pinned_payload_projection_tests {
     #[test]
     fn shared_heap_payload_views_cannot_lend_exclusive_nested_references() {
         let source = "(#struct Owner () (: view (#ref-mut #u64)))
-          (#enum Storage () (Empty (Full Owner)))
+          (#enum Storage () (Storage.Empty (Storage.Full Owner)))
           (#fn touch (: value (#ref-mut #u64)) () (#deref-set value 0u64) (#return ()))
           (#unsafe-fn work (: seed (#ref-mut #u64) : pointer (#ptr-mut Storage)) ()
             (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
-              (Full (#struct-literal Owner (: view seed))))))
-            (#let owner (#pin-ref Owner) (#unsafe (#pin-get-payload-unchecked (#pin-own-borrow-mut storage) Full)))
+              (Storage.Full (#struct-literal Owner (: view seed))))))
+            (#let owner (#pin-ref Owner) (#unsafe (#pin-get-payload-unchecked (#pin-own-borrow-mut storage) Storage.Full)))
             (#call touch (: value (#get owner view)))
             (#forget owner) (#forget storage) (#return ()))";
         let error = crate::check_types(&crate::parse_program(source).unwrap()).unwrap_err();
@@ -19957,10 +19957,10 @@ mod tests {
     #[test]
     fn borrowed_cases_bind_checked_payload_borrows_without_moving_the_enum() {
         let program = crate::parse_program(
-            "(#enum Choice () ((Full #u64) Empty))
+            "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
              (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
                (#return (#match choice
-                 (#case-pin-mut (Full value) (#deref value))
+                 (#case-pin-mut (Choice.Full value) (#deref value))
                  (#case _ 0u64))))",
         )
         .unwrap();
@@ -19989,12 +19989,12 @@ mod tests {
     #[test]
     fn computed_pinned_match_snapshots_receiver_before_binding_payload() {
         let program = crate::parse_program(
-            "(#enum Choice () ((Full #u64) Empty))
+            "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
              (#fn identity (: input (#pin-ref-mut Choice)) (#pin-ref-mut Choice)
                (#return input))
              (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
                (#return (#match (#call identity (: input choice))
-                 (#case-pin-mut (Full value) (#deref value))
+                 (#case-pin-mut (Choice.Full value) (#deref value))
                  (#case _ 0u64))))",
         )
         .unwrap();
@@ -20333,7 +20333,7 @@ mod tests {
             "(#struct Resource (#linear) (: value #u64))
              (#fn work (: input (#ref-mut Resource) : choose #bool) ()
                (#match choose
-                 (#case true (#when (#u64.> (#get input value) 0u64))
+                 (#case true (#when (#u64::gt (#get input value) 0u64))
                    (#block (#forget (#deref input)) ()))
                  (#case _ ()))
                (#return ()))",
@@ -20399,14 +20399,14 @@ mod tests {
     #[test]
     fn definite_constructor_tags_do_not_require_complete_loan_substitution() {
         let program = crate::parse_program(
-            "(#enum Choice () ((A (#ref #u64)) (B (#ref #u64))))
+            "(#enum Choice () ((Choice.A (#ref #u64)) (Choice.B (#ref #u64))))
              (#fn advance (: target (#ref-mut Choice)) ()
                (#let replacement Choice (#match (#deref target)
-                 (#case (A initial) (B initial))
-                 (#case (B final) (B final))))
+                 (#case (Choice.A initial) (Choice.B initial))
+                 (#case (Choice.B final) (Choice.B final))))
                (#deref-set target replacement) (#return ()))
              (#fn work (: source (#ref #u64)) ()
-               (#let-mut target Choice (A source))
+               (#let-mut target Choice (Choice.A source))
                (#call advance (: target (#borrow-mut target)))
                (#forget target) (#return ()))",
         )
@@ -20450,14 +20450,14 @@ mod tests {
     #[test]
     fn definite_constructor_tags_require_a_single_actual_destination() {
         let program = crate::parse_program(
-            "(#enum Choice () ((A (#ref #u64)) (B (#ref #u64))))
+            "(#enum Choice () ((Choice.A (#ref #u64)) (Choice.B (#ref #u64))))
              (#fn advance (: target (#ref-mut Choice)) ()
                (#let replacement Choice (#match (#deref target)
-                 (#case (A initial) (B initial))
-                 (#case (B final) (B final))))
+                 (#case (Choice.A initial) (Choice.B initial))
+                 (#case (Choice.B final) (Choice.B final))))
                (#deref-set target replacement) (#return ()))
              (#fn work (: source (#ref #u64) : choose #bool) ()
-               (#let-mut left Choice (A source)) (#let-mut right Choice (A source))
+               (#let-mut left Choice (Choice.A source)) (#let-mut right Choice (Choice.A source))
                (#let selected (#ref-mut Choice) (#if choose (#borrow-mut left) (#borrow-mut right)))
                (#call advance (: target selected))
                (#forget selected) (#forget left) (#forget right) (#return ()))",
@@ -20681,7 +20681,7 @@ mod tests {
         programs.push(
             crate::parse_program(
                 "(#struct Token (#linear) (: value #u64))
-             (#enum Outcome () ((Done #u64) (Skip #u64)))
+             (#enum Outcome () ((Outcome.Done #u64) (Outcome.Skip #u64)))
              (#fn work (: input (#ref-mut Token) : choose #bool) Outcome
                (#let token Token (#struct-literal Token (: value 7u64)))
                (#if choose (#forget token) (#forget token))
@@ -20689,14 +20689,14 @@ mod tests {
                  (#forget (#deref input))
                  (#deref-set input (#struct-literal Token (: value 9u64)))
                  (#break))
-               (#return (#if choose (Done 1u64) (Skip 2u64))))",
+               (#return (#if choose (Outcome.Done 1u64) (Outcome.Skip 2u64))))",
             )
             .unwrap(),
         );
         let mut filtered_count = 0;
         for mut program in programs {
             program.items.extend(
-                crate::parse_program("(#static Shared #u64 0u64)")
+                crate::parse_program("(#static shared #u64 0u64)")
                     .unwrap()
                     .items,
             );
@@ -20710,7 +20710,7 @@ mod tests {
             for graph in std::iter::once(original).chain(filtered.values()) {
                 let origins = graph.loan_origins(body);
                 let seed = Place::root(if body.parameter_count == 0 {
-                    PlaceRoot::Global(declarations.global_id("Shared").unwrap())
+                    PlaceRoot::Global(declarations.global_id("shared").unwrap())
                 } else {
                     PlaceRoot::Parameter(BindingId(0))
                 });
@@ -20860,9 +20860,9 @@ mod tests {
     fn shared_parameter_facts_match_independent_solves_in_both_modes() {
         let program = crate::parse_program(
             "(#struct Holder () (: value (#ref #u64)))
-            (#enum Choice () ((Found Holder) Missing))
+            (#enum Choice () ((Choice.Found Holder) Choice.Missing))
             (#fn choose (: owner (#ref #u64) : flag #bool) Choice
-              (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
+              (#return (#if flag (Choice.Found (#struct-literal Holder (: value owner))) Choice.Missing)))
             (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
               (#deref-set slot value) (#return ()))
             (#fn identity (: owner (#ref #u64)) (#ref #u64) (#return owner))
@@ -20976,10 +20976,10 @@ mod tests {
         let origin = allocation_origin(NodeId(0), Vec::new(), None);
         let key = allocation_contents_key(&origin);
         let program =
-            crate::parse_program("(#static Shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
+            crate::parse_program("(#static shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
                 .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let global = checked.declarations().global_id("Shared").unwrap();
+        let global = checked.declarations().global_id("shared").unwrap();
         let mut original: LoanState = vec![vec![origin.clone()]].into();
         original
             .allocation_contents
@@ -21428,7 +21428,7 @@ mod tests {
             ),
             ("(#let selector #u64 other)", "selector", vec![]),
             (
-                "(#let selector #u64 (#u64.+.wrap other 1u64))",
+                "(#let selector #u64 (#u64::add-wrap other 1u64))",
                 "selector",
                 vec![],
             ),
@@ -21507,9 +21507,9 @@ mod tests {
     fn enum_tag_reads_are_nonconsuming_proven_referent_reads() {
         for reference in ["#ref", "#ref-mut", "#pin-ref", "#pin-ref-mut"] {
             let source = format!(
-                "(#enum Choice (#linear) ((Some #u64) Empty))
+                "(#enum Choice (#linear) ((Choice.Some #u64) Choice.Empty))
               (#fn inspect ((value ({reference} Choice))) #bool
-                (#return (#variant-is value Some)))"
+                (#return (#variant-is value Choice.Some)))"
             );
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -21534,14 +21534,14 @@ mod tests {
     #[test]
     fn boolean_partition_widening_is_bounded_and_conservative() {
         let program = crate::parse_program(
-            "(#enum Tag () ((Before) (After))) (#fn main () #u64 (#return 0u64))",
+            "(#enum Tag () ((Tag.Before) (Tag.After))) (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
         let ty = Type::Named("Tag".to_owned());
-        let before = declarations.variant_id(&ty, "Before").unwrap();
-        let after = declarations.variant_id(&ty, "After").unwrap();
+        let before = declarations.variant_id(&ty, "Tag.Before").unwrap();
+        let after = declarations.variant_id(&ty, "Tag.After").unwrap();
         let root = Place::root(PlaceRoot::Local(BindingId(0)));
         let mut partitions = Vec::new();
         let mut widened = false;
@@ -21593,14 +21593,14 @@ mod tests {
                 ""
             };
             let source = format!(
-                "(#enum State (#linear) ((Initial) (Complete)))
+                "(#enum State (#linear) ((State.Initial) (State.Complete)))
               (#fn stop ((target (#ref-mut #bool))) () (#deref-set target true) (#return ()))
               (#fn finish () State
-                (#let-mut state State (Initial)) (#let-mut stopped #bool false)
+                (#let-mut state State (State.Initial)) (#let-mut stopped #bool false)
                 {alias}
-                (#while (#bool.== stopped false)
+                (#while (#bool::eq stopped false)
                   (#set state (#match state
-                    (#case (Initial) (Complete)) (#case (Complete) (Complete))))
+                    (#case (State.Initial) (State.Complete)) (#case (State.Complete) (State.Complete))))
                   (#set stopped true))
                 (#return state))"
             );
@@ -21611,9 +21611,9 @@ mod tests {
             let flow = &declarations.flows["finish"];
             let bounds = flow.returned_variant_bounds(body, &flow.loan_origins(body));
             let ty = Type::Named("State".to_owned());
-            let complete = declarations.variant_id(&ty, "Complete").unwrap();
+            let complete = declarations.variant_id(&ty, "State.Complete").unwrap();
             if aliased_flag {
-                let initial = declarations.variant_id(&ty, "Initial").unwrap();
+                let initial = declarations.variant_id(&ty, "State.Initial").unwrap();
                 assert_eq!(bounds[&Vec::new()], HashSet::from([initial, complete]));
             } else {
                 assert_eq!(bounds[&Vec::new()], HashSet::from([complete]));
@@ -21663,8 +21663,8 @@ mod tests {
     #[test]
     fn guarded_variant_joins_preserve_only_proven_payload_bounds() {
         let program = crate::parse_program(
-            "(#enum Inner () ((Left) (Right)))
-             (#enum Outer () ((Present Inner) (Absent)))
+            "(#enum Inner () ((Inner.Left) (Inner.Right)))
+             (#enum Outer () ((Outer.Present Inner) (Outer.Absent)))
              (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
@@ -21672,10 +21672,10 @@ mod tests {
         let declarations = checked.declarations();
         let outer = Type::Named("Outer".to_owned());
         let inner = Type::Named("Inner".to_owned());
-        let present = declarations.variant_id(&outer, "Present").unwrap();
-        let absent = declarations.variant_id(&outer, "Absent").unwrap();
-        let left = declarations.variant_id(&inner, "Left").unwrap();
-        let right = declarations.variant_id(&inner, "Right").unwrap();
+        let present = declarations.variant_id(&outer, "Outer.Present").unwrap();
+        let absent = declarations.variant_id(&outer, "Outer.Absent").unwrap();
+        let left = declarations.variant_id(&inner, "Inner.Left").unwrap();
+        let right = declarations.variant_id(&inner, "Inner.Right").unwrap();
         let root = Place::root(PlaceRoot::Local(BindingId(0)));
         let nested = Place {
             root: root.root.clone(),
@@ -21720,10 +21720,10 @@ mod tests {
     #[test]
     fn global_contents_keep_identity_and_do_not_invent_unknown_entry_loans() {
         let program =
-            crate::parse_program("(#static Shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
+            crate::parse_program("(#static shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
                 .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let id = checked.declarations().global_id("Shared").unwrap();
+        let id = checked.declarations().global_id("shared").unwrap();
         let origin = |root| LoanOrigin {
             owned_allocation: false,
             place: Place::root(root),
@@ -21772,10 +21772,10 @@ mod tests {
     #[test]
     fn global_contents_are_known_only_for_every_path_concrete_coverage() {
         let program =
-            crate::parse_program("(#static Shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
+            crate::parse_program("(#static shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
                 .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let global = checked.declarations().global_id("Shared").unwrap();
+        let global = checked.declarations().global_id("shared").unwrap();
         let address = |segments| LoanOrigin {
             owned_allocation: false,
             place: Place {
@@ -21962,7 +21962,7 @@ mod tests {
                (#let left #u64 (#unsafe (#pin-read (#get loaded left))))
                (#let right #u64 (#unsafe (#pin-read (#get loaded right))))
                (#forget loaded)
-               (#return (#u64.+.wrap left right)))",
+               (#return (#u64::add-wrap left right)))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -22688,13 +22688,13 @@ mod tests {
 
     #[test]
     fn checked_flow_has_explicit_if_match_and_short_circuit_edges() {
-        let source = "(#enum Choice () ((Some #u64) None))
+        let source = "(#enum Choice () ((Choice.Some #u64) Choice.None))
           (#fn main () #u64
-            (#let flag #bool (#bool.&& true false))
+            (#let flag #bool (#bool::and true false))
             (#return (#if flag
-              (#match (Some 42u64)
-                (#case (Some value) value)
-                (#case None 0u64))
+              (#match (Choice.Some 42u64)
+                (#case (Choice.Some value) value)
+                (#case Choice.None 0u64))
               0u64)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -22793,7 +22793,7 @@ mod tests {
             (#set-field point x 5u64)
             (#let field-before #u64 (#get point y))
             (#set point replacement)
-            (#return (#u64.+.wrap field-before (#get point x))))";
+            (#return (#u64::add-wrap field-before (#get point x))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -22847,15 +22847,15 @@ mod tests {
 
     #[test]
     fn transfer_actions_retain_checked_value_identities() {
-        let source = "(#enum Choice () ((Some #u64) None))
+        let source = "(#enum Choice () ((Choice.Some #u64) Choice.None))
           (#fn main () #u64
             (#let-mut value #u64 1u64)
             (#set value 2u64)
             (#let pair (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) value 3u64))
             (#let (#tuple first second) (#tuple #u64 #u64) pair)
-            (#return (#match (Some first)
-              (#case (Some selected) (#u64.+.wrap selected second))
-              (#case None 0u64))))";
+            (#return (#match (Choice.Some first)
+              (#case (Choice.Some selected) (#u64::add-wrap selected second))
+              (#case Choice.None 0u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -22871,7 +22871,7 @@ mod tests {
         assert!(graph.nodes.iter().any(|node| matches!(node.action,
             FlowAction::Pattern { value, .. } if value_text(value) == "pair")));
         assert!(graph.nodes.iter().any(|node| matches!(node.action,
-            FlowAction::Pattern { value, .. } if value_text(value) == "(Some first)")));
+            FlowAction::Pattern { value, .. } if value_text(value) == "(Choice.Some first)")));
     }
 
     #[test]
@@ -22929,7 +22929,7 @@ mod tests {
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
             (#let view (#ref-mut #u64) (#borrow-mut (#get pair-ref left)))
             (#let right #u64 (#get pair-ref right))
-            (#return (#u64.+.wrap (#deref view) right)))";
+            (#return (#u64::add-wrap (#deref view) right)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -23411,13 +23411,13 @@ mod tests {
     fn typed_match_transfers_enum_payload_obligations_to_arm_bindings() {
         let source = "(#struct Token (#linear) ((value #u64)))
 
-          (#enum Choice () ((Owned Token) Empty))
+          (#enum Choice () ((Choice.Owned Token) Choice.Empty))
           (#fn main () ()
             (#let choice Choice
-              (Owned (#struct-literal Token ((value 1u64)))))
+              (Choice.Owned (#struct-literal Token ((value 1u64)))))
             (#match choice
-              (#case (Owned payload) (#forget payload))
-              (#case Empty ()))
+              (#case (Choice.Owned payload) (#forget payload))
+              (#case Choice.Empty ()))
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -23597,13 +23597,13 @@ mod tests {
                 "(#array Token 1)",
                 "(#array-of (#array Token 1) token)",
             ),
-            ("enum", "Choice", "(Some token)"),
+            ("enum", "Choice", "(Choice.Some token)"),
         ] {
             let source = format!(
                 "(#struct Token (#linear) ((value #u64)))
 
               (#struct Holder () ((item Token)))
-              (#enum Choice () ((Some Token) None))
+              (#enum Choice () ((Choice.Some Token) Choice.None))
               (#fn main () ()
                 (#let token Token (#struct-literal Token ((value 7u64))))
                 (#let holder {holder_type} {value})
@@ -23905,7 +23905,7 @@ mod tests {
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair ((first 3u64) (second 4u64))))
             (#let copy #u64 (#clone (#get pair first)))
-            (#return (#u64.+.wrap copy (#get pair second))))";
+            (#return (#u64::add-wrap copy (#get pair second))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -23941,7 +23941,7 @@ mod tests {
             (#let pair Pair (#struct-literal Pair
               ((second (#borrow right)) (first (#borrow left)))))
             (#let (Pair first second) Pair pair)
-            (#return (#u64.+.wrap (#deref first) (#deref second))))";
+            (#return (#u64::add-wrap (#deref first) (#deref second))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -24112,13 +24112,13 @@ mod tests {
 
     #[test]
     fn enum_binding_retains_payload_borrow_origin() {
-        let source = "(#enum Choice () ((Has (#ref #u64)) Empty))
+        let source = "(#enum Choice () ((Choice.Has (#ref #u64)) Choice.Empty))
           (#fn main () #u64
             (#let owner #u64 4u64)
-            (#let choice Choice (Has (#borrow owner)))
+            (#let choice Choice (Choice.Has (#borrow owner)))
             (#return (#match choice
-              (#case (Has view) (#deref view))
-              (#case Empty 0u64))))";
+              (#case (Choice.Has view) (#deref view))
+              (#case Choice.Empty 0u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -24165,12 +24165,12 @@ mod tests {
 
     #[test]
     fn outcome_summaries_reuse_only_their_own_graph_origins() {
-        let source = "(#enum Choice () ((Left (#ref #u64)) (Right (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Left (#ref #u64)) (Choice.Right (#ref #u64))))
           (#fn choose (: flag #bool : left (#ref #u64) : right (#ref #u64)) Choice
             (#if flag
-              (#block (#assert (#u64.== (#deref left) 1u64)) (#return (Left left)))
-              (#block (#assert (#u64.== (#deref right) 2u64)) (#return (Right right))))
-            (#return (Left left)))";
+              (#block (#assert (#u64::eq (#deref left) 1u64)) (#return (Choice.Left left)))
+              (#block (#assert (#u64::eq (#deref right) 2u64)) (#return (Choice.Right right))))
+            (#return (Choice.Left left)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["choose"];
@@ -24236,16 +24236,16 @@ mod tests {
 
     #[test]
     fn variant_payload_origins_do_not_cross_match_arms() {
-        let source = "(#enum Choice () ((Left (#ref #u64)) (Right (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Left (#ref #u64)) (Choice.Right (#ref #u64))))
           (#fn main ((choose #bool)) #u64
             (#let left #u64 1u64)
             (#let right #u64 2u64)
             (#let choice Choice (#if choose
-              (Left (#borrow left))
-              (Right (#borrow right))))
+              (Choice.Left (#borrow left))
+              (Choice.Right (#borrow right))))
             (#return (#match choice
-              (#case (Left left-view) (#deref left-view))
-              (#case (Right right-view) (#deref right-view)))))";
+              (#case (Choice.Left left-view) (#deref left-view))
+              (#case (Choice.Right right-view) (#deref right-view)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -24318,22 +24318,23 @@ mod tests {
 
     #[test]
     fn terminating_owned_argument_branches_do_not_require_reference_inputs() {
-        let source = "(#enum Child (#linear) ((Start (#ref-mut #u64)) (Resume (#ref-mut #u64))))
+        let source =
+            "(#enum Child (#linear) ((Child.Start (#ref-mut #u64)) (Child.Resume (#ref-mut #u64))))
 
-          (#enum Cell (#linear) ((Empty) (Full Child)))
+          (#enum Cell (#linear) ((Cell.Empty) (Cell.Full Child)))
           (#fn read (: child Child) #u64
             (#return (#match child
-              (#case (Start view) (#deref view))
-              (#case (Resume view) (#deref view)))))
+              (#case (Child.Start view) (#deref view))
+              (#case (Child.Resume view) (#deref view)))))
           (#fn main () #u64
             (#let-mut value #u64 42u64)
-            (#let-mut cell Cell (Full (Start (#borrow-mut value))))
+            (#let-mut cell Cell (Cell.Full (Child.Start (#borrow-mut value))))
             (#let answer #u64 (#call read (: child (#block
               (#let slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
               (#let previous Cell (#unsafe (#pin-read slot)))
-              (#unsafe (#pin-write slot (Empty))) (#drop slot)
-              (#match previous (#case Empty (#unreachable))
-                (#case (Full child) child))))))
+              (#unsafe (#pin-write slot (Cell.Empty))) (#drop slot)
+              (#match previous (#case Cell.Empty (#unreachable))
+                (#case (Cell.Full child) child))))))
             (#forget cell) (#return answer))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -24351,23 +24352,23 @@ mod tests {
 
     #[test]
     fn confined_tag_mutations_preserve_disjoint_storage_and_read_snapshots() {
-        let source = "(#enum Cell (#linear) ((Empty) (Full (#ref #u64))))
-          (#enum Number (#linear) ((Vacant) (Occupied #u64)))
+        let source = "(#enum Cell (#linear) ((Cell.Empty) (Cell.Full (#ref #u64))))
+          (#enum Number (#linear) ((Number.Vacant) (Number.Occupied #u64)))
           (#fn clear (: slot (#pin-ref-mut Number)) ()
             (#let previous Number (#unsafe (#pin-read slot)))
-            (#match previous (#case Vacant ())
-              (#case (Occupied value) (#forget value)))
-            (#unsafe (#pin-write slot (Vacant))) (#return ()))
+            (#match previous (#case Number.Vacant ())
+              (#case (Number.Occupied value) (#forget value)))
+            (#unsafe (#pin-write slot (Number.Vacant))) (#return ()))
           (#fn forward (: slot (#pin-ref-mut Number)) ()
             (#call clear (: slot slot)) (#return ()))
           (#fn main () ()
-            (#let-mut cell Cell (Empty))
-            (#let-mut number Number (Occupied 42u64))
+            (#let-mut cell Cell (Cell.Empty))
+            (#let-mut number Number (Number.Occupied 42u64))
             (#call forward (: slot (#pin-borrow-mut number)))
             (#let cell-slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
             (#let previous Cell (#unsafe (#pin-read cell-slot)))
             (#forget previous)
-            (#unsafe (#pin-write cell-slot (Empty)))
+            (#unsafe (#pin-write cell-slot (Cell.Empty)))
             (#drop cell-slot)
             (#forget cell) (#forget number) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -24395,7 +24396,7 @@ mod tests {
                 matches!(node.action, FlowAction::Bind { binding, .. } if binding == previous)).unwrap();
             let facts = flow.variant_facts_with_origins(body, &origins);
             let empty = declarations
-                .variant_id(&Type::Named("Cell".into()), "Empty")
+                .variant_id(&Type::Named("Cell".into()), "Cell.Empty")
                 .unwrap();
             assert_eq!(
                 facts[bind]
@@ -24417,7 +24418,7 @@ mod tests {
             assert_eq!(
                 captured.get(&Place::root(PlaceRoot::Local(BindingId(0)))),
                 Some(&empty),
-                "the moved value retains the pre-read Empty tag"
+                "the moved value retains the pre-read Cell.Empty tag"
             );
             flow.prepare_storage_variant_bounds(body, &origins);
             let bounds = value_variant_bounds(
@@ -24434,9 +24435,9 @@ mod tests {
     fn dropping_a_reference_handle_preserves_its_pointee_tag() {
         for (reference, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
             let source = format!(
-                "(#enum Choice () ((Empty) (Full #u64)))
+                "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
               (#fn main () ()
-                (#let cell Choice (Empty))
+                (#let cell Choice (Choice.Empty))
                 (#let view ({reference} Choice) ({borrow} cell))
                 (#drop view) (#forget cell) (#return ()))"
             );
@@ -24457,7 +24458,7 @@ mod tests {
             let next = flow.nodes[release].successors[0];
             let cell = BindingId(body.bindings.iter().position(|b| b.name == "cell").unwrap());
             let empty = declarations
-                .variant_id(&Type::Named("Choice".into()), "Empty")
+                .variant_id(&Type::Named("Choice".into()), "Choice.Empty")
                 .unwrap();
             assert_eq!(
                 facts[next.0]
@@ -24475,7 +24476,7 @@ mod tests {
             "(#extern-fn #abi-c mutate (: slot (#pin-ref-mut Choice)) ())",
             "(#fn mutate (: slot (#pin-ref-mut Choice)) ()
                 (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))",
-            "(#static global Choice (Empty))
+            "(#static global Choice (Choice.Empty))
               (#fn mutate (: slot (#pin-ref-mut Choice)) ()
                 (#unsafe (#forget global)) (#return ()))",
         ] {
@@ -24485,9 +24486,9 @@ mod tests {
                 "#call"
             };
             let source = format!(
-                "(#enum Choice () ((Empty) (Full #u64))) {effect}
+                "(#enum Choice () ((Choice.Empty) (Choice.Full #u64))) {effect}
               (#fn main () ()
-                (#let-mut cell Choice (Empty)) (#let-mut target Choice (Empty))
+                (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
                 (#unsafe ({call_keyword} mutate (: slot (#pin-borrow-mut target))))
                 (#forget cell) (#forget target) (#return ()))"
             );
@@ -24513,14 +24514,14 @@ mod tests {
 
     #[test]
     fn tag_mutations_follow_references_loaded_from_borrowed_contents() {
-        let source = "(#enum Choice () ((Empty) (Full #u64)))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
           (#struct Holder () (: slot (#pin-ref-mut Choice)))
           (#fn mutate (: holder (#pin-ref-mut Holder)) ()
-            (#unsafe (#pin-write (#get holder slot) (Full 7u64))) (#return ()))
+            (#unsafe (#pin-write (#get holder slot) (Choice.Full 7u64))) (#return ()))
           (#fn forward (: holder (#pin-ref-mut Holder)) ()
             (#call mutate (: holder holder)) (#return ()))
           (#fn main () ()
-            (#let-mut cell Choice (Empty)) (#let-mut target Choice (Empty))
+            (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
             (#let-mut holder Holder (#struct-literal Holder (: slot (#pin-borrow-mut target))))
             (#call forward (: holder (#pin-borrow-mut holder)))
             (#forget holder) (#forget cell) (#forget target) (#return ()))";
@@ -24565,22 +24566,22 @@ mod tests {
             let ty = Type::Named("Choice".into());
             assert_eq!(
                 after.get(&Place::root(PlaceRoot::Local(binding("cell")))),
-                Some(&declarations.variant_id(&ty, "Empty").unwrap())
+                Some(&declarations.variant_id(&ty, "Choice.Empty").unwrap())
             );
             assert_eq!(
                 after.get(&Place::root(PlaceRoot::Local(binding("target")))),
-                Some(&declarations.variant_id(&ty, "Full").unwrap())
+                Some(&declarations.variant_id(&ty, "Choice.Full").unwrap())
             );
         }
     }
 
     #[test]
     fn ambiguous_call_tag_mutations_do_not_assume_one_destination() {
-        let source = "(#enum Choice () ((Empty) (Full #u64)))
+        let source = "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
           (#fn mutate (: slot (#pin-ref-mut Choice)) ()
-            (#unsafe (#pin-write slot (Full 7u64))) (#return ()))
+            (#unsafe (#pin-write slot (Choice.Full 7u64))) (#return ()))
           (#fn main (: condition #bool) ()
-            (#let-mut cell Choice (Empty)) (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
+            (#let-mut cell Choice (Choice.Empty)) (#let-mut left Choice (Choice.Empty)) (#let-mut right Choice (Choice.Empty))
             (#let selected (#pin-ref-mut Choice)
               (#if condition (#pin-borrow-mut left) (#pin-borrow-mut right)))
             (#call mutate (: slot selected))
@@ -24628,7 +24629,7 @@ mod tests {
         for place in &expected {
             assert!(
                 !after.contains_key(place),
-                "a MAY alias is not a strong Full write"
+                "a MAY alias is not a strong Choice.Full write"
             );
         }
     }
@@ -24644,7 +24645,7 @@ mod tests {
             (
                 "deref-set",
                 "(: slot (#ref-mut Choice) : value Choice)",
-                "(: slot (#borrow-mut cell) : value (Empty))",
+                "(: slot (#borrow-mut cell) : value (Choice.Empty))",
             ),
             (
                 "forget",
@@ -24653,11 +24654,11 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "(#enum Choice () ((Empty) (Full #u64)))
+                "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
               (#fn {name} {parameters} ()
                 (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
               (#fn main () ()
-                (#let-mut cell Choice (Empty)) (#call {name} {arguments})
+                (#let-mut cell Choice (Choice.Empty)) (#call {name} {arguments})
                 (#drop cell) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -24685,16 +24686,16 @@ mod tests {
 
     #[test]
     fn projected_variant_refinement_preserves_sibling_reference_slots() {
-        let source = "(#enum Choice () ((Left (#ref #u64)) (Right (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Left (#ref #u64)) (Choice.Right (#ref #u64))))
             (#struct Envelope () ((choice Choice) (sibling (#ref #u64))))
             (#fn inspect ((frame Envelope)) #u64
               (#let result #u64 (#match (#get frame choice)
-                (#case (Left left) (#block
+                (#case (Choice.Left left) (#block
                   (#let sibling-left (#ref #u64) (#get frame sibling))
-                  (#u64.+.wrap (#deref left) (#deref sibling-left))))
-                (#case (Right right) (#block
+                  (#u64::add-wrap (#deref left) (#deref sibling-left))))
+                (#case (Choice.Right right) (#block
                   (#let sibling-right (#ref #u64) (#get frame sibling))
-                  (#u64.+.wrap (#deref right) (#deref sibling-right))))))
+                  (#u64::add-wrap (#deref right) (#deref sibling-right))))))
               (#forget frame) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -24733,11 +24734,11 @@ mod tests {
 
     #[test]
     fn matching_borrowed_enum_values_does_not_replace_the_address_loan() {
-        let source = "(#enum Choice () ((Left (#ref #u64)) (Right (#ref #u64))))
+        let source = "(#enum Choice () ((Choice.Left (#ref #u64)) (Choice.Right (#ref #u64))))
             (#fn inspect ((choice (#ref Choice))) (#ref Choice)
               (#let value #u64 (#match (#deref choice)
-                (#case (Left left) (#deref left))
-                (#case (Right right) (#deref right))))
+                (#case (Choice.Left left) (#deref left))
+                (#case (Choice.Right right) (#deref right))))
               (#return choice))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25082,7 +25083,7 @@ mod tests {
                   (#let right #u64 2u64)
                   (#let aggregate {ty} {constructor})
                   (#let {pattern} {ty} aggregate)
-                  (#return (#u64.+.wrap (#deref first) (#deref second))))"
+                  (#return (#u64::add-wrap (#deref first) (#deref second))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25112,7 +25113,7 @@ mod tests {
           (#let aggregate (#array (#ref #u64) 2)
             (#array-repeat (#borrow owner)))
           (#let (#array first second) (#array (#ref #u64) 2) aggregate)
-          (#return (#u64.+.wrap (#deref first) (#deref second))))";
+          (#return (#u64::add-wrap (#deref first) (#deref second))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -25594,17 +25595,17 @@ mod tests {
 
     #[test]
     fn loop_branch_snapshots_retain_returned_parameter_loans() {
-        let source = "(#enum State () ((Working (#ref #u64)) (Finished (#ref #u64))))
+        let source = "(#enum State () ((State.Working (#ref #u64)) (State.Finished (#ref #u64))))
           (#fn finish ((source (#ref #u64))) (#ref #u64)
-            (#let-mut state State (Working source))
+            (#let-mut state State (State.Working source))
             (#let-mut stopped #bool false)
-            (#while (#bool.== stopped false)
+            (#while (#bool::eq stopped false)
               (#set state (#match state
-                (#case (Working held) (#block (#set stopped true) (Finished held)))
-                (#case (Finished unused) (#unreachable)))))
+                (#case (State.Working held) (#block (#set stopped true) (State.Finished held)))
+                (#case (State.Finished unused) (#unreachable)))))
             (#return (#match state
-              (#case (Finished result) result)
-              (#case (Working unused) (#unreachable)))))
+              (#case (State.Finished result) result)
+              (#case (State.Working unused) (#unreachable)))))
           (#fn main () (#ref #u64)
             (#let owner #u64 42u64)
             (#return (#call finish (: source (#borrow owner)))))";
@@ -25695,7 +25696,7 @@ mod tests {
         let source = "(#fn main () #u64
           (#let-mut total #u64 0u64)
           (#for-range (i #u64) 0u64 2u64
-            (#set total (#u64.+.wrap total i)))
+            (#set total (#u64::add-wrap total i)))
           (#return total))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25985,7 +25986,7 @@ mod tests {
           (#let-mut counter #u64 0u64)
           (#label outer (#loop
             (#let view (#ref #u64) (#borrow owner))
-            (#if (#u64.== counter 0u64)
+            (#if (#u64::eq counter 0u64)
               (#block (#set counter 1u64) (#continue-to outer))
               (#block (#break-to outer)))))
           (#return owner))";
@@ -26018,9 +26019,9 @@ mod tests {
     #[test]
     fn staged_parameter_clears_and_missing_contents_do_not_resurrect_schema_loans() {
         let program = crate::parse_program(
-            "(#enum Choice () ((Empty) (Full (#ref #u64))))
+            "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
             (#fn clear (: target (#ref-mut Choice)) Choice
-              (#deref-set target (Empty)) (#return (#deref target)))
+              (#deref-set target (Choice.Empty)) (#return (#deref target)))
             (#fn read (: target (#ref Choice)) Choice (#return (#deref target)))",
         )
         .unwrap();
@@ -26072,16 +26073,16 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "(#enum Outcome () ((Ready) (Pending)))
-                 (#enum Envelope () ((Packet (#tuple Outcome Outcome))))
-                 (#fn build () Envelope (#return (Packet (#tuple (Ready) (Pending)))))
+                "(#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
+                 (#enum Envelope () ((Envelope.Packet (#tuple Outcome Outcome))))
+                 (#fn build () Envelope (#return (Envelope.Packet (#tuple (Outcome.Ready) (Outcome.Pending)))))
                  (#fn main () #u64
                    (#return (#match (#call build ())
-                     (#case (Packet {pattern})
+                     (#case (Envelope.Packet {pattern})
                        (#block (#let-mut alias Outcome {selected})
-                         {} (#match alias (#case (Ready) 42u64) (#case (Pending) 0u64)))))))",
+                         {} (#match alias (#case (Outcome.Ready) 42u64) (#case (Outcome.Pending) 0u64)))))))",
                 if overwrite {
-                    "(#set alias (Pending))"
+                    "(#set alias (Outcome.Pending))"
                 } else {
                     ""
                 }
@@ -26107,7 +26108,7 @@ mod tests {
                         return None;
                     };
                     let variant = constructor_variant_at_storage(body, pattern, &[])?;
-                    (declarations.variant(variant).name == "Ready")
+                    (declarations.variant(variant).name == "Outcome.Ready")
                         .then_some((FlowNodeId(index), value))
                 })
                 .unwrap();
@@ -26149,7 +26150,7 @@ mod tests {
             let [Segment::Payload(packet, 0), Segment::Tuple(slot)] = path.as_slice() else {
                 panic!("wrong output path: {path:?}");
             };
-            assert_eq!(declarations.variant(*packet).name, "Packet");
+            assert_eq!(declarations.variant(*packet).name, "Envelope.Packet");
             assert_eq!(*slot, index);
             // A nested constructor cannot select a root-only effect contract.
             assert!(graph
@@ -26173,20 +26174,20 @@ mod tests {
                 Some(2),
             ),
             (
-                "(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Pending) ()))",
+                "(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Outcome.Pending) ()))",
                 None,
             ),
-            ("(#set saved Pending)", None),
+            ("(#set saved Outcome.Pending)", None),
         ] {
-            let source = format!("(#enum Outcome () (Ready Pending))
-              (#fn first () Outcome (#return Ready))
-              (#fn second () Outcome (#return Pending))
+            let source = format!("(#enum Outcome () (Outcome.Ready Outcome.Pending))
+              (#fn first () Outcome (#return Outcome.Ready))
+              (#fn second () Outcome (#return Outcome.Pending))
               (#fn touch () () (#return ()))
               (#fn opaque () () (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
               (#fn main ((selected #bool)) #u64
                 (#let-mut saved Outcome (#call first ()))
                 {replacement}
-                (#return (#match saved (#case Ready 42u64) (#case Pending 0u64))))");
+                (#return (#match saved (#case Outcome.Ready 42u64) (#case Outcome.Pending 0u64))))");
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();
             let body = &checked.declarations().bodies["main"];
@@ -26246,13 +26247,13 @@ mod tests {
     #[test]
     fn call_result_producers_do_not_follow_implicit_reference_field_reads() {
         let program = crate::parse_program(
-            "(#enum Outcome () ((Ready) (Pending)))
+            "(#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
              (#struct Pair () ((first Outcome) (second Outcome)))
-             (#fn factory () Pair (#return (#struct-literal Pair (: first (Ready) : second (Pending)))))
+             (#fn factory () Pair (#return (#struct-literal Pair (: first (Outcome.Ready) : second (Outcome.Pending)))))
              (#fn main () #u64
                (#let packet Pair (#call factory ()))
                (#let result #u64 (#match (#get (#borrow packet) first)
-                 (#case (Ready) 42u64) (#case (Pending) 0u64)))
+                 (#case (Outcome.Ready) 42u64) (#case (Outcome.Pending) 0u64)))
                (#forget packet) (#return result))"
         ).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -26288,8 +26289,8 @@ mod tests {
     #[test]
     fn loop_call_result_sources_need_a_reachable_value_break() {
         let program = crate::parse_program(
-            "(#enum Outcome () ((Ready) (Pending)))
-            (#fn finish () Outcome (#return (Ready)))
+            "(#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
+            (#fn finish () Outcome (#return (Outcome.Ready)))
             (#fn main () #u64 (#let result Outcome (#loop (#break (#call finish ()))))
               (#forget result) (#return 42u64))",
         )
@@ -26340,12 +26341,12 @@ mod tests {
             "(#fn main () #u64 (#return 42u64))",
             wide.as_str(),
             "(#fn main () #u64 (#let-mut counter #u64 0u64)
-             (#while (#u64.< counter 3u64)
-               (#set counter (#u64.+.wrap counter 1u64))) (#return counter))",
-            "(#enum Choice () ((Some #u64) None))
-             (#fn main () #u64 (#let flag #bool (#bool.&& true false))
-               (#return (#if flag (#match (Some 42u64)
-                 (#case (Some value) value) (#case None 0u64)) 0u64)))",
+             (#while (#u64::lt counter 3u64)
+               (#set counter (#u64::add-wrap counter 1u64))) (#return counter))",
+            "(#enum Choice () ((Choice.Some #u64) Choice.None))
+             (#fn main () #u64 (#let flag #bool (#bool::and true false))
+               (#return (#if flag (#match (Choice.Some 42u64)
+                 (#case (Choice.Some value) value) (#case Choice.None 0u64)) 0u64)))",
             "(#fn main () #u64 (#return 42u64) (#let unreachable #u64 1u64)
              (#return unreachable))",
             include_str!("../examples/labeled_loop.lim"),
@@ -26418,8 +26419,8 @@ mod tests {
     fn liveness_reaches_loop_condition_through_back_edge() {
         let source = "(#fn main () #u64
           (#let-mut counter #u64 0u64)
-          (#while (#u64.< counter 3u64)
-            (#set counter (#u64.+.wrap counter 1u64)))
+          (#while (#u64::lt counter 3u64)
+            (#set counter (#u64::add-wrap counter 1u64)))
           (#return counter))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -26483,11 +26484,11 @@ mod tests {
         let source = "(#fn main () #u64
           (#let-mut value #u64 7u64)
           (#let-mut count #u64 0u64)
-          (#while (#u64.< count 2u64)
+          (#while (#u64::lt count 2u64)
             (#let view (#ref #u64) (#borrow value))
             (#let observed #u64 (#deref view))
             (#forget view)
-            (#set count (#u64.+.wrap count 1u64)))
+            (#set count (#u64::add-wrap count 1u64)))
           (#return value))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -26527,9 +26528,9 @@ mod tests {
           (#let-mut value #u64 7u64)
           (#let view (#ref-mut #u64) (#borrow-mut value))
           (#let-mut count #u64 0u64)
-          (#while (#u64.< count 2u64)
+          (#while (#u64::lt count 2u64)
             (#let observed #u64 (#deref view))
-            (#set count (#u64.+.wrap count 1u64)))
+            (#set count (#u64::add-wrap count 1u64)))
           (#forget view)
           (#return value))";
         let program = crate::parse_program(source).unwrap();

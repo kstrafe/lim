@@ -37,11 +37,11 @@ reallocation path, then releases the successful allocation:
     (#unsafe (#unsafe-call system-reallocate
       (: pointer (#ptr-null (#ptr-mut #u8)) : size 16usize))))
   (#return (#match allocation
-    (#case (SystemAllocated pointer)
+    (#case (SystemAllocationResult.SystemAllocated pointer)
       (#block
         (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
         42u64))
-    (#case (SystemAllocationFailed error)
+    (#case (SystemAllocationResult.SystemAllocationFailed error)
       (#block (#drop error) 0u64)))))
 ```
 
@@ -110,7 +110,7 @@ declarations and generator-produced declarations satisfy the same convention.
 Consumers resolve ordinary names and their generated calls are statically checked.
 
 A root exposes `Root::State`, `Root::Error`, `Root::Allocation`,
-`Root::Allocated`, `Root::AllocationFailed`, `Root::allocate`,
+`Root::Allocation.Allocated`, `Root::Allocation.AllocationFailed`, `Root::allocate`,
 `Root::grow`, and `Root::deallocate`. State and Error may be aliases to
 existing types. Allocation carries a raw byte pointer on success and Error on
 failure. Pinned Box and Rc request only allocate and deallocate adapters, so
@@ -118,7 +118,7 @@ their bundles may omit grow. The shared adapter generator accepts an explicit
 literal `:operations` list to select the operations it emits.
 
 ```lisp syntax
-(@#allocator-for (: allocator Root : type T : name TypedAllocator
+(#generate #allocator-for (: allocator Root : type T : name TypedAllocator
   : operations (allocate deallocate)))
 ```
 
@@ -137,8 +137,8 @@ alignments; unsupported alignment or invalid sizes fail explicitly.
 Pinned consumers use exactly these public options:
 
 ```lisp syntax
-(@#pin-box (: type T : allocator Root : name Box : destroy destroy-value))
-(@#pin-rc (: type T : allocator Root : name Rc : destroy destroy-value))
+(#generate #pin-box (: type T : allocator Root : name Box : destroy destroy-value))
+(#generate #pin-rc (: type T : allocator Root : name Rc : destroy destroy-value))
 ```
 
 Each generates its own typed adapter for the bundle's byte-pointer ABI.
@@ -155,7 +155,7 @@ Collections store an immutable reference to that value:
 
 ```lisp library
 (#import "../library/cell.lim")
-(@#cell #usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
+(#generate #cell #usize CellUsize CellUsize::create CellUsize::get CellUsize::set)
 (#struct AllocatorU64 () ((cursor CellUsize)))
 (#struct VecU64 () ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut #u64))
@@ -164,12 +164,12 @@ Collections store an immutable reference to that value:
 ```
 
 The reference is immutable at the type level. Allocator implementations use
-explicit interior-mutable state such as the generated `@#cell` type to track
+explicit interior-mutable state such as the generated `#generate #cell` type to track
 their allocation state. The allocator type is part of the
 collection's concrete generated type. Each owner retains the particular
 instance reference used at construction and passes it to every operation.
 
-`@#vec` must therefore generate a distinct concrete type for each allocator
+`#generate #vec` must therefore generate a distinct concrete type for each allocator
 type and element type. A generated collection retains the allocator borrow for
 its entire lifetime. Moving or returning the collection also moves that borrow;
 the collection cannot outlive the allocator. Other collection generators must
@@ -178,7 +178,7 @@ obey the same ownership rule.
 The concrete representation is declared first:
 
 ```lisp syntax
-(@#vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
+(#generate #vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
@@ -186,10 +186,10 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(@#vec-alloc (: element ElementType : allocator Root : vector ConcreteVecType : destroy destroy-name))
+(#generate #vec-alloc (: element ElementType : allocator Root : vector ConcreteVecType : destroy destroy-name))
 ```
 
-Here `Root::State` must denote the state type passed to `@#vec`.
+Here `Root::State` must denote the state type passed to `#generate #vec`.
 The representation generator still accepts a state type, not a bundle root.
 The consumer converts byte pointers to element pointers internally and calls
 the root's operations directly. The explicit safe destruction function takes
@@ -210,7 +210,7 @@ Sorting is generated separately and takes a comparator name as a literal
 input:
 
 ```lisp syntax
-(@#vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
+(#generate #vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
 ```
 
 The comparator must have the concrete signature
@@ -228,8 +228,8 @@ Bundle operations have these concrete signatures:
 (#type Root::State Arena)
 (#type Root::Error ArenaError)
 (#enum Root::Allocation ()
-  ((Root::Allocated (#ptr-mut #u8))
-   (Root::AllocationFailed Root::Error)))
+  ((Root::Allocation.Allocated (#ptr-mut #u8))
+   (Root::Allocation.AllocationFailed Root::Error)))
 
 (#fn Root::allocate
   (: allocator (#ref Root::State) : layout #usize : alignment #usize)
@@ -266,7 +266,7 @@ collection's initialized elements.
 
 ## Allocation failure and destruction
 
-Allocation failure is an explicit `Root::AllocationFailed Root::Error` result.
+Allocation failure is an explicit `Root::Allocation.AllocationFailed Root::Error` result.
 A successful allocation promises fresh, uniquely owned, non-null storage of
 at least the requested byte size and alignment. Growth failure preserves the
 old allocation and its initialized bytes; successful growth returns uniquely

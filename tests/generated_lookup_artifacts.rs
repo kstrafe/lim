@@ -21,7 +21,7 @@ fn compile(source: &str, entry: &Path, config: &lim::CompileConfig) {
 fn async_lookup_reuses_the_native_compilations_exact_generated_file() {
     let scratch = support::Scratch::new("lookup-native-async");
     let entry = scratch.path().join("main.lim");
-    let source = "(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+    let source = "(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
       : function (#fn work (: amount #u64) #u64 (#return amount))))
       (#fn main () #u64 (#return 0u64))";
     fs::write(&entry, source).unwrap();
@@ -55,7 +55,7 @@ fn pin_projection_is_inspectable_safe_generator_code_and_reuses_its_artifact() {
     fs::write(&entry, source).unwrap();
     let config = lim::CompileConfig::default();
     compile(source, &entry, &config);
-    let selected = source.find("@#enum-project").unwrap();
+    let selected = source.find("#generate #enum-project").unwrap();
     let located =
         lim::locate_generated(source, &entry, &config, &entry, selected, selected).unwrap();
     assert_eq!(located.len(), 1);
@@ -76,9 +76,9 @@ fn external_import_lookup_uses_the_prefixed_artifact_from_native_compilation() {
     let scratch = support::Scratch::new("lookup-native-external");
     let entry = scratch.path().join("main.lim");
     let module = scratch.path().join("module.lim");
-    let imported = "(@#optional (: type #u64 : name Value))\n";
+    let imported = "(#generate #optional (: type #u64 : name Value))\n";
     fs::write(&module, imported).unwrap();
-    let source = "(#import-external \"module.lim\" Ext-)\n(#fn main () #u64 (#return 0u64))";
+    let source = "(#import-external \"module.lim\" Ext)\n(#fn main () #u64 (#return 0u64))";
     fs::write(&entry, source).unwrap();
     let config = lim::CompileConfig::default();
     compile(source, &entry, &config);
@@ -87,7 +87,7 @@ fn external_import_lookup_uses_the_prefixed_artifact_from_native_compilation() {
         lim::locate_generated(source, &entry, &config, &module, selected, selected).unwrap();
     assert_eq!(located.len(), 1);
     let generated = fs::read_to_string(&located[0]).unwrap();
-    assert!(generated.contains("Ext-Value"), "{generated}");
+    assert!(generated.contains("Ext@Value"), "{generated}");
     assert_eq!(
         fs::read_dir(scratch.path().join(".lim/generated"))
             .unwrap()

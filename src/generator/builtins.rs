@@ -2,6 +2,9 @@
 use crate::*;
 
 pub(crate) fn capitalized_type_name(name: &str) -> String {
+    if let Some((prefix, local)) = name.rsplit_once('@') {
+        return format!("{prefix}@{}", capitalized_type_name(local));
+    }
     let mut characters = name.chars();
     let Some(first) = characters.next() else {
         return String::new();
@@ -26,7 +29,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
     let Expr::List(items) = expression else {
         return Ok(expression.clone());
     };
-    if !matches!(items.first(), Some(Expr::At)) {
+    if !matches!(items.first(), Some(Expr::Generate)) {
         return Ok(expression.clone());
     }
     let Some(Expr::Symbol(kind)) = items.get(1) else {
@@ -37,22 +40,28 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
     };
     let Some(Expr::List(arguments)) = items.get(2) else {
         return Err(format!(
-            "@{kind} requires a named argument list (: key value : ...)"
+            "#generate {kind} requires a named argument list (: key value : ...)"
         ));
     };
     if items.len() != 3 {
-        return Err(format!("@{kind} requires exactly one named argument list"));
+        return Err(format!(
+            "#generate {kind} requires exactly one named argument list"
+        ));
     }
     let mut values = HashMap::new();
     for argument in arguments {
         let Expr::List(pair) = argument else {
-            return Err(format!("@{kind} arguments must be (: key value : ...)"));
+            return Err(format!(
+                "#generate {kind} arguments must be (: key value : ...)"
+            ));
         };
         let [Expr::Symbol(key), value] = pair.as_slice() else {
-            return Err(format!("@{kind} arguments must be (: key value : ...)"));
+            return Err(format!(
+                "#generate {kind} arguments must be (: key value : ...)"
+            ));
         };
         if !keys.contains(&key.as_str()) {
-            return Err(format!("@{kind} has no argument '{key}'"));
+            return Err(format!("#generate {kind} has no argument '{key}'"));
         }
         if matches!(
             key.as_str(),
@@ -64,24 +73,25 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
                         "identifier '{name}' is reserved for the language and standard library"
                     ));
                 }
+                crate::names::require(name, "type")?;
             }
         }
         if values.insert(key.as_str(), value.clone()).is_some() {
-            return Err(format!("@{kind} repeats argument '{key}'"));
+            return Err(format!("#generate {kind} repeats argument '{key}'"));
         }
     }
-    let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
+    let mut normalized = vec![Expr::Generate, Expr::Symbol(kind.clone())];
     if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned") {
         let protocol = values
             .remove("protocol")
-            .ok_or_else(|| format!("@{kind} is missing argument 'protocol'"))?;
+            .ok_or_else(|| format!("#generate {kind} is missing argument 'protocol'"))?;
         let name = expect_symbol(Some(&protocol), "async protocol name")?;
         if name.starts_with('#') || name.starts_with('@') || name == "$" {
             return Err("async protocol names must be user-defined identifiers".into());
         }
         let function = values
             .remove("function")
-            .ok_or_else(|| format!("@{kind} is missing argument 'function'"))?;
+            .ok_or_else(|| format!("#generate {kind} is missing argument 'function'"))?;
         let declaration = expect_list(&function, "async function")?;
         let start = expect_symbol(declaration.get(1), "async function name")?;
         let frame_suffix = if kind == "#async-fn-pinned" {
@@ -98,8 +108,8 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         let mut names = [
             format!("{root}::{storage_name}"),
             format!("{root}::Poll"),
-            format!("{root}::Pending"),
-            format!("{root}::Ready"),
+            format!("{root}::Poll.Pending"),
+            format!("{root}::Poll.Ready"),
             format!("{root}::poll"),
         ]
         .into_iter()
@@ -108,7 +118,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         names.push(protocol);
         if let Some(access) = values.remove("access") {
             if kind != "#async-fn-pinned" {
-                return Err("async parameter access requires @#async-fn-pinned".into());
+                return Err("async parameter access requires #generate #async-fn-pinned".into());
             }
             let entries = expect_list(&access, "async access parameters")?;
             let mut seen = HashSet::new();
@@ -132,7 +142,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         normalized.push(
             values
                 .remove("waker")
-                .ok_or_else(|| format!("@{kind} is missing argument 'waker'"))?,
+                .ok_or_else(|| format!("#generate {kind} is missing argument 'waker'"))?,
         );
         normalized.push(function);
         if let Some(cancel) = values.remove("cancel") {
@@ -144,7 +154,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         normalized.push(
             values
                 .remove(key)
-                .ok_or_else(|| format!("@{kind} is missing argument '{key}'"))?,
+                .ok_or_else(|| format!("#generate {kind} is missing argument '{key}'"))?,
         );
     }
     Ok(Expr::List(normalized))
@@ -160,7 +170,7 @@ mod tests {
             ("#async-fn", "Work::Task"),
             ("#async-fn-pinned", "Work::Frame"),
         ] {
-            let source = format!("(@{generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 0u64))))");
+            let source = format!("(#generate {generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 0u64))))");
             let expression = crate::parse(&source).unwrap().remove(0).expr;
             let normalized = normalize_builtin_generator_invocation(&expression).unwrap();
             let Expr::List(items) = normalized else {
@@ -172,8 +182,8 @@ mod tests {
             let expected = [
                 storage,
                 "Work::Poll",
-                "Work::Pending",
-                "Work::Ready",
+                "Work::Poll.Pending",
+                "Work::Poll.Ready",
                 "Work::poll",
                 "WorkAwait",
             ];

@@ -15,7 +15,7 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
     fn list<'a>(expr: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
         match expr {
             Expr::List(items) => Ok(items),
-            _ => Err(format!("@#async-fn {context} must be a list")),
+            _ => Err(format!("#generate #async-fn {context} must be a list")),
         }
     }
     let parts = list(invocation, "async invocation")?;
@@ -32,7 +32,7 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
     )?;
     let start = match function.get(1).ok_or("async function requires a name")? {
         Expr::Symbol(name) if !name.starts_with('#') && !name.starts_with('@') => name,
-        _ => return Err("@#async-fn function name must be a plain symbol".into()),
+        _ => return Err("#generate #async-fn function name must be a plain symbol".into()),
     };
     let protocol = names.get(5).cloned().unwrap_or_else(|| {
         Expr::Symbol(format!(
@@ -136,9 +136,9 @@ mod protocol_tests {
                 } else {
                     "#async-fn"
                 };
-                let frame = if pinned { "Work-frame" } else { "Work-task" };
+                let frame = if pinned { "Work::frame" } else { "Work::task" };
                 let invocation = expression(&format!(
-                    "(@ {kind} ({frame} WorkPoll work-pending work-ready work-poll{suffix})
+                    "(#generate {kind} ({frame} WorkPoll work-pending work-ready work-poll{suffix})
                       Waker (#fn work ((owner Owner)) Result (#return (#unreachable))))"
                 ));
                 let task = if pinned {
@@ -158,21 +158,21 @@ mod protocol_tests {
     fn malformed_protocol_metadata_is_rejected_without_lowering_a_body() {
         for (source, message) in [
             ("bad", "async invocation must be a list"),
-            ("(@ #async-fn)", "async invocation requires names"),
+            ("(#generate #async-fn)", "async invocation requires names"),
             (
-                "(@ #async-fn ())",
+                "(#generate #async-fn ())",
                 "invalid async function interface metadata",
             ),
             (
-                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker)",
+                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker)",
                 "async invocation requires a function",
             ),
             (
-                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker (#fn #u64 () #u64))",
+                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn #u64 () #u64))",
                 "function name must be a plain symbol",
             ),
             (
-                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker (#fn work ()))",
+                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn work ()))",
                 "async function requires a result type",
             ),
         ] {
@@ -325,7 +325,7 @@ impl Registry {
                 _ => continue,
             };
             let cleanup = format!("{frame}::Cleanup");
-            let name = format!("{}::cleanup", poll.name);
+            let name = format!("{}::cleanup", crate::type_source(&poll.return_type));
             for generated in [&cleanup, &name] {
                 if self.reserved.contains_key(generated) {
                     return Err(Error { message: format!("async generated name '{generated}' conflicts with an existing declaration"), span });
@@ -365,7 +365,7 @@ impl Registry {
                         && interface.declaration.parameters[0].ty == Type::Named(cleanup.clone())
                 })
             {
-                let name = format!("{}::destroy", poll.name);
+                let name = format!("{}::destroy", crate::type_source(&poll.return_type));
                 if self.reserved.contains_key(&name) {
                     return Err(Error {
                         message: format!(
@@ -531,7 +531,7 @@ impl Registry {
         Ok(registry)
     }
 
-    /// Register the canonical (@ #async-fn[-pinned] names waker function [cancel])
+    /// Register the canonical (#generate #async-fn[-pinned] names waker function [cancel])
     /// invocation. The function body is neither parsed nor analyzed here.
     pub fn register(&mut self, invocation: &Expr, span: Span) -> Result<(), Error> {
         let fail = |message: String| Error {
@@ -543,7 +543,7 @@ impl Registry {
         };
         let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
         if !matches!(parts.len(), 5 | 6)
-            || !matches!(parts.first(), Some(Expr::At))
+            || !matches!(parts.first(), Some(Expr::Generate))
             || !matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned")
         {
             return Err(fail("invalid normalized async invocation".into()));

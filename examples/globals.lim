@@ -13,11 +13,11 @@
     #return
     (
       #if
-      (#bool.&&
-        (#f32.>  scale 1.0)
-        (#bool.&&
-          (#f64.>  pi 3.0)
-          (#char.==  letter #\a)
+      (#bool::and
+        (#f32::gt  scale 1.0)
+        (#bool::and
+          (#f64::gt  pi 3.0)
+          (#char::eq  letter #\a)
         )
       )
       42

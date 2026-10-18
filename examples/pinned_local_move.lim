@@ -43,8 +43,8 @@
   (#let selected View
     (#call choose-view
       (: input (#borrow value) : alternative (#borrow alternative) : first true)))
-  (#let result #u64 (#u64.+.wrap (#deref (#get selected item)) alternative))
+  (#let result #u64 (#u64::add-wrap (#deref (#get selected item)) alternative))
   (#forget selected)
   (#forget owner)
-  (#assert (#u64.== result (#call replace-local (:))))
+  (#assert (#u64::eq result (#call replace-local (:))))
   (#return result))

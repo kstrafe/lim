@@ -2,10 +2,10 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let offsets (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -52,27 +52,27 @@
   (#let destination-closed #i64
     (#call linux-close (: fd destination-fd)))
   (#let memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let offsets-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (offsets 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (offsets 4096usize))))
   (#let copy-ok #bool
-    (#bool.&& (#i64.>= source-fd 0i64)
-      (#bool.&& (#i64.>= destination-fd 0i64)
-        (#bool.&& (#i64.== payload-written 8i64)
-          (#bool.&& (#i64.== copied 8i64)
-            (#bool.&& (#i64.== copied-input-offset 8i64)
-              (#bool.&& (#i64.== copied-output-offset 8i64)
-                (#bool.&& (#i64.== payload-read 8i64)
-                  (#bool.&& (#u8.== byte-0 99u8)
-                    (#bool.&& (#u8.== byte-1 111u8)
-                      (#bool.&& (#u8.== byte-2 112u8)
-                        (#bool.&& (#u8.== byte-3 121u8)
-                          (#bool.&& (#u8.== byte-4 45u8)
-                            (#bool.&& (#u8.== byte-5 111u8)
-                              (#bool.&& (#u8.== byte-6 107u8)
-                                (#bool.&& (#u8.== byte-7 33u8)
-                                  (#bool.&& (#i64.== source-closed 0i64)
-                                    (#bool.&& (#i64.== destination-closed 0i64)
-                                      (#bool.&& (#i64.== memory-unmapped 0i64)
-                                        (#i64.== offsets-unmapped 0i64))))))))))))))))))))
+    (#bool::and (#i64::ge source-fd 0i64)
+      (#bool::and (#i64::ge destination-fd 0i64)
+        (#bool::and (#i64::eq payload-written 8i64)
+          (#bool::and (#i64::eq copied 8i64)
+            (#bool::and (#i64::eq copied-input-offset 8i64)
+              (#bool::and (#i64::eq copied-output-offset 8i64)
+                (#bool::and (#i64::eq payload-read 8i64)
+                  (#bool::and (#u8::eq byte-0 99u8)
+                    (#bool::and (#u8::eq byte-1 111u8)
+                      (#bool::and (#u8::eq byte-2 112u8)
+                        (#bool::and (#u8::eq byte-3 121u8)
+                          (#bool::and (#u8::eq byte-4 45u8)
+                            (#bool::and (#u8::eq byte-5 111u8)
+                              (#bool::and (#u8::eq byte-6 107u8)
+                                (#bool::and (#u8::eq byte-7 33u8)
+                                  (#bool::and (#i64::eq source-closed 0i64)
+                                    (#bool::and (#i64::eq destination-closed 0i64)
+                                      (#bool::and (#i64::eq memory-unmapped 0i64)
+                                        (#i64::eq offsets-unmapped 0i64))))))))))))))))))))
   (#return (#if copy-ok 42u64 1u64)))

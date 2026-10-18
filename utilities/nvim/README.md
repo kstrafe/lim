@@ -11,7 +11,7 @@ groups by default:
 | --- | --- | --- |
 | `limType` | `#u64`, `#bool`, `#f32` | `Type` |
 | `limTypeForm` | `#ref-mut`, `#slice` | `Type` |
-| `limOperator` | `#u64.+.wrap`, `#u128.%` | `Operator` |
+| `limOperator` | `#u64::add-wrap`, `#u128::rem` | `Operator` |
 | `limDeclaration` | `#fn`, `#let-mut`, `#struct` | `StorageClass` |
 | `limConditional` | `#if`, `#case`, `#let-else` | `Conditional` |
 | `limRepeat` | `#while`, `#loop` | `Repeat` |
@@ -19,7 +19,8 @@ groups by default:
 | `limUnsafe` | `#unsafe`, `#unsafe-fn` | `Exception` |
 | `limGeneratorKeyword` | `#gn`, `#gn-for-each` | `PreProc` |
 | `limCfg` | `#cfg-if`, `#cfg-is` | `PreProc` |
-| `limGenerated` | `@#vec`, `@#async-fn` | `Special` |
+| `limGenerated` | `#generate` | `Special` |
+| `limExternal` | `counters@Counter`, `counters@counter-new` | `Identifier` |
 | `limKeyword` | Other `#` builtins | `Keyword` |
 
 Colors depend on your colorscheme. Override individual groups after loading it,
@@ -87,7 +88,7 @@ Navigation publishes the selected expanded source as a content-addressed
 invocation provenance and exact UTF-16 name ranges. Existing identical snapshots
 are not rewritten; diagnostic checks remain write-free and no generator-cache
 entries are created. Invalid expansions return no generated location.
-On a generator invocation, goto definition on `@` opens the current cached
+On a generator invocation, goto definition on `#generate` opens the current cached
 generated artifact instead; on the generator's name it opens the generator
 declaration. Artifact navigation uses the selected entry point, cfg settings,
 and unsaved buffers, and can materialize generator cache files on demand.

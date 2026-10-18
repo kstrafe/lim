@@ -4,20 +4,20 @@ use std::{process::Command, time::Duration};
 
 const DECLARATIONS: &str = "
   (#struct Resource (#linear) (: value #u64))
-  (#enum Holder (#linear) ((Holding (#ref Resource)) (Plain #u64)))
-  (#enum Cell (#linear) ((Empty) (Full Holder)))
+  (#enum Holder (#linear) ((Holder.Holding (#ref Resource)) (Holder.Plain #u64)))
+  (#enum Cell (#linear) ((Cell.Empty) (Cell.Full Holder)))
   (#struct Output (#linear) (: cell Cell))
   (#fn extract (: source (#ref-mut Cell)) Output
     (#let old Cell (#deref source))
-    (#deref-set source (Empty))
+    (#deref-set source (Cell.Empty))
     (#return (#struct-literal Output (: cell old))))
   (#fn inspect (: output Output) #u64
     (#let (Output cell) Output output)
     (#return (#match cell
-      (#case (Empty) 42u64)
-      (#case (Full holder) (#match holder
-        (#case (Holding held) (#get held value))
-        (#case (Plain amount) amount))))))";
+      (#case (Cell.Empty) 42u64)
+      (#case (Cell.Full holder) (#match holder
+        (#case (Holder.Holding held) (#get held value))
+        (#case (Holder.Plain amount) amount))))))";
 
 fn run(source: &str, label: &str) {
     let scratch = support::Scratch::new(label);
@@ -54,9 +54,9 @@ fn run(source: &str, label: &str) {
 #[test]
 fn ordinary_extraction_retains_nested_reference_and_reference_free_alternatives() {
     for initializer in [
-        "(Empty)",
-        "(Full (Holding (#borrow owner)))",
-        "(Full (Plain 42u64))",
+        "(Cell.Empty)",
+        "(Cell.Full (Holder.Holding (#borrow owner)))",
+        "(Cell.Full (Holder.Plain 42u64))",
     ] {
         let source = format!(
             "{DECLARATIONS}
@@ -65,7 +65,7 @@ fn ordinary_extraction_retains_nested_reference_and_reference_free_alternatives(
             (#let-mut cell Cell {initializer})
             (#let result #u64 (#call inspect
               (: output (#call extract (: source (#borrow-mut cell))))))
-            (#assert (#variant-is (#borrow cell) Empty))
+            (#assert (#variant-is (#borrow cell) Cell.Empty))
             (#forget cell) (#forget owner) (#return result))"
         );
         run(&source, "ordinary-conditional-reference-extraction");
@@ -78,7 +78,7 @@ fn extracted_reference_cannot_hide_a_live_loan_of_its_owner() {
         "{DECLARATIONS}
       (#fn main () #u64
         (#let owner Resource (#struct-literal Resource (: value 42u64)))
-        (#let-mut cell Cell (Full (Holding (#borrow owner))))
+        (#let-mut cell Cell (Cell.Full (Holder.Holding (#borrow owner))))
         (#let output Output (#call extract (: source (#borrow-mut cell))))
         (#forget owner)
         (#let answer #u64 (#call inspect (: output output)))

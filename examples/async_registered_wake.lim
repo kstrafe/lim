@@ -19,26 +19,26 @@
   (#forget metadata)
   (#return ()))
 
-(@#local-waker
+(#generate #local-waker
   (LocalWaker local-waker-create local-waker-wake
     local-waker-wake-by-ref local-waker-clone local-waker-destroy)
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@#task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(#generate #task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return (#match task
-    (#case (Waiting remaining)
-      (#if (#u64.== (#clone remaining) 0u64)
-        (#block (#forget remaining) (StepReady 42u64))
+    (#case (Step.Waiting remaining)
+      (#if (#u64::eq (#clone remaining) 0u64)
+        (#block (#forget remaining) (StepPoll.StepReady 42u64))
         (#block
           (#call local-waker-wake-by-ref (: waker waker))
-          (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
+          (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))))))))
 
-(@#async-wake
-  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
-  ((Only (#await Step StepPending StepReady step-poll) (#return)))
+(#generate #async-wake
+  (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
+  ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
   LocalWaker)
 
 (#fn main () #u64
@@ -50,7 +50,7 @@
       (: queue (#borrow-mut (#get executor-mut queue)) : slot 0usize)))
   (#drop executor-mut)
   (#let token WakeToken4 (#match registration
-    (#case (WakeRegistered4 value) value)
+    (#case (WakeRegister4.WakeRegistered4 value) value)
     (#case _ (#unreachable))))
   (#let result #u64 (#block
   (#let waker LocalWaker
@@ -58,22 +58,22 @@
       (: executor (#borrow executor)
        : metadata (#struct-literal WakeMetadata ((token token))))))
   (#let first PipelinePoll
-    (#call pipeline-poll (: task (Only (Waiting 1u64)) : waker (#borrow waker))))
+    (#call pipeline-poll (: task (Pipeline.Only (Step.Waiting 1u64)) : waker (#borrow waker))))
   (#let pending Pipeline (#match first
-    (#case (PipelinePending task) task)
-    (#case (PipelineReady result) (#unreachable))))
+    (#case (PipelinePoll.PipelinePending task) task)
+    (#case (PipelinePoll.PipelineReady result) (#unreachable))))
   (#call local-waker-wake-by-ref (: waker (#borrow waker)))
   (#let executor-ref (#ref WakeExecutor) (#borrow executor))
   (#assert (#call wake-ready4-take
     (: queue (#borrow (#get executor-ref queue)) : token token)))
-  (#assert (#bool.! (#call wake-ready4-take
+  (#assert (#bool::not (#call wake-ready4-take
     (: queue (#borrow (#get executor-ref queue)) : token token))))
   (#drop executor-ref)
   (#let second PipelinePoll
     (#call pipeline-poll (: task pending : waker (#borrow waker))))
   (#let outcome #u64 (#match second
-    (#case (PipelineReady value) value)
-    (#case (PipelinePending task) (#block (#forget task) (#unreachable)))))
+    (#case (PipelinePoll.PipelineReady value) value)
+    (#case (PipelinePoll.PipelinePending task) (#block (#forget task) (#unreachable)))))
   (#call local-waker-destroy (: waker waker))
   outcome))
   (#let executor-mut-again (#ref-mut WakeExecutor) (#borrow-mut executor))
@@ -81,9 +81,9 @@
     (#call wake-ready4-retire
       (: queue (#borrow-mut (#get executor-mut-again queue)) : token token)))
   (#drop executor-mut-again)
-  (#assert (#match retired (#case WakeRetired4 true) (#case WakeStale4 false)))
+  (#assert (#match retired (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
   (#let executor-ref (#ref WakeExecutor) (#borrow executor))
-  (#assert (#bool.! (#call wake-ready4-notify
+  (#assert (#bool::not (#call wake-ready4-notify
     (: queue (#borrow (#get executor-ref queue)) : token token))))
   (#drop executor-ref)
   (#forget executor)

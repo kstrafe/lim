@@ -2,10 +2,10 @@
 
 (#fn main () #u64
   (#let before (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let after (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let queried #i64
     (#unsafe (#unsafe-call linux-sched-getaffinity (: pid 0i64 : size 128usize : mask before))))
@@ -47,32 +47,32 @@
   (#let word-15-before #u64 (#unsafe (#ptr-read (#ptr-offset before 15usize))))
   (#let word-15-after #u64 (#unsafe (#ptr-read (#ptr-offset after 15usize))))
   (#let masks-match #bool
-    (#bool.&& (#u64.== word-0-before word-0-after)
-      (#bool.&& (#u64.== word-1-before word-1-after)
-        (#bool.&& (#u64.== word-2-before word-2-after)
-          (#bool.&& (#u64.== word-3-before word-3-after)
-            (#bool.&& (#u64.== word-4-before word-4-after)
-              (#bool.&& (#u64.== word-5-before word-5-after)
-                (#bool.&& (#u64.== word-6-before word-6-after)
-                  (#bool.&& (#u64.== word-7-before word-7-after)
-                    (#bool.&& (#u64.== word-8-before word-8-after)
-                      (#bool.&& (#u64.== word-9-before word-9-after)
-                        (#bool.&& (#u64.== word-10-before word-10-after)
-                          (#bool.&& (#u64.== word-11-before word-11-after)
-                            (#bool.&& (#u64.== word-12-before word-12-after)
-                              (#bool.&& (#u64.== word-13-before word-13-after)
-                                (#bool.&& (#u64.== word-14-before word-14-after)
-                                  (#u64.== word-15-before word-15-after)))))))))))))))))
+    (#bool::and (#u64::eq word-0-before word-0-after)
+      (#bool::and (#u64::eq word-1-before word-1-after)
+        (#bool::and (#u64::eq word-2-before word-2-after)
+          (#bool::and (#u64::eq word-3-before word-3-after)
+            (#bool::and (#u64::eq word-4-before word-4-after)
+              (#bool::and (#u64::eq word-5-before word-5-after)
+                (#bool::and (#u64::eq word-6-before word-6-after)
+                  (#bool::and (#u64::eq word-7-before word-7-after)
+                    (#bool::and (#u64::eq word-8-before word-8-after)
+                      (#bool::and (#u64::eq word-9-before word-9-after)
+                        (#bool::and (#u64::eq word-10-before word-10-after)
+                          (#bool::and (#u64::eq word-11-before word-11-after)
+                            (#bool::and (#u64::eq word-12-before word-12-after)
+                              (#bool::and (#u64::eq word-13-before word-13-after)
+                                (#bool::and (#u64::eq word-14-before word-14-after)
+                                  (#u64::eq word-15-before word-15-after)))))))))))))))))
   (#let before-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (before 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (before 4096usize))))
   (#let after-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (after 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (after 4096usize))))
   (#return
-    (#if (#bool.&& (#i64.> queried 0i64)
-      (#bool.&& (#i64.<= queried 128i64)
-        (#bool.&& (#i64.== affinity-restored 0i64)
-          (#bool.&& (#i64.== yielded 0i64)
-            (#bool.&& (#i64.== queried-again queried)
-              (#bool.&& masks-match
-                (#bool.&& (#i64.== before-unmapped 0i64)
-                  (#i64.== after-unmapped 0i64)))))))) 42u64 1u64)))
+    (#if (#bool::and (#i64::gt queried 0i64)
+      (#bool::and (#i64::le queried 128i64)
+        (#bool::and (#i64::eq affinity-restored 0i64)
+          (#bool::and (#i64::eq yielded 0i64)
+            (#bool::and (#i64::eq queried-again queried)
+              (#bool::and masks-match
+                (#bool::and (#i64::eq before-unmapped 0i64)
+                  (#i64::eq after-unmapped 0i64)))))))) 42u64 1u64)))

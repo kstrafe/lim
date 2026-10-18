@@ -10,17 +10,17 @@ static ELF writer; supported programs can be tested with `qemu-aarch64` in the
 Nix shell. See [AArch64 coverage and testing](docs/aarch64-testing.md).
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(@#optional (: type #u64 : name MaybeU64))` emits a concrete type
+generator invocation such as `(#generate #optional (: type #u64 : name MaybeU64))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 
-Language and standard-library generators use reserved names (`@#optional`,
-`@#cell`); user generators use ordinary names (`@make-record`). The entire
+Language and standard-library generators use reserved names (`#generate #optional`,
+`#generate #cell`); user generators use ordinary names (`#generate make-record`). The entire
 `#`-prefixed name space is reserved against user declarations.
 
 Builtin type keywords require `#`, such as `#u8`, `#u64`, and `#bool`.
 Numeric literal suffixes remain unchanged (`42u64`), as do explicitly typed
-operators (`#u64.+.wrap`).
+operators (`#u64::add-wrap`).
 
 The language has free-standing functions, not methods or `impl` blocks. It
 does not support recursion, function pointers, closures, traits, or implicit
@@ -32,7 +32,7 @@ The concrete pin, pinned allocation, and borrowed UTF-8 view generators are
 documented in [docs/language.md](docs/language.md#raw-pointers-and-unsafe-blocks) and
 [the borrowed UTF-8 view section](docs/language.md#borrowed-utf-8-views).
 These generators join API names with `::`, such as
-`PinnedFrame::value::read` or `Utf8Slice::from-owner`.
+`PinnedFrame::Read::value` or `Utf8Slice::from-owner`.
 
 The internal typed-representation migration is documented in
 [docs/compiler-ir.md](docs/compiler-ir.md).
@@ -114,7 +114,7 @@ are not treated as signals. New examples must declare their expected outcome.
 
 ```lisp run=42
 (#fn main () #u64
-  (#let answer #u64 (#u64.+.wrap 40u64 2u64))
+  (#let answer #u64 (#u64::add-wrap 40u64 2u64))
   (#return answer))
 ```
 
@@ -214,13 +214,13 @@ lim main.lim --locate-generated path/to/file.lim:42:5-45:2
 Lines and columns are one-based; columns count Unicode characters, and explicit
 range ends are exclusive. A line, position, or range overlapping any
 part of a generator invocation selects its output; the selection need not
-start on `@`. A whole-line range such as `file.lim:42-45` also works. The
+start on `#generate`. A whole-line range such as `file.lim:42-45` also works. The
 command prints each current generated source path with its generator name and
 relationship to the selection, without building a native binary:
 
 ```text
-direct @#pin-box -> /project/examples/.lim/generated/generated-<hash>.lim
-nested @#allocator-for -> /project/examples/.lim/generated/generated-<hash>.lim
+direct #generate #pin-box -> /project/examples/.lim/generated/generated-<hash>.lim
+nested #generate #allocator-for -> /project/examples/.lim/generated/generated-<hash>.lim
 ```
 
 `direct` identifies output from a selected invocation; `nested` identifies
@@ -255,7 +255,7 @@ data and arbitrary literal generator arguments deliberately do not resolve.
 Generated definitions and bundled standard-library sources are also supported.
 Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
 snapshots on demand, including expansions from unsaved buffers.
-Go-to-definition on an invocation's `@` opens its current generated source
+Go-to-definition on an invocation's `#generate` opens its current generated source
 artifact, using the same lookup as `--locate-generated` and the editor's
 compilation context. Navigation on the generator name instead opens its
 declaration.
@@ -316,7 +316,7 @@ it, overlaid with all unsaved buffers. Definition navigation returns all distinc
 locations across those contexts. Thus a library call to a function supplied by
 both the application and test binary offers both implementations; a definition
 shared by both graphs is shown only once. This applies to imported functions and
-types, generator declarations, generated definitions, and navigation on `@`.
+types, generator declarations, generated definitions, and navigation on `#generate`.
 Context-specific diagnostics identify the entry and settings that produced them.
 An invalid entry does not discard definition results from other valid contexts.
 Files outside every selected graph produce an explicit diagnostic. Malformed contexts do not silently

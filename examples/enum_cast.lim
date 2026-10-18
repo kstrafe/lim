@@ -1,8 +1,8 @@
-(#enum Color () (Red Green))
+(#enum Color () (Color.Red Color.Green))
 
 (#fn discriminant ((value Color)) #u64
   (#return (#as value #u64)))
 
 (#fn main () #u64
-  (#let selected Color Green)
-  (#return (#u64.+.wrap (#call discriminant (: value selected)) 41)))
+  (#let selected Color Color.Green)
+  (#return (#u64::add-wrap (#call discriminant (: value selected)) 41)))

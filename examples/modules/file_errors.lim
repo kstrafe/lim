@@ -1,2 +1,2 @@
 (#import "error_collection.lim")
-(#enum-contribute ApplicationError (FileFailure #u32))
+(#enum-contribute ApplicationError (ApplicationError.FileFailure #u32))

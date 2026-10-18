@@ -2,10 +2,10 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let metadata (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -65,30 +65,30 @@
     (#unsafe (#unsafe-call linux-faccessat2 (: directory -100i64 : path memory : mode 0i32 : flags -1i32))))
   (#let fd-closed #i64 (#call linux-close (: fd fd)))
   (#let memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let metadata-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (metadata 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (metadata 4096usize))))
   (#let statx-ok #bool
-    (#bool.&& (#i64.>= fd 0i64)
-      (#bool.&& (#i64.== bytes-written 8i64)
-        (#bool.&& (#i64.== statx-result 0i64)
-          (#bool.&& (#u64.== (#u64.& returned-mask 512u64) 512u64)
-            (#bool.&& (#u64.== returned-size 8u64)
-              (#bool.&& (#i64.== fd-closed 0i64)
-                (#bool.&& (#i64.== memory-unmapped 0i64)
-                  (#i64.== metadata-unmapped 0i64)))))))))
+    (#bool::and (#i64::ge fd 0i64)
+      (#bool::and (#i64::eq bytes-written 8i64)
+        (#bool::and (#i64::eq statx-result 0i64)
+          (#bool::and (#u64::eq (#u64::bit-and returned-mask 512u64) 512u64)
+            (#bool::and (#u64::eq returned-size 8u64)
+              (#bool::and (#i64::eq fd-closed 0i64)
+                (#bool::and (#i64::eq memory-unmapped 0i64)
+                  (#i64::eq metadata-unmapped 0i64)))))))))
   (#let metadata-ok #bool
-    (#bool.&& (#i64.== stat-result 0i64)
-      (#bool.&& (#u64.> stat-inode 0u64)
-        (#bool.&& (#i64.== lstat-result 0i64)
-          (#bool.&& (#u64.== lstat-inode stat-inode)
-            (#bool.&& (#i64.== fstatat-result 0i64)
-              (#bool.&& (#u64.== fstatat-size 8u64)
-                (#bool.&& (#i64.== statfs-result 0i64)
-                  (#bool.&& (#u64.!= statfs-type 0u64)
-                    (#bool.&& (#i64.== fstatfs-result 0i64)
-                      (#bool.&& (#u64.!= fstatfs-type 0u64)
-                        (#bool.&& (#i64.== faccessat-result 0i64)
-                          (#bool.&& (#i64.== faccessat2-result 0i64)
-                            (#i64.== invalid-access-flags -22i64))))))))))))))
-  (#return (#if (#bool.&& statx-ok metadata-ok) 42u64 1u64)))
+    (#bool::and (#i64::eq stat-result 0i64)
+      (#bool::and (#u64::gt stat-inode 0u64)
+        (#bool::and (#i64::eq lstat-result 0i64)
+          (#bool::and (#u64::eq lstat-inode stat-inode)
+            (#bool::and (#i64::eq fstatat-result 0i64)
+              (#bool::and (#u64::eq fstatat-size 8u64)
+                (#bool::and (#i64::eq statfs-result 0i64)
+                  (#bool::and (#u64::ne statfs-type 0u64)
+                    (#bool::and (#i64::eq fstatfs-result 0i64)
+                      (#bool::and (#u64::ne fstatfs-type 0u64)
+                        (#bool::and (#i64::eq faccessat-result 0i64)
+                          (#bool::and (#i64::eq faccessat2-result 0i64)
+                            (#i64::eq invalid-access-flags -22i64))))))))))))))
+  (#return (#if (#bool::and statx-ok metadata-ok) 42u64 1u64)))

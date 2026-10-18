@@ -1,11 +1,11 @@
 (#import "../library/linux_x86_64.lim")
 
 (#fn syscall-is ((actual #i64) (expected #i64)) #bool
-  (#return (#i64.== actual expected)))
+  (#return (#i64::eq actual expected)))
 
 (#fn main () #u64
   (#let path-memory (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#unsafe
     (#block
@@ -85,7 +85,7 @@
   (#let duplicate-now-closed #i64
     (#call linux-close (: fd duplicate-destination)))
   (#let stat-memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let stat-result #i64
     (#unsafe (#unsafe-call linux-fstat
@@ -103,55 +103,55 @@
     (#call linux-fdatasync (: fd descriptor)))
   (#let closed #i64 (#call linux-close (: fd descriptor)))
   (#let path-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (path-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (path-memory 4096usize))))
   (#let stat-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (stat-memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (stat-memory 4096usize))))
   (#let descriptor-ok #bool
-    (#bool.&& (#i64.>= descriptor 0i64)
+    (#bool::and (#i64::ge descriptor 0i64)
       (#call syscall-is (: actual descriptor-flags : expected 1i64))))
   (#let contents-ok #bool
-    (#bool.&& (#call syscall-is (: actual written : expected 4i64))
-      (#bool.&& (#call syscall-is (: actual positioned-written : expected 4i64))
-        (#bool.&& (#call syscall-is (: actual position-after-pwrite : expected 4i64))
-          (#bool.&& (#call syscall-is (: actual seek-start : expected 0i64))
-            (#bool.&& (#call syscall-is (: actual bytes-read : expected 4i64))
-              (#bool.&& (#call syscall-is (: actual position-after-pread : expected 0i64))
-                (#bool.&& (#u8.== byte-0 76u8)
-                  (#bool.&& (#u8.== byte-1 73u8)
-                    (#bool.&& (#u8.== byte-2 77u8) (#u8.== byte-3 33u8)))))))))))
+    (#bool::and (#call syscall-is (: actual written : expected 4i64))
+      (#bool::and (#call syscall-is (: actual positioned-written : expected 4i64))
+        (#bool::and (#call syscall-is (: actual position-after-pwrite : expected 4i64))
+          (#bool::and (#call syscall-is (: actual seek-start : expected 0i64))
+            (#bool::and (#call syscall-is (: actual bytes-read : expected 4i64))
+              (#bool::and (#call syscall-is (: actual position-after-pread : expected 0i64))
+                (#bool::and (#u8::eq byte-0 76u8)
+                  (#bool::and (#u8::eq byte-1 73u8)
+                    (#bool::and (#u8::eq byte-2 77u8) (#u8::eq byte-3 33u8)))))))))))
   (#let metadata-ok #bool
-    (#bool.&& (#call syscall-is (: actual stat-result : expected 0i64))
-      (#bool.&& (#call syscall-is (: actual file-size : expected 12i64))
+    (#bool::and (#call syscall-is (: actual stat-result : expected 0i64))
+      (#bool::and (#call syscall-is (: actual file-size : expected 12i64))
         (#call syscall-is (: actual end-before-truncate : expected 12i64)))))
   (#let descriptor-range-ok #bool
-    (#bool.&& (#i64.>= duplicate-destination 0i64)
-      (#bool.&& (#i64.== invalid-dup3 -22i64)
-        (#bool.&& (#i64.== duplicated duplicate-destination)
-          (#bool.&& (#i64.== duplicate-flags 1i64)
-            (#bool.&& (#i64.== duplicate-position 0i64)
-              (#bool.&& (#i64.== readahead-result 0i64)
-                (#bool.&& (#i64.== range-sync-result 0i64)
-                  (#bool.&& (#i64.== filesystem-sync-result 0i64)
-                    (#bool.&& (#i64.== invalid-close-range -22i64)
-                      (#bool.&& (#i64.== duplicate-range-closed 0i64)
-                        (#i64.== duplicate-now-closed -9i64))))))))))))
+    (#bool::and (#i64::ge duplicate-destination 0i64)
+      (#bool::and (#i64::eq invalid-dup3 -22i64)
+        (#bool::and (#i64::eq duplicated duplicate-destination)
+          (#bool::and (#i64::eq duplicate-flags 1i64)
+            (#bool::and (#i64::eq duplicate-position 0i64)
+              (#bool::and (#i64::eq readahead-result 0i64)
+                (#bool::and (#i64::eq range-sync-result 0i64)
+                  (#bool::and (#i64::eq filesystem-sync-result 0i64)
+                    (#bool::and (#i64::eq invalid-close-range -22i64)
+                      (#bool::and (#i64::eq duplicate-range-closed 0i64)
+                        (#i64::eq duplicate-now-closed -9i64))))))))))))
   (#let updates-ok #bool
-    (#bool.&& (#call syscall-is (: actual file-advice : expected 0i64))
-      (#bool.&& (#call syscall-is (: actual lock-acquired : expected 0i64))
-        (#bool.&& (#call syscall-is (: actual lock-released : expected 0i64))
-          (#bool.&& (#call syscall-is (: actual permissions-changed : expected 0i64))
-            (#bool.&& (#call syscall-is (: actual owner-changed : expected 0i64))
-              (#bool.&& (#call syscall-is (: actual allocated : expected 0i64))
-                (#bool.&& (#call syscall-is (: actual duplicate-same-fd : expected descriptor))
-                  (#bool.&& (#call syscall-is (: actual truncated : expected 0i64))
-                    (#bool.&& (#call syscall-is (: actual end-after-truncate : expected 2i64))
-                      (#bool.&& (#call syscall-is (: actual synced : expected 0i64))
-                        (#bool.&& (#call syscall-is (: actual data-synced : expected 0i64))
-                          (#bool.&& (#call syscall-is (: actual closed : expected 0i64))
-                            (#bool.&& (#call syscall-is (: actual path-unmapped : expected 0i64))
+    (#bool::and (#call syscall-is (: actual file-advice : expected 0i64))
+      (#bool::and (#call syscall-is (: actual lock-acquired : expected 0i64))
+        (#bool::and (#call syscall-is (: actual lock-released : expected 0i64))
+          (#bool::and (#call syscall-is (: actual permissions-changed : expected 0i64))
+            (#bool::and (#call syscall-is (: actual owner-changed : expected 0i64))
+              (#bool::and (#call syscall-is (: actual allocated : expected 0i64))
+                (#bool::and (#call syscall-is (: actual duplicate-same-fd : expected descriptor))
+                  (#bool::and (#call syscall-is (: actual truncated : expected 0i64))
+                    (#bool::and (#call syscall-is (: actual end-after-truncate : expected 2i64))
+                      (#bool::and (#call syscall-is (: actual synced : expected 0i64))
+                        (#bool::and (#call syscall-is (: actual data-synced : expected 0i64))
+                          (#bool::and (#call syscall-is (: actual closed : expected 0i64))
+                            (#bool::and (#call syscall-is (: actual path-unmapped : expected 0i64))
                               (#call syscall-is (: actual stat-unmapped : expected 0i64))))))))))))))))
   (#return
-    (#if (#bool.&& descriptor-ok (#bool.&& contents-ok
-      (#bool.&& metadata-ok (#bool.&& descriptor-range-ok updates-ok))))
+    (#if (#bool::and descriptor-ok (#bool::and contents-ok
+      (#bool::and metadata-ok (#bool::and descriptor-range-ok updates-ok))))
       42u64
       1u64)))

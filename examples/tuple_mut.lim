@@ -12,7 +12,7 @@
   (#set-field value 0 40)
   (
     #return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#get value 0)
       2
     )

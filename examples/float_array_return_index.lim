@@ -18,7 +18,7 @@
     #return
     (
       #if
-      (#f32.>
+      (#f32::gt
         (
           #index
           (#call make (:))

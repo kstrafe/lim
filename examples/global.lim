@@ -1,4 +1,4 @@
-(#let ANSWER #u64 40)
+(#let aNSWER #u64 40)
 
 (
   #fn
@@ -7,6 +7,6 @@
   #u64
   (
     #return
-    (#u64.+.wrap  ANSWER 2)
+    (#u64::add-wrap  aNSWER 2)
   )
 )

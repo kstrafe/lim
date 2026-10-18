@@ -2,8 +2,8 @@
   #enum
   MaybeF ()
   (
-    (SomeF #f32)
-    None
+    (MaybeF.SomeF #f32)
+    MaybeF.None
   )
 )
 
@@ -14,7 +14,7 @@
   MaybeF
   (
     #return
-    (SomeF 2.5)
+    (MaybeF.SomeF 2.5)
   )
 )
 
@@ -31,10 +31,10 @@
       #match
       value
       (#case
-        (SomeF payload)
+        (MaybeF.SomeF payload)
         payload
       )
-      (#case None 0.0)
+      (#case MaybeF.None 0.0)
     )
   )
 )
@@ -48,7 +48,7 @@
     #return
     (
       #if
-      (#f32.>
+      (#f32::gt
         (#call read (: value (#call make (:))))
         2.0
       )

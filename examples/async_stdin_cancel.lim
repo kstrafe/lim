@@ -4,19 +4,19 @@
 
 (#fn main () #i32
   (#let-mut byte #u8 0u8)
-  (#assert (#i64.>=
+  (#assert (#i64::ge
     (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
   (#let created AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd 0i64 : destination (#borrow-mut byte))))
-  (#let-else (AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
+  (#let-else (AsyncByteReadCreate1.AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
     (#unreachable))
   (#let-mut task AsyncByteRead1 initial-task)
   (#let first AsyncByteReadPoll1
     (#call async-byte-read1-poll (: task (#borrow-mut task))))
   (#let destroyed #i64 (#call async-byte-read1-destroy (: task task)))
   (#set byte 91u8)
-  (#return (#if (#bool.&& (#i64.== destroyed 0i64)
+  (#return (#if (#bool::and (#i64::eq destroyed 0i64)
     (#match first
-      (#case AsyncByteReadPending1 true)
+      (#case AsyncByteReadPoll1.AsyncByteReadPending1 true)
       (#case _ false))) 42i32 1i32)))

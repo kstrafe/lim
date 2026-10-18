@@ -3,12 +3,12 @@ mod support;
 use std::{process::Command, time::Duration};
 
 const CONTEXT: &str = "
-  (#enum Child (#linear) ((Start #u64) (Resume #u64)))
-  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+  (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
+  (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
-      (#case (Start value) (ChildPending (Resume value)))
-      (#case (Resume value) (ChildReady value)))))";
+      (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+      (#case (Child.Resume value) (ChildPoll.ChildReady value)))))";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -18,40 +18,40 @@ fn config() -> lim::CompileConfig {
 
 fn run_guard(guard_accepts: bool) {
     let awaited = if guard_accepts { "0u64" } else { "1u64" };
-    let comparison = "(#u64.-.wrap (#deref view) 42u64)";
+    let comparison = "(#u64::sub-wrap (#deref view) 42u64)";
     let expected_marker = if guard_accepts { "0u64" } else { "1u64" };
     let completion_polls = if guard_accepts {
         "(#let answer #u64 (#match
           (#call Work::poll (: task next : waker (#borrow waker)))
-          (#case (Work::Ready result) result)
-          (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))"
+          (#case (Work::Poll.Ready result) result)
+          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))"
     } else {
         "(#let second Work::Poll
           (#call Work::poll (: task next : waker (#borrow waker))))
-        (#let-else (Work::Pending last) Work::Poll second (#unreachable))
+        (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
         (#let answer #u64 (#match
           (#call Work::poll (: task last : waker (#borrow waker)))
-          (#case (Work::Ready result) result)
-          (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))"
+          (#case (Work::Poll.Ready result) result)
+          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))"
     };
     let source = format!(
         "{CONTEXT}
-      (#enum Holder (#linear) ((Holding (#ref #u64))))
-      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+      (#enum Holder (#linear) ((Holder.Holding (#ref #u64))))
+      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
         : function (#fn work (: source (#ref #u64)) #u64
           (#let-mut marker #u64 0u64)
-          (#let holder Holder (Holding source))
+          (#let holder Holder (Holder.Holding source))
           (#let result #u64 (#match holder
-            (#case (Holding view)
-              (#when (#u64.==
-                (#await Child ChildPending ChildReady child-poll (Start {awaited}))
+            (#case (Holder.Holding view)
+              (#when (#u64::eq
+                (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start {awaited}))
                 {comparison}))
               (#deref view))
-            (#case (Holding view)
+            (#case (Holder.Holding view)
               (#block
                 (#set marker 1u64)
-                (#await Child ChildPending ChildReady child-poll (Start (#deref view)))))))
-          (#assert (#u64.== marker {expected_marker}))
+                (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start (#deref view)))))))
+          (#assert (#u64::eq marker {expected_marker}))
           (#return result))))
       (#fn main () #u64
         (#let waker #u64 0u64) (#let owner #u64 42u64)
@@ -59,7 +59,7 @@ fn run_guard(guard_accepts: bool) {
           (#call work (: source (#borrow owner))))
         (#let first Work::Poll
           (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
         {completion_polls}
         (#forget frame) (#return answer))"
     );

@@ -13,16 +13,16 @@ fn pending_aio_operation_keeps_its_context_borrowed() {
              (#call aio-owned-context-create (:)))
            (#let-mut context AioOwnedContext
              (#match context-result
-               (#case (AioOwnedContextCreated owner) owner)
-               (#case (AioOwnedContextCreateFailed error)
+               (#case (AioOwnedContextCreate.AioOwnedContextCreated owner) owner)
+               (#case (AioOwnedContextCreate.AioOwnedContextCreateFailed error)
                  (#block (#forget error) (#unreachable)))))
            (#let submission AioOwnedSubmit
              (#call aio-owned-poll-submit
                (: context (#borrow context) : fd 0i64 : events 1u16)))
            (#let pending AioOwnedPending
              (#match submission
-               (#case (AioOwnedSubmitted operation) operation)
-               (#case (AioOwnedSubmitFailed error)
+               (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
+               (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
                  (#block (#forget error) (#unreachable)))))
            (#call aio-owned-context-destroy (: context context))
            (#forget pending)
@@ -57,16 +57,16 @@ fn one_aio_context_accepts_multiple_outstanding_operations() {
              (#call aio-owned-context-create (:)))
            (#let-mut context AioOwnedContext
              (#match context-result
-               (#case (AioOwnedContextCreated owner) owner)
-               (#case (AioOwnedContextCreateFailed error)
+               (#case (AioOwnedContextCreate.AioOwnedContextCreated owner) owner)
+               (#case (AioOwnedContextCreate.AioOwnedContextCreateFailed error)
                  (#block (#forget error) (#unreachable)))))
            (#let first-submission AioOwnedSubmit
              (#call aio-owned-poll-submit
                (: context (#borrow context) : fd 0i64 : events 1u16)))
            (#let first-operation AioOwnedPending
              (#match first-submission
-               (#case (AioOwnedSubmitted operation) operation)
-               (#case (AioOwnedSubmitFailed error)
+               (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
+               (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
                  (#block (#forget error) (#unreachable)))))
            (#let second-submission AioOwnedSubmit
              (#call aio-owned-poll-submit
@@ -106,28 +106,28 @@ fn native_aio_wait_routes_another_requests_completion() {
                (#call aio-owned-context-create (:)))
              (#let-mut context AioOwnedContext
                (#match context-result
-                 (#case (AioOwnedContextCreated owner) owner)
-                 (#case (AioOwnedContextCreateFailed error)
+                 (#case (AioOwnedContextCreate.AioOwnedContextCreated owner) owner)
+                 (#case (AioOwnedContextCreate.AioOwnedContextCreateFailed error)
                    (#block (#forget error) (#unreachable)))))
              (#let fd-b #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
              (#let fd-a #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
-             (#assert (#i64.>= fd-a 0i64))
-             (#assert (#i64.>= fd-b 0i64))
+             (#assert (#i64::ge fd-a 0i64))
+             (#assert (#i64::ge fd-b 0i64))
              (#let submission-b AioOwnedSubmit
                (#call aio-owned-poll-submit
                  (: context (#borrow context) : fd fd-b : events 1u16)))
              (#let pending-b AioOwnedPending
                (#match submission-b
-                 (#case (AioOwnedSubmitted operation) operation)
-                 (#case (AioOwnedSubmitFailed error)
+                 (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
+                 (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
                    (#block (#forget error) (#unreachable)))))
              (#let submission-a AioOwnedSubmit
                (#call aio-owned-poll-submit
                  (: context (#borrow context) : fd fd-a : events 1u16)))
              (#let pending-a AioOwnedPending
                (#match submission-a
-                 (#case (AioOwnedSubmitted operation) operation)
-                 (#case (AioOwnedSubmitFailed error)
+                 (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
+                 (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
                    (#block (#forget error) (#unreachable)))))
              (#let scratch (#ptr-mut #u8)
                (#unsafe (#unsafe-call linux-mmap
@@ -138,23 +138,23 @@ fn native_aio_wait_routes_another_requests_completion() {
              (#unsafe (#ptr-write value 1u64))
              (#let bytes (#ptr-mut #u8)
                (#unsafe (#asm (#ptr-mut #u8) ((rdi scratch)) "lea rax, [rdi+256]")))
-             (#assert (#i64.==
+             (#assert (#i64::eq
                (#unsafe (#unsafe-call linux-write (: fd fd-b : source bytes : count 8usize)))
                8i64))
              (#let delay LinuxTimespec
                (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 10000000i64))))
              (#let-mut remaining LinuxTimespec
                (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 0i64))))
-             (#assert (#i64.== (#call linux-nanosleep
+             (#assert (#i64::eq (#call linux-nanosleep
                (: request (#borrow delay) : remaining (#borrow-mut remaining))) 0i64))
-             (#assert (#i64.==
+             (#assert (#i64::eq
                (#unsafe (#unsafe-call linux-write (: fd fd-a : source bytes : count 8usize)))
                8i64))
              (#let wait-a AioOwnedWait (#call aio-owned-wait (: operation pending-a)))
              (#let completed-a AioOwnedCompleted
                (#match wait-a
-                 (#case (AioOwnedFinished operation) operation)
-                 (#case (AioOwnedWaitFailed failure)
+                 (#case (AioOwnedWait.AioOwnedFinished operation) operation)
+                 (#case (AioOwnedWait.AioOwnedWaitFailed failure)
                    (#block
                      (#let (#tuple still-pending error)
                        (#tuple AioOwnedPending #i64) failure)
@@ -164,27 +164,27 @@ fn native_aio_wait_routes_another_requests_completion() {
              (#let wait-b AioOwnedWait (#call aio-owned-wait (: operation pending-b)))
              (#let completed-b AioOwnedCompleted
                (#match wait-b
-                 (#case (AioOwnedFinished operation) operation)
-                 (#case (AioOwnedWaitFailed failure)
+                 (#case (AioOwnedWait.AioOwnedFinished operation) operation)
+                 (#case (AioOwnedWait.AioOwnedWaitFailed failure)
                    (#block
                      (#let (#tuple still-pending error)
                        (#tuple AioOwnedPending #i64) failure)
                      (#forget still-pending)
                      (#forget error)
                      (#unreachable)))))
-             (#assert (#i64.== (#call aio-owned-completed-result
+             (#assert (#i64::eq (#call aio-owned-completed-result
                (: operation (#borrow completed-a))) 1i64))
-             (#assert (#i64.== (#call aio-owned-completed-result
+             (#assert (#i64::eq (#call aio-owned-completed-result
                (: operation (#borrow completed-b))) 1i64))
-             (#assert (#i64.== (#call aio-owned-completed-destroy
+             (#assert (#i64::eq (#call aio-owned-completed-destroy
                (: operation completed-a)) 0i64))
-             (#assert (#i64.== (#call aio-owned-completed-destroy
+             (#assert (#i64::eq (#call aio-owned-completed-destroy
                (: operation completed-b)) 0i64))
-             (#assert (#i64.== (#call aio-owned-context-destroy
+             (#assert (#i64::eq (#call aio-owned-context-destroy
                (: context context)) 0i64))
-             (#assert (#i64.== (#call linux-close (: fd fd-a)) 0i64))
-             (#assert (#i64.== (#call linux-close (: fd fd-b)) 0i64))
-             (#assert (#i64.== (#unsafe (#unsafe-call linux-munmap
+             (#assert (#i64::eq (#call linux-close (: fd fd-a)) 0i64))
+             (#assert (#i64::eq (#call linux-close (: fd fd-b)) 0i64))
+             (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap
                (: address scratch : length 4096usize))) 0i64))
              (#return 42u64))"#,
         library.display(),

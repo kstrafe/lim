@@ -1,2 +1,2 @@
 (#gn fail () (#gn-error "unsupported imported input"))
-(@fail)
+(#generate fail)

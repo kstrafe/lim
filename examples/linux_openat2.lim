@@ -2,10 +2,10 @@
 
 (#fn main () #u64
   (#let paths (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let how (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -42,17 +42,17 @@
   (#let file-removed #i64
     (#unsafe (#unsafe-call linux-unlinkat (: directory -100i64 : path paths : flags 0i32))))
   (#let how-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (how 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (how 4096usize))))
   (#let paths-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (paths 4096usize))))
   (#let openat2-ok #bool
-    (#bool.&& (#i64.>= file-created 0i64)
-      (#bool.&& (#i64.== file-closed 0i64)
-        (#bool.&& (#i64.>= secure-open 0i64)
-          (#bool.&& (#i64.== secure-close 0i64)
-            (#bool.&& (#i64.== missing-open -2i64)
-              (#bool.&& (#i64.== invalid-resolve -22i64)
-                (#bool.&& (#i64.== file-removed 0i64)
-                  (#bool.&& (#i64.== how-unmapped 0i64)
-                    (#i64.== paths-unmapped 0i64))))))))))
+    (#bool::and (#i64::ge file-created 0i64)
+      (#bool::and (#i64::eq file-closed 0i64)
+        (#bool::and (#i64::ge secure-open 0i64)
+          (#bool::and (#i64::eq secure-close 0i64)
+            (#bool::and (#i64::eq missing-open -2i64)
+              (#bool::and (#i64::eq invalid-resolve -22i64)
+                (#bool::and (#i64::eq file-removed 0i64)
+                  (#bool::and (#i64::eq how-unmapped 0i64)
+                    (#i64::eq paths-unmapped 0i64))))))))))
   (#return (#if openat2-ok 42u64 1u64)))

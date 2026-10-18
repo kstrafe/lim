@@ -560,7 +560,7 @@ impl Plan {
         if self.pending_bindings != pending_binding_retirement(graph, &self.binding_candidates) {
             return Err(failure(
                 None,
-                "Pending binding retirement disagrees with source liveness",
+                "ChildPoll.Pending binding retirement disagrees with source liveness",
             ));
         }
         for (index, block) in graph.blocks.iter().enumerate() {
@@ -707,7 +707,7 @@ impl Plan {
                 if self.edge[block.0][1].contains(child) {
                     return Err(failure(
                         None,
-                        "Pending retirement clears its restored child",
+                        "ChildPoll.Pending retirement clears its restored child",
                     ));
                 }
             }
@@ -818,7 +818,7 @@ mod tests {
     fn clone_retention_index_matches_scan_for_all_exclusion_pairs() {
         let branch = prepare(
             "(#fn work (: choose #bool : value #u64) #u64
-               (#return (#if choose (#clone value) (#clone (#u64.+.wrap value value)))))",
+               (#return (#if choose (#clone value) (#clone (#u64::add-wrap value value)))))",
         )
         .0;
         for mut graph in [clone_graph(3), scoped_graph(3), branch] {
@@ -1107,9 +1107,9 @@ mod tests {
                 (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected)))",
             "(#fn work (: view (#ref #u64)) #u64
                 (#let-mut count #u64 0u64)
-                (#while (#u64.< count 2u64)
+                (#while (#u64::lt count 2u64)
                     (#let observed #u64 (#deref view))
-                    (#set count (#u64.+.wrap count 1u64)))
+                    (#set count (#u64::add-wrap count 1u64)))
                 (#return (#deref view)))",
         ] {
             let (graph, types) = prepare(source);
@@ -1164,19 +1164,19 @@ mod tests {
     #[test]
     fn pending_retains_evaluated_operands_and_restores_only_its_child() {
         let context = crate::parse_program(
-            "(#enum Child (#linear) ((Waiting #u64)))
-          (#enum ChildPoll () ((Pending Child) (Ready #u64)))
+            "(#enum Child (#linear) ((Child.Waiting #u64)))
+          (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
           (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
-            (#return (#match task (#case (Waiting count)
-              (#if (#u64.== count 0u64) (Ready 42u64) (Pending (Waiting 0u64)))))))
+            (#return (#match task (#case (Child.Waiting count)
+              (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting 0u64)))))))
           (#fn combine (: view (#ref #u64) : result #u64) #u64
-            (#return (#u64.+.wrap (#deref view) result)))",
+            (#return (#u64::add-wrap (#deref view) result)))",
         )
         .unwrap();
         let source = crate::parse(
             "(#fn work (: view (#ref #u64)) #u64
           (#return (#call combine (: view view
-            : result (#await #u64 Child Pending Ready step-poll (Waiting 1u64))))))",
+            : result (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))",
         )
         .unwrap()
         .remove(0);

@@ -1256,7 +1256,10 @@ impl<'a> Index<'a> {
         if matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
             return vec![];
         }
-        if matches!(node.children.first().map(|node| &node.expr), Some(Expr::At)) {
+        if matches!(
+            node.children.first().map(|node| &node.expr),
+            Some(Expr::Generate)
+        ) {
             // Literal generator arguments are data. Explicit function syntax
             // inside them still has lexical binding/type roles of its own.
             for child in node.children.iter().skip(2) {

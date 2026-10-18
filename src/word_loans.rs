@@ -566,7 +566,7 @@ mod tests {
     fn flat_shape_projects_owned_fields_and_keeps_large_arrays_compact() {
         let source = "(#struct Pair () (: left #u64 : right (#tuple #u64 #u64)))
           (#struct Other () (: left #u64))
-          (#enum Choice () ((First (#tuple #u64 #u64)) (Second #u64)))
+          (#enum Choice () ((Choice.First (#tuple #u64 #u64)) (Choice.Second #u64)))
           (#fn main () #u64 (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -585,8 +585,8 @@ mod tests {
         assert_eq!(shape.project(&[Segment::Dereference]), None);
         let choice = Type::Named("Choice".into());
         let shape = Shape::build(&choice, declarations).unwrap();
-        let first = declarations.variant_id(&choice, "First").unwrap();
-        let second = declarations.variant_id(&choice, "Second").unwrap();
+        let first = declarations.variant_id(&choice, "Choice.First").unwrap();
+        let second = declarations.variant_id(&choice, "Choice.Second").unwrap();
         assert_eq!(
             shape.project(&[Segment::Payload(first, 0), Segment::Tuple(1)]),
             Some((2, 1))

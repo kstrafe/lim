@@ -4,8 +4,8 @@
 (#fn code ((error ApplicationError)) #u64
   (#return
     (#match error
-      (#case (FileFailure number) (#as number #u64))
-      (#case (ParseFailure number) number))))
+      (#case (ApplicationError.FileFailure number) (#as number #u64))
+      (#case (ApplicationError.ParseFailure number) number))))
 
 (#fn main () #u64
-  (#return (#call code (: error (FileFailure 42u32)))))
+  (#return (#call code (: error (ApplicationError.FileFailure 42u32)))))

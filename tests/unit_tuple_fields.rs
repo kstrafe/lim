@@ -23,12 +23,12 @@ fn run(source: &str) -> std::process::ExitStatus {
 #[test]
 fn unit_tuple_fields_need_no_slot_or_register() {
     let source = r#"
-      (#let GLOBAL (#tuple #u64 ()) (#tuple (#tuple #u64 ()) 42u64 ()))
+      (#let gLOBAL (#tuple #u64 ()) (#tuple (#tuple #u64 ()) 42u64 ()))
       (#fn main () #u64
         (#let local (#tuple () #u64 ()) (#tuple (#tuple () #u64 ()) () 42u64 ()))
         (#get local 0)
         (#get local 2)
-        (#get GLOBAL 1)
+        (#get gLOBAL 1)
         (#return (#get local 1)))
     "#;
     assert_eq!(run(source).code(), Some(42));
@@ -47,12 +47,12 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
     ] {
         let source = format!(
             "{declarations}
-          (#enum Outcome () ((Done {ty})))
+          (#enum Outcome () ((Outcome.Done {ty})))
           (#fn make () Outcome
-            (#let empty {ty} {value}) (#return (Done empty)))
+            (#let empty {ty} {value}) (#return (Outcome.Done empty)))
           (#fn main () #u64
             (#return (#match (#call make (:))
-              (#case (Done value) (#block value 42u64)))))"
+              (#case (Outcome.Done value) (#block value 42u64)))))"
         );
         assert_eq!(run(&source).code(), Some(42), "{source}");
     }

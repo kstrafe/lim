@@ -31,7 +31,7 @@ fn step_consumes_the_body_owner_before_iteration_scope_ends() {
         run(&format!(
             "(#fn main () #u64
           (#let-mut index #u64 0u64) (#let-mut result #u64 0u64)
-          (#label iteration (#for () (#u64.< index 1u64)
+          (#label iteration (#for () (#u64::lt index 1u64)
             (#block (#set result (#get token value)) (#forget token) (#set index 1u64))
             (#let token Resource (#struct-literal Resource (: value 42u64))) {control}))
           (#return result))"
@@ -55,7 +55,7 @@ fn body_scope_still_requires_explicit_linear_consumption() {
         let source = format!(
             "{CONTEXT} (#fn main () #u64
           (#let-mut index #u64 0u64)
-          (#for () (#u64.< index 1u64) (#set index 1u64)
+          (#for () (#u64::lt index 1u64) (#set index 1u64)
             (#let token Resource (#struct-literal Resource (: value 42u64))) {tail})
           (#return 42u64))"
         );
@@ -101,7 +101,7 @@ fn a_step_cannot_store_a_body_borrow_past_the_iteration() {
     let source = "(#fn main () #u64
       (#let outside #u64 0u64)
       (#let-mut escaped (#ref #u64) (#borrow outside))
-      (#for (#let-mut index #u64 0u64) (#u64.< index 1u64)
+      (#for (#let-mut index #u64 0u64) (#u64::lt index 1u64)
         (#block (#set escaped (#borrow owner)) (#set index 1u64))
         (#let owner #u64 42u64))
       (#return (#deref escaped)))";
@@ -115,7 +115,7 @@ fn nested_break_and_continue_cleanup_only_the_exited_body_scopes() {
         run(&format!(
             "(#fn main () #u64
           (#let-mut result #u64 0u64) (#let-mut count #u64 0u64)
-          (#label outer (#for () (#u64.< count 1u64)
+          (#label outer (#for () (#u64::lt count 1u64)
             (#block (#set result (#get outer-token value)) (#forget outer-token) (#set count 1u64))
             (#let outer-token Resource (#struct-literal Resource (: value 42u64)))
             (#for () true ()

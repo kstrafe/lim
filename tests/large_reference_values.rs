@@ -7,24 +7,24 @@ fn large_argument_diverging_match_and_if_arms_emit_traps() {
     use std::os::unix::process::ExitStatusExt;
 
     let source = r#"
-      (#enum Choice () (First Second))
+      (#enum Choice () (Choice.First Choice.Second))
       (#fn read (: values (#array #u64 10)) #u64
         (#let result #u64 (#index values 9usize))
         (#forget values) (#return result))
       (#fn main () #u64
-        (#let choice Choice First)
+        (#let choice Choice Choice.First)
         (#let first #u64 (#call read (: values
           (#match choice
-            (#case First (#array-repeat 42u64))
-            (#case Second (#unreachable))))))
+            (#case Choice.First (#array-repeat 42u64))
+            (#case Choice.Second (#unreachable))))))
         (#let second #u64 (#call read (: values
           (#if #true (#array-repeat 1u64) (#unreachable)))))
-        (#return (#u64.+.wrap first second)))
+        (#return (#u64::add-wrap first second)))
     "#;
     for (source, expected) in [
         (source.to_owned(), Some(43)),
         (
-            source.replace("choice Choice First", "choice Choice Second"),
+            source.replace("choice Choice Choice.First", "choice Choice Choice.Second"),
             None,
         ),
         (source.replace("#if #true", "#if #false"), None),
@@ -67,28 +67,28 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
         };
         let source = format!(
             "(#struct Large () (: values (#array #u64 10)))
-          (#enum Container (#linear) ((Empty) (Full Large)))
+          (#enum Container (#linear) ((Container.Empty) (Container.Full Large)))
           (#struct Wrapper (#linear) (: item Container))
           (#fn extract (: slot ({reference} Container)) Large
             (#let previous Container (#unsafe ({read} slot)))
-            (#unsafe ({write} slot Empty))
-            (#return (#match previous (#case Empty (#unreachable)) (#case (Full value) value))))
+            (#unsafe ({write} slot Container.Empty))
+            (#return (#match previous (#case Container.Empty (#unreachable)) (#case (Container.Full value) value))))
           (#fn main () #u64
-            (#let-mut owner Container (Full (#struct-literal Large
+            (#let-mut owner Container (Container.Full (#struct-literal Large
               (: values (#array-repeat 42u64)))))
             (#let result Large (#call extract (: slot ({borrow} owner))))
-            (#assert (#u64.== (#index (#get result values) 9usize) 42u64))
+            (#assert (#u64::eq (#index (#get result values) 9usize) 42u64))
             (#forget result)
             (#let view ({reference} Container) ({borrow} owner))
             (#unsafe (#forget ({read} view)))
-            (#unsafe ({write} view Empty))
+            (#unsafe ({write} view Container.Empty))
             (#drop view)
             (#forget owner)
-            (#let wrapped Wrapper (#struct-literal Wrapper (: item (Full
+            (#let wrapped Wrapper (#struct-literal Wrapper (: item (Container.Full
               (#struct-literal Large (: values (#array-repeat 42u64)))))))
             (#let answer #u64 (#match (#get wrapped item)
-              (#case Empty (#unreachable))
-              (#case (Full payload) (#block
+              (#case Container.Empty (#unreachable))
+              (#case (Container.Full payload) (#block
                 (#let value #u64 (#index (#get payload values) 0usize))
                 (#forget payload) value))))
             (#forget wrapped) (#return answer))"

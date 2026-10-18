@@ -1,5 +1,5 @@
-(#enum State () (Ready))
+(#enum State () (State.Ready))
 (#fn main () #u64
-  (#let value State Ready)
-  (#let-else Missing State value (#return 1u64))
+  (#let value State State.Ready)
+  (#let-else missing State value (#return 1u64))
   (#return 0u64))

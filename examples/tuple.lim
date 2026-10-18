@@ -21,7 +21,7 @@
   #u64
   (
     #return
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#get value 0)
       (
         #as

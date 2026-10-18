@@ -552,7 +552,7 @@ mod tests {
           (#fn main () ()
           (#let owner (#pin-own #u64) (#call create (:)))
           (#let view (#pin-ref #u64) (#pin-own-borrow owner))
-          (#let spawned Task-spawn-result (#call Task-spawn (: owner owner)))
+          (#let spawned Task::SpawnResult (#call Task::spawn (: owner owner)))
           (#unreachable) (#return ()))"
         );
         let error = check(&source).unwrap_err();

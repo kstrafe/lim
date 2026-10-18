@@ -12,7 +12,7 @@
   (#unsafe (#pin-write item (#struct-literal Token (: value 2u64))))
   (#return ()))
 (#fn inspect (: target (#pin-ref Owner)) #u64
-  (#return (#u64.+.wrap (#get target kept) (#get (#get target item) value))))
+  (#return (#u64::add-wrap (#get target kept) (#get (#get target item) value))))
 (#fn main () #u64
   (#let-mut owner Owner
     (#struct-literal Owner (: kept 40u64 : item (#struct-literal Token (: value 1u64)))))
@@ -26,7 +26,7 @@
   (#let whole (#pin-ref Owner) (#pin-shared owner))
   (#let selected (#pin-ref #u64) (#pin-borrow (#get whole kept)))
   (#let equal #bool
-    (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+    (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
   (#forget selected)
   (#let answer #u64 (#call inspect (: target whole)))
   (#forget whole)

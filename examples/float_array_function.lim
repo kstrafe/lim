@@ -40,7 +40,7 @@
     #return
     (
       #if
-      (#f32.>  value 2.0)
+      (#f32::gt  value 2.0)
       42
       0
     )

@@ -33,7 +33,7 @@ fn run(source: &str, expected: i32) {
         let invocation = lim::parse(source)
             .unwrap()
             .into_iter()
-            .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn"))
+            .find(|node| source[node.span.start..node.span.end].starts_with("(#generate #async-fn"))
             .unwrap();
         let standalone = format!(
             "{}\n{artifact}\n{}",
@@ -72,7 +72,10 @@ fn awaited_pattern_can_return_after_two_body_suspensions() {
     let source = include_str!("../examples/async_while_let_return.lim");
     run(source, 42);
     run(
-        &source.replace("(StepPending (Resume value))", "(StepReady value)"),
+        &source.replace(
+            "(StepPoll.StepPending (Resume value))",
+            "(StepPoll.StepReady value)",
+        ),
         42,
     );
 }
@@ -81,15 +84,15 @@ fn awaited_pattern_can_return_after_two_body_suspensions() {
 fn awaited_pattern_payload_preserves_an_external_reference() {
     let source = include_str!("../examples/async_while_let_return.lim")
         .replace(
-            "(#enum Choice () ((Chosen #u64) Empty))",
-            "(#enum Choice () ((Chosen (#ref #u64)) Empty))",
+            "(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))",
+            "(#enum Choice () ((Choice.Chosen (#ref #u64)) Choice.Empty))",
         )
         .replace("(Start value)))", "(Start (#deref value))))")
         .replace(
             "(#let chosen #u64",
             "(#let owner #u64 37u64) (#let chosen #u64",
         )
-        .replace("(Chosen 37u64)", "(Chosen (#borrow owner))");
+        .replace("(Choice.Chosen 37u64)", "(Choice.Chosen (#borrow owner))");
     run(&source, 42);
 }
 
@@ -99,15 +102,15 @@ fn awaited_pattern_dependencies_are_evaluated_once_per_iteration() {
     run(source, 40);
     run(
         &source.replace(
-            "(#set choice Empty)",
-            "(#block (#set choice Empty) (#continue))",
+            "(#set choice Choice.Empty)",
+            "(#block (#set choice Choice.Empty) (#continue))",
         ),
         40,
     );
     run(
         &source.replace(
-            "(#set choice Empty)",
-            "(#block (#set choice Empty) (#break))",
+            "(#set choice Choice.Empty)",
+            "(#block (#set choice Choice.Empty) (#break))",
         ),
         39,
     );

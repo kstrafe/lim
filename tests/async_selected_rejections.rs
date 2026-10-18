@@ -8,14 +8,14 @@ fn config() -> lim::CompileConfig {
     config
 }
 
-const CONTEXT: &str = "(#enum Child (#linear) ((Waiting #u64)))
-  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+const CONTEXT: &str = "(#enum Child (#linear) ((Child.Waiting #u64)))
+  (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
-      (#case (Waiting count)
-        (#if (#u64.== count 0u64)
-          (ChildPending (Waiting 1u64))
-          (ChildReady count))))))
+      (#case (Child.Waiting count)
+        (#if (#u64::eq count 0u64)
+          (ChildPoll.ChildPending (Child.Waiting 1u64))
+          (ChildPoll.ChildReady count))))))
   (#fn cancel-child (: child Child) () (#forget child) (#return ()))
   (#struct Owner (#linear) (: value #u64))
   (#fn destroy-owner (: owner Owner) () (#forget owner) (#return ()))";
@@ -40,7 +40,7 @@ fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {
     };
     format!(
         "{CONTEXT}
-        (@{annotation} (: protocol WorkAwait : waker #u64 {cancel}
+        (#generate {annotation} (: protocol WorkAwait : waker #u64 {cancel}
           : function (#fn work (: choose #bool) {return_type} {body})))
         {main}"
     )
@@ -94,7 +94,7 @@ fn selected_view(mutable: bool) -> &'static str {
 fn selected_shared_reference_rejects_mutating_either_owner_across_await() {
     for owner in ["left", "right"] {
         let body = format!(
-            "{}\n(#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            "{}\n(#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
              (#set-field {owner} value 99u64)
              (#let observed #u64 (#get view value))
              (#drop view) (#forget left) (#forget right) (#forget ignored)
@@ -113,7 +113,7 @@ fn selected_shared_reference_rejects_mutating_either_owner_across_await() {
 fn selected_shared_reference_rejects_moving_either_owner_across_await() {
     for owner in ["left", "right"] {
         let body = format!(
-            "{}\n(#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            "{}\n(#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
              (#let moved Owner {owner})
              (#drop view) (#forget moved) {forget_other}
              (#forget ignored) (#return 0u64)",
@@ -152,7 +152,7 @@ fn selected_borrow_rejects_shared_mutable_alias_conflicts_for_both_owners() {
                 "borrow"
             };
             let body = format!(
-                "{}\n(#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                "{}\n(#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
                  (#let alias {alias_ty} (#{alias_borrow} {owner}))
                  (#let observed #u64 (#get view value))
                  (#drop alias) (#drop view) (#forget left) (#forget right)
@@ -172,7 +172,7 @@ fn selected_borrow_rejects_shared_mutable_alias_conflicts_for_both_owners() {
 fn returning_selected_reference_to_local_owners_is_rejected() {
     let body = "(#let left #u64 40u64) (#let right #u64 50u64)
       (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
-      (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+      (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
       (#forget ignored) (#return view)";
     let source = checked_source(body, true, "(#ref #u64)").replace(
         "((left destroy-owner) (right destroy-owner) (await-0 cancel-child))",
@@ -187,7 +187,7 @@ fn returning_selected_reference_to_local_owners_is_rejected() {
 #[test]
 fn movable_async_frame_cannot_hold_a_selected_local_reference_across_await() {
     let body = format!(
-        "{}\n(#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+        "{}\n(#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
          (#let observed #u64 (#get view value))
          (#drop view) (#forget left) (#forget right) (#forget ignored) (#return observed)",
         selected_view(false)

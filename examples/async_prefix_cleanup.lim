@@ -7,24 +7,24 @@
   (#forget token)
   (#return value))
 
-(#enum Step () ((Start #u64) (Resume #u64)))
-(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
+(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
+(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
-    (#case (Start value) (StepPending (Resume value)))
-    (#case (Resume value) (StepReady value)))))
+    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+    (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choose #bool) (values Values)) #u64
     (#let result #u64 (#if choose
       (#block
         (#let (Values (#tuple left right) bias) Values values)
         (#let bias-value #u64 (#call destroy-token (: token bias)))
         (#let first #u64
-          (#await #u64 Step StepPending StepReady step-poll (Start (#as left #u64))))
+          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as left #u64))))
         (#let second #u64
-          (#await #u64 Step StepPending StepReady step-poll (Start (#as right #u64))))
-        (#u64.+.wrap (#u64.+.wrap first second) bias-value))
+          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
+        (#u64::add-wrap (#u64::add-wrap first second) bias-value))
       (#block (#forget values) 5u64)))
     (#return result))))
 
@@ -37,8 +37,8 @@
   (#for-range (attempt #u64) 0u64 4u64
     (#let result Work::Poll (#call Work::poll (: task task : waker waker)))
     (#match result
-      (#case (Work::Pending next) (#block (#set task next) ()))
-      (#case (Work::Ready value) (#block (#return value)))))
+      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+      (#case (Work::Poll.Ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))
 
@@ -46,4 +46,4 @@
   (#let waker #u64 0u64)
   (#let selected #u64 (#call run (: choose true : waker (#borrow waker))))
   (#let skipped #u64 (#call run (: choose false : waker (#borrow waker))))
-  (#return (#u64.+.wrap selected skipped)))
+  (#return (#u64::add-wrap selected skipped)))

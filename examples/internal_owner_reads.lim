@@ -10,7 +10,7 @@
 (#fn inspect (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
   (#let through-owner #u64 (#get target value))
   (#let through-child #u64 (#deref (#get target view)))
-  (#assert (#u64.== through-owner through-child))
+  (#assert (#u64::eq through-owner through-child))
   (#pin-set-field target state 1u32)
   (#return target))
 

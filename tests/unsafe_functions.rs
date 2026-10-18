@@ -190,19 +190,19 @@ fn unsafe_named_arguments_evaluate_once_in_parameter_declaration_order() {
     let scratch = support::Scratch::new("unsafe-call-order");
     let source = "
       (#fn next (: counter (#ref-mut #u64) : expected #u64) #u64
-        (#assert (#u64.== (#deref counter) expected))
-        (#deref-set counter (#u64.+.wrap expected 1u64))
+        (#assert (#u64::eq (#deref counter) expected))
+        (#deref-set counter (#u64::add-wrap expected 1u64))
         (#return expected))
       (#unsafe-fn combine (: left #u64 : right #u64) #u64
-        (#assert (#u64.== left 0u64))
-        (#assert (#u64.== right 1u64))
+        (#assert (#u64::eq left 0u64))
+        (#assert (#u64::eq right 1u64))
         (#return 42u64))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#unsafe (#unsafe-call combine
           (: right (#call next (: counter (#borrow-mut counter) : expected 1u64))
            : left (#call next (: counter (#borrow-mut counter) : expected 0u64))))))
-        (#assert (#u64.== counter 2u64))
+        (#assert (#u64::eq counter 2u64))
         (#return result))";
     let assembly = compile(
         source,
@@ -240,12 +240,12 @@ fn external_imports_and_generated_declarations_preserve_safety() {
             "safe-answer",
         ),
         (
-            "(#import-external \"module.lim\" ext-)",
-            &["ext-answer", "ext-foreign-answer"][..],
-            "ext-safe-answer",
+            "(#import-external \"module.lim\" ext)",
+            &["ext@answer", "ext@foreign-answer"][..],
+            "ext@safe-answer",
         ),
         (
-            "(#gn make (name safe-name) `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))) (@make answer safe-answer)",
+            "(#gn make (name safe-name) `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))) (#generate make answer safe-answer)",
             &["answer"][..],
             "safe-answer",
         ),
@@ -298,7 +298,7 @@ fn generated_gensym_calls_preserve_safety_and_cached_diagnostic_spans() {
             "(#gn-fn emit (name) `(({declaration} ,name () #u64 (#return 42u64))
               (#fn main () #u64 (#return (#unsafe ({call} ,name (:)))))))
              (#gn generate () (#gn-call emit (#gn-gensym \"answer\")))
-             (@generate)"
+             (#generate generate)"
         );
         let compile = || {
             compile(
@@ -332,8 +332,8 @@ fn implicit_entry_points_cannot_bypass_unsafe_calls() {
     let scratch = support::Scratch::new("unsafe-implicit-call");
     for (source, message) in [
         ("(#unsafe-fn main () #u64 (#return 42u64))", "implicit entry point 'main' must be safe"),
-        ("(#struct Value () ((n #u64))) (#unsafe-fn Value-clone ((value Value)) Value (#return value))", "implicit entry point 'Value-clone' must be safe"),
-        ("(#unsafe-fn worker () #u64 (#return 42u64)) (@#thread-spawn (: task Task : worker worker))", "thread worker 'worker' must be safe"),
+        ("(#struct Value () ((n #u64))) (#unsafe-fn Value::clone ((value Value)) Value (#return value))", "implicit entry point 'Value::clone' must be safe"),
+        ("(#unsafe-fn worker () #u64 (#return 42u64)) (#generate #thread-spawn (: task Task : worker worker))", "thread worker 'worker' must be safe"),
     ] {
         let error = compile(source, &scratch.path().join("main.lim"), &scratch.path().join("cache")).unwrap_err();
         assert!(error.message.contains(message), "{}", error.message);

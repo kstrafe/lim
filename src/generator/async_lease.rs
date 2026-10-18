@@ -664,7 +664,7 @@ mod tests {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let checked = Checked::new(&format!(
                 "(#fn work (: view ({ty} #u64)) #u64
-                  (#let first #u64 (#deref view)) (#return (#u64.+.wrap first (#deref view))))"
+                  (#let first #u64 (#deref view)) (#return (#u64::add-wrap first (#deref view))))"
             ));
             let plan = checked.plan();
             assert_eq!(plan.leases.len(), 2);
@@ -736,7 +736,7 @@ mod tests {
                 "(#struct Holder (#linear) (: view (#ref-mut #u64) : pair (#tuple (#ref-mut #u64))))
 
               (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
-                (#return (#u64.+.wrap (#deref view) amount)))
+                (#return (#u64::add-wrap (#deref view) amount)))
               (#fn later () #u64 (#return 1u64))";
             let immediate = Checked::new(&format!(
                 "{context} (#fn work (: owner Holder) #u64

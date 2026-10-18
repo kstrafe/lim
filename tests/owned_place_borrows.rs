@@ -83,7 +83,7 @@ fn returned_reborrow_survives_consuming_its_parameter_handle() {
            (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
            (#let child (#ref-mut #u64) (#call pick (: target (#borrow-mut pair))))
            (#deref-set child 40u64)
-           (#let result #u64 (#u64.+.wrap (#deref child) (#get pair right)))
+           (#let result #u64 (#u64::add-wrap (#deref child) (#get pair right)))
            (#forget child) (#forget pair) (#return result))",
         42,
     );
@@ -104,7 +104,7 @@ fn returned_aggregate_reborrow_survives_consuming_its_parameter_handle() {
            (#set-field pair right 5u64)
            (#let child (#ref-mut #u64) (#get view selected))
            (#deref-set child 40u64)
-           (#let result #u64 (#u64.+.wrap (#deref child) (#get pair right)))
+           (#let result #u64 (#u64::add-wrap (#deref child) (#get pair right)))
            (#forget child) (#forget pair) (#return result))",
         45,
     );
@@ -124,7 +124,7 @@ fn disjoint_owned_fields_mutably_borrow_and_reborrow_in_place() {
            (#let right (#ref-mut #u64) (#borrow-mut (#get parent right)))
            (#deref-set right 2u64)
            (#drop right) (#drop child) (#drop parent)
-           (#return (#u64.+.wrap (#get (#get owner pair) left) (#get (#get owner pair) right))))",
+           (#return (#u64::add-wrap (#get (#get owner pair) left) (#get (#get owner pair) right))))",
         42,
     );
 }
@@ -151,13 +151,13 @@ fn owned_tuple_array_and_mixed_projections_address_original_storage() {
 fn owned_array_projection_evaluates_dynamic_index_once() {
     native(
         "(#fn next ((count (#ref-mut #u64))) #usize
-           (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return 1usize))
+           (#deref-set count (#u64::add-wrap (#deref count) 1u64)) (#return 1usize))
          (#fn main () #u64
            (#let owner (#array #u64 3) (#array (#array #u64 3) 5u64 41u64 7u64))
            (#let-mut count #u64 0u64)
            (#let view (#pin-ref #u64)
              (#pin-borrow (#index owner (#call next (: count (#borrow-mut count))))))
-           (#return (#u64.+.wrap (#deref view) count)))",
+           (#return (#u64::add-wrap (#deref view) count)))",
         42,
     );
 }
@@ -166,12 +166,12 @@ fn owned_array_projection_evaluates_dynamic_index_once() {
 fn scoped_owned_array_borrow_evaluates_index_before_its_body() {
     native(
         "(#fn next ((count (#ref-mut #u64))) #usize
-           (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return 1usize))
+           (#deref-set count (#u64::add-wrap (#deref count) 1u64)) (#return 1usize))
          (#fn main () #u64
            (#let owner (#array #u64 2) (#array (#array #u64 2) 5u64 41u64))
            (#let-mut count #u64 0u64)
            (#return (#borrow (#index owner (#call next (: count (#borrow-mut count))))
-             (#u64.+.wrap 41u64 count))))",
+             (#u64::add-wrap 41u64 count))))",
         42,
     );
 }
@@ -180,10 +180,10 @@ fn scoped_owned_array_borrow_evaluates_index_before_its_body() {
 fn owned_enum_payload_and_nested_field_borrows_address_the_same_slot() {
     native(
         "(#struct Pair () ((left #u64) (right #u64)))
-         (#enum Choice () (Empty (Full (#tuple #u64 Pair))))
+         (#enum Choice () (Choice.Empty (Choice.Full (#tuple #u64 Pair))))
          (#fn main () #u64
-           (#let-mut owner Choice (Full (#tuple 9u64 (#struct-literal Pair (: left 1u64 : right 2u64)))))
-           (#let view (#ref-mut #u64) (#borrow-mut (#get (#get (#get-payload owner Full 0) 1) right)))
+           (#let-mut owner Choice (Choice.Full (#tuple 9u64 (#struct-literal Pair (: left 1u64 : right 2u64)))))
+           (#let view (#ref-mut #u64) (#borrow-mut (#get (#get (#get-payload owner Choice.Full 0) 1) right)))
            (#deref-set view 42u64)
            (#let result #u64 (#deref view))
            (#drop view) (#forget owner) (#return result))",

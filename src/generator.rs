@@ -1,4 +1,4 @@
-//! Pure, immutable syntax generators used by `@name` declarations.
+//! Pure, immutable syntax generators used by `#generate name` declarations.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -494,7 +494,7 @@ fn expand_with_hits_and_origins(
         // Ordinary forms pass through intact, including every nested source span.
         // Only generator invocations need expansion.
         let needs_expansion = matches!(&expression.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::At)));
+            if matches!(items.first(), Some(Expr::Generate)));
         if !needs_expansion {
             output.push(expression);
             continue;
@@ -511,7 +511,7 @@ fn expand_with_hits_and_origins(
             }
         }
         let is_user_invocation = match &expression.expr {
-            Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
+            Expr::List(items) if matches!(items.first(), Some(Expr::Generate)) => items
                 .get(1)
                 .and_then(|item| match item {
                     Expr::Symbol(name) => Some(generators.contains_key(name)),
@@ -824,7 +824,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Expr::List(items) = &expression else {
         return Ok(vec![expression]);
     };
-    if !matches!(items.first(), Some(Expr::At)) {
+    if !matches!(items.first(), Some(Expr::Generate)) {
         context
             .origins
             .generation
@@ -832,14 +832,14 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(vec![expression]);
     }
     let Some(Expr::Symbol(name)) = items.get(1) else {
-        return Err("generator invocation requires a name after '@'".into());
+        return Err("generator invocation requires a name after '#generate'".into());
     };
     let arguments = items[2..].to_vec();
     let Some(generator) = context.generators.get(name).cloned() else {
         if builtins::named_builtin_keys(name).is_none() {
-            return Err(format!("unknown generator '@{name}'"));
+            return Err(format!("unknown generator '#generate {name}'"));
         }
-        // Built-in declarations such as @#optional are handled by the Lim parser.
+        // Built-in declarations such as #generate #optional are handled by the Lim parser.
         let mut resolved = items[..2].to_vec();
         resolved.extend(arguments);
         let resolved = Expr::List(resolved);
@@ -1026,7 +1026,9 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 context.active.pop();
                 context.active_builtins.pop();
                 context.gensym_scopes.pop();
-                return Err(format!("@{name} must return a list of generated forms"));
+                return Err(format!(
+                    "#generate {name} must return a list of generated forms"
+                ));
             };
             forms
         }
@@ -1106,7 +1108,7 @@ fn invocation_description(
         .map(|(index, argument)| format!("argument {index}={argument:?}"))
         .collect::<Vec<_>>();
     format!(
-        "@{name} invocation at {}:{} (defined at {}:{}; {})",
+        "#generate {name} invocation at {}:{} (defined at {}:{}; {})",
         invocation_span.map_or(generator.span.line, |span| span.line),
         invocation_span.map_or(generator.span.column, |span| span.column),
         generator.span.line,
@@ -1281,8 +1283,8 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
                     }
                 }
                 "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
-                | "#gn-gensym" | "#gn-symbol-append" | "#gn-get" | "#gn-length" | "#gn-list"
-                | "#gn-first" | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
+                | "#gn-gensym" | "#gn-symbol-append" | "#gn-variant" | "#gn-get" | "#gn-length"
+                | "#gn-list" | "#gn-first" | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
                     for argument in items.iter().skip(1) {
                         collect_generator_function_calls(argument, calls);
                     }
@@ -1302,7 +1304,7 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
-        | Expr::At => {}
+        | Expr::Generate => {}
     }
 }
 
@@ -1328,7 +1330,7 @@ fn collect_template_function_calls(expression: &Expr, depth: usize, calls: &mut 
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
-        | Expr::At => {}
+        | Expr::Generate => {}
     }
 }
 
@@ -1966,33 +1968,36 @@ fn evaluate(
             }
             Ok(Value::Syntax(Expr::Symbol(value)))
         }
-        "#gn-symbol-append" => {
+        "#gn-symbol-append" | "#gn-variant" => {
             arity(operator, items, 3)?;
             let base = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let suffix = syntax(evaluate(&items[2], environment, context)?, operator)?;
             let Expr::Symbol(mut base) = base else {
-                return Err("#gn-symbol-append requires a symbol base".into());
+                return Err(format!("{operator} requires a symbol base"));
             };
             if crate::gensym::reserved(&base) {
-                return Err(
-                    "#gn-symbol-append cannot alter compiler-reserved gensym identifiers".into(),
-                );
+                return Err(format!(
+                    "{operator} cannot alter compiler-reserved gensym identifiers"
+                ));
             }
             let suffix = match suffix {
                 Expr::String(suffix) | Expr::Symbol(suffix) => suffix,
-                _ => return Err("#gn-symbol-append requires a string or symbol suffix".into()),
+                _ => return Err(format!("{operator} requires a string or symbol suffix")),
             };
-            base.push_str("::");
+            base.push_str(if operator == "#gn-variant" { "." } else { "::" });
             base.push_str(&suffix);
+            if operator == "#gn-variant" {
+                crate::names::require(&base, "variant")?;
+            }
             if crate::gensym::reserved(&base) {
-                return Err(
-                    "#gn-symbol-append cannot forge compiler-reserved gensym identifiers".into(),
-                );
+                return Err(format!(
+                    "{operator} cannot forge compiler-reserved gensym identifiers"
+                ));
             }
             let parsed = crate::parse(&base)
-                .map_err(|_| "#gn-symbol-append must produce one ordinary identifier")?;
+                .map_err(|_| format!("{operator} must produce one ordinary identifier"))?;
             if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(base.clone()) {
-                return Err("#gn-symbol-append must produce one ordinary identifier".into());
+                return Err(format!("{operator} must produce one ordinary identifier"));
             }
             Ok(Value::Syntax(Expr::Symbol(base)))
         }
@@ -2274,7 +2279,7 @@ mod tests {
     #[test]
     fn ordinary_forms_preserve_nested_spans_without_expansion() {
         let forms = crate::parse(
-            "(#fn main () #u64\n  (#let value #u64 (#u64.+.wrap 1u64 2u64))\n  (#return value))",
+            "(#fn main () #u64\n  (#let value #u64 (#u64::add-wrap 1u64 2u64))\n  (#return value))",
         )
         .unwrap();
         let expected = format!("{forms:?}");
@@ -2434,8 +2439,8 @@ mod tests {
     #[test]
     fn generator_iteration_bindings_cannot_shadow_parameters_or_outer_bindings() {
         for source in [
-            "(#gn bad (items) (#gn-for-each items items (#gn-first items))) (@bad (one))",
-            "(#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))) (@bad (one))",
+            "(#gn bad (items) (#gn-for-each items items (#gn-first items))) (#generate bad (one))",
+            "(#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))) (#generate bad (one))",
         ] {
             let error = expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "")
                 .unwrap_err();
@@ -2776,10 +2781,10 @@ mod tests {
 
     #[test]
     fn nested_deduplicated_generators_keep_precise_builtin_origins() {
-        let source = "(#gn inner () `((@#optional (: type #u64 : name Shared))))\n\
-            (#gn outer () `((@inner) (@#optional (: type #u64 : name OuterOnly))))\n\
-            (#gn other () `((@inner)))\n\
-            (@outer)\n(@other)\n(@other)";
+        let source = "(#gn inner () `((#generate #optional (: type #u64 : name Shared))))\n\
+            (#gn outer () `((#generate inner) (#generate #optional (: type #u64 : name OuterOnly))))\n\
+            (#gn other () `((#generate inner)))\n\
+            (#generate outer)\n(#generate other)\n(#generate other)";
         let mut origins = Origins::default();
         expand_with_origins(crate::parse(source).unwrap(), None, "", &mut origins).unwrap();
         let sites = |name: &str| {
@@ -2875,9 +2880,9 @@ mod tests {
         let source = "(#gn-fn emit (name temporary) `((#fn ,name (: task #u64) #u64
               (#let ,temporary #u64 task) (#return ,temporary))))
           (#gn child (name temporary) (#gn-call emit name temporary))
-          (#gn-fn forward (name temporary) `((@child ,name ,temporary)))
+          (#gn-fn forward (name temporary) `((#generate child ,name ,temporary)))
           (#gn parent (name) (#gn-call forward name (#gn-gensym \"task\")))
-          (@parent first) (@parent second) (@parent first)";
+          (#generate parent first) (#generate parent second) (#generate parent first)";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -2921,8 +2926,8 @@ mod tests {
         );
         assert_ne!(locals[0][0], locals[1][0]);
         let reordered = source.replace(
-            "(@parent first) (@parent second)",
-            "(@parent second) (@parent first)",
+            "(#generate parent first) (#generate parent second)",
+            "(#generate parent second) (#generate parent first)",
         );
         let ((reordered, _), hits) = expand(&reordered);
         assert_eq!(hits, 4);
@@ -2948,7 +2953,7 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") #u64))) (@emit)";
+        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") #u64))) (#generate emit)";
         let expand = || {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -2996,7 +3001,7 @@ mod tests {
     fn gensym_evaluations_and_helper_calls_share_one_invocation_counter() {
         let source = "(#gn-fn fresh () (#gn-gensym \"task\"))
           (#gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64)))
-          (@emit)";
+          (#generate emit)";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 2);
@@ -3055,7 +3060,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (#generate forward (#generate alias CachedType)) (#generate alias CachedType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -3148,8 +3153,8 @@ mod tests {
         };
         let source = "(#gn error-case (variant payload)
             `((#enum-contribute Error (,variant ,payload))))
-          (@error-case First #u64)
-          (@error-case Second #u32)";
+          (#generate error-case First #u64)
+          (#generate error-case Second #u32)";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -3174,8 +3179,8 @@ mod tests {
     #[test]
     fn identical_literal_list_arguments_deduplicate() {
         let source = "(#gn alias (entries) `((#type Alias ,(#gn-first entries))))
-          (@alias (#u64))
-          (@alias (#u64))";
+          (#generate alias (#u64))
+          (#generate alias (#u64))";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 1);
@@ -3185,7 +3190,7 @@ mod tests {
     #[test]
     fn bare_identifiers_remain_literal_syntax() {
         let source = "(#gn alias (entry) `((#type Alias ,entry)))
-          (@alias Entries)";
+          (#generate alias Entries)";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert!(format!("{:?}", forms[0].expr).contains("Entries"));
@@ -3193,7 +3198,7 @@ mod tests {
 
     #[test]
     fn old_generator_keyword_is_not_accepted() {
-        let source = "(#generator alias (name) `((#type ,name #u64))) (@alias Old)";
+        let source = "(#generator alias (name) `((#type ,name #u64))) (#generate alias Old)";
         assert!(crate::parse_program(source).is_err());
     }
 
@@ -3205,7 +3210,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "(#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit #u64)"
+                "(#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (#generate emit #u64)"
             )
         };
         let expand = |text: &str| {
@@ -3233,7 +3238,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
-            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (@make ContextType)";
+            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#generate make ContextType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(

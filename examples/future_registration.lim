@@ -7,27 +7,27 @@
        ,(#gn-symbol-append future "Frame")
        #async-fn-pinned
        (,(#gn-symbol-append future "Poll")
-        ,(#gn-symbol-append future "Pending")
-        ,(#gn-symbol-append future "Ready")
+        ,(#gn-variant (#gn-symbol-append future "Poll") "Pending")
+        ,(#gn-variant (#gn-symbol-append future "Poll") "Ready")
         ,(#gn-symbol-append future "poll")))
     (#enum-contribute ,executor
-      (,(#gn-symbol-append executor future)
+      (,(#gn-variant executor future)
        ,(#gn-symbol-append future "Frame")))))
 
 ; Forward references are checked after expansion; they do not schedule it.
-(@register-future ExecutorTask Work)
-(@#enum-project
-  (: enum ExecutorTask : variant ExecutorTask::Work : payload Work::Frame
+(#generate register-future ExecutorTask Work)
+(#generate #enum-project
+  (: enum ExecutorTask : variant ExecutorTask.Work : payload Work::Frame
    : mode #pin-ref-mut : name WorkProjection))
 
-(@#async-fn-pinned
+(#generate #async-fn-pinned
   (: protocol Work::Await : waker #u64
    : function (#fn work () #u64 (#return 42u64))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task ExecutorTask (#enum-literal ExecutorTask::Work (#call work (:))))
-  (#let-else (WorkProjection::Some frame)
+  (#let-mut task ExecutorTask (#enum-literal ExecutorTask.Work (#call work (:))))
+  (#let-else (WorkProjection.Some frame)
     (#call WorkProjection::project (: source (#pin-borrow-mut task)))
     (#else
       (#forget task)
@@ -35,7 +35,7 @@
   (#let result Work::Poll
     (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result
-    (#case (Work::Ready value) value)
-    (#case (Work::Pending pending) (#block (#forget pending) (#unreachable)))))
+    (#case (Work::Poll.Ready value) value)
+    (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
   (#forget task)
   (#return answer))

@@ -2,7 +2,7 @@
 
 (#fn main () #u64
   (#let paths (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let paths-initialized ()
     (#unsafe
@@ -49,19 +49,19 @@
   (#let source-cleaned #i64
     (#unsafe (#unsafe-call linux-unlinkat (: directory -100i64 : path paths : flags 0i32))))
   (#let rename-ok #bool
-    (#bool.&& (#i64.>= source-fd 0i64)
-      (#bool.&& (#i64.>= target-fd 0i64)
-        (#bool.&& (#i64.== source-closed 0i64)
-          (#bool.&& (#i64.== target-closed 0i64)
-            (#bool.&& (#i64.== no-replace-result -17i64)
-              (#bool.&& (#i64.== target-removed 0i64)
-                (#bool.&& (#i64.== rename-result 0i64)
-                  (#bool.&& (#i64.== old-open -2i64)
-                    (#bool.&& (#i64.>= renamed-open 0i64)
-                      (#bool.&& (#i64.== renamed-closed 0i64)
-                          (#bool.&& (#i64.== renamed-removed 0i64)
-                            (#bool.|| (#i64.== source-cleaned 0i64)
-                              (#i64.== source-cleaned -2i64))))))))))))))
+    (#bool::and (#i64::ge source-fd 0i64)
+      (#bool::and (#i64::ge target-fd 0i64)
+        (#bool::and (#i64::eq source-closed 0i64)
+          (#bool::and (#i64::eq target-closed 0i64)
+            (#bool::and (#i64::eq no-replace-result -17i64)
+              (#bool::and (#i64::eq target-removed 0i64)
+                (#bool::and (#i64::eq rename-result 0i64)
+                  (#bool::and (#i64::eq old-open -2i64)
+                    (#bool::and (#i64::ge renamed-open 0i64)
+                      (#bool::and (#i64::eq renamed-closed 0i64)
+                          (#bool::and (#i64::eq renamed-removed 0i64)
+                            (#bool::or (#i64::eq source-cleaned 0i64)
+                              (#i64::eq source-cleaned -2i64))))))))))))))
   (#let directory-created #i64
     (#unsafe (#unsafe-call linux-mkdir (: path paths : mode 448u32))))
   (#let directory-created-again #i64
@@ -89,19 +89,19 @@
   (#let final-hard-link-exists #i64
     (#unsafe (#unsafe-call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
   (#let legacy-path-ok #bool
-    (#bool.&& (#i64.== directory-created 0i64)
-      (#bool.&& (#i64.== directory-created-again -17i64)
-        (#bool.&& (#i64.== directory-removed 0i64)
-          (#bool.&& (#i64.>= file-created 0i64)
-            (#bool.&& (#i64.== file-closed 0i64)
-              (#bool.&& (#i64.== hard-link-created 0i64)
-                (#bool.&& (#i64.== hard-link-renamed 0i64)
-                  (#bool.&& (#i64.== old-hard-link-exists -2i64)
-                    (#bool.&& (#i64.== renamed-hard-link-exists 0i64)
-                      (#bool.&& (#i64.== source-unlinked 0i64)
-                        (#bool.&& (#i64.== remaining-hard-link-exists 0i64)
-                          (#bool.&& (#i64.== hard-link-unlinked 0i64)
-                            (#i64.== final-hard-link-exists -2i64))))))))))))))
+    (#bool::and (#i64::eq directory-created 0i64)
+      (#bool::and (#i64::eq directory-created-again -17i64)
+        (#bool::and (#i64::eq directory-removed 0i64)
+          (#bool::and (#i64::ge file-created 0i64)
+            (#bool::and (#i64::eq file-closed 0i64)
+              (#bool::and (#i64::eq hard-link-created 0i64)
+                (#bool::and (#i64::eq hard-link-renamed 0i64)
+                  (#bool::and (#i64::eq old-hard-link-exists -2i64)
+                    (#bool::and (#i64::eq renamed-hard-link-exists 0i64)
+                      (#bool::and (#i64::eq source-unlinked 0i64)
+                        (#bool::and (#i64::eq remaining-hard-link-exists 0i64)
+                          (#bool::and (#i64::eq hard-link-unlinked 0i64)
+                            (#i64::eq final-hard-link-exists -2i64))))))))))))))
   (#let at-file-created #i64
     (#unsafe (#unsafe-call linux-creat (: path paths : mode 384u32))))
   (#let at-file-closed #i64
@@ -109,7 +109,7 @@
   (#let at-mode-changed #i64
     (#unsafe (#unsafe-call linux-fchmodat (: directory -100i64 : path paths : mode 256u32))))
   (#let at-stat-memory (#ptr-mut #u64)
-    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let at-stat-result #i64
     (#unsafe (#unsafe-call linux-stat (: path paths : metadata at-stat-memory))))
@@ -145,33 +145,33 @@
   (#let at-renamed-link-unlinked #i64
     (#unsafe (#unsafe-call linux-unlink (: path (#ptr-offset paths 32usize)))))
   (#let at-stat-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP
       (at-stat-memory 4096usize))))
   (#let at-path-ok #bool
-    (#bool.&& (#i64.>= at-file-created 0i64)
-      (#bool.&& (#i64.== at-file-closed 0i64)
-        (#bool.&& (#i64.== at-mode-changed 0i64)
-          (#bool.&& (#i64.== at-stat-result 0i64)
-            (#bool.&& (#u64.== (#u64.& at-mode-word 511u64) 256u64)
-          (#bool.&& (#i64.== at-owner-unchanged 0i64)
-            (#bool.&& (#i64.== at-times-updated 0i64)
-              (#bool.&& (#i64.== at-hard-link-created 0i64)
-                (#bool.&& (#i64.== at-hard-link-renamed 0i64)
-                  (#bool.&& (#i64.== at-old-link-absent -2i64)
-                    (#bool.&& (#i64.== at-renamed-link-present 0i64)
-                      (#bool.&& (#i64.== at-symbolic-link-created 0i64)
-                        (#bool.&& (#i64.== at-symbolic-link-read 6i64)
-                          (#bool.&& (#u8.== at-target-first-byte 115u8)
-                            (#bool.&& (#u8.== at-target-last-byte 101u8)
-                              (#bool.&& (#i64.== at-symbolic-link-unlinked 0i64)
-                                (#bool.&& (#i64.== at-source-unlinked 0i64)
-                                  (#bool.&& (#i64.== at-renamed-link-still-present 0i64)
-                                    (#bool.&& (#i64.== at-renamed-link-unlinked 0i64)
-                                      (#i64.== at-stat-unmapped 0i64)))))))))))))))))))))
+    (#bool::and (#i64::ge at-file-created 0i64)
+      (#bool::and (#i64::eq at-file-closed 0i64)
+        (#bool::and (#i64::eq at-mode-changed 0i64)
+          (#bool::and (#i64::eq at-stat-result 0i64)
+            (#bool::and (#u64::eq (#u64::bit-and at-mode-word 511u64) 256u64)
+          (#bool::and (#i64::eq at-owner-unchanged 0i64)
+            (#bool::and (#i64::eq at-times-updated 0i64)
+              (#bool::and (#i64::eq at-hard-link-created 0i64)
+                (#bool::and (#i64::eq at-hard-link-renamed 0i64)
+                  (#bool::and (#i64::eq at-old-link-absent -2i64)
+                    (#bool::and (#i64::eq at-renamed-link-present 0i64)
+                      (#bool::and (#i64::eq at-symbolic-link-created 0i64)
+                        (#bool::and (#i64::eq at-symbolic-link-read 6i64)
+                          (#bool::and (#u8::eq at-target-first-byte 115u8)
+                            (#bool::and (#u8::eq at-target-last-byte 101u8)
+                              (#bool::and (#i64::eq at-symbolic-link-unlinked 0i64)
+                                (#bool::and (#i64::eq at-source-unlinked 0i64)
+                                  (#bool::and (#i64::eq at-renamed-link-still-present 0i64)
+                                    (#bool::and (#i64::eq at-renamed-link-unlinked 0i64)
+                                      (#i64::eq at-stat-unmapped 0i64)))))))))))))))))))))
   (#let paths-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (paths 4096usize))))
   (#return
-    (#if (#bool.&& rename-ok
-      (#bool.&& legacy-path-ok
-        (#bool.&& at-path-ok (#i64.== paths-unmapped 0i64))))
+    (#if (#bool::and rename-ok
+      (#bool::and legacy-path-ok
+        (#bool::and at-path-ok (#i64::eq paths-unmapped 0i64))))
       42u64 1u64)))

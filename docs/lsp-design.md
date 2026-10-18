@@ -4,6 +4,14 @@ Go-to-definition is a language feature, not a collection of spelling searches.
 Every identifier occurrence has a source role. Builtin keywords, literals,
 wildcards, cfg values, and literal generator inputs have no user declaration.
 
+Identifier conventions do not replace declaration lookup: `Type::FunctionGroup::function`
+is one function name and `Enum.Variant` is one variant name. The new scalar
+operations such as `#u64::add-wrap` are builtin tokens and have no definition.
+`#gn-variant` uses the existing generator-expression roles: its evaluated
+arguments resolve lexical syntax parameters, while quoted symbols and string
+suffixes are literal data. Navigation tests cover these positive and negative
+roles as well as explicit enum literals and variant patterns.
+
 ## Resolution model
 
 Compilation contexts may omit `cfg` entries. Builtin configuration keys are
@@ -38,7 +46,7 @@ binding roles. The generated enum's payload reference type determines member
 navigation, including all four ordinary/pinned, shared/exclusive modes. Success
 bindings enter only the following statements; failure locals are confined to
 the diverging `#else` body. Input expressions precede either binding scope.
-`@#enum-project` arguments remain literal generator inputs; its emitted helper
+`#generate #enum-project` arguments remain literal generator inputs; its emitted helper
 and optional variants use ordinary generated-definition navigation.
 The compact `(#let-else variant-pattern value (#else statements...))` has no
 type operand or failure binder. Its variant supplies the declared payload

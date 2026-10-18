@@ -9,7 +9,7 @@
   (#return (#borrow (#get owner value))))
 
 (#fn increment (: target (#ref-mut #u64)) #u64
-  (#deref-set target (#u64.+.wrap (#deref target) 1u64))
+  (#deref-set target (#u64::add-wrap (#deref target) 1u64))
   (#return (#deref target)))
 
 (#fn main () #u64
@@ -17,12 +17,12 @@
   (#let parent (#ref-mut Owner) (#borrow-mut owner))
   ; Transparent argument expressions retain the same parent permissions.
   (#let shared (#ref #u64) (#call view-of (: owner (#block parent))))
-  (#assert (#u64.== (#deref shared) 41u64))
+  (#assert (#u64::eq (#deref shared) 41u64))
   (#drop shared)
   (#let selected #bool true)
   (#let another (#ref #u64)
     (#call view-of (: owner (#if selected parent parent))))
-  (#assert (#u64.== (#deref another) 41u64))
+  (#assert (#u64::eq (#deref another) 41u64))
   (#drop another)
   (#let child (#ref-mut #u64)
     (#label result

@@ -11,15 +11,15 @@
       #async-fn-pinned
       (
         ,(#gn-symbol-append future "Poll")
-        ,(#gn-symbol-append future "Pending")
-        ,(#gn-symbol-append future "Ready")
+        ,(#gn-variant (#gn-symbol-append future "Poll") "Pending")
+        ,(#gn-variant (#gn-symbol-append future "Poll") "Ready")
         ,(#gn-symbol-append future "poll")))
     (#enum-contribute
       ,executor
-      (,(#gn-symbol-append executor future) ,(#gn-symbol-append future "Frame")))))
+      (,(#gn-variant executor future) ,(#gn-symbol-append future "Frame")))))
 
-(@ register-future ExecutorTask Work)
-(@ #async-fn-pinned
+(#generate register-future ExecutorTask Work)
+(#generate #async-fn-pinned
   (: protocol Work::Await
    : waker #u64
    : cancel (cancel-work ())
@@ -28,12 +28,12 @@
 
 (#fn destroy-executor-task (: allocator (#ref SystemAllocator) : pin (#pin-ref-mut ExecutorTask)) ()
   (#match pin
-    (#case-pin-mut (ExecutorTask::Work frame)
-      (#call cancel-work (: task (#call Work::poll::cleanup (: task frame))))))
+    (#case-pin-mut (ExecutorTask.Work frame)
+      (#call cancel-work (: task (#call Work::Poll::cleanup (: task frame))))))
   (#forget pin)
   (#return ()))
 
-(@ #pin-box
+(#generate #pin-box
   (: type ExecutorTask
    : allocator SystemAllocator::Allocator
    : name PinnedExecutorTaskBox
@@ -42,7 +42,7 @@
 (#fn poll-executor-task (: pin (#pin-ref-mut ExecutorTask) : waker (#ref #u64)) Work::Poll
   (#return
     (#match pin
-      (#case-pin-mut (ExecutorTask::Work frame) (#call Work::poll ((task frame) ($ waker)))))))
+      (#case-pin-mut (ExecutorTask.Work frame) (#call Work::poll ((task frame) ($ waker)))))))
 
 (#fn dispose-executor-task (: allocator (#ref SystemAllocator) : task ExecutorTask) ()
   (#let-mut local ExecutorTask task)
@@ -55,13 +55,13 @@
 (#fn main () #u64
   (#let arena SystemAllocator (#struct-literal SystemAllocator ()))
   ; Build the registered task and move its enum owner into stable heap storage.
-  (#let task ExecutorTask (ExecutorTask::Work (#call work ())))
+  (#let task ExecutorTask (ExecutorTask.Work (#call work ())))
   (#let created PinnedExecutorTaskBox::CreateResult
     (#call PinnedExecutorTaskBox::create (: allocator (#borrow arena) : value task)))
   (#let-mut owner PinnedExecutorTaskBox
     (#match created
-      (#case (PinnedExecutorTaskBox::created box) box)
-      (#case (PinnedExecutorTaskBox::allocation-failed failure)
+      (#case (PinnedExecutorTaskBox::CreateResult.Created box) box)
+      (#case (PinnedExecutorTaskBox::CreateResult.Allocation-failed failure)
         (#let (#tuple error failed-task) (#tuple SystemAllocationError ExecutorTask) failure)
         (#forget error)
         (#call dispose-executor-task (: allocator (#borrow arena) : task failed-task))
@@ -73,8 +73,8 @@
   (#let result Work::Poll (#call poll-executor-task (($ pin) ($ (#borrow waker)))))
   (#let answer #u64
     (#match result
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending pending)
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending pending)
         (#forget pending)
         0u64)))
   ; Release the projected borrow before cleanup and allocator-backed destruction.

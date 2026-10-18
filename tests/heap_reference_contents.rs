@@ -40,19 +40,19 @@ const PREFIX: &str = r#"
     (#return (#get view link)))
   (#fn destroy (: owner (#pin-own Holder)) ()
     (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
-    (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
+    (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
     (#return ()))
 "#;
 
 const OWNER_CELL: &str = r#"
-  (#enum OwnerCell (#linear) (: Empty () : Full (#pin-own Holder)))
+  (#enum OwnerCell (#linear) (: OwnerCell.Empty () : OwnerCell.Full (#pin-own Holder)))
 
   (#fn take-owner (: cell (#pin-ref-mut OwnerCell)) (#pin-own Holder)
     (#let previous OwnerCell (#unsafe (#pin-read cell)))
-    (#unsafe (#pin-write cell (Empty ())))
+    (#unsafe (#pin-write cell (OwnerCell.Empty ())))
     (#return (#match previous
-      (#case (Empty unit) (#unreachable))
-      (#case (Full owner) owner))))
+      (#case (OwnerCell.Empty unit) (#unreachable))
+      (#case (OwnerCell.Full owner) owner))))
 "#;
 
 #[test]
@@ -68,7 +68,7 @@ fn extracted_heap_owner_can_be_read_by_a_later_call() {
         (#let-mut source #u64 42u64)
         (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
-        (#let-mut cell OwnerCell (Full (#call make (: pointer pointer : source (#borrow source)))))
+        (#let-mut cell OwnerCell (OwnerCell.Full (#call make (: pointer pointer : source (#borrow source)))))
         (#let view (#pin-ref-mut OwnerCell) (#pin-borrow-mut cell))
         (#let owner (#pin-own Holder) (#call take-owner (: cell view)))
         (#drop view) (#forget cell)
@@ -91,7 +91,7 @@ fn an_extracted_owner_cannot_outlive_its_external_referent() {
         r#"{PREFIX} {OWNER_CELL}
       (#fn bad (: pointer (#ptr-mut Holder)) (#pin-own Holder)
         (#let source #u64 42u64)
-        (#let-mut cell OwnerCell (Full (#call make (: pointer pointer : source (#borrow source)))))
+        (#let-mut cell OwnerCell (OwnerCell.Full (#call make (: pointer pointer : source (#borrow source)))))
         (#let view (#pin-ref-mut OwnerCell) (#pin-borrow-mut cell))
         (#let owner (#pin-own Holder) (#call take-owner (: cell view)))
         (#drop view) (#forget cell)
@@ -138,7 +138,7 @@ fn stored_reference_keeps_source_borrowed_until_the_heap_owner_is_consumed() {
         (#let owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow source))))
         (#set source 0u64)
         (#let view (#ref #u64) (#call get (: owner (#borrow owner))))
-        (#assert (#u64.== (#deref view) 42u64))
+        (#assert (#u64::eq (#deref view) 42u64))
         (#call destroy (: owner owner)) (#return ()))"#
     );
     let error =
@@ -310,7 +310,7 @@ fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
       (#let result (#ref #u64) (#deref view))
       (#drop view)
       (#let raw (#ptr-mut (#ref #u64)) (#unsafe (#pin-release owner)))
-      (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw 4096usize))) 0i64))
+      (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw 4096usize))) 0i64))
       (#return (#deref result)))"#;
     run(source);
     let bad = source.replace(
@@ -337,7 +337,7 @@ fn heap_reference_replacement_does_not_lose_a_new_borrow() {
         (#call replace (: owner (#borrow-mut owner) : value (#borrow second)))
         (#set second 3u64)
         (#let result (#ref #u64) (#call get (: owner (#borrow owner))))
-        (#assert (#u64.== (#deref result) 2u64))
+        (#assert (#u64::eq (#deref result) 2u64))
         (#call destroy (: owner owner)) (#return ()))"#
     );
     let error =
@@ -363,7 +363,7 @@ fn updated_contents_follow_an_owner_returned_by_a_helper() {
         (#let updated (#pin-own Holder) (#call replace-owned (: owner owner : value (#borrow second))))
         (#set second 3u64)
         (#let result (#ref #u64) (#call get (: owner (#borrow updated))))
-        (#assert (#u64.== (#deref result) 2u64))
+        (#assert (#u64::eq (#deref result) 2u64))
         (#call destroy (: owner updated)) (#return ()))"#
     );
     let error = compile(&source)
@@ -412,7 +412,7 @@ fn a_helper_cannot_store_a_shorter_lived_reference_in_a_surviving_owner() {
           (#let short #u64 2u64)
           (#call replace (: owner (#borrow-mut owner) : value (#borrow short))))
         (#let result (#ref #u64) (#call get (: owner (#borrow owner))))
-        (#assert (#u64.== (#deref result) 2u64))
+        (#assert (#u64::eq (#deref result) 2u64))
         (#call destroy (: owner owner)) (#return ()))"#
     );
     let error = compile(&source)

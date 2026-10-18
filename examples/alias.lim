@@ -9,7 +9,7 @@
   UserId
   (
     #return
-    (#u64.+.wrap  id 1)
+    (#u64::add-wrap  id 1)
   )
 )
 

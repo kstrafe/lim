@@ -2,7 +2,7 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
+    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -43,20 +43,20 @@
   (#let restored-expiration-microseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 19usize))))
   (#let memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let expiration-active #bool
-    (#bool.|| (#i64.> remaining-seconds 0i64)
-      (#i64.> remaining-microseconds 0i64)))
+    (#bool::or (#i64::gt remaining-seconds 0i64)
+      (#i64::gt remaining-microseconds 0i64)))
   (#let state-restored #bool
-    (#bool.&& (#i64.== original-interval-seconds restored-interval-seconds)
-      (#bool.&& (#i64.== original-interval-microseconds restored-interval-microseconds)
-        (#bool.&& (#i64.== original-expiration-seconds restored-expiration-seconds)
-          (#i64.== original-expiration-microseconds restored-expiration-microseconds)))))
+    (#bool::and (#i64::eq original-interval-seconds restored-interval-seconds)
+      (#bool::and (#i64::eq original-interval-microseconds restored-interval-microseconds)
+        (#bool::and (#i64::eq original-expiration-seconds restored-expiration-seconds)
+          (#i64::eq original-expiration-microseconds restored-expiration-microseconds)))))
   (#return
-    (#if (#bool.&& (#i64.== initial-query 0i64)
-      (#bool.&& (#i64.== timer-armed 0i64)
-        (#bool.&& (#i64.== active-query 0i64)
-          (#bool.&& expiration-active
-            (#bool.&& (#i64.== timer-restored 0i64)
-              (#bool.&& (#i64.== restored-query 0i64)
-                (#bool.&& state-restored (#i64.== memory-unmapped 0i64)))))))) 42u64 1u64)))
+    (#if (#bool::and (#i64::eq initial-query 0i64)
+      (#bool::and (#i64::eq timer-armed 0i64)
+        (#bool::and (#i64::eq active-query 0i64)
+          (#bool::and expiration-active
+            (#bool::and (#i64::eq timer-restored 0i64)
+              (#bool::and (#i64::eq restored-query 0i64)
+                (#bool::and state-restored (#i64::eq memory-unmapped 0i64)))))))) 42u64 1u64)))

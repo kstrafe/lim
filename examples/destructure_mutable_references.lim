@@ -14,4 +14,4 @@
   (#let (InnerView left right) InnerView inner)
   (#deref-set left 21u64)
   (#deref-set right 23u64)
-  (#return (#u64.+.wrap (#deref left) (#deref right))))
+  (#return (#u64::add-wrap (#deref left) (#deref right))))

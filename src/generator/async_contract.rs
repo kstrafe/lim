@@ -139,7 +139,7 @@ impl Checker<'_> {
                         ) {
                             if actual != expected {
                                 return Some(Error { message: format!(
-                                    "@#async-fn #await result type does not match {label} (found {}, expected {})",
+                                    "#generate #async-fn #await result type does not match {label} (found {}, expected {})",
                                     crate::type_source(&actual), crate::type_source(&expected)), span: items[0].span });
                             }
                         }

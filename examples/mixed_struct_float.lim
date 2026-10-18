@@ -19,11 +19,11 @@
     #return
     (
       #if
-      (#f32.>
+      (#f32::gt
         (#get pair scale)
         1.0
       )
-      (#u64.+.wrap
+      (#u64::add-wrap
         (#get pair value)
         1
       )

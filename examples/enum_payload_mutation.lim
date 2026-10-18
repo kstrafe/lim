@@ -1,10 +1,10 @@
 (#struct PairPayload () (: left #u64 : right #u64))
-(#enum Pair () ((Pair PairPayload) Empty))
+(#enum Pair () ((Pair.Value PairPayload) Pair.Empty))
 
 (#fn main () #u64
-  (#let-mut value Pair (Pair (#struct-literal PairPayload (: left 20 : right 22))))
-  (#set-payload value Pair 0 (#struct-literal PairPayload (: left 20 : right 30)))
+  (#let-mut value Pair (Pair.Value (#struct-literal PairPayload (: left 20 : right 22))))
+  (#set-payload value Pair.Value 0 (#struct-literal PairPayload (: left 20 : right 30)))
   (#return
     (#match value
-      (#case (Pair pair) (#u64.+.wrap (#get pair left) (#get pair right)))
-      (#case Empty 0))))
+      (#case (Pair.Value pair) (#u64::add-wrap (#get pair left) (#get pair right)))
+      (#case Pair.Empty 0))))

@@ -7,12 +7,12 @@ fn assembly(source: &str) -> Result<String, String> {
 fn global_reference_origins_remain_in_scope_across_branches() {
     assembly(
         r#"
-      (#let VALUE #u64 42u64)
+      (#let vALUE #u64 42u64)
       (#fn select ((condition #bool)) (#ref #u64)
         (#let result (#ref #u64)
           (#if condition
-            (#block (#borrow VALUE))
-            (#block (#borrow VALUE))))
+            (#block (#borrow vALUE))
+            (#block (#borrow vALUE))))
         (#return result))
       (#fn main () #u64
         (#return (#deref (#call select (: condition true)))))
@@ -24,11 +24,11 @@ fn global_reference_origins_remain_in_scope_across_branches() {
 #[test]
 fn sharing_globals_does_not_allow_shadowing() {
     for body in [
-        "(#fn bad ((VALUE #u64)) #u64 (#return VALUE))",
-        "(#fn bad () #u64 (#let VALUE #u64 1u64) (#return VALUE))",
-        "(#fn bad () #u64 (#return (#block (#let VALUE #u64 1u64) VALUE)))",
+        "(#fn bad ((vALUE #u64)) #u64 (#return vALUE))",
+        "(#fn bad () #u64 (#let vALUE #u64 1u64) (#return vALUE))",
+        "(#fn bad () #u64 (#return (#block (#let vALUE #u64 1u64) vALUE)))",
     ] {
-        let error = lim::parse_program(&format!("(#let VALUE #u64 42u64) {body}")).unwrap_err();
+        let error = lim::parse_program(&format!("(#let vALUE #u64 42u64) {body}")).unwrap_err();
         assert!(error.contains("shadowing is not allowed"), "{error}");
     }
 }
@@ -47,16 +47,16 @@ fn local_reference_escapes_still_fail_with_many_globals() {
 fn global_types_are_visible_in_initializers_and_pattern_branches() {
     assembly(
         r#"
-      (#let BASE #u64 40u64)
-      (#let ANSWER #u64 (#u64.+.wrap BASE 2u64))
-      (#enum Value () ((Number #u64) (Absent)))
+      (#let bASE #u64 40u64)
+      (#let aNSWER #u64 (#u64::add-wrap bASE 2u64))
+      (#enum Value () ((Value.Number #u64) (Value.Absent)))
       (#fn pick ((value Value)) #u64
         (#return (#match value
-          (#case (Number number) (#u64.+.wrap number BASE))
-          (#case Absent ANSWER))))
-      (#fn main () #u64 (#return (#call pick (: value (Number 2u64)))))
+          (#case (Value.Number number) (#u64::add-wrap number bASE))
+          (#case Value.Absent aNSWER))))
+      (#fn main () #u64 (#return (#call pick (: value (Value.Number 2u64)))))
     "#,
     )
     .unwrap();
-    assert!(assembly("(#let VALUE #bool true) (#fn main () #u64 (#return VALUE))").is_err());
+    assert!(assembly("(#let vALUE #bool true) (#fn main () #u64 (#return vALUE))").is_err());
 }

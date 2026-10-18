@@ -19,7 +19,7 @@
   (#let left-view (#ref #u64)
     (#call left-reference-from-wrapper (: wrapper wrapper-reference)))
   (#let result #u64
-    (#u64.+.wrap
+    (#u64::add-wrap
       (#deref left-view)
       (#deref (#get (#get wrapped views) right))))
   (#forget wrapped)

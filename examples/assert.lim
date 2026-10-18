@@ -5,14 +5,14 @@
   #u64
   (
     #assert
-    (#u64.==
-      (#u64.+.wrap  20 22)
+    (#u64::eq
+      (#u64::add-wrap  20 22)
       42
     )
   )
   (
     #debug-assert
-    (#u64.>=  42 0)
+    (#u64::ge  42 0)
   )
   (#return 42)
 )

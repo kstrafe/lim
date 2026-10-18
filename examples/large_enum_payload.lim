@@ -1,9 +1,9 @@
 (#enum Wrapped ()
-  ((Values (#array #u64 7)) Empty))
+  ((Wrapped.Values (#array #u64 7)) Wrapped.Empty))
 
 (#fn make () Wrapped
   (#return
-    (Values
+    (Wrapped.Values
       (#array (#array #u64 7)
         1u64 2u64 3u64 4u64 5u64 6u64 42u64))))
 
@@ -11,5 +11,5 @@
   (#let value Wrapped (#call make (:)))
   (#return
     (#match value
-      (#case (Values payload) (#index payload 6u64))
-      (#case Empty 0u64))))
+      (#case (Wrapped.Values payload) (#index payload 6u64))
+      (#case Wrapped.Empty 0u64))))

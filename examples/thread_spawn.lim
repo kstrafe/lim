@@ -6,33 +6,33 @@
   (#return (#get value value)))
 
 (#fn scale ((value #f64)) #f64
-  (#return (#f64.* value 2.0f64)))
+  (#return (#f64::mul value 2.0f64)))
 
 (#fn noop () ()
   (#return ()))
 
 (#fn add-pair ((pair Pair)) Pair
-  (#return (#struct-literal Pair ((left (#u64.+.wrap (#get pair left) 1)) (right (#u64.+.wrap (#get pair right) 1))))))
+  (#return (#struct-literal Pair ((left (#u64::add-wrap (#get pair left) 1)) (right (#u64::add-wrap (#get pair right) 1))))))
 
 (#fn pass-large ((value Large)) Large
   (#return value))
 
 (#fn sum-seven ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)) #u64
-  (#return (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap a b) c) d) e) f) g)))
+  (#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap a b) c) d) e) f) g)))
 
-(@#thread-spawn (: task ReadValueTask : worker read-value))
-(@#thread-spawn (: task ScaleTask : worker scale))
-(@#thread-spawn (: task NoopTask : worker noop))
-(@#thread-spawn (: task PairTask : worker add-pair))
-(@#thread-spawn (: task LargeTask : worker pass-large))
-(@#thread-spawn (: task SumSevenTask : worker sum-seven))
+(#generate #thread-spawn (: task ReadValueTask : worker read-value))
+(#generate #thread-spawn (: task ScaleTask : worker scale))
+(#generate #thread-spawn (: task NoopTask : worker noop))
+(#generate #thread-spawn (: task PairTask : worker add-pair))
+(#generate #thread-spawn (: task LargeTask : worker pass-large))
+(#generate #thread-spawn (: task SumSevenTask : worker sum-seven))
 
 (#fn main () #u64
   (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
   (#return
-    (#match (#call ReadValueTask-spawn (: value (#borrow shared)))
-      (#case (ReadValueTask-spawn-ok task)
-        (#match (#call ReadValueTask-join (: task task))
-          (#case (ReadValueTask-join-ok result) result)
-          (#case (ReadValueTask-join-error (#tuple retry-task error-code)) (#panic))))
-      (#case (ReadValueTask-spawn-error error) (#panic)))))
+    (#match (#call ReadValueTask::spawn (: value (#borrow shared)))
+      (#case (ReadValueTask::SpawnResult.Ok task)
+        (#match (#call ReadValueTask::join (: task task))
+          (#case (ReadValueTask::JoinResult.Ok result) result)
+          (#case (ReadValueTask::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
+      (#case (ReadValueTask::SpawnResult.Error error) (#panic)))))

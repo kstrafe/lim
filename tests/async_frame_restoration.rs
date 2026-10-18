@@ -12,17 +12,17 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .next()
         .unwrap()
         .replace("read-after-await", "work")
-        .replace("Read-after-await", "Work")
+        .replace("Read::after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let source = format!("{prefix}
       (#fn main () #u64 (#let waker #u64 0u64)
         (#let-mut frame Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 40u64 : right 5u64)))))))
         (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
-        (#let answer #u64 (#match second (#case (Work::Ready result) result)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let answer #u64 (#match second (#case (Work::Poll.Ready result) result)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))");
     let scratch = support::Scratch::new("async-finalized-frame-restoration");
     let path = scratch.path().join("input.lim");
@@ -63,7 +63,9 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     let invocation = lim::parse(&source)
         .unwrap()
         .into_iter()
-        .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn-pinned"))
+        .find(|node| {
+            source[node.span.start..node.span.end].starts_with("(#generate #async-fn-pinned")
+        })
         .unwrap();
     let standalone = format!(
         "{}\n{artifact}\n{}",
@@ -101,24 +103,24 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     let replacement = "(#call replace-owner (: task (#pin-borrow-mut frame) : value
       (#struct-literal Owner (: payload (#struct-literal Payload (: left 41u64 : right 5u64))))))
       (#let restored Owner (#call read-owner (: task (#pin-borrow frame))))
-      (#assert (#u64.== (#get (#get restored payload) left) 41u64))
+      (#assert (#u64::eq (#get (#get restored payload) left) 41u64))
       (#forget frame)
       (#let-mut cancelled Work::Frame (#call work (: owner (#struct-literal Owner
         (: payload (#struct-literal Payload (: left 10u64 : right 7u64)))))))
       (#let first-cancel Work::Poll (#call Work::poll
         (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-      (#let-else (Work::Pending cancel-pin) Work::Poll first-cancel (#unreachable))
+      (#let-else (Work::Poll.Pending cancel-pin) Work::Poll first-cancel (#unreachable))
       (#block
-        (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
+        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup (: task cancel-pin)))
         (#match (#get cleanup await-0)
-          (#case Work::Frame::Cleanup::await-0::Empty ())
-          (#case (Work::Frame::Cleanup::await-0::Full child) (#call cancel-child (: task child))))
+          (#case Work::Frame::Cleanup::Await-0.Empty ())
+          (#case (Work::Frame::Cleanup::Await-0.Full child) (#call cancel-child (: task child))))
         (#forget cleanup) ())
       (#call replace-owner (: task (#pin-borrow-mut cancelled) : value
         (#struct-literal Owner (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
       (#let cancelled-value Owner (#call read-owner (: task (#pin-borrow cancelled))))
       (#let cancelled-left #u64 (#get (#get cancelled-value payload) left))
-      (#forget cancelled) (#return (#u64.+.wrap answer cancelled-left))";
+      (#forget cancelled) (#return (#u64::add-wrap answer cancelled-left))";
     let ordinary = format!(
         "{helpers}\n{}",
         standalone.replace("(#forget frame) (#return answer)", replacement)
@@ -194,7 +196,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         .next()
         .unwrap()
         .replace("read-after-await", "work")
-        .replace("Read-after-await", "Work")
+        .replace("Read::after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace(": access (: owner work-owner)", "")
         .replace(
@@ -207,29 +209,29 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         (#let-mut frame Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 40u64 : right 5u64)))))))
         (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
-        (#let answer #u64 (#match second (#case (Work::Ready value) value)
-          (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let answer #u64 (#match second (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#call work-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 41u64 : right 5u64))))))
         (#let completed-owner Owner (#call work-owner-read (: task (#pin-borrow frame))))
-        (#assert (#u64.== (#get (#get completed-owner payload) left) 41u64))
+        (#assert (#u64::eq (#get (#get completed-owner payload) left) 41u64))
         (#forget frame)
         (#let-mut cancelled Work::Frame (#call work (: owner (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 10u64 : right 7u64)))))))
         (#let cancel-first Work::Poll (#call Work::poll (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-        (#let-else (Work::Pending cancel-pin) Work::Poll cancel-first (#unreachable))
+        (#let-else (Work::Poll.Pending cancel-pin) Work::Poll cancel-first (#unreachable))
         (#block
-          (#let cleanup Work::Frame::Cleanup (#call Work::poll::cleanup (: task cancel-pin)))
-          (#match (#get cleanup await-0) (#case Work::Frame::Cleanup::await-0::Empty ())
-            (#case (Work::Frame::Cleanup::await-0::Full child) (#call cancel-child (: task child))))
+          (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup (: task cancel-pin)))
+          (#match (#get cleanup await-0) (#case Work::Frame::Cleanup::Await-0.Empty ())
+            (#case (Work::Frame::Cleanup::Await-0.Full child) (#call cancel-child (: task child))))
           (#forget cleanup) ())
         (#call work-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
         (#let cancelled-owner Owner (#call work-owner-read (: task (#pin-borrow cancelled))))
         (#let cancelled-left #u64 (#get (#get cancelled-owner payload) left))
-        (#forget cancelled) (#return (#u64.+.wrap answer cancelled-left)))");
+        (#forget cancelled) (#return (#u64::add-wrap answer cancelled-left)))");
     let scratch = support::Scratch::new("async-public-parameter-access");
     let path = scratch.path().join("input.lim");
     let cache = scratch.path().join("cache");
@@ -278,7 +280,9 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
     let invocation = lim::parse(&source)
         .unwrap()
         .into_iter()
-        .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn-pinned"))
+        .find(|node| {
+            source[node.span.start..node.span.end].starts_with("(#generate #async-fn-pinned")
+        })
         .unwrap();
     let standalone = format!(
         "{}\n{artifact}\n{}",
@@ -367,7 +371,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "(: amount #u64)",
             "(amount work-amount)",
             "",
-            "requires @#async-fn-pinned",
+            "requires #generate #async-fn-pinned",
         ),
         (
             "",
@@ -390,7 +394,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
     .enumerate()
     {
         let source = format!(
-            "{context} (@{kind} (: protocol WorkAwait : waker #u64 : access ({access})
+            "{context} (#generate {kind} (: protocol WorkAwait : waker #u64 : access ({access})
           : function (#fn work {parameters} #u64 (#forget amount) (#return 42u64))))
           {suffix} (#fn main () #u64 (#return 0u64))"
         );
@@ -430,7 +434,7 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
     ] {
         let scratch = support::Scratch::new("async-access-import");
         let library = "(#type Amount #u64) (#type Nothing ())
-          (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+          (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
             : access (: empty unit-access : amount amount-access : other other-access)
             : function (#fn work (: empty Nothing : amount Amount : other #u64) #u64
               (#return amount))))";
@@ -444,13 +448,13 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
               (#call {prefix}Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
               (#case ({prefix}Work::Ready answer) answer)
               (#case ({prefix}Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-            (#assert (#u64.== poll-result 40u64))
+            (#assert (#u64::eq poll-result 40u64))
             (#call {prefix}unit-access-replace (: task (#pin-borrow-mut frame) : value ()))
             (#let empty {prefix}Nothing (#call {prefix}unit-access-read (: task (#pin-borrow frame))))
             (#call {prefix}amount-access-replace (: task (#pin-borrow-mut frame) : value 42u64))
             (#call {prefix}other-access-replace (: task (#pin-borrow-mut frame) : value 7u64))
             (#let other #u64 (#call {prefix}other-access-read (: task (#pin-borrow frame))))
-            (#assert (#u64.== other 7u64))
+            (#assert (#u64::eq other 7u64))
             (#let answer {prefix}Amount (#call {prefix}amount-access-read (: task (#pin-borrow frame))))
             (#forget frame) (#return answer))");
         let mut config = lim::CompileConfig::default();
@@ -483,18 +487,18 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
     use std::os::unix::process::ExitStatusExt;
     for pending in [false, true] {
         for replace in [false, true] {
-            let prefix = "(#enum Child (#linear) ((Waiting #u64)))
-              (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+            let prefix = "(#enum Child (#linear) ((Child.Waiting #u64)))
+              (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
               (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-                (#return (#match task (#case (Waiting count)
-                  (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady 42u64))))))
-              (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : access (: amount amount-access)
+                (#return (#match task (#case (Child.Waiting count)
+                  (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady 42u64))))))
+              (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : access (: amount amount-access)
                 : function (#fn work (: amount #u64) #u64
-                  (#return (#await Child ChildPending ChildReady child-poll (Waiting 0u64))))))";
+                  (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64))))))";
             let suspend = if pending {
                 "(#let first Work::Poll (#call Work::poll
               (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-              (#let-else (Work::Pending handle) Work::Poll first (#unreachable))
+              (#let-else (Work::Poll.Pending handle) Work::Poll first (#unreachable))
               (#forget handle)"
             } else {
                 ""

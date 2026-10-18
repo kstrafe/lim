@@ -156,7 +156,7 @@ fn operator_reference_examples_typecheck() {
         let integers = [
             "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
         ];
-        let (family, operation) = name.strip_prefix('#').unwrap().split_once('.').unwrap();
+        let (family, operation) = name.strip_prefix('#').unwrap().split_once("::").unwrap();
         let qualifiers: Vec<&str> = match family {
             "I" => integers.to_vec(),
             "F" => vec!["f32", "f64"],
@@ -173,9 +173,9 @@ fn operator_reference_examples_typecheck() {
                 "f32" | "f64" => format!("1.0{qualifier}"),
                 _ => format!("1{qualifier}"),
             };
-            let arities: &[usize] = if operation == "!" {
+            let arities: &[usize] = if operation == "not" {
                 &[1]
-            } else if operation == "-" || operation.starts_with("-.") {
+            } else if operation == "sub" || operation.starts_with("sub-") {
                 &[1, 2]
             } else {
                 &[2]
@@ -183,7 +183,7 @@ fn operator_reference_examples_typecheck() {
             for &arity in arities {
                 let operands = vec![operand.as_str(); arity].join(" ");
                 let source = format!(
-                    "(#fn example () () (#drop (#{qualifier}.{operation} {operands})) (#return ()))"
+                    "(#fn example () () (#drop (#{qualifier}::{operation} {operands})) (#return ()))"
                 );
                 let program =
                     lim::parse_program(&source).unwrap_or_else(|error| panic!("{error}\n{source}"));

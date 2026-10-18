@@ -67,7 +67,7 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
 #[test]
 fn empty_struct_layout_is_zero_bytes() {
     run_native(
-        "(#struct Empty () ()) (#fn main () #u64\n           (#return (#if (#usize.== (#size-of Empty) 0usize) 42u64 43u64)))",
+        "(#struct Empty () ()) (#fn main () #u64\n           (#return (#if (#usize::eq (#size-of Empty) 0usize) 42u64 43u64)))",
         "async-dynamic-empty-layout",
     );
 }
@@ -76,16 +76,16 @@ fn empty_struct_layout_is_zero_bytes() {
 fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_owners() {
     let source = r#"
       (#struct Empty () ())
-      (#enum Child (#linear) ((Waiting #u64)))
-      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Child.Waiting #u64)))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
-          (#case (Waiting count)
-            (#if (#u64.== count 0u64)
-              (ChildPending (Waiting 1u64))
-              (ChildReady 1u64))))))
+          (#case (Child.Waiting count)
+            (#if (#u64::eq count 0u64)
+              (ChildPoll.ChildPending (Child.Waiting 1u64))
+              (ChildPoll.ChildReady 1u64))))))
       (#fn cancel-child (: child Child) () (#forget child) (#return ()))
-      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
         : cancel (work-cancel ((await-0 cancel-child)))
         : function (#fn work (: choose #bool : external (#ref (#array Empty 2))) #u64
           (#let-mut local (#array Empty 2)
@@ -96,8 +96,8 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
               (#borrow (#index local index))
               (#borrow (#index external index))))
           (#set index 1usize)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
-          (#assert (#u64.== ignored 1u64))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+          (#assert (#u64::eq ignored 1u64))
           (#let read-back Empty (#deref selected))
           (#forget read-back)
           (#drop selected) (#forget local)
@@ -110,17 +110,17 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
           (#call work (: choose choose : external (#borrow external))))
         (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match second
-          (#case (Work::Ready value) value)
-          (#case (Work::Pending again) (#block (#forget again) (#unreachable)))))
+          (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending again) (#block (#forget again) (#unreachable)))))
         (#forget task) (#forget external)
         (#return answer))
       (#fn main () #u64
-        (#assert (#usize.== (#size-of Empty) 0usize))
-        (#assert (#u64.== (#call run (: choose true)) 42u64))
+        (#assert (#usize::eq (#size-of Empty) 0usize))
+        (#assert (#u64::eq (#call run (: choose true)) 42u64))
         (#return (#call run (: choose false))))
     "#;
     run_native(source, "async-dynamic-empty-array-edges");
@@ -136,7 +136,7 @@ fn dynamic_nested_nonempty_fields_preserve_shared_and_exclusive_access() {
     for mutable in [false, true] {
         let mut source = nested_array_source()
             .replace("(#struct Empty () ())", "")
-            .replace("(#assert (#usize.== (#size-of Empty) 0usize))", "")
+            .replace("(#assert (#usize::eq (#size-of Empty) 0usize))", "")
             .replace("Empty", "#u64")
             .replace("(#struct-literal #u64 (:))", "42u64")
             .replace(
@@ -144,7 +144,10 @@ fn dynamic_nested_nonempty_fields_preserve_shared_and_exclusive_access() {
                 "(#let-mut index #usize 1usize)",
             )
             .replace("(#set index 1usize)", "(#set index 0usize)")
-            .replace("(#forget read-back)", "(#assert (#u64.== read-back 42u64))");
+            .replace(
+                "(#forget read-back)",
+                "(#assert (#u64::eq read-back 42u64))",
+            );
         if mutable {
             source = source
                 .replace("(#ref (#array Record 2))", "(#ref-mut (#array Record 2))")
@@ -172,7 +175,7 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
     let row = |left, right| format!("(#array-of Row {} {})", record(left), record(right));
     let source = nested_array_source()
         .replace("(#struct Empty () ())", "(#type Row (#array Record 2))")
-        .replace("(#assert (#usize.== (#size-of Empty) 0usize))", "")
+        .replace("(#assert (#usize::eq (#size-of Empty) 0usize))", "")
         .replace("Empty", "#u64")
         .replace("(#array Record 2)", "(#array Row 2)")
         // Keep the Row alias's definition nonrecursive.
@@ -212,7 +215,10 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
             "(#set index 1usize)",
             "(#set index 0usize) (#set inner 0usize)",
         )
-        .replace("(#forget read-back)", "(#assert (#u64.== read-back 42u64))");
+        .replace(
+            "(#forget read-back)",
+            "(#assert (#u64::eq read-back 42u64))",
+        );
     assert!(source.contains("(#array-of Row"));
     run_native(&source, "async-two-runtime-array-coordinates");
 }
@@ -221,16 +227,16 @@ fn nested_array_source() -> &'static str {
     r#"
       (#struct Empty () ())
       (#struct Record () ((header #u64) (tail Empty)))
-      (#enum Child (#linear) ((Waiting #u64)))
-      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Child.Waiting #u64)))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
-          (#case (Waiting count)
-            (#if (#u64.== count 0u64)
-              (ChildPending (Waiting 1u64))
-              (ChildReady 1u64))))))
+          (#case (Child.Waiting count)
+            (#if (#u64::eq count 0u64)
+              (ChildPoll.ChildPending (Child.Waiting 1u64))
+              (ChildPoll.ChildReady 1u64))))))
       (#fn cancel-child (: child Child) () (#forget child) (#return ()))
-      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
         : cancel (work-cancel ((await-0 cancel-child)))
         : function (#fn work (: choose #bool : external (#ref (#array Record 2))) #u64
           (#let-mut local (#array Record 2)
@@ -243,8 +249,8 @@ fn nested_array_source() -> &'static str {
               (#borrow (#get (#index local index) tail))
               (#borrow (#get (#index external index) tail))))
           (#set index 1usize)
-          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
-          (#assert (#u64.== ignored 1u64))
+          (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+          (#assert (#u64::eq ignored 1u64))
           (#let read-back Empty (#deref selected))
           (#forget read-back)
           (#drop selected)
@@ -259,17 +265,17 @@ fn nested_array_source() -> &'static str {
           (#call work (: choose choose : external (#borrow external))))
         (#let first Work::Poll (#call Work::poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll
           (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match second
-          (#case (Work::Ready value) value)
-          (#case (Work::Pending again) (#block (#forget again) (#unreachable)))))
+          (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending again) (#block (#forget again) (#unreachable)))))
         (#forget task) (#forget external)
         (#return answer))
       (#fn main () #u64
-        (#assert (#usize.== (#size-of Empty) 0usize))
-        (#assert (#u64.== (#call run (: choose true)) 42u64))
+        (#assert (#usize::eq (#size-of Empty) 0usize))
+        (#assert (#u64::eq (#call run (: choose true)) 42u64))
         (#return (#call run (: choose false))))
     "#
 }

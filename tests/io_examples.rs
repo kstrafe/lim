@@ -1567,7 +1567,7 @@ fn linux_vectored_io_syscalls_preserve_position_and_print_output() {
         .arg("-o")
         .arg(&executable)
         .output()
-        .expect("compile Lim vectored-IO example");
+        .expect("compile Lim Vectored-IO example");
     assert!(
         compilation.status.success(),
         "compiler failed:\n{}",
@@ -1576,7 +1576,7 @@ fn linux_vectored_io_syscalls_preserve_position_and_print_output() {
 
     let output = Command::new(executable)
         .output()
-        .expect("run compiled vectored-IO example");
+        .expect("run compiled Vectored-IO example");
     assert_eq!(output.status.code(), Some(42));
     assert_eq!(output.stdout, include_bytes!("fixtures/vectored_io.stdout"));
     assert!(output.stderr.is_empty());

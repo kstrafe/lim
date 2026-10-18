@@ -31,8 +31,8 @@ fn generated_cell_is_inspectable_and_preserves_its_value() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(generated.contains("#struct CellU32"), "{generated}");
-    assert!(generated.contains("#fn CellU32-get"), "{generated}");
-    assert!(generated.contains("#fn CellU32-set"), "{generated}");
+    assert!(generated.contains("#fn CellU32::get"), "{generated}");
+    assert!(generated.contains("#fn CellU32::set"), "{generated}");
 
     let (status, _, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();

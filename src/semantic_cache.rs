@@ -640,9 +640,9 @@ mod tests {
     fn inferred_summaries_round_trip_in_both_transfer_modes() {
         let mut d = declarations(
             "(#struct Holder () (: value (#ref #u64)))
-          (#enum Choice () ((Found Holder) Missing))
+          (#enum Choice () ((Choice.Found Holder) Choice.Missing))
           (#fn choose (: owner (#ref #u64) : flag #bool) Choice
-            (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
+            (#return (#if flag (Choice.Found (#struct-literal Holder (: value owner))) Choice.Missing)))
           (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
             (#deref-set slot value) (#return ()))
           (#fn project (: slot (#ref-mut (#ref-mut #u64))) (#ref-mut #u64)
@@ -697,18 +697,18 @@ mod tests {
 
     #[test]
     fn declaration_ids_are_remapped_by_name_not_arena_index() {
-        let source = "(#static Shared #u64 0u64) (#struct Holder () (: value (#ref #u64)))
-          (#enum Choice () ((Found Holder) Missing)) (#fn main () #u64 (#return 0u64))";
+        let source = "(#static shared #u64 0u64) (#struct Holder () (: value (#ref #u64)))
+          (#enum Choice () ((Choice.Found Holder) Choice.Missing)) (#fn main () #u64 (#return 0u64))";
         let before = declarations(source);
         let after = declarations(&format!(
-            "(#static AAA #u64 1u64)
-          (#struct AAAHolder () (: value #u64)) (#enum AAAChoice () ((AAAFound #u64))) {source}"
+            "(#static aAA #u64 1u64)
+          (#struct AAAHolder () (: value #u64)) (#enum AAAChoice () ((AAAChoice.AAAFound #u64))) {source}"
         ));
         let field = before
             .field_id(&Type::Named("Holder".into()), "value")
             .unwrap();
         let variant = before
-            .variant_id(&Type::Named("Choice".into()), "Found")
+            .variant_id(&Type::Named("Choice".into()), "Choice.Found")
             .unwrap();
         let segments = vec![
             Segment::Dereference,
@@ -738,17 +738,17 @@ mod tests {
             mapped[3],
             Segment::Payload(
                 after
-                    .variant_id(&Type::Named("Choice".into()), "Found")
+                    .variant_id(&Type::Named("Choice".into()), "Choice.Found")
                     .unwrap(),
                 0
             )
         );
-        let global = before.global_id("Shared").unwrap();
+        let global = before.global_id("shared").unwrap();
         bytes.clear();
         global.write(&mut bytes, &before);
         assert_eq!(
             GlobalId::read(&mut Reader(&bytes), &after),
-            after.global_id("Shared")
+            after.global_id("shared")
         );
     }
 

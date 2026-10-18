@@ -5,27 +5,27 @@ use std::{process::Command, time::Duration};
 const SOURCE: &str = r#"
 (#type Counter (#atomic #u32))
 (#struct Nested () (: padding #u64 : counters (#array Counter 2)))
-(#enum State () (: Empty : Active (#atomic #u16)))
-(#static Total (#atomic #u64) (#atomic-init #u64 0u64))
-(#static Counts Nested (#struct-literal Nested (: padding 99u64
+(#enum State () (: State.Empty : State.Active (#atomic #u16)))
+(#static total (#atomic #u64) (#atomic-init #u64 0u64))
+(#static counts Nested (#struct-literal Nested (: padding 99u64
   : counters (#array-of (#array Counter 2) (#atomic-init #u32 3u32) (#atomic-init #u32 5u32)))))
-(#static Current State (Active (#atomic-init #u16 7u16)))
-(#static Small (#atomic #i8) (#atomic-init #i8 -1i8))
-(#static ReadOnly #u64 17u64)
+(#static current State (State.Active (#atomic-init #u16 7u16)))
+(#static small (#atomic #i8) (#atomic-init #i8 -1i8))
+(#static readOnly #u64 17u64)
 (#fn main () #u64
-  (#unsafe (#atomic-store (#borrow Total) 42u64 #memory-relaxed))
+  (#unsafe (#atomic-store (#borrow total) 42u64 #memory-relaxed))
   (#let old #u32 (#unsafe (#atomic-fetch-add
-    (#borrow (#index (#get Counts counters) 1usize)) 1u32 #memory-relaxed)))
-  (#assert (#u32.== old 5u32))
-  (#assert (#u32.== (#unsafe (#atomic-load (#borrow (#index (#get Counts counters) 1usize)) #memory-relaxed)) 6u32))
-  (#assert (#u64.== (#unsafe (#get Counts padding)) 99u64))
-  (#let state (#ref State) (#unsafe (#borrow Current)))
-  (#let active (#ref (#atomic #u16)) (#borrow (#get-payload state Active 0)))
+    (#borrow (#index (#get counts counters) 1usize)) 1u32 #memory-relaxed)))
+  (#assert (#u32::eq old 5u32))
+  (#assert (#u32::eq (#unsafe (#atomic-load (#borrow (#index (#get counts counters) 1usize)) #memory-relaxed)) 6u32))
+  (#assert (#u64::eq (#unsafe (#get counts padding)) 99u64))
+  (#let state (#ref State) (#unsafe (#borrow current)))
+  (#let active (#ref (#atomic #u16)) (#borrow (#get-payload state State.Active 0)))
   (#atomic-store active 8u16 #memory-relaxed)
-  (#assert (#u16.== (#atomic-load active #memory-relaxed) 8u16))
-  (#assert (#i8.== (#unsafe (#atomic-load (#borrow Small) #memory-relaxed)) -1i8))
-  (#assert (#u64.== (#unsafe ReadOnly) 17u64))
-  (#return (#unsafe (#atomic-load (#borrow Total) #memory-relaxed))))
+  (#assert (#u16::eq (#atomic-load active #memory-relaxed) 8u16))
+  (#assert (#i8::eq (#unsafe (#atomic-load (#borrow small) #memory-relaxed)) -1i8))
+  (#assert (#u64::eq (#unsafe readOnly) 17u64))
+  (#return (#unsafe (#atomic-load (#borrow total) #memory-relaxed))))
 "#;
 
 #[test]
@@ -39,11 +39,11 @@ fn constant_atomic_statics_and_nested_fields_use_writable_native_storage() {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .unwrap_or_else(|error| panic!("{error:?}"));
-    for name in ["Total", "Counts", "Current", "Small", "ReadOnly"] {
+    for name in ["total", "counts", "current", "small", "readOnly"] {
         let prefix = &assembly[..assembly.find(&format!("{name}:\n")).unwrap()];
         let data = prefix.rfind("\n.data\n");
         let rodata = prefix.rfind(".section .rodata\n");
-        if name == "ReadOnly" {
+        if name == "readOnly" {
             assert!(rodata > data, "immutable static must remain read-only");
         } else {
             assert!(data > rodata, "{name} must have writable atomic storage");
@@ -67,7 +67,7 @@ fn constant_atomic_statics_and_nested_fields_use_writable_native_storage() {
 #[test]
 fn atomic_static_initializer_still_rejects_runtime_calls() {
     let source = "(#fn calculate () #u64 (#return 1u64))
-      (#static Total (#atomic #u64) (#atomic-init #u64 (#call calculate (:))))
+      (#static total (#atomic #u64) (#atomic-init #u64 (#call calculate (:))))
       (#fn main () #u64 (#return 42u64))";
     let scratch = support::Scratch::new("atomic-static-nonconstant");
     let error = lim::compile_source_to_assembly(

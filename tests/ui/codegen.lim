@@ -1,3 +1,3 @@
-(#const First #u64 (#u64.+.wrap Second 1u64))
-(#const Second #u64 (#u64.+.wrap First 1u64))
-(#fn main () #u64 (#return First))
+(#const first #u64 (#u64::add-wrap second 1u64))
+(#const second #u64 (#u64::add-wrap first 1u64))
+(#fn main () #u64 (#return first))

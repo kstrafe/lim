@@ -3,18 +3,18 @@
 (#cfg-if (#cfg-is #arch aarch64)
   (#fn main () #u64
   (#let process #i64 (#unsafe (#linux-syscall #i64 172usize ())))
-  (#assert (#i64.> process 0i64))
+  (#assert (#i64::gt process 0i64))
   (#let byte #u64 42u64)
   (#let written #i64
     (#unsafe (#linux-syscall #i64 64usize (1i64 (#borrow byte) 1usize))))
-  (#assert (#i64.== written 1i64))
+  (#assert (#i64::eq written 1i64))
     (#return 42u64))
   (#cfg-else
     (#fn main () #u64
       (#let process #i64 (#unsafe (#linux-syscall #i64 39usize ())))
-      (#assert (#i64.> process 0i64))
+      (#assert (#i64::gt process 0i64))
       (#let byte #u64 42u64)
       (#let written #i64
         (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))))
-      (#assert (#i64.== written 1i64))
+      (#assert (#i64::eq written 1i64))
       (#return 42u64))))

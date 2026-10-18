@@ -1,3 +1,3 @@
-(#enum Maybe () ((Some #u64) None))
+(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
 (#fn main ((value #u64) (maybe Maybe)) #u64
-  (#return (#if-let (Some value) maybe value value)))
+  (#return (#if-let (Maybe.Some value) maybe value value)))

@@ -76,7 +76,7 @@ mod tests {
         let program = crate::parse_program("(#type Number #u64)").unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
         let layout = Layout::new(
-            "(#enum Slot () ((Empty) (Full Number)))
+            "(#enum Slot () ((Slot.Empty) (Slot.Full Number)))
              (#struct Frame () (: pc #u32 : value Slot : marker (#array Unmaterialized 0)))",
             "Frame",
             &declarations,

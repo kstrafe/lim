@@ -1,20 +1,20 @@
 (#struct WidePair () ((wide #u128) (small #u64)))
 (#struct WideBlob () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)))
 (#struct WideRecord () ((id #u64) (pair WidePair) (tail #u128) (blob WideBlob)))
-(#enum Envelope () ((Value WideRecord) Empty))
-(#static ORIGINAL WideRecord
+(#enum Envelope () ((Envelope.Value WideRecord) Envelope.Empty))
+(#static oRIGINAL WideRecord
   (#struct-literal WideRecord ((id 1u64) (pair (#struct-literal WidePair ((wide 18446744073709551616u128) (small 3u64)))) (tail 36893488147419103232u128) (blob (#struct-literal WideBlob ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 8u64)))))))
 
 (#fn return-global () WideRecord
-  (#return (#unsafe ORIGINAL)))
+  (#return (#unsafe oRIGINAL)))
 
 (#fn global-wide-ref () (#ref #u128)
-  (#let record-ref (#ref WideRecord) (#unsafe (#borrow ORIGINAL)))
+  (#let record-ref (#ref WideRecord) (#unsafe (#borrow oRIGINAL)))
   (#let pair-ref (#ref WidePair) (#borrow (#get record-ref pair)))
   (#return (#borrow (#get pair-ref wide))))
 
 (#fn global-blob-value () WideBlob
-  (#let record-ref (#ref WideRecord) (#unsafe (#borrow ORIGINAL)))
+  (#let record-ref (#ref WideRecord) (#unsafe (#borrow oRIGINAL)))
   (#return (#get record-ref blob)))
 
 (#fn pass-record ((record WideRecord)) WideRecord
@@ -37,11 +37,11 @@
 (#fn inspect ((value Envelope)) #u64
   (#return
     (#match value
-      (#case (Value (WideRecord id (WidePair wide small) tail _))
-        (#if (#u128.== wide 18446744073709551616u128)
-          (#u64.+.wrap id small)
+      (#case (Envelope.Value (WideRecord id (WidePair wide small) tail _))
+        (#if (#u128::eq wide 18446744073709551616u128)
+          (#u64::add-wrap id small)
           (#block (#forget id) (#forget small) 0u64)))
-      (#case Empty 0u64))))
+      (#case Envelope.Empty 0u64))))
 
 (#fn pass-envelope ((value Envelope)) Envelope
   (#return value))
@@ -57,9 +57,9 @@
   (#let reference (#ref #u64) (#call second-ref (: record (#borrow record))))
   (#let projected #u64 (#deref reference))
   (#let wide-reference (#ref #u128) (#call wide-ref (: record (#borrow record))))
-  (#assert (#u128.== (#deref wide-reference) 18446744073709551616u128))
-  (#assert (#u128.== (#deref (#call global-wide-ref (:))) 18446744073709551616u128))
-  (#let envelope Envelope (#call pass-envelope (: value (Value record))))
+  (#assert (#u128::eq (#deref wide-reference) 18446744073709551616u128))
+  (#assert (#u128::eq (#deref (#call global-wide-ref (:))) 18446744073709551616u128))
+  (#let envelope Envelope (#call pass-envelope (: value (Envelope.Value record))))
   (#let nested (#tuple #u64 (#tuple #u128 #u64) WideBlob) (#call make-nested-tuple (:)))
   (#let tuple-blob WideBlob (#get nested 2))
   (#let blob WideBlob (#call blob-value (: record (#borrow record))))
@@ -67,10 +67,10 @@
   (#let record-ref (#ref WideRecord) (#borrow record))
   (#let blob-ref (#ref WideBlob) (#borrow (#get record-ref blob)))
   (#let dereferenced-blob WideBlob (#call blob-deref (: value blob-ref)))
-  (#assert (#u64.== (#get tuple-blob g) 8u64))
-  (#assert (#u64.== (#get dereferenced-blob g) 8u64))
-  (#assert (#u64.== (#get global-blob g) 8u64))
+  (#assert (#u64::eq (#get tuple-blob g) 8u64))
+  (#assert (#u64::eq (#get dereferenced-blob g) 8u64))
+  (#assert (#u64::eq (#get global-blob g) 8u64))
   (#return
-    (#u64.+.wrap projected
-      (#u64.+.wrap (#call inspect (: value envelope))
-        (#u64.+.wrap (#get (#get nested 1) 1) (#get blob g))))))
+    (#u64::add-wrap projected
+      (#u64::add-wrap (#call inspect (: value envelope))
+        (#u64::add-wrap (#get (#get nested 1) 1) (#get blob g))))))

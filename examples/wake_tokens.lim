@@ -5,36 +5,36 @@
   (#let first WakeRegister4
     (#call wake-table4-register (: table (#borrow-mut table) : slot 2usize)))
   (#let old WakeToken4 (#match first
-    (#case (WakeRegistered4 token) token)
+    (#case (WakeRegister4.WakeRegistered4 token) token)
     (#case _ (#unreachable))))
   (#let initially-valid #bool
     (#call wake-table4-valid (: table (#borrow table) : token old)))
   (#let retired WakeRetire4
     (#call wake-table4-retire (: table (#borrow-mut table) : token old)))
   (#let retired-ok #bool (#match retired
-    (#case WakeRetired4 true) (#case WakeStale4 false)))
+    (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
   (#let old-stale #bool
-    (#bool.! (#call wake-table4-valid (: table (#borrow table) : token old))))
+    (#bool::not (#call wake-table4-valid (: table (#borrow table) : token old))))
   (#let second WakeRegister4
     (#call wake-table4-register (: table (#borrow-mut table) : slot 2usize)))
   (#let fresh WakeToken4 (#match second
-    (#case (WakeRegistered4 token) token)
+    (#case (WakeRegister4.WakeRegistered4 token) token)
     (#case _ (#unreachable))))
   (#let generation-changed #bool
-    (#u64.>
+    (#u64::gt
       (#call wake-token4-generation (: token fresh))
       (#call wake-token4-generation (: token old))))
   (#let stale-retire WakeRetire4
     (#call wake-table4-retire (: table (#borrow-mut table) : token old)))
   (#let stale-retire-ok #bool (#match stale-retire
-    (#case WakeStale4 true) (#case WakeRetired4 false)))
+    (#case WakeRetire4.WakeStale4 true) (#case WakeRetire4.WakeRetired4 false)))
   (#let fresh-valid #bool
     (#call wake-table4-valid (: table (#borrow table) : token fresh)))
   (#forget table)
   (#return (#if
-    (#bool.&& initially-valid
-      (#bool.&& retired-ok
-        (#bool.&& old-stale
-          (#bool.&& generation-changed
-            (#bool.&& stale-retire-ok fresh-valid)))))
+    (#bool::and initially-valid
+      (#bool::and retired-ok
+        (#bool::and old-stale
+          (#bool::and generation-changed
+            (#bool::and stale-retire-ok fresh-valid)))))
     42u64 0u64)))

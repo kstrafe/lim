@@ -8,7 +8,7 @@
   (#let registration WakeRegister4
     (#call wake-ready4-register (: queue (#borrow-mut queue) : slot 0usize)))
   (#let token WakeToken4 (#match registration
-    (#case (WakeRegistered4 value) value)
+    (#case (WakeRegister4.WakeRegistered4 value) value)
     (#case _ (#unreachable))))
   (#assert (#call wake-ready4-notify (: queue (#borrow queue) : token token)))
   (#let source AsyncPollSource4
@@ -19,12 +19,12 @@
   (#let result AsyncPoll4Result
     (#call async-poll4-wait (: sources sources : timeout-ms -1i32)))
   (#let ready #bool (#match result
-    (#case (AsyncPoll4Ready mask) (#u32.== mask 1u32))
-    (#case (AsyncPoll4Failed error) (#block (#forget error) false))))
+    (#case (AsyncPoll4Result.AsyncPoll4Ready mask) (#u32::eq mask 1u32))
+    (#case (AsyncPoll4Result.AsyncPoll4Failed error) (#block (#forget error) false))))
   (#let retired WakeRetire4
     (#call wake-ready4-retire (: queue (#borrow-mut queue) : token token)))
   (#assert (#match retired
-    (#case WakeRetired4 true)
-    (#case WakeStale4 false)))
+    (#case WakeRetire4.WakeRetired4 true)
+    (#case WakeRetire4.WakeStale4 false)))
   (#forget queue)
   (#return (#if ready 42u64 1u64)))

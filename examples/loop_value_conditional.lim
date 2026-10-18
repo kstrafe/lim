@@ -2,7 +2,7 @@
   (#let-mut i #u64 0)
   (#return
     (#loop
-      (#set i (#u64.+.wrap (#clone i) 1))
-      (#if (#u64.== (#clone i) 3)
+      (#set i (#u64::add-wrap (#clone i) 1))
+      (#if (#u64::eq (#clone i) 3)
         (#block (#break (#clone i)))
-        (#u64.+.wrap (#clone i) 0)))))
+        (#u64::add-wrap (#clone i) 0)))))

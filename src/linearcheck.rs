@@ -1721,7 +1721,7 @@ mod tests {
         let program = parse_program(
             "(#struct Resource (#linear) ((value #u64)))
              (#struct Nested () ((contents (#tuple #u64 (#array Resource 2)))))
-             (#enum Choice () (Empty (Selected (#tuple #bool Nested))))
+             (#enum Choice () (Choice.Empty (Choice.Selected (#tuple #bool Nested))))
              (#struct CopyOnly () ((number #u64) (view (#ref #u64))))",
         )
         .unwrap();
@@ -1745,7 +1745,7 @@ mod tests {
                 .into_iter()
                 .map(|index| {
                     vec![
-                        LinearProjection::Payload("Selected".into(), 0),
+                        LinearProjection::Payload("Choice.Selected".into(), 0),
                         LinearProjection::Tuple(1),
                         LinearProjection::Field("contents".into()),
                         LinearProjection::Tuple(1),
@@ -1776,11 +1776,11 @@ mod tests {
              (#struct Nested () (: child (#pin-own Exclusive)))
              (#struct Diamond () (: left Shared : right Shared))
              (#struct EmptyArray () (: items (#array Forced 0)))
-             (#enum Choice () ((Data Plain) (View Shared) Empty))
+             (#enum Choice () ((Choice.Data Plain) (Choice.View Shared) Choice.Empty))
              (#type Alias Choice) (#type Pair (#tuple Plain Exclusive))
              (#type LoopA LoopB) (#type LoopB LoopA)
              (#struct Recursive () (: next (#ref Recursive)))
-             (#struct UnknownCarrier () (: value Missing))",
+             (#struct UnknownCarrier () (: value missing))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1799,7 +1799,7 @@ mod tests {
             "LoopB",
             "Recursive",
             "UnknownCarrier",
-            "Missing",
+            "missing",
         ]
         .into_iter()
         .map(|name| Type::Named(name.to_owned()))
@@ -1883,7 +1883,7 @@ mod tests {
             "(#struct Shared () (: link (#ref #u64)))
              (#struct Exclusive () (: link (#ref-mut #u64)))
              (#struct Nested () (: child (#pin-own Exclusive)))
-             (#enum Choice () (: Empty : Present (#pin-own Shared)))",
+             (#enum Choice () (: Choice.Empty : Choice.Present (#pin-own Shared)))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1933,7 +1933,7 @@ mod tests {
         check_types(&parse_program(source).unwrap()).unwrap();
         let conditional = source.replace(
             "(#match turn\n                (#case 0u64 (#block",
-            "(#if (#u64.== turn 0u64) (#block",
+            "(#if (#u64::eq turn 0u64) (#block",
         ).replace(
             "((value 1u64)))) ()))\n                (#case _ (#block (#forget original) (#return observed))))",
             "((value 1u64)))) ())\n                (#block (#forget original) (#return observed)))",
@@ -1979,7 +1979,7 @@ mod tests {
     #[test]
     fn places_keep_identifier_punctuation_and_dynamic_indices_structural() {
         use super::{Place, Projection};
-        let dotted = Place::root("a.b");
+        let dotted = Place::root("a-b");
         let field = Place::root("a").project(Projection::Field("b".into()));
         assert!(!dotted.conflicts(&field));
         let dotted_field = Place::root("a").project(Projection::Field("b.c".into()));
@@ -1999,14 +1999,14 @@ mod tests {
         let source = "(#struct R (#linear) ((b #u64)))
           (#fn main () #u64
             (#let a R (#struct-literal R ((b 1u64))))
-            (#let a.b R (#struct-literal R ((b 2u64))))
-            (#forget (#get a b)) (#forget a.b) (#forget a)
-            (#let a.b-again R (#struct-literal R ((b 3u64))))
-            (#forget a.b-again) (#return 0u64))";
+            (#let a-b R (#struct-literal R ((b 2u64))))
+            (#forget (#get a b)) (#forget a-b) (#forget a)
+            (#let a-b-again R (#struct-literal R ((b 3u64))))
+            (#forget a-b-again) (#return 0u64))";
         check_types(&parse_program(source).unwrap()).unwrap();
         let duplicate = source.replace(
-            "(#forget a.b-again) (#return",
-            "(#forget a.b-again) (#forget a.b-again) (#return",
+            "(#forget a-b-again) (#return",
+            "(#forget a-b-again) (#forget a-b-again) (#return",
         );
         assert!(check_types(&parse_program(&duplicate).unwrap()).is_err());
     }
@@ -2054,7 +2054,7 @@ mod tests {
     #[test]
     fn loop_conditions_must_clone_values_that_are_reused() {
         let valid = parse_program(
-            "(#fn main () #u64 (#let-mut count #u64 0) (#while (#u64.< (#clone count) 1) (#set count 1)) (#return count))",
+            "(#fn main () #u64 (#let-mut count #u64 0) (#while (#u64::lt (#clone count) 1) (#set count 1)) (#return count))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -2063,7 +2063,7 @@ mod tests {
     #[test]
     fn explicit_clone_codegen_handles_aggregates() {
         let program = parse_program(
-            "(#struct Pair () ((left #u64) (right #u64))) (#fn main () #u64 (#let value Pair (#struct-literal Pair ((left 20) (right 22)))) (#let duplicate Pair (#clone value)) (#let result #u64 (#u64.+.wrap (#get duplicate left) (#get duplicate right))) (#forget duplicate) (#forget value) (#return result))",
+            "(#struct Pair () ((left #u64) (right #u64))) (#fn main () #u64 (#let value Pair (#struct-literal Pair ((left 20) (right 22)))) (#let duplicate Pair (#clone value)) (#let result #u64 (#u64::add-wrap (#get duplicate left) (#get duplicate right))) (#forget duplicate) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -2073,13 +2073,13 @@ mod tests {
     #[test]
     fn named_clone_functions_define_deep_clone_behavior() {
         let program = parse_program(
-            "(#struct Point () ((x #u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
+            "(#struct Point () ((x #u64))) (#fn Point::clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(crate::generate_assembly(&program)
             .unwrap()
-            .contains("call Point_x2d_clone"));
+            .contains("call Point_x3a__x3a_clone"));
     }
 
     #[test]
@@ -2271,7 +2271,7 @@ mod tests {
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
-            (#let sum #u64 (#u64.+.wrap (#get pair other) (#get pair other)))
+            (#let sum #u64 (#u64::add-wrap (#get pair other) (#get pair other)))
             (#forget (#get pair other))
             (#forget (#get pair other))
             (#forget (#get pair item))
@@ -2319,21 +2319,21 @@ mod tests {
 
     #[test]
     fn computed_match_payload_types_are_retained_on_early_return() {
-        let copy = "(#enum Choice () ((Value #u64)))
-          (#fn make () Choice (#return (Value 42u64)))
+        let copy = "(#enum Choice () ((Choice.Value #u64)))
+          (#fn make () Choice (#return (Choice.Value 42u64)))
           (#fn main () #u64
             (#let result #u64 (#match (#call make ())
-              (#case (Value payload) (#block (#return payload)))))
+              (#case (Choice.Value payload) (#block (#return payload)))))
             (#return result))";
         check_types(&parse_program(copy).unwrap()).unwrap();
 
         let linear = "(#struct Resource (#linear) ((value #u64)))
-          (#enum Choice () ((Value Resource)))
+          (#enum Choice () ((Choice.Value Resource)))
           (#fn make () Choice
-            (#return (Value (#struct-literal Resource ((value 42u64))))))
+            (#return (Choice.Value (#struct-literal Resource ((value 42u64))))))
           (#fn main () #u64
             (#let result #u64 (#match (#call make ())
-              (#case (Value payload) (#block (#return 42u64)))))
+              (#case (Choice.Value payload) (#block (#return 42u64)))))
             (#return result))";
         let error = check_types(&parse_program(linear).unwrap()).unwrap_err();
         assert!(
@@ -2346,11 +2346,11 @@ mod tests {
 
     #[test]
     fn copy_match_payload_can_be_read_repeatedly() {
-        let source = "(#enum Choice () ((Value #u64)))
+        let source = "(#enum Choice () ((Choice.Value #u64)))
           (#fn main () #u64
-            (#let choice Choice (Value 3u64))
+            (#let choice Choice (Choice.Value 3u64))
             (#return (#match choice
-              (#case (Value payload) (#u64.+.wrap payload payload)))))";
+              (#case (Choice.Value payload) (#u64::add-wrap payload payload)))))";
         check_types(&parse_program(source).unwrap()).unwrap();
     }
 
@@ -2417,7 +2417,7 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "(#fn worker ((value #u64)) #u64 (#return value)) (@#thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#let result Task-spawn-result (#call Task-spawn (: value 1u64))) (#forget result) (#return 0u64))",
+            "(#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#let result Task::SpawnResult (#call Task::spawn (: value 1u64))) (#forget result) (#return 0u64))",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(

@@ -8,23 +8,23 @@
       (#array Holder 2)
       (#struct-literal Holder (: reference owner : offset 0u64))
       (#struct-literal Holder (: reference owner : offset 1u64)))))
-(#enum Step (#linear) (Start Resume))
+(#enum Step (#linear) (Step.Start Step.Resume))
 
-(#enum StepPoll () ((Pending Step) (Ready ())))
+(#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task
-      (#case Start
-        (Pending Resume))
-      (#case Resume
-        (Ready ())))))
-(@
+      (#case Step.Start
+        (StepPoll.Pending Step.Resume))
+      (#case Step.Resume
+        (StepPoll.Ready ())))))
+(#generate
   #async-fn
   (: protocol WorkAwait : waker #u64 : function
   (#fn work (: owner (#ref #u64) : index #usize) #u64
     (#let holder Holder (#clone (#index (#call make-array (: owner owner)) index)))
-    (#let ready () (#await () Step Pending Ready step-poll Start))
-    (#let result #u64 (#u64.+.wrap
+    (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
+    (#let result #u64 (#u64::add-wrap
       (#deref (#get holder reference)) (#get holder offset)))
     (#forget holder) (#return result))))
 (#fn main () #u64
@@ -38,13 +38,13 @@
       Work::poll
       (: task (#call work (: owner (#borrow owner) : index index))
       : waker (#borrow waker))))
-  (#let-else (Work::Pending pending) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
   (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
   (#return
     (#match second
-      (#case (Work::Ready result)
+      (#case (Work::Poll.Ready result)
         result)
-      (#case (Work::Pending unexpected)
+      (#case (Work::Poll.Pending unexpected)
         (#block
           (#forget unexpected)
           (#unreachable))))))

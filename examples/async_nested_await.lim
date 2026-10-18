@@ -1,41 +1,41 @@
 ; An await can produce the task consumed by another await, even inside an
 ; arithmetic operand. Both tasks suspend once before returning their value.
-(#enum OuterTask (#linear) ((Waiting #u64) (Resuming #u64)))
+(#enum OuterTask (#linear) ((OuterTask.Waiting #u64) (OuterTask.Resuming #u64)))
 
-(#enum OuterPoll () ((OuterPending OuterTask) (OuterReady #u64)))
+(#enum OuterPoll () ((OuterPoll.OuterPending OuterTask) (OuterPoll.OuterReady #u64)))
 (#fn outer-poll ((task OuterTask) (waker (#ref #u64))) OuterPoll
   (#return (#match task
-    (#case (Waiting value) (OuterPending (Resuming value)))
-    (#case (Resuming value) (OuterReady value)))))
+    (#case (OuterTask.Waiting value) (OuterPoll.OuterPending (OuterTask.Resuming value)))
+    (#case (OuterTask.Resuming value) (OuterPoll.OuterReady value)))))
 
-(#enum InnerTask () (MakeOuter ResumeOuter))
-(#enum InnerPoll () ((InnerPending InnerTask) (InnerReady OuterTask)))
+(#enum InnerTask () (InnerTask.MakeOuter InnerTask.ResumeOuter))
+(#enum InnerPoll () ((InnerPoll.InnerPending InnerTask) (InnerPoll.InnerReady OuterTask)))
 (#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
   (#return (#match task
-    (#case MakeOuter (InnerPending ResumeOuter))
-    (#case ResumeOuter (InnerReady (Waiting 42u64))))))
+    (#case InnerTask.MakeOuter (InnerPoll.InnerPending InnerTask.ResumeOuter))
+    (#case InnerTask.ResumeOuter (InnerPoll.InnerReady (OuterTask.Waiting 42u64))))))
 
-(@#async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let result #u64
-      (#u64.+.wrap 0u64
-        (#await #u64 OuterTask OuterPending OuterReady outer-poll
-          (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter))))
+      (#u64::add-wrap 0u64
+        (#await #u64 OuterTask OuterPoll.OuterPending OuterPoll.OuterReady outer-poll
+          (#await OuterTask InnerTask InnerPoll.InnerPending InnerPoll.InnerReady inner-poll InnerTask.MakeOuter))))
     (#return result))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll
     (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (Work::Pending inner-pending) Work::Poll first (#unreachable))
+  (#let-else (Work::Poll.Pending inner-pending) Work::Poll first (#unreachable))
   (#let second Work::Poll
     (#call Work::poll (: task inner-pending : waker (#borrow waker))))
-  (#let-else (Work::Pending outer-pending) Work::Poll second (#unreachable))
+  (#let-else (Work::Poll.Pending outer-pending) Work::Poll second (#unreachable))
   (#let third Work::Poll
     (#call Work::poll (: task outer-pending : waker (#borrow waker))))
   (#let result #u64
     (#match third
-      (#case (Work::Ready value) value)
-      (#case (Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
   (#forget waker)
   (#return result))

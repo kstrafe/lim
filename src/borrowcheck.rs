@@ -87,28 +87,28 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
     let escaped = source.replace("(#set view next)",
         "(#block (#let local #u64 3u64) (#let temporary (#ref #u64) (#borrow local)) (#set view temporary) ())");
     assert!(crate::check_types(&crate::parse_program(&escaped).unwrap()).is_err());
-    let emptied = "(#enum View () ((Present (#ref #u64)) Empty))
+    let emptied = "(#enum View () ((View.Present (#ref #u64)) View.Empty))
       (#fn main () #u64
         (#let-mut owner #u64 37u64)
-        (#let-mut view View (Present (#borrow owner)))
-        (#set view Empty)
+        (#let-mut view View (View.Present (#borrow owner)))
+        (#set view View.Empty)
         (#set owner 42u64)
         (#forget view)
         (#return owner))";
     crate::check_types(&crate::parse_program(emptied).unwrap()).unwrap();
-    let retained = emptied.replace("(#set view Empty)", "()");
+    let retained = emptied.replace("(#set view View.Empty)", "()");
     let error = crate::check_types(&crate::parse_program(&retained).unwrap()).unwrap_err();
     assert!(
         error.contains("owner") && error.contains("borrow"),
         "{error}"
     );
-    let parameter = "(#enum View () ((Present (#ref #u64)) Empty))
+    let parameter = "(#enum View () ((View.Present (#ref #u64)) View.Empty))
       (#fn replace ((#mut view View)) ()
-        (#set view Empty) (#return ()))";
+        (#set view View.Empty) (#return ()))";
     crate::check_types(&crate::parse_program(parameter).unwrap()).unwrap();
     let borrowed_slot = parameter.replace(
-        "(#set view Empty)",
-        "(#let address (#ref View) (#borrow view)) (#set view Empty) (#drop address)",
+        "(#set view View.Empty)",
+        "(#let address (#ref View) (#borrow view)) (#set view View.Empty) (#drop address)",
     );
     let error = crate::check_types(&crate::parse_program(&borrowed_slot).unwrap()).unwrap_err();
     assert!(error.contains("borrow"), "{error}");
@@ -292,12 +292,12 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
 #[test]
 fn matched_reference_payload_cannot_escape_local_owner() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Has (#ref #u64))))
+        "(#enum Holder () ((Holder.Has (#ref #u64))))
          (#fn escape () (#ref #u64)
            (#let owner #u64 7u64)
-           (#let holder Holder (Has (#borrow owner)))
+           (#let holder Holder (Holder.Has (#borrow owner)))
            (#return (#match holder
-             (#case (Has view) view))))",
+             (#case (Holder.Has view) view))))",
     )
     .unwrap();
     let borrow_error = check_program(&program).unwrap_err();
@@ -313,11 +313,11 @@ fn matched_reference_payload_cannot_escape_local_owner() {
 #[test]
 fn matched_reference_payload_from_parameter_can_return() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Has (#ref #u64))))
+        "(#enum Holder () ((Holder.Has (#ref #u64))))
          (#fn select ((source (#ref #u64))) (#ref #u64)
-           (#let holder Holder (Has source))
+           (#let holder Holder (Holder.Has source))
            (#return (#match holder
-             (#case (Has view) view))))
+             (#case (Holder.Has view) view))))
          (#fn main () #u64
            (#let owner #u64 42u64)
            (#let selected (#ref #u64)
@@ -332,13 +332,13 @@ fn matched_reference_payload_from_parameter_can_return() {
 #[test]
 fn direct_matched_payload_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Has (#ref #u64))))
+        "(#enum Holder () ((Holder.Has (#ref #u64))))
          (#fn main () #u64
            (#let escaped (#ref #u64)
-             (#match (Has (#block
+             (#match (Holder.Has (#block
                (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
                (#borrow local)))
-               (#case (Has view) view)))
+               (#case (Holder.Has view) view)))
            (#return (#deref escaped)))",
     )
     .unwrap();
@@ -867,9 +867,9 @@ fn check_program_impl(
                 .iter()
                 .map(|parameter| parameter.ty.clone())
                 .collect::<Vec<_>>();
-            thread_spawn_functions.insert(format!("{name}-spawn"), parameters);
+            thread_spawn_functions.insert(format!("{name}::spawn"), parameters);
         }
-        thread_join_functions.insert(format!("{name}-join"));
+        thread_join_functions.insert(format!("{name}::join"));
     }
     let mut reference_parameters = program
         .items
@@ -1642,7 +1642,7 @@ fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(
         Expr::Labeled { expression, .. }
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => existing_reference_value_loans(expression, context),
-        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => Vec::new(),
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Generate => Vec::new(),
         Expr::Function(_) | Expr::Symbol(_) => Vec::new(),
         Expr::Integer(_)
         | Expr::UnsignedInteger(_)
@@ -2512,7 +2512,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
-        | Expr::At => {}
+        | Expr::Generate => {}
     }
     Ok(())
 }
@@ -2873,7 +2873,7 @@ fn apply_thread_match_arm(
         return Ok(());
     };
     match operation {
-        ThreadMatchOperation::Spawn { source, loans } if variant.ends_with("-spawn-ok") => {
+        ThreadMatchOperation::Spawn { source, loans } if variant.ends_with("::SpawnResult.Ok") => {
             let destination = parts.get(1).and_then(pattern_binding).ok_or_else(|| {
                 "thread spawn success pattern must bind its task handle".to_owned()
             })?;
@@ -2883,15 +2883,15 @@ fn apply_thread_match_arm(
                 start_thread_task_loans(&destination, loans, context)?;
             }
         }
-        ThreadMatchOperation::Spawn { source, .. } if variant.ends_with("-spawn-error") => {
+        ThreadMatchOperation::Spawn { source, .. } if variant.ends_with("::SpawnResult.Error") => {
             if let Some(source) = source {
                 release_thread_task_loans(source, context);
             }
         }
-        ThreadMatchOperation::Join { handle } if variant.ends_with("-join-ok") => {
+        ThreadMatchOperation::Join { handle } if variant.ends_with("::JoinResult.Ok") => {
             release_thread_task_loans(handle, context);
         }
-        ThreadMatchOperation::Join { handle } if variant.ends_with("-join-error") => {
+        ThreadMatchOperation::Join { handle } if variant.ends_with("::JoinResult.Error") => {
             let destination = parts.get(1).and_then(pattern_binding).ok_or_else(|| {
                 "thread join error pattern must bind the returned task handle".to_owned()
             })?;

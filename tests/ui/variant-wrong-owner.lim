@@ -1,0 +1,2 @@
+(#enum State () (Other.Open State.Closed))
+(#enum Other () (Other.Open))

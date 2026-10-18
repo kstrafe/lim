@@ -1,2 +1,2 @@
 (#import "error_collection.lim")
-(#enum-contribute ApplicationError (ParseFailure #u64))
+(#enum-contribute ApplicationError (ApplicationError.ParseFailure #u64))

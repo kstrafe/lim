@@ -1,5 +1,5 @@
-(#enum Choice () ((Full #u64)))
+(#enum Choice () ((Choice.Full #u64)))
 (#fn escape () (#ref #u64)
-  (#let value Choice (Full 42u64))
+  (#let value Choice (Choice.Full 42u64))
   (#return (#match (#borrow value)
-    (#case-ref (Full payload) payload))))
+    (#case-ref (Choice.Full payload) payload))))
