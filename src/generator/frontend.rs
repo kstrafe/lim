@@ -1059,6 +1059,9 @@ pub(crate) fn parse_prepared_program_items(
     };
     async_source::attach_validation(&mut program, &async_functions);
     if expand_async {
+        crate::call_graph::lower(&mut program)?;
+    }
+    if expand_async {
         validate_generation_requirements(prepared, &[])?;
     }
     Ok(program)

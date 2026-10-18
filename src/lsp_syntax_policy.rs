@@ -35,6 +35,7 @@ mod tests {
         "break",
         "break-to",
         "call",
+        "call-graph",
         "capability",
         "case",
         "case-pin",

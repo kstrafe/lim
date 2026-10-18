@@ -1,0 +1,3 @@
+(#fn trace () (#slice #char)
+  (#return (#call-graph)))
+(#fn main () #u64 (#return 42u64))

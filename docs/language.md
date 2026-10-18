@@ -1719,6 +1719,19 @@ The equivalent empty colon group `(:)` formats as `()`.
 `#unsafe-call` requires an enclosing `#unsafe` block and rejects safe callees.
 Both forms accept `($ name)` shorthand and apply the same argument checks.
 
+`(#call-graph)` returns a `(#slice #char)` containing the actual caller chain:
+`main:21 -> second:17 -> third:13`. Every number is the executing line **inside
+that function**: the call to the next function, or the final `#call-graph`
+expression. Repeated calls on different lines are distinguishable. No file
+paths are included; function names remain directly greppable.
+
+The trace uses bounded stack storage, without implicit heap allocation or
+global mutable state. Its view cannot outlive the current function. Copy it
+explicitly with `String::from-chars` when an owned result is needed; see
+[`examples/call_graph.lim`](../examples/call_graph.lim) for printing and freeing
+that string. Only functions that can reach a trace carry caller context;
+thread spawning transfers its own owned context into the worker.
+
 Named argument expressions are evaluated in the function's parameter
 declaration order, regardless of the order of labels at the call site. `#struct-literal`
 field expressions are evaluated in the struct's field declaration order,
@@ -2376,6 +2389,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
 | `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order. |
+| `#call-graph` | `(#call-graph)` | `(#let trace (#slice #char) (#call-graph))` (function body) | Returns a borrowed character slice describing the actual caller chain, such as `main:8 -> work:5 -> report:2`. Each number is the executing line in that function, not its declaration or the parent's call line. Uses bounded, checked stack storage; the slice cannot escape its function. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
 | `#case-pin` | `(#case-pin Variant body)` or `(#case-pin (Variant binder) body)`, optionally with `(#when guard)` | `(#case-pin (Full payload) (#get payload value))` (inside a pinned `#match`) | Binds a shared `#pin-ref Payload` to an enum payload without moving it. Supports one payload binding or `_`; fieldless variants use their name, such as `(#case-pin Empty body)`. Works on shared or mutable pinned input. |

@@ -7713,6 +7713,7 @@ pub(crate) fn program(
         .map(|function| function.source.clone())
         .collect::<Vec<_>>();
     crate::generator::async_source::attach_validation(&mut program, &sources);
+    crate::call_graph::lower(&mut program)?;
     Ok(program)
 }
 

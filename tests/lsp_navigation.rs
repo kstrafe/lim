@@ -1,6 +1,16 @@
 mod support;
 
 #[test]
+fn call_graph_has_no_user_definition_or_arguments() {
+    run(
+        "(#fn [[entry|main]] () #u64
+      (#println (#[[trace|call-graph]]))
+      (#return 42u64))",
+        &[("entry", &["entry"]), ("trace", &[])],
+    );
+}
+
+#[test]
 fn generated_variant_name_operations_navigate_syntax_parameters() {
     run(
         "(#gn make ([[binding|name]])

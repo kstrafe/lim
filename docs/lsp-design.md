@@ -102,3 +102,8 @@ Every syntax addition or change must include all of the following:
 The inventory is intentionally independent of the parser. It is a review gate,
 not a proof that every possible program or future change of argument shape is
 covered. New forms and changed forms still require semantic regression tests.
+
+`#call-graph` is a zero-argument builtin, not a user-defined symbol. Navigation
+on its keyword has no target. Its caller-context parameters and stack buffers
+are compiler-owned implementation details and do not introduce source bindings
+or change navigation of the surrounding user function's declarations.

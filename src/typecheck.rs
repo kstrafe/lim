@@ -7915,6 +7915,10 @@ fn list_expression(
             };
             Ok(Type::MutableSlice(element))
         }
+        "call-graph" => {
+            require_arity(operator, items, 1)?;
+            Ok(Type::Slice(Box::new(Type::Char)))
+        }
         "slice-len" => {
             require_arity(operator, items, 2)?;
             if !matches!(

@@ -16,6 +16,7 @@ mod borrow_case;
 #[cfg(test)]
 mod borrowcheck;
 mod cache_report;
+mod call_graph;
 mod call_self_loans;
 mod capture_storage;
 mod codegen;
@@ -4972,6 +4973,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "fn"
             | "unsafe-fn"
             | "call"
+            | "call-graph"
             | "generate"
             | "unsafe-call"
             | "extern-fn"

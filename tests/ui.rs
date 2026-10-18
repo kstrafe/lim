@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "call-graph-arity",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let trace (#slice #char) (#call-graph 42u64))",
+            line_number: 2,
+        },
+        Case {
+            name: "call-graph-return-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#return (#call-graph)))",
+            line_number: 2,
+        },
+        Case {
             name: "enum-literal-unknown-variant",
             diagnostic_code: "E4000",
             offending_line: "  (#let value Outcome (#enum-literal missing 42u64))",
@@ -1303,6 +1315,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "cycle-a" => Some("\"cycle-a.lim\""),
             "cfg" => Some("#platfrom"),
             "operator-arity" => Some("#u64::add-wrap"),
+            "call-graph-arity" => Some("#call-graph"),
+            "call-graph-return-escape" => Some("(#return (#call-graph))"),
             "unknown-function" => Some("missing"),
             "nonboolean-if-condition" => Some("(#if 1u64 2u64 3u64)"),
             "if-branch-mismatch" => Some("false"),
