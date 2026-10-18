@@ -91,6 +91,7 @@ pub(crate) fn validate_metadata(forms: &[SpannedExpr]) -> Result<(), SourceError
 
 pub(crate) struct Visibility {
     owners: Vec<Option<PathBuf>>,
+    prefixes: Vec<String>,
     exports: HashMap<PathBuf, Vec<String>>,
     declarations: HashMap<String, Span>,
     struct_owners: HashMap<String, String>,
@@ -104,6 +105,7 @@ impl Visibility {
         declarations: HashMap<String, Span>,
     ) -> Result<Self, SourceError> {
         let mut owners = Vec::with_capacity(files.len());
+        let mut prefixes = Vec::with_capacity(files.len());
         let mut directories = HashMap::new();
         for (id, file) in files.iter().enumerate() {
             let mut source = id as u32;
@@ -116,6 +118,13 @@ impl Visibility {
                 }
             }
             let path = &files.get(source as usize).unwrap_or(file).path;
+            prefixes.push(
+                files
+                    .get(source as usize)
+                    .unwrap_or(file)
+                    .import_prefix
+                    .clone(),
+            );
             let directory = path.parent().unwrap_or(Path::new(".")).to_path_buf();
             owners.push(
                 directories
@@ -159,12 +168,13 @@ impl Visibility {
             exports.insert(root.clone(), names);
         }
         let mut import_roots = HashMap::new();
-        for (name, span) in &declarations {
-            if let (Some((prefix, _)), Some(Some(root))) =
-                (name.rsplit_once('@'), owners.get(span.source_id as usize))
-            {
+        // Import ancestry comes from loader metadata, never from whichever
+        // declarations happened to survive expansion. A library may consist
+        // entirely of imports and generator invocations.
+        for (index, prefix) in prefixes.iter().enumerate() {
+            if let Some(Some(root)) = owners.get(index).filter(|_| !prefix.is_empty()) {
                 let entry = import_roots
-                    .entry(prefix.to_owned())
+                    .entry(prefix.clone())
                     .or_insert_with(|| Some(root.clone()));
                 if entry.as_ref() != Some(root) {
                     *entry = None;
@@ -173,11 +183,22 @@ impl Visibility {
         }
         Ok(Self {
             owners,
+            prefixes,
             exports,
             declarations,
             struct_owners: HashMap::new(),
             import_roots,
         })
+    }
+
+    /// Internal files share an instance; distinct external prefixes never do.
+    pub(crate) fn expansion_context(&self, span: Span) -> String {
+        let index = span.source_id as usize;
+        format!(
+            "{:?}:{:?}",
+            self.owners.get(index),
+            self.prefixes.get(index)
+        )
     }
 
     fn exported(&self, name: &str, root: &Path) -> bool {
@@ -204,6 +225,8 @@ impl Visibility {
             .get(use_span.source_id as usize)
             .and_then(Option::as_ref)
             == Some(root)
+            && self.prefixes.get(use_span.source_id as usize)
+                == self.prefixes.get(declaration.source_id as usize)
         {
             return Ok(());
         }
@@ -219,6 +242,11 @@ impl Visibility {
                         .and_then(Option::as_ref);
                     if self.import_roots.get(parent).and_then(Option::as_ref) != caller
                         || caller.is_none()
+                        || self
+                            .prefixes
+                            .get(use_span.source_id as usize)
+                            .map(String::as_str)
+                            != Some(parent)
                     {
                         return Err(SourceError::from(format!("'{name}' is private behind an intermediate library import; dependencies are not automatically re-exported")).at(use_span));
                     }

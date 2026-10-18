@@ -1315,7 +1315,7 @@ local bindings); builtin forms and primitive types are unchanged:
 ```
 
 For example, prefix `compat` produces `compat@Widget` and `compat@read`.
-Prefixes cannot contain `#generate`; nested external imports produce names such as
+Prefixes cannot contain `@`; nested external imports produce names such as
 `outer@inner@Widget`. Imports
 are expanded before generator expansion and ordinary type checking. Repeated
 imports of the same canonical path with the same mode and prefix are
@@ -1341,7 +1341,22 @@ visible to whole-program borrow checking and optimization.
 
 Generated code inherits its invocation's library, not the generator declaration's
 library or the physical `.lim` cache directory. Exporting a generator does not
-grant its callers private access. `#std` remains available within libraries.
+grant its callers private access. An expansion instance is identified by its
+owning library and effective external-import prefix, in addition to the generator
+and literal arguments. Identical invocations deduplicate across internal files
+of the same instance, but never merge declaration ownership across boundaries or
+different prefixes. Conflicting concrete names from separate instances are
+duplicate-declaration errors, not implicit sharing. Cache keys include the
+instance identity so compiler-generated hygienic names remain distinct on cache
+hits. The same library imported under two prefixes retains both copies of its
+internal imports and transitive dependencies; private access is instance-local.
+
+An exported generator may invoke its library-private generator helpers, including
+nested generators. These compile-time implementation calls are checked in the
+producing generator's definition context. Their emitted runtime declarations
+still belong to the original invocation and gain no implementation privileges.
+`#std` remains one shared compiler-provided instance, regardless of which library
+first imports it; its names and argument labels are not library-prefixed.
 See `examples/library_boundary.lim` and `examples/encapsulation/test.lim`.
 
 To bound compiler resource use, a project is limited to 128 simultaneously

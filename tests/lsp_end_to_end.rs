@@ -365,6 +365,58 @@ fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
 }
 
 #[test]
+fn separate_library_instances_navigate_internal_and_generated_definitions() {
+    let fixture = Fixture::new("library-instances");
+    fixture.write(
+        "numbers/lib.lim",
+        "(#export Number read) (#import \"implementation.lim\")",
+    );
+    let implementation_text = "(#gn alias (name) `((#type ,name #u64)))\n(#generate alias Number)\n(#fn read () Number (#return 42u64))\n";
+    let implementation = fixture.write("numbers/implementation.lim", implementation_text);
+    let main_text = "(#import-external \"numbers/lib.lim\" first)\n(#import-external \"numbers/lib.lim\" second)\n(#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))\n(#fn first-number () first@Number (#return 1u64))\n(#fn second-number () second@Number (#return 2u64))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    for prefix in ["first", "second"] {
+        assert_location(
+            &client.definition(&main, main_text, &format!("{prefix}@read")),
+            &implementation,
+            implementation_text,
+            "#fn read",
+            "read",
+        );
+        let target = client.definition(&main, main_text, &format!("{prefix}@Number"));
+        let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+        assert!(path.starts_with(fixture.0.join(".lim/generated")));
+        let text = fs::read_to_string(&path).unwrap();
+        let name = format!("{prefix}@Number");
+        assert_location(&target, &path, &text, &format!("#type {name}"), &name);
+        assert_eq!(client.definition(&main, main_text, &name), target);
+    }
+    client.open(&implementation, implementation_text);
+    let targets = client.definition(&implementation, implementation_text, "Number (#return");
+    let Json::Array(targets) = targets else {
+        panic!("an internal use must expose both generated instances: {targets:?}");
+    };
+    assert_eq!(targets.len(), 2);
+    let mut names = std::collections::BTreeSet::new();
+    for target in targets {
+        let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        for prefix in ["first", "second"] {
+            let name = format!("{prefix}@Number");
+            if text.contains(&format!("#type {name}")) {
+                assert_location(&target, &path, &text, &format!("#type {name}"), &name);
+                names.insert(name);
+            }
+        }
+    }
+    assert_eq!(names.len(), 2);
+    client.shutdown();
+}
+
+#[test]
 fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let fixture = Fixture::new("navigation");
     let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n(#fn inspect-holder (: holder (#ref Holder)) () (#return ()))\r\n";

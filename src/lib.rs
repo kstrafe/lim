@@ -1877,6 +1877,8 @@ impl Program {
 pub(crate) struct SourceFile {
     pub path: PathBuf,
     pub source: String,
+    /// Effective external-import instance; generated sources inherit via origins.
+    pub import_prefix: String,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -5299,10 +5301,11 @@ fn load_imports_with_sources(
         |path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
     );
     active.push(root_path.clone());
-    let mut source_ids = HashMap::from([(root_path.clone(), 0u32)]);
+    let mut source_ids = HashMap::from([((root_path.clone(), String::new()), 0u32)]);
     let mut source_files = vec![SourceFile {
         path: root_path,
         source: source.to_owned(),
+        import_prefix: String::new(),
     }];
     if source.len() > MAX_IMPORTED_SOURCE_BYTES {
         return Err(format!(
@@ -5462,8 +5465,8 @@ fn load_imports_inner(
     base: &Path,
     source_id: u32,
     active: &mut Vec<PathBuf>,
-    loaded: &mut HashSet<String>,
-    source_ids: &mut HashMap<PathBuf, u32>,
+    loaded: &mut HashSet<(PathBuf, bool, String)>,
+    source_ids: &mut HashMap<(PathBuf, String), u32>,
     source_files: &mut Vec<SourceFile>,
     budget: &mut ImportBudget,
     config: &CompileConfig,
@@ -5583,15 +5586,17 @@ fn load_imports_inner(
                 source_files,
             ));
         }
-        let key = format!(
-            "{}:{}:{}",
-            path.display(),
-            if specification.external {
-                "external"
-            } else {
-                "internal"
-            },
-            specification.prefix.unwrap_or("")
+        let parent_prefix = &source_files[source_id as usize].import_prefix;
+        let instance_prefix = match specification.prefix {
+            None if standard_library::source(&path).is_some() => String::new(),
+            Some(prefix) if !parent_prefix.is_empty() => names::imported(parent_prefix, prefix),
+            Some(prefix) => prefix.to_owned(),
+            None => parent_prefix.clone(),
+        };
+        let key = (
+            path.clone(),
+            specification.external,
+            instance_prefix.clone(),
         );
         if !loaded.insert(key) {
             continue;
@@ -5648,14 +5653,17 @@ fn load_imports_inner(
             })?;
         budget.import_count += 1;
         budget.total_source_bytes = next_total;
-        let imported_source_id = *source_ids.entry(path.clone()).or_insert_with(|| {
-            let id = source_files.len() as u32;
-            source_files.push(SourceFile {
-                path: path.clone(),
-                source: imported_source.clone(),
+        let imported_source_id = *source_ids
+            .entry((path.clone(), instance_prefix.clone()))
+            .or_insert_with(|| {
+                let id = source_files.len() as u32;
+                source_files.push(SourceFile {
+                    path: path.clone(),
+                    source: imported_source.clone(),
+                    import_prefix: instance_prefix,
+                });
+                id
             });
-            id
-        });
         active.push(path.clone());
         let mut imported = load_imports_inner(
             &imported_source,
@@ -5670,6 +5678,25 @@ fn load_imports_inner(
         )?;
         active.pop();
         if let Some(prefix) = specification.prefix {
+            let mut shared_names = if source_files
+                .iter()
+                .any(|file| file.path == Path::new(standard_library::ROOT))
+            {
+                standard_library::shared_names().clone()
+            } else {
+                HashSet::new()
+            };
+            // A library's own explicit declaration takes precedence over a
+            // same-spelled shared name; only its std references stay global.
+            for form in &imported {
+                if standard_library::source(&source_files[form.span.source_id as usize].path)
+                    .is_none()
+                {
+                    for name in generator_provenance::declared_names(&form.expr) {
+                        shared_names.remove(name);
+                    }
+                }
+            }
             let generator_names = imported
                 .iter()
                 .filter_map(|form| match &form.expr {
@@ -5685,7 +5712,15 @@ fn load_imports_inner(
                 })
                 .collect::<HashSet<_>>();
             for form in &mut imported {
-                prefix_expression(&mut form.expr, prefix, &generator_names);
+                // #std is one compiler-owned instance, even when first reached
+                // through a prefixed library. Its argument labels and helper
+                // bodies must not acquire that library's prefix either.
+                if standard_library::source(&source_files[form.span.source_id as usize].path)
+                    .is_some()
+                {
+                    continue;
+                }
+                prefix_expression(&mut form.expr, prefix, &generator_names, &shared_names);
                 synchronize_source_children(form);
                 if gensym::contains_reserved(&form.expr) {
                     let prefix_span = expression
@@ -5966,25 +6001,57 @@ fn synchronize_source_children(expression: &mut SpannedExpr) {
     }
 }
 
-fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &HashSet<String>) {
+fn prefix_expression(
+    expression: &mut Expr,
+    prefix: &str,
+    generator_names: &HashSet<String>,
+    shared_names: &HashSet<String>,
+) {
+    let shared = |name: &str| {
+        shared_names.contains(name)
+            || shared_names.contains(
+                name.split("::")
+                    .next()
+                    .unwrap_or(name)
+                    .split('.')
+                    .next()
+                    .unwrap_or(name),
+            )
+    };
     match expression {
         Expr::Function(_) => unreachable!("imports are prefixed before call normalization"),
         Expr::Symbol(name) => {
-            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) {
+            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) && !shared(name) {
                 *name = names::imported(prefix, name);
             }
         }
         Expr::List(items) => {
+            // Shared std functions keep their parameter labels. Values still
+            // refer to the importing library's locals and must be prefixed.
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))
+                && matches!(items.get(1), Some(Expr::Symbol(name)) if shared(name))
+            {
+                if let Some(Expr::List(arguments)) = items.get_mut(2) {
+                    for argument in arguments {
+                        if let Expr::List(pair) = argument {
+                            for value in pair.iter_mut().skip(1) {
+                                prefix_expression(value, prefix, generator_names, shared_names);
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             // Register names are literal machine metadata, not Lim identifiers.
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#asm") {
                 if let Some(ty) = items.get_mut(1) {
-                    prefix_expression(ty, prefix, generator_names);
+                    prefix_expression(ty, prefix, generator_names, shared_names);
                 }
                 if let Some(Expr::List(operands)) = items.get_mut(2) {
                     for operand in operands {
                         if let Expr::List(pair) = operand {
                             for value in pair.iter_mut().skip(1) {
-                                prefix_expression(value, prefix, generator_names);
+                                prefix_expression(value, prefix, generator_names, shared_names);
                             }
                         }
                     }
@@ -6000,7 +6067,7 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
                     for argument in arguments {
                         if let Expr::List(pair) = argument {
                             for value in pair.iter_mut().skip(1) {
-                                prefix_expression(value, prefix, generator_names);
+                                prefix_expression(value, prefix, generator_names, shared_names);
                             }
                         }
                     }
@@ -6011,11 +6078,13 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
                 for item in items.iter_mut().skip(1) {
                     match item {
                         Expr::String(name)
-                            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) =>
+                            if !name.starts_with('#')
+                                && !is_unprefixed_builtin_name(name)
+                                && !shared(name) =>
                         {
                             *name = names::imported(prefix, name);
                         }
-                        other => prefix_expression(other, prefix, generator_names),
+                        other => prefix_expression(other, prefix, generator_names, shared_names),
                     }
                 }
                 return;
@@ -6029,14 +6098,16 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
                         }
                     }
                 } else {
-                    prefix_expression(item, prefix, generator_names);
+                    prefix_expression(item, prefix, generator_names, shared_names);
                 }
             }
         }
         Expr::Quote(value)
         | Expr::QuasiQuote(value)
         | Expr::Unquote(value)
-        | Expr::UnquoteSplicing(value) => prefix_expression(value, prefix, generator_names),
+        | Expr::UnquoteSplicing(value) => {
+            prefix_expression(value, prefix, generator_names, shared_names)
+        }
         Expr::Block(_)
         | Expr::Loop(_)
         | Expr::Labeled { .. }
@@ -10293,7 +10364,7 @@ mod tests {
         }
         let generators = HashSet::from(["literal".to_owned()]);
         for form in &mut forms {
-            prefix_expression(&mut form.expr, "ext", &generators);
+            prefix_expression(&mut form.expr, "ext", &generators, &HashSet::new());
             synchronize_source_children(form);
             consistent(form);
         }
@@ -10695,10 +10766,11 @@ mod tests {
             let canonical_root = std::fs::canonicalize(&root).unwrap();
             let mut active = vec![canonical_root.clone()];
             let mut loaded = HashSet::new();
-            let mut source_ids = HashMap::from([(canonical_root.clone(), 0u32)]);
+            let mut source_ids = HashMap::from([((canonical_root.clone(), String::new()), 0u32)]);
             let mut source_files = vec![SourceFile {
                 path: canonical_root,
                 source: root_source.to_owned(),
+                import_prefix: String::new(),
             }];
             let mut budget = ImportBudget {
                 import_count: 0,

@@ -7634,6 +7634,7 @@ pub(crate) fn program(
         let source_id = u32::try_from(program.source_files.len())
             .map_err(|_| "too many async generated source files")?;
         program.source_files.push(crate::SourceFile {
+            import_prefix: String::new(),
             path: format!("<async graph {}>", generated.frame).into(),
             source: generated.source.clone(),
         });

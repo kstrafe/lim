@@ -214,6 +214,14 @@ pub(crate) struct Origins {
     pub generation: crate::generator_provenance::Registry,
 }
 
+impl Origins {
+    pub(crate) fn expansion_context(&self, span: Span) -> String {
+        self.visibility
+            .as_ref()
+            .map_or_else(String::new, |visibility| visibility.expansion_context(span))
+    }
+}
+
 pub(crate) fn expand_with_origins(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
@@ -835,7 +843,15 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '#generate'".into());
     };
-    if let (Some(visibility), Some(span)) = (&context.origins.visibility, context.invocation_span) {
+    // Nested generator calls are implementation calls by the producing
+    // generator. Runtime declarations still belong to the original invocation.
+    let generator_caller = context
+        .active
+        .last()
+        .and_then(|name| context.generators.get(name))
+        .map(|definition| definition.span)
+        .or(context.invocation_span);
+    if let (Some(visibility), Some(span)) = (&context.origins.visibility, generator_caller) {
         visibility
             .access(name, span, false)
             .map_err(|error| error.message)?;
@@ -919,7 +935,11 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
         ));
     }
-    let invocation_key = format!("{name}:{arguments:?}");
+    let instance = context
+        .invocation_span
+        .map(|span| context.origins.expansion_context(span))
+        .unwrap_or_default();
+    let invocation_key = format!("{instance}:{name}:{arguments:?}");
     if let Some(span) = context.invocation_span {
         context.origins.user.insert(span);
     }
@@ -955,13 +975,14 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v12\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v13\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
         context.capability_hash,
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
+        instance,
         &arguments,
     );
     let scope = context.gensyms.open(&cache_key)?;

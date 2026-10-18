@@ -160,6 +160,7 @@ fn context_key(program: &Program, config: &CompileConfig, target: &str) -> Vec<u
         for file in &program.source_files {
             put_bytes(bytes, file.path.as_os_str().as_encoded_bytes());
             put_bytes(bytes, file.source.as_bytes());
+            put_bytes(bytes, file.import_prefix.as_bytes());
         }
         match &program.generator_validation {
             None => bytes.push(0),
@@ -801,6 +802,7 @@ mod tests {
         b.add_module_path("extra");
         assert_ne!(key, context_key(&program, &b, "target"));
         program.source_files.push(crate::SourceFile {
+            import_prefix: String::new(),
             path: "dep.lim".into(),
             source: "dependency".into(),
         });
@@ -808,6 +810,9 @@ mod tests {
         assert_ne!(key, dependency_key);
         program.source_files[0].source.push_str(" changed");
         assert_ne!(dependency_key, context_key(&program, &a, "target"));
+        let before_instance = context_key(&program, &a, "target");
+        program.source_files[0].import_prefix = "different-instance".into();
+        assert_ne!(before_instance, context_key(&program, &a, "target"));
         let before_witness = context_key(&program, &a, "target");
         program.generator_validation = Some(Ok(std::sync::Arc::new(
             crate::parse_program("(#fn witness () #u64 (#return 1u64))").unwrap(),

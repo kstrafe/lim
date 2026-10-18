@@ -563,7 +563,7 @@ pub(crate) fn prepare_program_syntax(
     // A parser-backed builtin may be emitted by a user generator and also be
     // called directly. Canonicalize literal arguments before deduplicating so
     // both routes compile one definition and retain every invocation origin.
-    let mut builtin_invocations = HashMap::<String, String>::new();
+    let mut builtin_invocations = HashMap::<(String, String), String>::new();
     let mut unique = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate)))
@@ -581,7 +581,9 @@ pub(crate) fn prepare_program_syntax(
                 })?;
             let canonical = expression_source(&normalized)?;
             let original = expression_source(&expression.expr)?;
-            if let Some(retained) = builtin_invocations.get(&canonical) {
+            let instance = generator_origins.expansion_context(expression.span);
+            let identity = (instance, canonical);
+            if let Some(retained) = builtin_invocations.get(&identity) {
                 if retained != &original {
                     generator_origins
                         .generation
@@ -596,7 +598,7 @@ pub(crate) fn prepare_program_syntax(
                 }
                 continue;
             }
-            builtin_invocations.insert(canonical, original);
+            builtin_invocations.insert(identity, original);
         }
         unique.push(expression);
     }
@@ -623,6 +625,7 @@ pub(crate) fn prepare_program_syntax(
                 |file| file.path.display().to_string(),
             );
             source_files.push(SourceFile {
+                import_prefix: String::new(),
                 path: format!("<generated from {path}:{}:{}>", origin.line, origin.column).into(),
                 source: text,
             });
@@ -850,6 +853,7 @@ pub(crate) fn parse_prepared_program_items(
             let mut generated_expression = parsed.remove(0);
             set_source_id(&mut generated_expression, source_id);
             source_files.push(SourceFile {
+                import_prefix: String::new(),
                 path: PathBuf::from(format!(
                     "<generated from {}:{}:{}>",
                     source_files.get(form_span.source_id as usize).map_or_else(
@@ -949,6 +953,7 @@ pub(crate) fn parse_prepared_program_items(
                             }
                         }
                         source_files.push(SourceFile {
+                            import_prefix: String::new(),
                             path: PathBuf::from(source_path),
                             source: generated_text,
                         });

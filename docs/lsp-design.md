@@ -21,6 +21,10 @@ not namespace syntax. `#generate` opens the generated artifact, while its
 generator-name operand navigates to the generator declaration. Literal inputs
 remain data. New syntax must preserve compiler visibility checks in diagnostics
 and cover these roles in navigation tests, including unsaved library roots.
+The same physical file can have distinct source IDs under different effective
+external prefixes. Keep those declaration instances separate during resolution;
+their locations still navigate to the same physical source. Generated ownership
+follows the invocation's instance, not the cached artifact's path.
 
 Compilation contexts may omit `cfg` entries. Builtin configuration keys are
 derived from that context's target; an omitted target defaults to the host,

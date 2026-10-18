@@ -725,23 +725,25 @@ impl Server<'_> {
             .map_or(context.files.as_slice(), |program| {
                 program.source_files.as_slice()
             });
-        let mut query = files
+        let mut queries = files
             .iter()
-            .position(|file| path_key(&file.path) == doc.path)
-            .map(|file| (file as u32, byte));
-        if query.is_none() {
+            .enumerate()
+            .filter(|(_, file)| path_key(&file.path) == doc.path)
+            .map(|(file, _)| (file as u32, byte))
+            .collect::<Vec<_>>();
+        if queries.is_empty() {
             if let Some(program) = &context.program {
-                query = (0..program.source_files.len()).find_map(|id| {
+                queries.extend((0..program.source_files.len()).filter_map(|id| {
                     let (source, prefix) = generated_snapshot(program, id as u32)?;
                     (source == doc.text)
                         .then(|| byte.checked_sub(prefix).map(|byte| (id as u32, byte)))
                         .flatten()
-                });
+                }));
             }
         }
-        let (file, byte) = query?;
-        let targets =
-            navigation::Index::new(context.program.as_ref(), &context.forms, file, byte).resolve();
+        let targets = queries.into_iter().flat_map(|(file, byte)| {
+            navigation::Index::new(context.program.as_ref(), &context.forms, file, byte).resolve()
+        });
         let mut locations = BTreeSet::new();
         for span in targets {
             let file = files.get(span.source_id as usize)?;

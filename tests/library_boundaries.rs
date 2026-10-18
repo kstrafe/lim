@@ -27,6 +27,196 @@ fn check(base: &Path, path: &str, source: &str) -> Result<(), String> {
     lim::check_types(&program)
 }
 
+// Exercise ownership independently of whether expansions came from the
+// interpreter or persistent cache, and repeat to cover warm-cache paths.
+fn check_cache_modes(base: &Path, source: &str, expected_error: Option<&str>) {
+    for mode in 0..3 {
+        let parsed = if mode == 0 {
+            lim::parse_program_from_path(source, &base.join("main.lim"))
+        } else {
+            lim::parse_program_from_path_with_config_and_cache(
+                source,
+                &base.join("main.lim"),
+                &lim::CompileConfig::default(),
+                &base.join(".lim/cache"),
+            )
+        };
+        let result = parsed.and_then(|program| lim::check_types(&program));
+        if let Some(message) = expected_error {
+            let error = result.expect_err("cross-boundary declarations silently merged");
+            assert!(error.contains(message), "mode {mode}: {error}");
+        } else {
+            result.unwrap_or_else(|error| panic!("mode {mode}: {error}"));
+        }
+    }
+}
+
+#[test]
+fn identical_expansions_in_different_libraries_do_not_merge_ownership() {
+    let scratch = support::Scratch::new("generator-instance-ownership");
+    // Strings intentionally survive prefixing: these really are identical
+    // invocations, unlike invocations whose symbol arguments get prefixed.
+    write(scratch.path(), "numbers/lib.lim", "(#export make) (#gn make (name) `((#type ,(#gn-symbol name) #u64))) (#generate make \"Hidden\")");
+    for imports in [
+        "(#import-external \"numbers/lib.lim\" nums) (#generate nums@make \"Hidden\")",
+        "(#generate nums@make \"Hidden\") (#import-external \"numbers/lib.lim\" nums)",
+    ] {
+        let source = format!("{imports} (#fn main () #u64 (#return 0u64))");
+        check_cache_modes(scratch.path(), &source, Some("duplicate"));
+    }
+}
+
+#[test]
+fn external_instances_retain_their_own_internal_imports() {
+    let scratch = support::Scratch::new("library-instance-internal-imports");
+    write(
+        scratch.path(),
+        "numbers/lib.lim",
+        "(#export read) (#import \"implementation.lim\")",
+    );
+    write(
+        scratch.path(),
+        "numbers/implementation.lim",
+        "(#generate #optional (: type #u64 : name Number)) (#fn read () #u64 (#return 42u64))",
+    );
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" first) (#import-external \"numbers/lib.lim\" second) (#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))", None);
+}
+
+#[test]
+fn transitive_instances_retain_their_own_dependencies() {
+    let scratch = support::Scratch::new("library-instance-transitive-imports");
+    write(
+        scratch.path(),
+        "leaf/lib.lim",
+        "(#export read) (#fn read () #u64 (#return 42u64))",
+    );
+    write(scratch.path(), "middle/lib.lim", "(#export read) (#import-external \"../leaf/lib.lim\" leaf) (#fn read () #u64 (#return (#call leaf@read ())))");
+    check_cache_modes(scratch.path(), "(#import-external \"middle/lib.lim\" first) (#import-external \"middle/lib.lim\" second) (#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))", None);
+}
+
+#[test]
+fn nested_builtin_expansions_do_not_merge_across_boundaries() {
+    let scratch = support::Scratch::new("library-builtin-expansion-ownership");
+    write(scratch.path(), "numbers/lib.lim", "(#export make) (#gn make (name) `((#generate #optional (: type #u64 : name ,(#gn-symbol name))))) (#generate make \"Hidden\")");
+    for imports in [
+        "(#import-external \"numbers/lib.lim\" nums) (#generate nums@make \"Hidden\")",
+        "(#generate nums@make \"Hidden\") (#import-external \"numbers/lib.lim\" nums)",
+    ] {
+        check_cache_modes(
+            scratch.path(),
+            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            Some("duplicate"),
+        );
+    }
+}
+
+#[test]
+fn identical_expansions_still_deduplicate_inside_one_library_instance() {
+    let scratch = support::Scratch::new("library-local-expansion-dedup");
+    write(scratch.path(), "numbers/lib.lim", "(#export read) (#gn make (name) `((#type ,(#gn-symbol name) #u64))) (#import \"first.lim\") (#import \"second.lim\") (#fn read () #u64 (#return 42u64))");
+    write(
+        scratch.path(),
+        "numbers/first.lim",
+        "(#generate make \"Hidden\")",
+    );
+    write(
+        scratch.path(),
+        "numbers/second.lim",
+        "(#generate make \"Hidden\")",
+    );
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#return (#call nums@read ())))", None);
+}
+
+#[test]
+fn one_instance_cannot_access_another_instances_private_declarations() {
+    let scratch = support::Scratch::new("library-instance-private-access");
+    write(scratch.path(), "numbers/lib.lim", "(#export read) (#fn secret () #u64 (#return 42u64)) (#gn forge (target) `((#fn read () #u64 (#return (#call ,(#gn-symbol target) ()))))) (#generate forge \"second@secret\")");
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" first) (#import-external \"numbers/lib.lim\" second) (#fn main () #u64 (#return 0u64))", Some("private"));
+}
+
+#[test]
+fn standard_imports_are_shared_between_library_instances() {
+    let scratch = support::Scratch::new("library-standard-instance-dedup");
+    write(scratch.path(), "numbers/lib.lim", "(#export read) (#std) (#fn read () #u64 (#let text String (#call String::new ())) (#call String::free (: string text)) (#return 42u64))");
+    check_cache_modes(scratch.path(), "(#std) (#import-external \"numbers/lib.lim\" first) (#import-external \"numbers/lib.lim\" second) (#fn main () #u64 (#return 0u64))", None);
+    // Also reach std first through a library: it must not capture that
+    // instance's prefix on its types or named parameter labels.
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" first) (#import-external \"numbers/lib.lim\" second) (#std) (#fn main () #u64 (#let text String (#call String::new ())) (#call String::free (: string text)) (#return 0u64))", None);
+}
+
+#[test]
+fn exported_generators_can_use_private_nested_generators_transitively() {
+    let scratch = support::Scratch::new("library-nested-generator-implementation");
+    write(scratch.path(), "leaf/lib.lim", "(#export make) (#gn implementation (name) `((#type ,(#gn-symbol name) #u64))) (#gn make (name) `((#generate implementation ,name)))");
+    write(scratch.path(), "middle/lib.lim", "(#export build) (#import-external \"../leaf/lib.lim\" leaf) (#gn build (name) `((#generate leaf@make ,name)))");
+    check_cache_modes(scratch.path(), "(#import-external \"middle/lib.lim\" middle) (#generate middle@build \"ApplicationNumber\") (#fn main () #u64 (#let number ApplicationNumber 42u64) (#return number))", None);
+    check_cache_modes(scratch.path(), "(#import-external \"middle/lib.lim\" middle) (#generate middle@leaf@make \"ApplicationNumber\") (#fn main () #u64 (#return 0u64))", Some("not automatically re-exported"));
+    check_cache_modes(scratch.path(), "(#import-external \"middle/lib.lim\" middle) (#generate middle@leaf@implementation \"ApplicationNumber\") (#fn main () #u64 (#return 0u64))", Some("private"));
+    write(scratch.path(), "middle/lib.lim", "(#export build) (#import-external \"../leaf/lib.lim\" leaf) (#gn build (name) `((#generate leaf@make ,name))) (#generate build \"Hidden\")");
+    for imports in [
+        "(#import-external \"middle/lib.lim\" middle) (#generate middle@build \"Hidden\")",
+        "(#generate middle@build \"Hidden\") (#import-external \"middle/lib.lim\" middle)",
+    ] {
+        check_cache_modes(
+            scratch.path(),
+            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            Some("duplicate"),
+        );
+    }
+}
+
+#[test]
+fn hygienic_names_are_fresh_per_expansion_instance_on_cache_hits() {
+    let scratch = support::Scratch::new("library-instance-gensym");
+    write(
+        scratch.path(),
+        "numbers/lib.lim",
+        "(#export make) (#gn make () `((#type ,(#gn-gensym \"hidden\") #u64))) (#generate make)",
+    );
+    for imports in [
+        "(#import-external \"numbers/lib.lim\" nums) (#generate nums@make)",
+        "(#generate nums@make) (#import-external \"numbers/lib.lim\" nums)",
+    ] {
+        check_cache_modes(
+            scratch.path(),
+            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            None,
+        );
+    }
+}
+
+#[test]
+fn generated_only_libraries_retain_their_import_ancestry() {
+    let scratch = support::Scratch::new("generated-only-library-ancestry");
+    write(
+        scratch.path(),
+        "leaf/lib.lim",
+        "(#export make) (#gn make (name) `((#type ,name #u64)))",
+    );
+    write(
+        scratch.path(),
+        "middle/lib.lim",
+        "(#export Number) (#import-external \"../leaf/lib.lim\" leaf) (#generate leaf@make Number)",
+    );
+    check_cache_modes(
+        scratch.path(),
+        "(#import-external \"middle/lib.lim\" middle) (#fn main () middle@Number (#return 42u64))",
+        None,
+    );
+}
+
+#[test]
+fn import_identity_delimiters_cannot_alias_other_paths_and_prefixes() {
+    let scratch = support::Scratch::new("import-identity-delimiters");
+    write(
+        scratch.path(),
+        "first:external:second",
+        "(#fn read () #u64 (#return 1u64))",
+    );
+    write(scratch.path(), "first", "(#fn read () #u64 (#return 2u64))");
+    check_cache_modes(scratch.path(), "(#import-external \"first:external:second\" p) (#import-external \"first\" second:external:p) (#fn main () #u64 (#return (#u64::add-wrap (#call p@read ()) (#call second:external:p@read ()))))", None);
+}
+
 #[test]
 fn public_api_runs_with_agglutinated_names_and_no_public_representation() {
     let scratch = support::Scratch::new("library-api");

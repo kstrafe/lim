@@ -30,7 +30,7 @@ fn identifier(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn declared_names(expr: &Expr) -> Vec<&str> {
+pub(crate) fn declared_names(expr: &Expr) -> Vec<&str> {
     let Expr::List(items) = expr else {
         return Vec::new();
     };

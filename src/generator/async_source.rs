@@ -832,6 +832,7 @@ impl Lowered {
             let mut source = crate::parse(text)?.remove(0);
             crate::set_source_id(&mut source, source_id);
             program.source_files.push(crate::SourceFile {
+                import_prefix: String::new(),
                 path: format!("<async analysis at {}:{}>", origin.line, origin.column).into(),
                 source: text.clone(),
             });

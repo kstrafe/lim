@@ -246,7 +246,10 @@ pub(crate) fn navigation_context(
                         program
                             .source_files
                             .iter()
-                            .position(|candidate| path_key(&candidate.path) == path_key(&file.path))
+                            .position(|candidate| {
+                                path_key(&candidate.path) == path_key(&file.path)
+                                    && candidate.import_prefix == file.import_prefix
+                            })
                             .map(|id| id as u32)
                     })
                     .collect::<Option<Vec<_>>>();

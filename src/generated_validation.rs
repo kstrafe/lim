@@ -213,6 +213,7 @@ mod tests {
         witness.generated_source_invocations.insert(1, invocation);
         runtime.generator_validation = Some(Ok(std::sync::Arc::new(witness)));
         runtime.source_files.push(crate::SourceFile {
+            import_prefix: String::new(),
             path: "later-runtime.lim".into(),
             source: "; not the witness source\n".into(),
         });
@@ -238,6 +239,7 @@ mod tests {
         move_source_ids(&mut extra, &[1]);
         runtime.items.extend(extra.items);
         runtime.source_files.push(crate::SourceFile {
+            import_prefix: String::new(),
             path: "extra.lim".into(),
             source: extra_source.into(),
         });
