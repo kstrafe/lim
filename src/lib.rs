@@ -33,6 +33,7 @@ mod generator_provenance;
 mod gensym;
 mod instruction_encoder;
 mod let_else;
+mod library;
 mod linearcheck;
 pub mod lsp;
 pub mod lsp_context;
@@ -4974,6 +4975,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "unsafe-fn"
             | "call"
             | "call-graph"
+            | "export"
             | "generate"
             | "unsafe-call"
             | "extern-fn"
@@ -5495,6 +5497,7 @@ fn load_imports_inner(
     for expression in &mut expressions {
         set_source_id(expression, source_id);
     }
+    library::validate_metadata(&expressions).map_err(|error| error.attach(source_files))?;
     let expressions = expand_cfg_forms(expressions, config)
         .map_err(|error| attach_generator_source(error, source_files))?;
     let mut result = Vec::new();
@@ -5502,6 +5505,19 @@ fn load_imports_inner(
         let Some(specification) = import_form(&expression.expr)
             .map_err(|error| attach_span_to_source_error(error, expression.span, source_files))?
         else {
+            if library::export_names(&expression)?.is_some() {
+                if source_files[source_id as usize]
+                    .path
+                    .file_name()
+                    .is_none_or(|name| name != "lib.lim")
+                {
+                    return Err(attach_span_to_source_error(
+                        "#export is only allowed in a library's lib.lim".into(),
+                        expression.span,
+                        source_files,
+                    ));
+                }
+            }
             result.push(expression);
             continue;
         };
@@ -5527,6 +5543,16 @@ fn load_imports_inner(
                 source_files,
             )
         })?;
+        if specification.path != standard_library::ROOT {
+            library::check_import(
+                &source_files[source_id as usize].path,
+                &path,
+                specification.external,
+            )
+            .map_err(|message| {
+                attach_span_to_source_error(message, expression.span, source_files)
+            })?;
+        }
         if active.contains(&path) {
             let mut cycle = active
                 .iter()

@@ -2201,6 +2201,15 @@ fn check_types_inner(
         return Ok(declarations);
     }
     *diagnostic_code = crate::DiagnosticCode::Type;
+    crate::library::check(program, &declarations, |value| {
+        expression_ids
+            .get(&(std::ptr::from_ref(value) as usize))
+            .and_then(|id| checked_expression_types.get(id).cloned())
+    })
+    .map_err(|error| {
+        *diagnostic_span = error.span;
+        error.message
+    })?;
     check_opaque_access(
         program,
         &declarations,

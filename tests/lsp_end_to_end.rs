@@ -335,6 +335,36 @@ impl Drop for Client {
 }
 
 #[test]
+fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
+    let fixture = Fixture::new("library-exports");
+    let root_text = "(#export Number read)\n(#import \"implementation.lim\")\n";
+    let root = fixture.write("numbers/lib.lim", root_text);
+    let implementation_text = "(#type Number #u64)\n(#fn read () Number (#return 42u64))\n";
+    let implementation = fixture.write("numbers/implementation.lim", implementation_text);
+    let main_text = "(#import-external \"numbers/lib.lim\" numbers)\n(#fn main () numbers@Number (#return (#call numbers@read ())))\n";
+    let main = fixture.write("main.lim", main_text);
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    client.open(&root, root_text);
+    for (file, text, needle, declaration, name) in [
+        (&main, main_text, "numbers@Number", "#type Number", "Number"),
+        (&main, main_text, "numbers@read", "#fn read", "read"),
+        (&root, root_text, "Number", "#type Number", "Number"),
+        (&root, root_text, "read", "#fn read", "read"),
+    ] {
+        assert_location(
+            &client.definition(file, text, needle),
+            &implementation,
+            implementation_text,
+            declaration,
+            name,
+        );
+    }
+    assert_eq!(client.definition(&root, root_text, "#export"), Json::Null);
+    client.shutdown();
+}
+
+#[test]
 fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let fixture = Fixture::new("navigation");
     let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n(#fn inspect-holder (: holder (#ref Holder)) () (#return ()))\r\n";

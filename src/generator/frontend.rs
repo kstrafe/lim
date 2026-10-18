@@ -520,12 +520,14 @@ pub(crate) fn prepare_program_syntax(
         }
     }
     let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
+    let visibility = crate::library::check_generators(&loaded, &source_files)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
     let loaded = bundles
         .expand(loaded, false)
         .map_err(|error| error.attach(&source_files))?;
     let mut generator_origins = generator::Origins::default();
+    generator_origins.visibility = Some(visibility);
     generator_origins.source_paths = source_files.iter().map(|file| file.path.clone()).collect();
     // Imports may prefix the bodies of library generators. Authorize only the
     // original shipped declaration, never a path or a transformed name alone.
@@ -628,6 +630,11 @@ pub(crate) fn prepare_program_syntax(
             *expression = tree;
         }
     }
+    crate::library::check_contributions(
+        &expressions,
+        &source_files,
+        &generated_source_invocations,
+    )?;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
@@ -785,6 +792,23 @@ pub(crate) fn parse_prepared_program_items(
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
+        if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#export"))
+        {
+            let file = &source_files[expression.span.source_id as usize];
+            let original = file
+                .source
+                .get(expression.span.start..expression.span.end)
+                .unwrap_or("");
+            let literal = parse(original).ok().is_some_and(|forms| forms.len() == 1 && matches!(&forms[0].expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#export")));
+            if file.path.file_name().is_none_or(|name| name != "lib.lim") || !literal {
+                return Err(SourceError::from(
+                    "#export must be literal source in lib.lim, not generated code",
+                )
+                .at(expression.span)
+                .attach(&source_files));
+            }
+            continue;
+        }
         if !expand_async && is_async_invocation(&expression) {
             continue;
         }

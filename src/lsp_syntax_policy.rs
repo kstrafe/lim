@@ -62,6 +62,7 @@ mod tests {
         "enum",
         "enum-contribute",
         "enum-literal",
+        "export",
         "extern-fn",
         "f32",
         "f64",

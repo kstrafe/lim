@@ -205,6 +205,7 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
 
 #[derive(Default)]
 pub(crate) struct Origins {
+    pub visibility: Option<crate::library::Visibility>,
     pub user: HashSet<Span>,
     pub builtins: HashMap<String, Vec<Span>>,
     pub source_invocation_names: HashMap<Span, String>,
@@ -834,6 +835,11 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '#generate'".into());
     };
+    if let (Some(visibility), Some(span)) = (&context.origins.visibility, context.invocation_span) {
+        visibility
+            .access(name, span, false)
+            .map_err(|error| error.message)?;
+    }
     let arguments = items[2..].to_vec();
     let Some(generator) = context.generators.get(name).cloned() else {
         if builtins::named_builtin_keys(name).is_none() {
@@ -2100,6 +2106,25 @@ fn evaluate(
                 return Err("#gn-call requires a function name".into());
             }
             let name = symbol(items.get(1), "#gn-call function name")?;
+            if let Some(visibility) = &context.origins.visibility {
+                let caller = context
+                    .active_functions
+                    .last()
+                    .and_then(|name| context.functions.get(name))
+                    .or_else(|| {
+                        context
+                            .active
+                            .last()
+                            .and_then(|name| context.generators.get(name))
+                    })
+                    .map(|definition| definition.span)
+                    .or(context.invocation_span);
+                if let Some(caller) = caller {
+                    visibility
+                        .access(name, caller, false)
+                        .map_err(|error| error.message)?;
+                }
+            }
             let Some(function) = context.functions.get(name).cloned() else {
                 return Err(format!("unknown generator function '{name}'"));
             };

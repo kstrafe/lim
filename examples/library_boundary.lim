@@ -1,0 +1,9 @@
+(#import-external "encapsulation/lib.lim" counters)
+
+(#fn main () #u64
+  (#let counter counters@Counter
+    (#call counters@counter-new (: counters@value 42u64)))
+  (#let answer #u64
+    (#call counters@counter-read (: counters@counter (#borrow counter))))
+  (#call counters@counter-destroy (: counters@counter counter))
+  (#return answer))

@@ -1322,6 +1322,28 @@ imports of the same canonical path with the same mode and prefix are
 deduplicated; cycles are rejected. Imported declarations participate in the
 same compilation and duplicate-name checks as declarations in the root file.
 See `examples/imports.lim`.
+A directory containing `lib.lim` establishes a library boundary. Each source
+belongs to its nearest enclosing boundary, including a separately compiled
+white-box test. `#import` cannot cross that boundary or target `lib.lim`.
+Cross-boundary imports must use `#import-external` and target the library's
+`lib.lim`, never one of its implementation files. Nested library directories
+establish independent boundaries in both directions. Canonical paths prevent
+symlink and `..` bypasses. Sources outside library directories may still be
+externally imported for identifier prefixing, but have no library privacy.
+
+Only `lib.lim` may contain `(#export Type function ...)`, listing the declarations
+available outside the library. Other declarations remain library-internal.
+Exporting a struct type does not export its representation: external code cannot
+construct, read, write, borrow, or project its fields. Export enum variants
+explicitly to expose construction and matching. Exported function signatures
+and aliases cannot expose private types. All implementation declarations remain
+visible to whole-program borrow checking and optimization.
+
+Generated code inherits its invocation's library, not the generator declaration's
+library or the physical `.lim` cache directory. Exporting a generator does not
+grant its callers private access. `#std` remains available within libraries.
+See `examples/library_boundary.lim` and `examples/encapsulation/test.lim`.
+
 To bound compiler resource use, a project is limited to 128 simultaneously
 nested source files, 4096 non-deduplicated imports, and 64 MiB of cumulative
 source text (including the root file). Import-limit errors identify the import
@@ -2415,6 +2437,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
+| `#export` | `(#export name...)` | `(#export Counter counter-new counter-destroy)` (in `lib.lim`) | Exposes declarations outside the nearest directory library. Struct representation remains private; enum variants require explicit exports. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |

@@ -14,6 +14,14 @@ roles as well as explicit enum literals and variant patterns.
 
 ## Resolution model
 
+Directory libraries use the nearest enclosing `lib.lim` as their boundary.
+`#export` operands navigate to declaration or variant tokens; the keyword has
+no definition. External prefixes form complete identifiers (`prefix@Name`),
+not namespace syntax. `#generate` opens the generated artifact, while its
+generator-name operand navigates to the generator declaration. Literal inputs
+remain data. New syntax must preserve compiler visibility checks in diagnostics
+and cover these roles in navigation tests, including unsaved library roots.
+
 Compilation contexts may omit `cfg` entries. Builtin configuration keys are
 derived from that context's target; an omitted target defaults to the host,
 matching the compiler CLI. Explicit cfg entries override individual defaults.

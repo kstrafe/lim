@@ -1,0 +1,11 @@
+(#struct Counter (#linear) ((value #u64)))
+
+(#fn counter-new (: value #u64) Counter
+  (#return (#struct-literal Counter (: value value))))
+
+(#fn counter-read (: counter (#ref Counter)) #u64
+  (#return (#get counter value)))
+
+(#fn counter-destroy (: counter Counter) ()
+  (#forget counter)
+  (#return ()))
