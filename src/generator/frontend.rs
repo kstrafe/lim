@@ -566,8 +566,18 @@ pub(crate) fn prepare_program_syntax(
     for expression in expressions {
         if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
         {
-            let canonical =
-                expression_source(&normalize_builtin_generator_invocation(&expression.expr)?)?;
+            let normalized =
+                normalize_builtin_generator_invocation(&expression.expr).map_err(|message| {
+                    let span =
+                        reserved_declaration_span(&expression, &message).unwrap_or(expression.span);
+                    attach_span_to_source_error_kind(
+                        message,
+                        span,
+                        &source_files,
+                        "generator error: ",
+                    )
+                })?;
+            let canonical = expression_source(&normalized)?;
             let original = expression_source(&expression.expr)?;
             if let Some(retained) = builtin_invocations.get(&canonical) {
                 if retained != &original {

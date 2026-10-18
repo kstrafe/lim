@@ -48,6 +48,30 @@ fn async_lookup_reuses_the_native_compilations_exact_generated_file() {
 }
 
 #[test]
+fn pin_projection_is_inspectable_safe_generator_code_and_reuses_its_artifact() {
+    let scratch = support::Scratch::new("lookup-pin-project");
+    let entry = scratch.path().join("main.lim");
+    let source = include_str!("../examples/pin_project.lim");
+    fs::write(&entry, source).unwrap();
+    let config = lim::CompileConfig::default();
+    compile(source, &entry, &config);
+    let selected = source.find("@#pin-project").unwrap();
+    let located =
+        lim::locate_generated(source, &entry, &config, &entry, selected, selected).unwrap();
+    assert_eq!(located.len(), 1);
+    let generated = fs::read_to_string(&located[0]).unwrap();
+    assert!(generated.contains("WorkProjection::project"));
+    assert!(generated.contains("#case-pin-mut"));
+    assert!(!generated.contains("#unsafe"));
+    let modified = fs::metadata(&located[0]).unwrap().modified().unwrap();
+    compile(source, &entry, &config);
+    assert_eq!(
+        fs::metadata(&located[0]).unwrap().modified().unwrap(),
+        modified
+    );
+}
+
+#[test]
 fn external_import_lookup_uses_the_prefixed_artifact_from_native_compilation() {
     let scratch = support::Scratch::new("lookup-native-external");
     let entry = scratch.path().join("main.lim");

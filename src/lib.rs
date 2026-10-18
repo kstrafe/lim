@@ -1008,6 +1008,7 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
         return expression;
     };
     let value_index = match head.as_str() {
+        "#let-else" | "let-else" if items.len() == 4 && is_form(&items[3], "else") => Some(2),
         "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" | "#let-else-ref"
         | "#let-else-ref-mut" | "#let-else-pin" | "#let-else-pin-mut" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
@@ -1513,8 +1514,12 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
             },
         ),
         "#gn-for-each" => Some(3),
+        "#let-else" if items.len() == 4 && is_form(&items[3], "else") => Some(3),
         "#let-else" | "#let-else-ref" | "#let-else-ref-mut" | "#let-else-pin"
         | "#let-else-pin-mut" => Some(3),
+        "#else" if items.get(1).is_some_and(|item| {
+            matches!(item, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if name.starts_with('#')))
+        }) => Some(1),
         "#else" => Some(2),
         "#loop" | "#block" | "#unsafe" => Some(1),
         _ => None,
@@ -3059,6 +3064,9 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
     match head {
         Some("#quote" | "#quasiquote" | "#literal") => None,
         Some("#let" | "#let-mut") => visit(3),
+        Some("#let-else") if children.len() == 4 && is_form(&children[3].expr, "else") => {
+            visit(3).or_else(|| visit(2))
+        }
         Some("#let-else") => visit(4).or_else(|| visit(3)),
         Some("#fn" | "#unsafe-fn") => children
             .iter()
@@ -3879,6 +3887,14 @@ pub(crate) fn function_shadowing_span(
     fn visit(node: &SpannedExpr, name: &str, bound: &mut bool) -> Option<Span> {
         let children = &node.children;
         match head(node) {
+            "#let-else" if children.len() == 4 && head(&children[3]) == "#else" => {
+                if let Some(span) = visit(&children[2], name, bound)
+                    .or_else(|| scoped(&children[3].children[1..], name, *bound))
+                {
+                    return Some(span);
+                }
+                declare(&children[1], name, bound)
+            }
             "#let" | "#let-mut" | "#let-else" if children.len() >= 4 => {
                 // Initializers execute before their new binding is visible.
                 if let Some(span) = visit(&children[3], name, bound) {
@@ -8558,6 +8574,24 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         || matches!(expression, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if borrow_let_else::mode(name).is_some()))
     {
         let items = expect_list(expression, "let-else statement")?;
+        if is_form(expression, "let-else") && items.len() == 4 && is_form(&items[3], "else") {
+            let fallback = expect_list(&items[3], "let-else #else")?;
+            if fallback.len() < 2 {
+                return Err("#else requires at least one diverging statement".into());
+            }
+            return Ok(Statement::LetElse {
+                pattern: items[1].clone(),
+                // Resolved against enum declarations before semantic analysis;
+                // neither the RHS nor the binding supplies an inferred type.
+                ty: Type::Named("<let-else-variant-owner>".into()),
+                value: lower_expr(&items[2])?,
+                failure_pattern: None,
+                else_body: fallback[1..]
+                    .iter()
+                    .map(parse_statement)
+                    .collect::<Result<_, _>>()?,
+            });
+        }
         if items.len() < 5 {
             return Err(
                 "let-else requires (#let-else pattern Type value else-statement ...)".into(),

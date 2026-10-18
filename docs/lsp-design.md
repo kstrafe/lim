@@ -26,6 +26,10 @@ Borrowed `#let-else-ref`, `#let-else-ref-mut`, `#let-else-pin` and
 Their reference annotation describes the input, not the payload. Success
 bindings enter only the following statements; `#else` bindings are confined to
 the diverging fallback. Input expressions precede either binding scope.
+The compact `(#let-else variant-pattern value (#else statements...))` has no
+type operand or failure binder. Its variant supplies the declared payload
+type; navigate the value as an expression and every `#else` child as a
+statement in a separate scope, without exposing the success binding there.
 
 Types navigate in all explicit type positions, including bindings, function
 signatures, aggregate fields, layout queries, casts, raw operations and typed

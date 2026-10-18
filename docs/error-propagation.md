@@ -1,5 +1,19 @@
 # Explicit Result propagation
 
+When the failure payload is not needed, name only the success variant:
+
+```lim
+(#let-else (Input-ok-value number) value
+  (#else
+    (#return (#call Output-err (: error 1u32)))))
+```
+
+The variant declares the expected enum type. The initializer is one expression
+(possibly a `#block`); `#else` contains one or more statements. On failure all
+paths must return, break/continue an enclosing loop, or otherwise diverge;
+neither the following code nor the success binding can be reached. Merely
+breaking a loop introduced inside the failure branch does not satisfy this.
+
 `#let-else` can bind the failure payload of its original value:
 
 ```lim

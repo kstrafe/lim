@@ -2038,6 +2038,52 @@ it does not silently convert an array reference or erase a pinned reference.
 Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,
 `#break`, or `#panic`.
+
+For a named enum variant, omit the redundant enum annotation and explicitly
+delimit the failure body with `#else`:
+
+```lisp run=42
+(#enum Outcome () ((Success #u64) Failure))
+(#fn main () #u64
+  (#let-else (Success answer) (Success 42u64)
+    (#else
+      (#return 0u64)))
+  (#return answer))
+```
+
+The named variant determines its declared owning enum; the value must have
+that type. This is declaration lookup, not inference from the value. The value
+is evaluated exactly once; use `#block` for a multi-statement computation.
+Success bindings become available only after the statement, never inside
+`#else`. Every failure path must return, break/continue an enclosing loop, or
+otherwise diverge. Exiting a loop created inside `#else` is not sufficient:
+it must be impossible to reach the following statement on failure.
+
+`(#std)` provides `@#pin-project`, a generator rather than a runtime projection
+keyword. It accepts `(: enum Enum : variant Variant : payload Payload : name Name)`
+and emits `Name::Some`/`Name::None` plus `Name::project`. The function takes
+`(: source (#pin-ref-mut Enum))` and returns `Name`, whose `Some` payload is
+`(#pin-ref-mut Payload)`. Its ordinary safe `#match`/`#case-pin-mut` body returns
+`None` on a different variant. No allocation, payload move, unchecked projection,
+or asserting getter is involved. The optional reference retains its owner's
+loan through `#let-else`:
+
+```lisp run=42
+(#std)
+(#enum Task () ((Work #u64) Idle))
+(@#pin-project (: enum Task : variant Work : payload #u64 : name WorkProjection))
+(#fn main () #u64
+  (#let-mut task Task (Work 42u64))
+  (#let-else (WorkProjection::Some frame)
+    (#call WorkProjection::project (: source (#pin-borrow-mut task)))
+    (#else
+      (#forget task)
+      (#return 0u64)))
+  (#let answer #u64 (#unsafe (#pin-read frame)))
+  (#forget frame)
+  (#forget task)
+  (#return answer))
+```
 Destructuring consumes the aggregate and transfers each reference field's
 borrow provenance to its corresponding binding. Nested struct, tuple, array,
 and enum payload bindings retain their source loans; mutable fields cannot
@@ -2368,7 +2414,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
-| `#let-else` | `(#let-else pattern Type value else-statement...)` | `(#let-else (Some x) Maybe maybe (#return 0u64))` (function body) | Destructures on success; the else branch must diverge. |
+| `#let-else` | `(#let-else variant-pattern value (#else statements...))`; typed aggregate/failure-pattern form: `(#let-else pattern Type value fallback...)` | `(#let-else (Some x) maybe (#else (#return 0u64)))` (function body) | Destructures on success. A named variant fixes its owning enum without a repeated type annotation. Every else path must exit before subsequent success code. |
 | `#let-else-pin` | `(#let-else-pin pattern (#pin-ref Enum) value fallback...)` | `(#let-else-pin (Full payload) (#pin-ref Choice) slot (#return 0u64))` (function body) | Borrows an enum payload as a shared pinned reference on success; the mandatory fallback diverges on mismatch. The input is evaluated once, without an asserting projection. |
 | `#let-else-pin-mut` | `(#let-else-pin-mut pattern (#pin-ref-mut Enum) value fallback...)` | `(#let-else-pin-mut (Full payload) (#pin-ref-mut Choice) slot (#return 0u64))` (function body) | Exclusively borrows a pinned enum payload without moving it. Requires mutable pinned input and a diverging mismatch path; retains the owner loan. |
 | `#let-else-ref` | `(#let-else-ref pattern (#ref Enum) value fallback...)` | `(#let-else-ref (Full payload) (#ref Choice) slot (#return 0u64))` (function body) | Borrows an enum payload as a shared ordinary reference; mismatches run the diverging fallback. Fieldless variants and ignored payloads are supported. |

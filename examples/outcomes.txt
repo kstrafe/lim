@@ -85,6 +85,7 @@ module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
 exit 42 pin_box.lim - -
+exit 42 pin_project.lim - -
 exit 42 pin_rc.lim - -
 graph-exit 42 pinned_rc_async.lim - -
 graph-exit 42 pinned_box_async.lim - -

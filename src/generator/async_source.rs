@@ -280,9 +280,12 @@ impl Builder<'_> {
                 "while" => index >= 2,
                 "while-let" => index >= 3,
                 "for" => index == 1 || index >= 3,
+                "let-else" if node.children.len() == 4 && head(&node.children[3]) == "else" => {
+                    index == 3
+                }
                 "for-range" | "let-else" | "let-else-ref" | "let-else-ref-mut" | "let-else-pin"
                 | "let-else-pin-mut" => index >= 4,
-                "else" => index >= 2,
+                "else" => index >= 1,
                 "label" => index == 2 && statement,
                 _ => false,
             };

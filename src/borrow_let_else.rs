@@ -35,7 +35,18 @@ fn head(node: &SpannedExpr) -> &str {
     }
 }
 fn needed(node: &SpannedExpr) -> bool {
-    mode(head(node)).is_some() || node.children.iter().any(needed)
+    implicit_owner(node) || mode(head(node)).is_some() || node.children.iter().any(needed)
+}
+fn implicit_owner(node: &SpannedExpr) -> bool {
+    head(node) == "#let-else" && node.children.len() == 4 && head(&node.children[3]) == "#else"
+}
+
+fn variant_name(pattern: &SpannedExpr) -> Option<&str> {
+    match &pattern.expr {
+        Expr::Symbol(name) => Some(name),
+        Expr::List(_) => pattern.children.first().and_then(variant_name),
+        _ => None,
+    }
 }
 fn symbol(name: impl Into<String>, span: Span) -> SpannedExpr {
     SpannedExpr {
@@ -117,6 +128,16 @@ pub(crate) fn normalize(
             enums: &HashMap<String, Vec<crate::EnumVariant>>,
             aliases: &HashMap<String, Type>,
         ) -> bool {
+            if implicit_owner(node) {
+                let variant = variant_name(&node.children[1]);
+                if !enums
+                    .values()
+                    .flatten()
+                    .any(|entry| Some(entry.name.as_str()) == variant)
+                {
+                    return true;
+                }
+            }
             if mode(head(node)).is_some() {
                 if let Some(kind) = node.children.get(2).and_then(|kind| {
                     crate::parse_type(Some(&crate::normalize_keywords(kind.expr.clone()))).ok()
@@ -184,6 +205,51 @@ fn lower(
                 .map(|child| child.expr.clone())
                 .collect();
         }
+    }
+    if implicit_owner(node) {
+        let pattern = &node.children[1];
+        let variant = variant_name(pattern)
+            .ok_or_else(|| error("let-else requires a named enum variant", pattern.span))?;
+        let owner = enums
+            .iter()
+            .find_map(|(owner, variants)| {
+                variants
+                    .iter()
+                    .any(|entry| entry.name == variant)
+                    .then_some(owner)
+            })
+            .ok_or_else(|| {
+                error(
+                    format!("unknown enum variant '{variant}' in let-else"),
+                    pattern.span,
+                )
+            })?;
+        let mut fallback = node.children[3].clone();
+        // The internal typed form also supports binding a failure pattern.
+        // A plain #else deliberately exposes no success or failure bindings.
+        fallback
+            .children
+            .insert(1, symbol("_", fallback.children[0].span));
+        fallback.expr = Expr::List(
+            fallback
+                .children
+                .iter()
+                .map(|child| child.expr.clone())
+                .collect(),
+        );
+        node.children = vec![
+            node.children[0].clone(),
+            pattern.clone(),
+            symbol(owner, pattern.span),
+            node.children[2].clone(),
+            fallback,
+        ];
+        node.expr = Expr::List(
+            node.children
+                .iter()
+                .map(|child| child.expr.clone())
+                .collect(),
+        );
     }
     let Some(mode) = mode(head(node)) else {
         return Ok(());

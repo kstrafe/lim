@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "let-else-fallthrough",
+            diagnostic_code: "E4000",
+            offending_line: "    (#else (#if true (#block (#return 0u64)) ())))",
+            line_number: 4,
+        },
+        Case {
+            name: "let-else-owner-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let-else (Success answer) 42u64",
+            line_number: 3,
+        },
+        Case {
             name: "integer-match-coverage-gap",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#match value",
@@ -1314,6 +1326,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-match-variant" => Some("Missing"),
             "non-exhaustive-match" => Some("#match"),
             "integer-match-coverage-gap" | "guarded-boolean-match-not-exhaustive" => Some("#match"),
+            "let-else-fallthrough" => Some("#else"),
+            "let-else-owner-mismatch" => Some("42u64"),
             "unknown-let-else-variant" => Some("Missing"),
             "async-let-else-await" => Some("#u32"),
             "duplicate-enum-match-pattern" => Some("Ready"),

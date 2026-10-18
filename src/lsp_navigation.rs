@@ -647,6 +647,15 @@ impl<'a> Index<'a> {
             }
             "let" | "let-mut" | "const" | "static" | "let-else" | "let-else-ref"
             | "let-else-ref-mut" | "let-else-pin" | "let-else-pin-mut" => {
+                if head(node) == "let-else" && xs.len() == 4 && head(&xs[3]) == "else" {
+                    if self.contains(&xs[2]) {
+                        return self.walk(&xs[2], scope, labels);
+                    }
+                    if self.contains(&xs[3]) {
+                        return self.sequence(&xs[3].children[1..], &mut scope.clone(), labels);
+                    }
+                    return self.bind_let_pattern(node, &xs[1], scope);
+                }
                 if let Some(kind) = xs.get(2).filter(|kind| self.contains(kind)) {
                     return self.type_reference(kind);
                 }

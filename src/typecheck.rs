@@ -5628,6 +5628,14 @@ fn declared_type_span(statement: &crate::SpannedExpr, target: &str) -> Option<cr
     statement
         .children
         .get(2)
+        // Compact enum let-else materializes its owner type at the pattern's
+        // span. It is not a source annotation: blame the mismatched RHS.
+        .filter(|ty| {
+            statement
+                .children
+                .get(1)
+                .is_none_or(|pattern| ty.span != pattern.span)
+        })
         .filter(|ty| matches!(&ty.expr, Expr::Symbol(name) if name == target))
         .map(|ty| ty.span)
 }
@@ -5999,10 +6007,10 @@ fn statement_type_in_context(
             )?;
             require_type(&actual, &binding_type, "let-else value")?;
             if !else_body.last().is_some_and(statement_diverges) {
-                return Err(
+                return Err(semantic_at!(
+                    ErrorSite::Operator("else".into()),
                     "let-else body must diverge with return, break, continue, panic, or unreachable"
-                        .into(),
-                );
+                ));
             }
             let mut else_variables = variables.clone();
             let mut else_mutable = mutable.clone();

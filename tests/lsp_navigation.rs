@@ -581,3 +581,31 @@ fn inconsistent_or_bindings_fail_closed_in_the_arm_body() {
         &[("missing", &[])],
     );
 }
+
+#[test]
+fn compact_let_else_navigates_the_initializer_and_isolates_failure_scope() {
+    run(
+        r#"
+      (#struct Row () (: [[field|value]] #u64))
+      (#enum Choice () (([[full|Full]] Row) Empty))
+      (#fn main (: [[input|input]] Choice : [[fallback|fallback]] #u64) #u64
+        (#let-else ([[variant|Full]] [[payload|payload]]) [[operand|input]]
+          (#else
+            (#forget [[missing|payload]])
+            (#let [[failure-local|failure-local]] #u64 [[fallback-use|fallback]])
+            (#return [[failure-use|failure-local]])))
+        (#forget [[failure-leak|failure-local]])
+        (#return (#get [[payload-use|payload]] [[member|value]])))
+    "#,
+        &[
+            ("variant", &["full"]),
+            ("operand", &["input"]),
+            ("missing", &[]),
+            ("fallback-use", &["fallback"]),
+            ("failure-use", &["failure-local"]),
+            ("failure-leak", &[]),
+            ("payload-use", &["payload"]),
+            ("member", &["field"]),
+        ],
+    );
+}

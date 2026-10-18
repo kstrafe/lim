@@ -2,6 +2,7 @@
 
 (#fn main () #u64
   (#let value Maybe None)
-  (#let-else (Some payload) Maybe value
-    (#return 7))
+  (#let-else (Some payload) value
+    (#else
+      (#return 7u64)))
   (#return payload))
