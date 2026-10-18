@@ -96,13 +96,16 @@ fn unchecked_projection_requires_unsafe_and_preserves_alias_rules() {
     );
     assert_eq!(compile(&conflict).unwrap_err().code, DiagnosticCode::Borrow);
 
-    let checked = SOURCE.replace(
-        "(#unsafe (#pin-get-payload-unchecked-mut pinned Full))",
-        "(#pin-get-payload-mut pinned Full)",
-    );
-    assert!(compile(&checked)
-        .unwrap()
-        .contains("inactive_pinned_enum_payload_borrow"));
+    for removed in ["#pin-get-payload", "#pin-get-payload-mut"] {
+        let checked = SOURCE.replace(
+            "(#unsafe (#pin-get-payload-unchecked-mut pinned Full))",
+            &format!("({removed} pinned Full)"),
+        );
+        assert!(
+            compile(&checked).is_err(),
+            "asserting projection must not remain callable"
+        );
+    }
 
     let indexed = SOURCE.replace(
         "(#pin-get-payload-unchecked-mut pinned Full)",

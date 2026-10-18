@@ -169,7 +169,7 @@ impl Recipes {
                                 }
                                 Segment::Tuple(index) => format!("(#get {projected} {index})"),
                                 Segment::Payload(variant, _) => format!(
-                                    "(#deref (#pin-get-payload{suffix} {projected} {}))",
+                                    "(#deref (#unsafe (#pin-get-payload-unchecked{suffix} {projected} {})))",
                                     declarations.variant(*variant).name
                                 ),
                                 Segment::Index(index) => {

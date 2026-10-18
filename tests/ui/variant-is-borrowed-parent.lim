@@ -2,7 +2,8 @@
 (#fn main () #u64
   (#let-mut value Choice (Number 42u64))
   (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
-  (#let child (#pin-ref-mut #u64) (#pin-get-payload-mut parent Number))
+  (#let-else-pin-mut (Number child) (#pin-ref-mut Choice) parent
+    (#return 0u64))
   (#variant-is parent Number)
   (#let result #u64 (#deref child))
   (#drop child)

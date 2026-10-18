@@ -280,7 +280,8 @@ impl Builder<'_> {
                 "while" => index >= 2,
                 "while-let" => index >= 3,
                 "for" => index == 1 || index >= 3,
-                "for-range" | "let-else" => index >= 4,
+                "for-range" | "let-else" | "let-else-ref" | "let-else-ref-mut" | "let-else-pin"
+                | "let-else-pin-mut" => index >= 4,
                 "else" => index >= 2,
                 "label" => index == 2 && statement,
                 _ => false,
@@ -854,7 +855,10 @@ impl Lowered {
                     external: function.external,
                     calling_convention: function.calling_convention,
                 })),
-                Item::Struct { .. } | Item::ThreadTask { .. } => Some(item.clone()),
+                Item::Struct { .. }
+                | Item::ThreadTask { .. }
+                | Item::Enum { .. }
+                | Item::TypeAlias { .. } => Some(item.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -862,9 +866,32 @@ impl Lowered {
             // This temporary list orders named operands. It is not checked
             // executable code, and never enters program.items or emission.
             context.extend(interfaces.signature_context());
+            for (name, variants) in &interfaces.protocols {
+                if !context
+                    .iter()
+                    .any(|item| matches!(item, Item::Enum { name: present, .. } if present == name))
+                {
+                    context.push(Item::Enum {
+                        name: name.clone(),
+                        representation: crate::Representation::Lim,
+                        linear: false,
+                        type_parameters: vec![],
+                        variants: variants.clone(),
+                    });
+                }
+            }
         }
         let context_count = context.len();
         context.extend(program.items.drain(original_count..));
+        crate::borrow_let_else::normalize(
+            &mut context,
+            &mut program.statement_spans,
+            &mut program.statement_expressions,
+            &mut program.declaration_expressions,
+            &mut program.declaration_occurrences,
+            false,
+        )
+        .map_err(|error| error.attach(&program.source_files))?;
         crate::normalize_function_calls(
             &mut context,
             &program.statement_spans,

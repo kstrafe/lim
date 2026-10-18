@@ -34,6 +34,68 @@ pub(crate) struct Generated {
     pub origin: Span,
 }
 
+/// Projections of generator-owned slots are justified by checked graph state
+/// and dominating tag tests. Keep their unsafe scope outside place expressions:
+/// inserting an expression wrapper into a place changes its checked identity.
+fn scope_unchecked_projections(source: &str) -> Result<String, String> {
+    fn unwrap(expression: &mut Expr) -> bool {
+        let Expr::List(parts) = expression else {
+            return false;
+        };
+        let mut changed = false;
+        for child in parts.iter_mut() {
+            changed |= unwrap(child);
+        }
+        if matches!(parts.as_slice(), [Expr::Symbol(head), Expr::List(inner)]
+            if head == "#unsafe" && matches!(inner.first(), Some(Expr::Symbol(op))
+                if matches!(op.as_str(), "#pin-get-payload-unchecked" | "#pin-get-payload-unchecked-mut")))
+        {
+            *expression = parts.remove(1);
+            changed = true;
+        }
+        changed
+    }
+    let mut output = Vec::new();
+    for node in crate::parse(source).map_err(|error| error.to_string())? {
+        let mut expression = node.expr;
+        if let Expr::List(parts) = &mut expression {
+            if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#fn" | "#unsafe-fn"))
+            {
+                for statement in parts.iter_mut().skip(4) {
+                    if !unwrap(statement) {
+                        continue;
+                    }
+                    let target_index = match &*statement {
+                        Expr::List(items) => match items.first() {
+                            Some(Expr::Symbol(head))
+                                if matches!(head.as_str(), "#let" | "#let-mut" | "#const") =>
+                            {
+                                Some(3)
+                            }
+                            Some(Expr::Symbol(head)) if head == "#return" => Some(1),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    let target = if let Some(index) = target_index {
+                        let Expr::List(items) = statement else {
+                            unreachable!()
+                        };
+                        items
+                            .get_mut(index)
+                            .ok_or("generated projection statement has invalid arity")?
+                    } else {
+                        statement
+                    };
+                    *target = Expr::List(vec![Expr::Symbol("#unsafe".into()), target.clone()]);
+                }
+            }
+        }
+        output.push(crate::expression_source(&expression)?);
+    }
+    Ok(output.join("\n\n"))
+}
+
 struct Slot {
     words: Option<WordRegion>,
     constant: Option<String>,
@@ -1394,7 +1456,7 @@ impl<'a> Emitter<'a> {
                 ),
                 Segment::Tuple(index) => format!("(#get {anchor} {index})"),
                 Segment::Payload(variant, _) => format!(
-                    "(#deref (#pin-get-payload{suffix} {anchor} {}))",
+                    "(#deref (#unsafe (#pin-get-payload-unchecked{suffix} {anchor} {})))",
                     self.planning.declarations.variant(*variant).name
                 ),
                 Segment::Index(index) => format!("(#index {anchor} {index}usize)"),
@@ -1743,7 +1805,7 @@ impl<'a> Emitter<'a> {
             );
         }
         format!(
-            "(#pin-get-payload{} {} {})",
+            "(#unsafe (#pin-get-payload-unchecked{} {} {}))",
             if mutable { "-mut" } else { "" },
             Self::slot_ref(slot, mutable),
             slot.full
@@ -1853,7 +1915,7 @@ impl<'a> Emitter<'a> {
             Ok(Type::MutableSlice(_))
         );
         format!(
-            "(#pin-get-payload{} {} {})",
+            "(#unsafe (#pin-get-payload-unchecked{} {} {}))",
             if mutable { "-mut" } else { "" },
             Self::slot_ref(slot, mutable),
             slot.full
@@ -2947,20 +3009,15 @@ impl<'a> Emitter<'a> {
                 "borrowed graph scrutinee has no retained storage",
             ));
         };
-        if !pinned {
-            // Lend the stored handle through the ordinary call ABI, rather
-            // than reading a second independent exclusive reference value.
-            let helper = self.fresh("borrowed-lend");
-            let argument = self.fresh("borrowed-lend-input");
-            let ty = crate::type_source(&self.function.graph.values[value.0].ty);
-            let suffix = if mutable { "-mut" } else { "" };
-            self.projections.push(format!("(#fn {helper} (: {argument} {ty}) {ty} (#return (#borrow{suffix} (#deref {argument}))))"));
-            return Ok(format!("(#call {helper} (: {argument} {stored_handle}))"));
-        }
-        Ok(format!(
-            "(#pin-borrow{} (#deref {stored_handle}))",
-            if mutable { "-mut" } else { "" }
-        ))
+        // Name computed handles at the call boundary before projecting them.
+        // This also lends, rather than duplicates, an exclusive stored handle.
+        let helper = self.fresh("borrowed-lend");
+        let argument = self.fresh("borrowed-lend-input");
+        let ty = crate::type_source(&self.function.graph.values[value.0].ty);
+        let suffix = if mutable { "-mut" } else { "" };
+        let borrow = if pinned { "pin-borrow" } else { "borrow" };
+        self.projections.push(format!("(#fn {helper} (: {argument} {ty}) {ty} (#return (#{borrow}{suffix} (#deref {argument}))))"));
+        Ok(format!("(#call {helper} (: {argument} {stored_handle}))"))
     }
 
     fn pattern_source(
@@ -3201,7 +3258,7 @@ impl<'a> Emitter<'a> {
             self.read(self.addresses[&place], false)
         } else {
             format!(
-                "(#deref (#pin-get-payload-mut {} {}))",
+                "(#deref (#unsafe (#pin-get-payload-unchecked-mut {} {})))",
                 Self::slot_ref(slot, true),
                 slot.full
             )
@@ -3334,7 +3391,7 @@ impl<'a> Emitter<'a> {
                         // a pinned payload reference would move the pointee.
                         (
                             format!(
-                                "(#pin-get-payload-mut {} {})",
+                                "(#unsafe (#pin-get-payload-unchecked-mut {} {}))",
                                 Self::slot_ref(slot, true),
                                 slot.full
                             ),
@@ -3420,7 +3477,7 @@ impl<'a> Emitter<'a> {
                     let name = &self.planning.declarations.variant(*variant).name;
                     if pinned {
                         format!(
-                            "(#pin-get-payload{} {reference} {name})",
+                            "(#unsafe (#pin-get-payload-unchecked{} {reference} {name}))",
                             if mutable { "-mut" } else { "" }
                         )
                     } else {
@@ -4029,7 +4086,7 @@ impl<'a> Emitter<'a> {
             } else {
                 let slot = &self.slots[self.values[&value]];
                 format!(
-                    "(#deref (#pin-get-payload-mut {} {}))",
+                    "(#deref (#unsafe (#pin-get-payload-unchecked-mut {} {})))",
                     Self::slot_ref(slot, true),
                     slot.full
                 )
@@ -4613,7 +4670,7 @@ impl<'a> Emitter<'a> {
                 })?;
                 let slot = &self.slots[*slot];
                 format!(
-                    "(#deref (#pin-get-payload-mut {} {}))",
+                    "(#deref (#unsafe (#pin-get-payload-unchecked-mut {} {})))",
                     Self::slot_ref(slot, true),
                     slot.full
                 )
@@ -5233,7 +5290,7 @@ impl<'a> Emitter<'a> {
                             error("slice operation requires a retained checked holder")
                         })?];
                         let holder = format!(
-                            "(#pin-get-payload-mut {} {})",
+                            "(#unsafe (#pin-get-payload-unchecked-mut {} {}))",
                             Self::slot_ref(slot, true),
                             slot.full
                         );
@@ -5550,7 +5607,7 @@ impl<'a> Emitter<'a> {
                             if self.leases.snapshot(*dst) == Some(binding) {
                                 let slot = &self.slots[*slot];
                                 let holder = format!(
-                                    "(#pin-get-payload-mut {} {})",
+                                    "(#unsafe (#pin-get-payload-unchecked-mut {} {}))",
                                     Self::slot_ref(slot, true),
                                     slot.full
                                 );
@@ -7178,7 +7235,7 @@ impl<'a> Emitter<'a> {
                 (#return ()))
                 (#fn {name}-read (: task (#pin-ref {})) {ty}
                 {guards}
-                (#return (#deref (#pin-get-payload {} {}))))",
+                (#return (#deref (#unsafe (#pin-get-payload-unchecked {} {})))))",
                 self.frame,
                 slot.name,
                 slot.empty,
@@ -7512,10 +7569,12 @@ impl<'a> Emitter<'a> {
         let cleanup = self.cleanup_interface(&receiver)?;
         let word_cleanup = self.word_cleanup(&format!("{source}\n{cleanup}"))?;
         let access = self.parameter_access()?;
-        let source = crate::generator::format_generated_source(&format!(
+        let source = scope_unchecked_projections(&format!(
             "{source}\n{cleanup}\n{word_cleanup}\n{projections}\n{access}"
         ))
         .map_err(|message| fail(self.function, message))?;
+        let source = crate::generator::format_generated_source(&source)
+            .map_err(|message| fail(self.function, message))?;
         Ok(Generated {
             frame: self.frame,
             source,
@@ -7605,6 +7664,15 @@ pub(crate) fn program(
             program.items.push(item);
         }
     }
+    crate::borrow_let_else::normalize(
+        &mut program.items,
+        &mut program.statement_spans,
+        &mut program.statement_expressions,
+        &mut program.declaration_expressions,
+        &mut program.declaration_occurrences,
+        false,
+    )
+    .map_err(|error| error.attach(&program.source_files))?;
     crate::normalize_function_calls(
         &mut program.items,
         &program.statement_spans,
@@ -7954,8 +8022,10 @@ mod tests {
         let function = "(#fn work (: choose #bool) #u64
           (#let-mut owner Choice (#if choose (Left 40u64) (Right 40u64)))
           (#let view (#pin-ref-mut #u64) (#if choose
-            (#pin-get-payload-mut (#pin-borrow-mut owner) Left)
-            (#pin-get-payload-mut (#pin-borrow-mut owner) Right)))
+            (#block (#let-else-pin-mut (Left left) (#pin-ref-mut Choice) (#pin-borrow-mut owner)
+              (#forget owner) (#return 0u64)) left)
+            (#block (#let-else-pin-mut (Right right) (#pin-ref-mut Choice) (#pin-borrow-mut owner)
+              (#forget owner) (#return 0u64)) right)))
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))
           (#let answer #u64 (#deref view))
@@ -7967,7 +8037,8 @@ mod tests {
                 (#let-mut task Work::Frame (#call work (: choose {choose})))
                 (#let first Work::Poll (#call Work::poll
                   (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (Work::Pending next) Work::Poll first (#unreachable))
+                (#let-else (Work::Pending next) Work::Poll first
+                  (#else (Work::Ready early) (#forget task) (#return early)))
                 (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
                   (#case (Work::Ready result) result)
                   (#case (Work::Pending bad) (#block (#forget bad) (#unreachable)))))
@@ -7991,21 +8062,30 @@ mod tests {
             );
             let planning = prepare_generator("#async-fn-pinned", &inactive, &main);
             let generated = generate(&planning).unwrap();
-            runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
+            runtime_generated_outcome(planning, generated, NativeOutcome::Exit(0));
         }
     }
 
     #[test]
     fn pinned_enum_array_anchors_ignore_inactive_prototype_variants() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(pinned_enum_array_anchor_scenarios)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    fn pinned_enum_array_anchor_scenarios() {
         let function = "(#fn work (: choose #bool) #u64
           (#let-mut owner (#array Choice 2) (#array-of (#array Choice 2)
             (Left (#array-of (#array #u64 2) 0u64 40u64))
             (Right (#array-of (#array #u64 2) 0u64 40u64))))
           (#let-mut outer #usize (#if choose 0usize 1usize))
           (#let-mut inner #usize 1usize)
-          (#let view (#pin-ref-mut #u64) (#if choose
-            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Left) inner))
-            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Right) inner))))
+          (#let view (#pin-ref-mut #u64) (#unsafe (#if choose
+            (#pin-borrow-mut (#index (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#index owner outer)) Left) inner))
+            (#pin-borrow-mut (#index (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#index owner outer)) Right) inner)))))
           (#set outer 0usize) (#set inner 0usize)
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))

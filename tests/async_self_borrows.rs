@@ -73,7 +73,8 @@ fn pinned_nested_enum_payload_borrows_survive_cold_and_cached_suspension() {
         .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
         .replace("(#pin-borrow ", "(#pin-borrow-mut ")
         .replace("(#pin-borrow\n", "(#pin-borrow-mut\n")
-        .replace("(#pin-get-payload ", "(#pin-get-payload-mut ")
+        .replace("#let-else-pin ", "#let-else-pin-mut ")
+        .replace("(#pin-ref Choice)", "(#pin-ref-mut Choice)")
         .replace(
             "(#return (#u64.+.wrap (#deref view) result))",
             "(#unsafe (#pin-write view 40u64)) (#return (#u64.+.wrap (#deref view) result))",

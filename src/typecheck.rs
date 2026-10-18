@@ -6541,7 +6541,7 @@ fn statement_type_in_context(
     }
 }
 
-fn statement_diverges(statement: &Statement) -> bool {
+pub(crate) fn statement_diverges(statement: &Statement) -> bool {
     match statement {
         Statement::Return(_)
         | Statement::Break
@@ -9301,10 +9301,7 @@ fn list_expression(
                 .at(ErrorSite::Argument("get-payload".into(), 3))
             })
         }
-        "pin-get-payload"
-        | "pin-get-payload-mut"
-        | "pin-get-payload-unchecked"
-        | "pin-get-payload-unchecked-mut" => {
+        "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut" => {
             require_arity(operator, items, 3)?;
             let base = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
@@ -9530,6 +9527,14 @@ fn borrow_projection_permissions(
 fn projection_root(expression: &Expr) -> Option<&Expr> {
     match expression {
         Expr::Symbol(_) => Some(expression),
+        // An unsafe scope authorizes the operation, not a new referent. Keep
+        // the same checked root for a single projected-reference expression.
+        Expr::List(items)
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "unsafe") =>
+        {
+            projection_root(&items[1])
+        }
         // A pinned enum payload projection already produces a reference. Keep
         // that checked reference as the root when borrowing a nested payload
         // field instead of walking through the enum's by-value owner.
@@ -12384,7 +12389,7 @@ mod typed_ownership_tests {
     fn pinned_payload_reborrows_retain_parameter_origins() {
         let source = "(#enum Slot () ((Full #u64) Empty))
           (#fn inspect ((slot (#pin-ref Slot))) ()
-            (#let view (#pin-ref #u64) (#pin-get-payload slot Full))
+            (#let view (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Full)))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();

@@ -126,7 +126,13 @@ impl Inspector<'_> {
                 let fields = variant.fields.clone();
                 let mut result = form("#variant-is", [handle.clone(), symbol(name)]);
                 for (nested, field) in payload.iter().zip(&fields) {
-                    let projection = form("#pin-get-payload", [handle.clone(), symbol(name)]);
+                    let projection = form(
+                        "#unsafe",
+                        [form(
+                            "#pin-get-payload-unchecked",
+                            [handle.clone(), symbol(name)],
+                        )],
+                    );
                     // The short-circuit tag test must dominate every payload
                     // projection. A nonselected arm never touches that payload.
                     result = and(result, self.test(nested, field, projection)?);
@@ -306,12 +312,15 @@ pub(crate) fn preview_with_aliases(
                     (
                         ty.clone(),
                         form(
-                            if mutable {
-                                "#pin-get-payload-mut"
-                            } else {
-                                "#pin-get-payload"
-                            },
-                            [reference.clone(), symbol(constructor)],
+                            "#unsafe",
+                            [form(
+                                if mutable {
+                                    "#pin-get-payload-unchecked-mut"
+                                } else {
+                                    "#pin-get-payload-unchecked"
+                                },
+                                [reference.clone(), symbol(constructor)],
+                            )],
                         ),
                     )
                 })
@@ -440,11 +449,11 @@ mod tests {
         )
         .unwrap();
         let text = crate::expression_source(&expression).unwrap();
-        for prohibited in ["#unsafe", "#pin-read", "#forget", "#drop", "#clone"] {
+        for prohibited in ["#pin-read", "#forget", "#drop", "#clone"] {
             assert!(!text.contains(prohibited), "{text}");
         }
         assert!(text.contains("#variant-is"), "{text}");
-        assert!(text.contains("#pin-get-payload"), "{text}");
+        assert!(text.contains("#pin-get-payload-unchecked"), "{text}");
         assert!(!text.contains("(#let inspect.0 "), "{text}");
         let checked_source = format!(
             "{source}
@@ -467,7 +476,7 @@ mod tests {
         .unwrap();
         let text = crate::expression_source(&expression).unwrap();
         assert_eq!(text.matches("(#pin-ref Choice)").count(), 1, "{text}");
-        for prohibited in ["#unsafe", "#pin-read", "#forget", "#drop", "#clone"] {
+        for prohibited in ["#pin-read", "#forget", "#drop", "#clone"] {
             assert!(!text.contains(prohibited), "{text}");
         }
         let source = format!(

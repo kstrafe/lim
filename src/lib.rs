@@ -13,6 +13,7 @@ mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 mod borrow_case;
+mod borrow_let_else;
 #[cfg(test)]
 mod borrowcheck;
 mod cache_report;
@@ -1007,7 +1008,8 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
         return expression;
     };
     let value_index = match head.as_str() {
-        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
+        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" | "#let-else-ref"
+        | "#let-else-ref-mut" | "#let-else-pin" | "#let-else-pin-mut" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
@@ -1511,7 +1513,8 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
             },
         ),
         "#gn-for-each" => Some(3),
-        "#let-else" => Some(3),
+        "#let-else" | "#let-else-ref" | "#let-else-ref-mut" | "#let-else-pin"
+        | "#let-else-pin-mut" => Some(3),
         "#else" => Some(2),
         "#loop" | "#block" | "#unsafe" => Some(1),
         _ => None,
@@ -4412,8 +4415,9 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
         | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
-        "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
-        | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
+        "#let" | "#let-mut" | "#let-else" | "#let-else-ref" | "#let-else-ref-mut"
+        | "#let-else-pin" | "#let-else-pin-mut" | "#if-let" | "#while-let" | "#case"
+        | "#case-pin" | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
             if let Some(value) = items.get(1) {
                 pattern(value)?;
             }
@@ -4873,6 +4877,10 @@ fn is_builtin_form(name: &str) -> bool {
             | "enum"
             | "let"
             | "let-else"
+            | "let-else-ref"
+            | "let-else-ref-mut"
+            | "let-else-pin"
+            | "let-else-pin-mut"
             | "const"
             | "static"
             | "unsafe-impl"
@@ -4943,8 +4951,6 @@ fn is_builtin_form(name: &str) -> bool {
             | "get"
             | "get-payload"
             | "variant-is"
-            | "pin-get-payload"
-            | "pin-get-payload-mut"
             | "pin-get-payload-unchecked"
             | "pin-get-payload-unchecked-mut"
             | "word-read"
@@ -8548,7 +8554,9 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             mutable: binding.mutable,
         });
     }
-    if is_form(expression, "let-else") {
+    if is_form(expression, "let-else")
+        || matches!(expression, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if borrow_let_else::mode(name).is_some()))
+    {
         let items = expect_list(expression, "let-else statement")?;
         if items.len() < 5 {
             return Err(

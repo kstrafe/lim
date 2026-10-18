@@ -2044,6 +2044,31 @@ and enum payload bindings retain their source loans; mutable fields cannot
 alias an already active mutable loan. Returning a destructured reference is
 allowed only when its origin outlives the function.
 
+Borrowed enum destructuring uses `#let-else-ref`, `#let-else-ref-mut`,
+`#let-else-pin`, or `#let-else-pin-mut`, matching the explicit modes of borrowed
+`#case` arms. The annotation is the input reference type; the payload binding
+receives the corresponding reference to the declared payload type. The enum
+and payload remain in place. The input is evaluated once, and a mismatched
+variant runs the mandatory diverging fallback rather than asserting or trapping:
+
+```lisp run=42
+(#enum Choice () ((Full #u64) Empty))
+(#fn main () #u64
+  (#let-mut owner Choice (Full 42u64))
+  (#let-else-pin-mut (Full payload) (#pin-ref-mut Choice)
+    (#pin-borrow-mut owner)
+    (#return 0u64))
+  (#return (#deref payload)))
+```
+
+Fieldless variants use their name alone; `(Full _)` ignores a payload. An
+optional `(#else pattern statements...)` fallback borrows its payload using
+the same mode and must cover every mismatch. Success bindings are unavailable
+in the fallback, and failure bindings never escape it. Owner loans and pinning
+remain enforced after the statement. Unsafe unchecked payload projections are
+available when the caller separately proves the active variant and initialization;
+there is no asserting pinned-payload getter.
+
 ### Linear values and explicit cloning
 
 Local values and function parameters are linear unless their type is plain-old
@@ -2194,7 +2219,7 @@ appropriate context, and its effect.
 | `#break-to`, `#continue-to` | labeled loop control |
 | `#return` | explicit function return |
 | `#tuple`, `#array`, `#array-repeat` | aggregate construction |
-| `#index`, `#get`, `#get-payload`, `#pin-get-payload`, `#pin-get-payload-mut` | aggregate and enum projection |
+| `#index`, `#get`, `#get-payload` | aggregate and enum projection |
 | `#range` | range value for matching and iteration |
 | `#as` | explicit cast |
 | `#size-of`, `#align-of` | compile-time layout queries |
@@ -2344,6 +2369,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
 | `#let-else` | `(#let-else pattern Type value else-statement...)` | `(#let-else (Some x) Maybe maybe (#return 0u64))` (function body) | Destructures on success; the else branch must diverge. |
+| `#let-else-pin` | `(#let-else-pin pattern (#pin-ref Enum) value fallback...)` | `(#let-else-pin (Full payload) (#pin-ref Choice) slot (#return 0u64))` (function body) | Borrows an enum payload as a shared pinned reference on success; the mandatory fallback diverges on mismatch. The input is evaluated once, without an asserting projection. |
+| `#let-else-pin-mut` | `(#let-else-pin-mut pattern (#pin-ref-mut Enum) value fallback...)` | `(#let-else-pin-mut (Full payload) (#pin-ref-mut Choice) slot (#return 0u64))` (function body) | Exclusively borrows a pinned enum payload without moving it. Requires mutable pinned input and a diverging mismatch path; retains the owner loan. |
+| `#let-else-ref` | `(#let-else-ref pattern (#ref Enum) value fallback...)` | `(#let-else-ref (Full payload) (#ref Choice) slot (#return 0u64))` (function body) | Borrows an enum payload as a shared ordinary reference; mismatches run the diverging fallback. Fieldless variants and ignored payloads are supported. |
+| `#let-else-ref-mut` | `(#let-else-ref-mut pattern (#ref-mut Enum) value fallback...)` | `(#let-else-ref-mut (Full payload) (#ref-mut Choice) slot (#return 0u64))` (function body) | Exclusively borrows an ordinary enum payload on success without consuming its owner; the mismatch fallback must diverge. |
 | `#let-mut` | `(#let-mut name-or-pattern Type value)` | `(#let-mut count #u32 0u32)` (function body) | Declares a mutable local with an explicit type. |
 | `#linear` | Property in `(#struct Name (#linear) fields)` or `(#enum Name (#linear) variants)` | `(#struct FileHandle (#linear) ((descriptor #u64)))` (top level) | Forces the declared struct or enum to be linear; also inherited by aggregates that own linear fields or payloads. |
 | `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall #i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
@@ -2364,8 +2393,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
-| `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant)` | `(#let payload (#pin-ref #u64) (#pin-get-payload slot Full))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
-| `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant)` | `(#let payload (#pin-ref-mut #u64) (#pin-get-payload-mut slot Full))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
 | `#pin-get-payload-unchecked` | `(#pin-get-payload-unchecked pinned-enum-reference variant)` | `(#let payload (#pin-ref #u64) (#unsafe (#pin-get-payload-unchecked slot Full)))` (expression) | Unsafe shared pinned payload projection without a runtime variant-tag check. The caller proves the variant is active and the payload initialized; loan origins, lifetimes and native layout are retained. |
 | `#pin-get-payload-unchecked-mut` | `(#pin-get-payload-unchecked-mut mutable-pinned-enum-reference variant)` | `(#let payload (#pin-ref-mut #u64) (#unsafe (#pin-get-payload-unchecked-mut slot Full)))` (expression) | Unsafe exclusive pinned payload projection without a runtime variant-tag check. Requires a mutable pinned reference and the same active-variant/initialization proof as the shared form; it does not waive aliasing or pinning rules. |
 | `#pin-own` | `(#pin-own TargetType)` | `(#let owner (#pin-own #u64) (#unsafe (#pin-own-of pointer 42u64)))` (type) | Linear pointer-sized owner of stationary heap storage. Moving the owner does not move the pointee or invalidate its views. It cannot be cloned; forgetting it leaks the allocation. |

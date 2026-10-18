@@ -23,8 +23,10 @@
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task ExecutorTask (ExecutorTask::Work (#call work (:))))
-  (#let frame (#pin-ref-mut Work::Frame)
-    (#pin-get-payload-mut (#pin-borrow-mut task) ExecutorTask::Work))
+  (#let-else-pin-mut (ExecutorTask::Work frame) (#pin-ref-mut ExecutorTask)
+    (#pin-borrow-mut task)
+    (#forget task)
+    (#return 0u64))
   (#let result Work::Poll
     (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result

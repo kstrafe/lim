@@ -88,7 +88,7 @@ fn run_ordinary_typed_owner(on_heap: bool, exclusive: bool) {
     }
     for invalid in [
         source.replace("(#let kept", "(#set seed 99u64)\n      (#let kept"),
-        source.replace("(#let selected", "(#unsafe (#call restore-item (: item (#pin-borrow-mut (#get owner item)))))\n      (#let selected"),
+        source.replace("(#let selected", "(#unsafe (#unsafe-call restore-item (: item (#pin-borrow-mut (#get owner item)))))\n      (#let selected"),
     ] {
         let error = lim::compile_source_to_assembly(
             &invalid, &scratch.path().join("invalid.lim"), &lim::CompileConfig::default(),
@@ -112,18 +112,18 @@ fn run_ordinary_typed_payload(on_heap: bool) {
       (#let initial Storage",
         )
         .replace(
-            "(#let owner",
+            "(#let-else-pin-mut (Full owner)",
             "
       (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of allocation initial)))
-      (#let owner",
+      (#let-else-pin-mut (Full owner)",
         )
         .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
         .replace(
-            "(#forget storage)",
+            "\n  (#forget storage)\n",
             "
       (#let released (#ptr-mut Storage) (#unsafe (#pin-release storage)))
       (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize
-        (released (#size-of Storage)))) 0i64))",
+        (released (#size-of Storage)))) 0i64))\n",
         );
     let (kind, source) = if on_heap {
         ("heap", heap.as_str())

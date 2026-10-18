@@ -15,8 +15,9 @@
   (#let-mut storage Storage
     (Full (#struct-literal Owner
       (: kept (#borrow seed) : item (#struct-literal Token (: value 1u64))))))
-  (#let owner (#pin-ref-mut Owner)
-    (#pin-get-payload-mut (#pin-borrow-mut storage) Full))
+  (#let-else-pin-mut (Full owner) (#pin-ref-mut Storage)
+    (#pin-borrow-mut storage)
+    (#forget storage) (#return 0u64))
   (#let kept (#pin-ref (#ref #u64)) (#pin-borrow (#get owner kept)))
   (#let address #usize (#ptr-address (#ref-ptr kept)))
   (#unsafe (#unsafe-call take-item (: item (#pin-borrow-mut (#get owner item)))))

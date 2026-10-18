@@ -29,8 +29,6 @@ fn generated_and_distributed_variants_cannot_bypass_the_single_payload_rule() {
 #[test]
 fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
     for (operator, reference, borrow) in [
-        ("#pin-get-payload", "#pin-ref", "#pin-borrow"),
-        ("#pin-get-payload-mut", "#pin-ref-mut", "#pin-borrow-mut"),
         ("#pin-get-payload-unchecked", "#pin-ref", "#pin-borrow"),
         (
             "#pin-get-payload-unchecked-mut",
@@ -64,7 +62,7 @@ fn a_fieldless_variant_has_no_pinned_payload_to_borrow() {
          (#fn main () #u64
            (#let-mut owner Choice Empty)
            (#let value (#pin-ref #u64)
-             (#pin-get-payload (#pin-borrow owner) Empty))
+             (#unsafe (#pin-get-payload-unchecked (#pin-borrow owner) Empty)))
            (#return (#deref value)))",
     )
     .unwrap_err();

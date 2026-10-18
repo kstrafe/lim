@@ -11226,10 +11226,9 @@ impl FunctionContext<'_> {
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "get-payload" => self.enum_payload_expression(items),
-            "pin-get-payload"
-            | "pin-get-payload-mut"
-            | "pin-get-payload-unchecked"
-            | "pin-get-payload-unchecked-mut" => self.pinned_enum_payload_expression(items),
+            "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut" => {
+                self.pinned_enum_payload_expression(items)
+            }
             "#variant-is" => self.enum_variant_test_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
@@ -14487,7 +14486,7 @@ impl FunctionContext<'_> {
         let Expr::Symbol(variant_name) = &items[2] else {
             return Err("pin-get-payload requires a variant name".into());
         };
-        let (variant_owner, discriminant, fields) = self
+        let (variant_owner, _discriminant, fields) = self
             .enum_variant_info(&items[2], variant_name)?
             .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
         if variant_owner != enum_name {
@@ -14497,28 +14496,10 @@ impl FunctionContext<'_> {
             return Err(format!("variant '{variant_name}' has no payload field"));
         }
         let payload_offset = 1;
-        let unchecked = matches!(items.first(), Some(Expr::Symbol(head))
-            if matches!(head.as_str(), "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut"));
-        let labels = (!unchecked).then(|| {
-            (
-                self.label("inactive_pinned_enum_payload_borrow"),
-                self.label("inactive_pinned_enum_payload_borrow_done"),
-            )
-        });
         self.expression(&items[1])?;
-        if let Some((inactive, _)) = &labels {
-            self.output.push_str(&format!(
-            "    mov rcx, rax\n    btr rcx, 63\n    btr rcx, 62\n    mov rcx, QWORD PTR [rcx]\n    mov r11, {}\n    cmp rcx, r11\n    jne {inactive}\n",
-            discriminant
-            ));
-        }
         // The receiver may evaluate an index or call. Its original address
         // and layout tag are still in rax; never evaluate it a second time.
         self.offset_reference_field_address(payload_offset, true);
-        if let Some((inactive, done)) = labels {
-            self.output
-                .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
-        }
         Ok(())
     }
 

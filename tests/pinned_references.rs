@@ -19,10 +19,10 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
             (#let-mut counter #u64 0u64)
             (#let-mut owner (#array Choice 1)
               (#array-of (#array Choice 1) (Number 42u64)))
-            (#let payload (#pin-ref{suffix} #u64)
-              (#pin-get-payload{suffix}
-                (#pin-borrow{suffix} (#index owner
-                  (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize))) Number))
+            (#let-else-pin{suffix} (Number payload) (#pin-ref{suffix} Choice)
+              (#pin-borrow{suffix} (#index owner
+                (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize)))
+              (#return 1u64))
             {write}
             (#let result #u64 (#deref payload))
             (#drop payload)

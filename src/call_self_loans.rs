@@ -1714,16 +1714,16 @@ mod tests {
           (#enum Address () (Empty (Full (#pin-ref-mut #u64))))
           (#struct Frame () (: owner Choice : address Address : pc #u32))
           (#fn select (: owner (#pin-ref-mut Choice)) (#pin-ref-mut #u64)
-            (#return (#pin-get-payload-mut owner Good)))
+            (#return (#unsafe (#pin-get-payload-unchecked-mut owner Good))))
           (#fn install (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
             (#let selected (#pin-ref-mut #u64)
-              (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
             (#return target))
           (#fn resume (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
             INITIALIZE
             (#unsafe (#pin-write
-              (#deref (#pin-get-payload-mut (#pin-borrow-mut (#get target address)) Full))
+              (#deref (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target address)) Full)))
               42u64))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) Empty))
             (#return target))
@@ -1743,7 +1743,7 @@ mod tests {
                     (#assert (#variant-is (#pin-borrow (#get target address)) Empty))
                     (#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))
                     (#let selected (#pin-ref-mut #u64)
-                      (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good))
+                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
                     (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
                     ()) ())",
                 None,
@@ -1752,7 +1752,7 @@ mod tests {
                 "(#if (#u32.== (#get target pc) 0u32)
                   (#block
                     (#let selected (#pin-ref-mut #u64)
-                      (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good))
+                      (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good)))
                     (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
                     ()) ())",
                 Some("(#pin-borrow-mut (#get target owner))"),
@@ -1771,7 +1771,7 @@ mod tests {
                 let mut source = source.replace("INITIALIZE", initialize);
                 if helper {
                     source = source.replace(
-                        "(#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good)",
+                        "(#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Good))",
                         "(#call select (: owner (#pin-borrow-mut (#get target owner))))",
                     );
                 }
@@ -1959,12 +1959,12 @@ mod tests {
           (#struct Link () (: value Value : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64)
-              (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
             (#return target))
           (#fn observe (: target (#pin-ref-mut Link)) ()
             (#let payload (#pin-ref-mut #u64)
-              (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full))
+              (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)))
             (#drop payload) (#return ()))
           (#fn driver (: outside (#pin-ref-mut #u64) : choose #bool) ()
             (#let-mut link Link (#struct-literal Link
@@ -2554,14 +2554,14 @@ mod tests {
           (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
-              (#pin-get-payload (#pin-borrow (#get target value)) Full))
+              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#if (#variant-is (#pin-borrow (#get target value)) Empty)
               (#block
                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
                 (#unsafe (#pin-write
-                  (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full) 42u64))) ())
+                  (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Full)) 42u64))) ())
             (#return target))
           (#fn driver (: outside (#pin-ref #u64)) ()
             (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
@@ -2619,7 +2619,7 @@ mod tests {
         for fresh in [false, true] {
             let child = if fresh {
                 "(#let view (#pin-ref #u64)
-                  (#pin-get-payload (#pin-borrow (#get target value)) Full))
+                  (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
                  (#pin-set-field target view view)"
             } else {
                 ""
@@ -2695,7 +2695,7 @@ mod tests {
             STORAGE_ENTRY_SOURCE,
             "
           (#let saved (#pin-ref #u64)
-            (#deref (#pin-get-payload (#pin-borrow (#get target view)) HasView)))
+            (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target view)) HasView))))
           (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) NoView))
           (#assert (#variant-is (#pin-borrow (#get target view)) NoView))
           (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64))
@@ -2754,7 +2754,7 @@ mod tests {
           (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
-              (#pin-get-payload (#pin-borrow (#get target value)) Full))
+              (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Full)))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#if (#variant-is (#pin-borrow (#get target value)) Empty)

@@ -63,6 +63,58 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
     ]))
 }
 
+/// The poll enum's declared fields are available before frame layout/emission.
+/// This is a type-only normalization context, never an executable definition.
+pub(crate) fn poll_pattern_declaration(invocation: &Expr) -> Result<Item, String> {
+    let Expr::List(parts) = invocation else {
+        return Err("invalid async invocation".into());
+    };
+    let Some(Expr::List(names)) = parts.get(2) else {
+        return Err("invalid async names".into());
+    };
+    let name = |index| match names.get(index) {
+        Some(Expr::Symbol(name)) => Ok(name.clone()),
+        _ => Err("invalid async name".to_owned()),
+    };
+    let Some(Expr::List(function)) = parts.get(4) else {
+        return Err("invalid async function".into());
+    };
+    let frame = Type::Named(name(0)?);
+    let pending = if matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned")
+    {
+        Type::PinnedReference {
+            mutable: true,
+            target: Box::new(frame),
+        }
+    } else {
+        frame
+    };
+    let result = crate::parse_type(
+        function
+            .get(3)
+            .map(|ty| crate::normalize_keywords(ty.clone()))
+            .as_ref(),
+    )?;
+    Ok(Item::Enum {
+        name: name(1)?,
+        representation: crate::Representation::Lim,
+        linear: false,
+        type_parameters: vec![],
+        variants: vec![
+            EnumVariant {
+                name: name(2)?,
+                fields: vec![pending],
+                discriminant: 0,
+            },
+            EnumVariant {
+                name: name(3)?,
+                fields: vec![result],
+                discriminant: 1,
+            },
+        ],
+    })
+}
+
 #[cfg(test)]
 mod protocol_tests {
     use super::*;

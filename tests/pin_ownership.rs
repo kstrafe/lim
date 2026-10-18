@@ -74,7 +74,7 @@ fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
           (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
           (#fn read (: view (#pin-ref Holder)) #u64
             (#return (#if (#variant-is (#pin-borrow (#get view slot)) Empty) 42u64
-              (#deref (#deref (#pin-get-payload (#pin-borrow (#get view slot)) Full))))))
+              (#deref (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get view slot)) Full)))))))
           (#fn main () #u64
             (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
               (0usize (#size-of Holder) 3usize 34usize -1i64 0usize))))

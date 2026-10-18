@@ -512,13 +512,35 @@ impl<'a> Index<'a> {
         vec![]
     }
     fn bind_statement(&self, node: &Node, scope: &mut Scope) {
-        if matches!(head(node), "let" | "let-mut" | "const" | "let-else") {
+        if matches!(head(node), "let" | "let-mut" | "const" | "let-else")
+            || crate::borrow_let_else::mode(head(node)).is_some()
+        {
             if let Some(pattern) = node.children.get(1) {
-                if head(node) != "let-else" && symbol(pattern).is_some() {
+                if !head(node).starts_with("let-else") && symbol(pattern).is_some() {
                     self.explicit_locals.borrow_mut().insert(pattern.span);
                 }
-                self.bind_pattern(pattern, node.children.get(2).and_then(ty), scope);
+                self.bind_let_pattern(node, pattern, scope);
             }
+        }
+    }
+    fn bind_let_pattern(&self, node: &Node, pattern: &Node, scope: &mut Scope) -> Vec<Span> {
+        let kind = node.children.get(2).and_then(ty);
+        if let Some(mode) = crate::borrow_let_else::mode(head(node)) {
+            let wrapper = Node {
+                expr: Expr::List(vec![]),
+                span: pattern.span,
+                children: vec![
+                    Node {
+                        expr: Expr::Symbol(mode.keyword().into()),
+                        span: node.children[0].span,
+                        children: vec![],
+                    },
+                    pattern.clone(),
+                ],
+            };
+            self.bind_pattern(&wrapper, kind, scope)
+        } else {
+            self.bind_pattern(pattern, kind, scope)
         }
     }
     fn sequence(&self, nodes: &[Node], scope: &mut Scope, labels: &Scope) -> Vec<Span> {
@@ -623,22 +645,22 @@ impl<'a> Index<'a> {
                 }
                 return self.bundle(xs.get(2).unwrap_or(node));
             }
-            "let" | "let-mut" | "const" | "static" | "let-else" => {
+            "let" | "let-mut" | "const" | "static" | "let-else" | "let-else-ref"
+            | "let-else-ref-mut" | "let-else-pin" | "let-else-pin-mut" => {
                 if let Some(kind) = xs.get(2).filter(|kind| self.contains(kind)) {
                     return self.type_reference(kind);
                 }
                 if let Some(initializer) = xs.get(3).filter(|value| self.contains(value)) {
                     return self.walk(initializer, scope, labels);
                 }
-                if head(node) == "let-else" {
+                if head(node).starts_with("let-else") {
                     if let Some(fallback) = xs
                         .get(4)
                         .filter(|node| head(node) == "else" && self.contains(node))
                     {
                         let mut inner = scope.clone();
                         if let Some(pattern) = fallback.children.get(1) {
-                            let found =
-                                self.bind_pattern(pattern, xs.get(2).and_then(ty), &mut inner);
+                            let found = self.bind_let_pattern(node, pattern, &mut inner);
                             if !found.is_empty() {
                                 return found;
                             }
@@ -657,10 +679,10 @@ impl<'a> Index<'a> {
                     }
                 }
                 if let Some(pattern) = xs.get(1) {
-                    if head(node) != "let-else" && symbol(pattern).is_some() {
+                    if !head(node).starts_with("let-else") && symbol(pattern).is_some() {
                         self.explicit_locals.borrow_mut().insert(pattern.span);
                     }
-                    return self.bind_pattern(pattern, xs.get(2).and_then(ty), scope);
+                    return self.bind_let_pattern(node, pattern, scope);
                 }
             }
             "match" => {

@@ -21,6 +21,11 @@ fields. Tuple/array indices remain literals, not identifiers. `$` puns navigate
 as the value use, since their label and value share the same source token.
 Enum constructor and pattern names resolve to variant declaration spans; this
 includes cases, conditional patterns, payload operations and fieldless values.
+Borrowed `#let-else-ref`, `#let-else-ref-mut`, `#let-else-pin` and
+`#let-else-pin-mut` retain the same variant/binding roles as their case modes.
+Their reference annotation describes the input, not the payload. Success
+bindings enter only the following statements; `#else` bindings are confined to
+the diverging fallback. Input expressions precede either binding scope.
 
 Types navigate in all explicit type positions, including bindings, function
 signatures, aggregate fields, layout queries, casts, raw operations and typed

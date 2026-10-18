@@ -16057,8 +16057,6 @@ mod pinned_payload_projection_tests {
     #[test]
     fn heap_payload_views_retain_addresses_and_actual_nested_reference_sources() {
         for (operator, result) in [
-            ("pin-get-payload", "#pin-ref"),
-            ("pin-get-payload-mut", "#pin-ref-mut"),
             ("pin-get-payload-unchecked", "#pin-ref"),
             ("pin-get-payload-unchecked-mut", "#pin-ref-mut"),
         ] {
@@ -16121,14 +16119,17 @@ mod pinned_payload_projection_tests {
           (#unsafe-fn work (: seed (#ref-mut #u64) : pointer (#ptr-mut Storage)) ()
             (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
               (Full (#struct-literal Owner (: view seed))))))
-            (#let owner (#pin-ref Owner) (#pin-get-payload (#pin-own-borrow-mut storage) Full))
+            (#let owner (#pin-ref Owner) (#unsafe (#pin-get-payload-unchecked (#pin-own-borrow-mut storage) Full)))
             (#call touch (: value (#get owner view)))
             (#forget owner) (#forget storage) (#return ()))";
         let error = crate::check_types(&crate::parse_program(source).unwrap()).unwrap_err();
         assert!(error.contains("provenance"), "{error}");
         let exclusive = source
             .replace("(#pin-ref Owner)", "(#pin-ref-mut Owner)")
-            .replace("(#pin-get-payload ", "(#pin-get-payload-mut ");
+            .replace(
+                "(#pin-get-payload-unchecked ",
+                "(#pin-get-payload-unchecked-mut ",
+            );
         crate::check_types(&crate::parse_program(&exclusive).unwrap()).unwrap();
     }
 }
@@ -19564,7 +19565,14 @@ impl Builder<'_> {
                 }
                 let mut entry = self.push(FlowAction::Diverge, span, vec![]);
                 for arm in arms.iter().rev() {
-                    entry = self.match_arm(*arm, *value, match_next, entry, targets)?;
+                    entry = self.match_arm(
+                        *arm,
+                        *value,
+                        match_next,
+                        entry,
+                        targets,
+                        snapshot.map(|(binding, _)| binding),
+                    )?;
                 }
                 if snapshot.is_some() {
                     self.active_scopes.pop();
@@ -19839,6 +19847,7 @@ impl Builder<'_> {
         next: FlowNodeId,
         failure: FlowNodeId,
         targets: &[Target],
+        receiver_snapshot: Option<BindingId>,
     ) -> Result<FlowNodeId, String> {
         let node = &self.body.nodes[id.0];
         let NodeKind::MatchArm { pattern, values } = &node.kind else {
@@ -19874,7 +19883,25 @@ impl Builder<'_> {
             self.push(FlowAction::ScopeExit(bindings.clone()), span, vec![failure])
         };
         self.active_scopes.push(bindings);
-        let body_entry = self.expression(body, success_end, targets, None)?;
+        let mut body_entry = self.expression(body, success_end, targets, None)?;
+        let no_payload_view = self
+            .body
+            .borrowed_cases
+            .get(&id)
+            .is_some_and(Option::is_none)
+            || matches!(&self.body.nodes[pattern.0].kind, NodeKind::Symbol { name, binding: None } if name == "_");
+        if guard.is_none() && no_payload_view {
+            if let Some(snapshot) = receiver_snapshot {
+                // A wildcard never projects or reads the saved reference. End
+                // its analysis-only loan before mismatch cleanup, not after
+                // the entire arm. No payload view is discarded by this edge.
+                body_entry = self.push(
+                    FlowAction::ScopeExit(vec![snapshot]),
+                    span,
+                    vec![body_entry],
+                );
+            }
+        }
         let success = if let Some(guard) = guard {
             let decision = self.push(
                 FlowAction::Branch(guard),

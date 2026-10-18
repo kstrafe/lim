@@ -466,13 +466,14 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
                     || items.iter().any(has_tag_conditional)
             }
             assert!(!parts.iter().any(has_tag_conditional), "{generated}");
-            assert!(
-                parts.iter().any(|part| matches!(part, lim::Expr::List(items)
+            fn has_state_match(part: &lim::Expr) -> bool {
+                matches!(part, lim::Expr::List(items)
                     if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#match")
                         && matches!(items.get(1), Some(lim::Expr::List(selector))
-                            if selector == &vec![lim::Expr::Symbol("#get".into()), lim::Expr::Symbol("task".into()), lim::Expr::Symbol("pc".into())]))),
-                "{generated}"
-            );
+                            if selector == &vec![lim::Expr::Symbol("#get".into()), lim::Expr::Symbol("task".into()), lim::Expr::Symbol("pc".into())]))
+                    || matches!(part, lim::Expr::List(items) if items.iter().any(has_state_match))
+            }
+            assert!(parts.iter().any(has_state_match), "{generated}");
             if matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name.starts_with("parent-"))
             {
                 assert!(

@@ -977,6 +977,29 @@ pub(crate) fn parse_prepared_program_items(
         &prepared.bundles,
         &source_files,
     )?;
+    let runtime_items = items.len();
+    if !expand_async {
+        for invocation in prepared
+            .expressions
+            .iter()
+            .filter(|form| is_async_invocation(form))
+        {
+            let normalized = normalize_builtin_generator_invocation(&invocation.expr)?;
+            items.push(super::async_interfaces::poll_pattern_declaration(
+                &normalized,
+            )?);
+        }
+    }
+    crate::borrow_let_else::normalize(
+        &mut items,
+        &mut statement_spans,
+        &mut statement_expressions,
+        &mut declaration_expressions,
+        &mut declaration_occurrences,
+        !expand_async,
+    )
+    .map_err(|error| error.attach(&source_files))?;
+    items.truncate(runtime_items);
     rename_shadowed_locals(
         &mut items,
         &statement_spans,
