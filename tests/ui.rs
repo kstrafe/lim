@@ -1002,7 +1002,7 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "variant-is-borrowed-parent",
             diagnostic_code: "E4100",
             offending_line: "  (#variant-is parent Number)",
-            line_number: 7,
+            line_number: 10,
         },
         Case {
             name: "unknown-match-variant",

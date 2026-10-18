@@ -14,15 +14,17 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
                 ""
             };
             let source = format!(
-                "(#enum Choice () ((Number {discriminant} #u64) (Empty 0)))
+                "(#import \"/<lim-std>/enum_project.lim\")
+          (#enum Choice () ((Number {discriminant} #u64) (Empty 0)))
+          (@#enum-project (: enum Choice : variant Number : payload #u64 : mode #pin-ref{suffix} : name Projection))
           (#fn main () #u64
             (#let-mut counter #u64 0u64)
             (#let-mut owner (#array Choice 1)
               (#array-of (#array Choice 1) (Number 42u64)))
-            (#let-else-pin{suffix} (Number payload) (#pin-ref{suffix} Choice)
-              (#pin-borrow{suffix} (#index owner
-                (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize)))
-              (#return 1u64))
+            (#let-else (Projection::Some payload)
+              (#call Projection::project (: source (#pin-borrow{suffix} (#index owner
+                (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize)))))
+              (#else (#return 1u64)))
             {write}
             (#let result #u64 (#deref payload))
             (#drop payload)

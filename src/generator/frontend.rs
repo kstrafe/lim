@@ -1000,7 +1000,7 @@ pub(crate) fn parse_prepared_program_items(
             )?);
         }
     }
-    crate::borrow_let_else::normalize(
+    crate::let_else::normalize(
         &mut items,
         &mut statement_spans,
         &mut statement_expressions,

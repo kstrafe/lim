@@ -13,7 +13,6 @@ mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 mod borrow_case;
-mod borrow_let_else;
 #[cfg(test)]
 mod borrowcheck;
 mod cache_report;
@@ -32,6 +31,7 @@ mod generator;
 mod generator_provenance;
 mod gensym;
 mod instruction_encoder;
+mod let_else;
 mod linearcheck;
 pub mod lsp;
 pub mod lsp_context;
@@ -1009,8 +1009,7 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
     };
     let value_index = match head.as_str() {
         "#let-else" | "let-else" if items.len() == 4 && is_form(&items[3], "else") => Some(2),
-        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" | "#let-else-ref"
-        | "#let-else-ref-mut" | "#let-else-pin" | "#let-else-pin-mut" => Some(3),
+        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
@@ -1514,9 +1513,7 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
             },
         ),
         "#gn-for-each" => Some(3),
-        "#let-else" if items.len() == 4 && is_form(&items[3], "else") => Some(3),
-        "#let-else" | "#let-else-ref" | "#let-else-ref-mut" | "#let-else-pin"
-        | "#let-else-pin-mut" => Some(3),
+        "#let-else" => Some(3),
         "#else" if items.get(1).is_some_and(|item| {
             matches!(item, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if name.starts_with('#')))
         }) => Some(1),
@@ -4431,9 +4428,8 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
         | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
-        "#let" | "#let-mut" | "#let-else" | "#let-else-ref" | "#let-else-ref-mut"
-        | "#let-else-pin" | "#let-else-pin-mut" | "#if-let" | "#while-let" | "#case"
-        | "#case-pin" | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
+        "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
+        | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
             if let Some(value) = items.get(1) {
                 pattern(value)?;
             }
@@ -4893,10 +4889,6 @@ fn is_builtin_form(name: &str) -> bool {
             | "enum"
             | "let"
             | "let-else"
-            | "let-else-ref"
-            | "let-else-ref-mut"
-            | "let-else-pin"
-            | "let-else-pin-mut"
             | "const"
             | "static"
             | "unsafe-impl"
@@ -5881,7 +5873,7 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
             for (index, item) in items.iter_mut().enumerate() {
                 if is_generated_call && index == 1 {
                     if let Expr::Symbol(name) = item {
-                        if generator_names.contains(name) {
+                        if !name.starts_with('#') && generator_names.contains(name) {
                             *name = format!("{prefix}{name}");
                         }
                     }
@@ -8570,9 +8562,7 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             mutable: binding.mutable,
         });
     }
-    if is_form(expression, "let-else")
-        || matches!(expression, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if borrow_let_else::mode(name).is_some()))
-    {
+    if is_form(expression, "let-else") {
         let items = expect_list(expression, "let-else statement")?;
         if is_form(expression, "let-else") && items.len() == 4 && is_form(&items[3], "else") {
             let fallback = expect_list(&items[3], "let-else #else")?;

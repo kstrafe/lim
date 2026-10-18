@@ -18,7 +18,7 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
                 include_str!("../library/ready_queue.lim"),
                 include_str!("../library/pin.lim"),
                 include_str!("../library/pin_box.lim"),
-                include_str!("../library/pin_project.lim"),
+                include_str!("../library/enum_project.lim"),
                 include_str!("../library/pin_rc.lim"),
                 include_str!("../library/pin_slot.lim"),
                 include_str!("../library/tasks.lim"),
@@ -46,7 +46,7 @@ pub(crate) fn source(path: &Path) -> Option<&'static str> {
         "/<lim-std>/stdio.lim" => Some(include_str!("../library/stdio.lim")),
         "/<lim-std>/stdin.lim" => Some(include_str!("../library/stdin.lim")),
         "/<lim-std>/file.lim" => Some(include_str!("../library/file.lim")),
-        "/<lim-std>/pin_project.lim" => Some(include_str!("../library/pin_project.lim")),
+        "/<lim-std>/enum_project.lim" => Some(include_str!("../library/enum_project.lim")),
         _ => None,
     }
 }

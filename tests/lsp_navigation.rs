@@ -532,22 +532,18 @@ fn ordinary_operand_families_keep_value_roles_in_every_position() {
 }
 
 #[test]
-fn borrowed_let_else_modes_resolve_variants_payload_members_and_branch_scopes() {
-    for (mode, kind) in [
-        ("ref", "ref"),
-        ("ref-mut", "ref-mut"),
-        ("pin", "pin-ref"),
-        ("pin-mut", "pin-ref-mut"),
-    ] {
+fn optional_reference_projections_resolve_payload_members_and_branch_scopes() {
+    for kind in ["ref", "ref-mut", "pin-ref", "pin-ref-mut"] {
         let source = format!(
             r#"
           (#struct Row () (: [[field|value]] #u64))
-          (#enum [[enum|Choice]] () (([[full|Full]] Row) ([[other|Other]] Row)))
-          (#fn main (: [[input|input]] (#{kind} Choice)) #u64
-            (#let-else-{mode} ([[variant|Full]] [[payload|payload]]) (#{kind} [[type|Choice]]) [[operand|input]]
-              (#else ([[failure-variant|Other]] [[failure|failure]])
+          (#enum [[enum|Projection]] () (([[full|Projection::Some]] (#{kind} Row)) Projection::None))
+          (#fn main (: [[input|input]] [[type|Projection]]) #u64
+            (#let-else ([[variant|Projection::Some]] [[payload|payload]]) [[operand|input]]
+              (#else
                 (#forget [[success-in-failure|payload]])
-                (#return (#get [[failure-use|failure]] [[failure-member|value]]))))
+                (#let [[failure|failure]] #u64 0u64)
+                (#return [[failure-use|failure]])))
             (#forget [[failure-leak|failure]])
             (#return (#get [[payload-use|payload]] [[member|value]])))
         "#
@@ -558,9 +554,7 @@ fn borrowed_let_else_modes_resolve_variants_payload_members_and_branch_scopes() 
                 ("variant", &["full"]),
                 ("type", &["enum"]),
                 ("operand", &["input"]),
-                ("failure-variant", &["other"]),
                 ("failure-use", &["failure"]),
-                ("failure-member", &["field"]),
                 ("success-in-failure", &[]),
                 ("failure-leak", &[]),
                 ("payload-use", &["payload"]),

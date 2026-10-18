@@ -21,11 +21,13 @@ fields. Tuple/array indices remain literals, not identifiers. `$` puns navigate
 as the value use, since their label and value share the same source token.
 Enum constructor and pattern names resolve to variant declaration spans; this
 includes cases, conditional patterns, payload operations and fieldless values.
-Borrowed `#let-else-ref`, `#let-else-ref-mut`, `#let-else-pin` and
-`#let-else-pin-mut` retain the same variant/binding roles as their case modes.
-Their reference annotation describes the input, not the payload. Success
-bindings enter only the following statements; `#else` bindings are confined to
-the diverging fallback. Input expressions precede either binding scope.
+Optional-reference projection results use ordinary `#let-else` variant and
+binding roles. The generated enum's payload reference type determines member
+navigation, including all four ordinary/pinned, shared/exclusive modes. Success
+bindings enter only the following statements; failure locals are confined to
+the diverging `#else` body. Input expressions precede either binding scope.
+`@#enum-project` arguments remain literal generator inputs; its emitted helper
+and optional variants use ordinary generated-definition navigation.
 The compact `(#let-else variant-pattern value (#else statements...))` has no
 type operand or failure binder. Its variant supplies the declared payload
 type; navigate the value as an expression and every `#else` child as a

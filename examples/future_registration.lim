@@ -1,4 +1,5 @@
 ; Registration consumes only literal names. It never inspects unfinished enums.
+(#import "../library/enum_project.lim")
 (#distributed-enum ExecutorTask ())
 
 (#gn register-future (executor future)
@@ -15,6 +16,9 @@
 
 ; Forward references are checked after expansion; they do not schedule it.
 (@register-future ExecutorTask Work)
+(@#enum-project
+  (: enum ExecutorTask : variant ExecutorTask::Work : payload Work::Frame
+   : mode #pin-ref-mut : name WorkProjection))
 
 (@#async-fn-pinned
   (: protocol Work::Await : waker #u64
@@ -23,10 +27,11 @@
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task ExecutorTask (ExecutorTask::Work (#call work (:))))
-  (#let-else-pin-mut (ExecutorTask::Work frame) (#pin-ref-mut ExecutorTask)
-    (#pin-borrow-mut task)
-    (#forget task)
-    (#return 0u64))
+  (#let-else (WorkProjection::Some frame)
+    (#call WorkProjection::project (: source (#pin-borrow-mut task)))
+    (#else
+      (#forget task)
+      (#return 0u64)))
   (#let result Work::Poll
     (#call Work::poll (: task frame : waker (#borrow waker))))
   (#let answer #u64 (#match result

@@ -185,7 +185,7 @@ fn projection_source(value: &str) -> String {
     format!(
         "(#std)
       (#enum Task () ((Work #u64) Idle))
-      (@#pin-project (: enum Task : variant Work : payload #u64 : name WorkProjection))
+      (@#enum-project (: enum Task : variant Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
       (#fn main () #u64
         (#let-mut task Task {value})
         (#let-else (WorkProjection::Some frame)

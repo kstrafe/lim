@@ -7664,7 +7664,7 @@ pub(crate) fn program(
             program.items.push(item);
         }
     }
-    crate::borrow_let_else::normalize(
+    crate::let_else::normalize(
         &mut program.items,
         &mut program.statement_spans,
         &mut program.statement_expressions,
@@ -8022,10 +8022,14 @@ mod tests {
         let function = "(#fn work (: choose #bool) #u64
           (#let-mut owner Choice (#if choose (Left 40u64) (Right 40u64)))
           (#let view (#pin-ref-mut #u64) (#if choose
-            (#block (#let-else-pin-mut (Left left) (#pin-ref-mut Choice) (#pin-borrow-mut owner)
-              (#forget owner) (#return 0u64)) left)
-            (#block (#let-else-pin-mut (Right right) (#pin-ref-mut Choice) (#pin-borrow-mut owner)
-              (#forget owner) (#return 0u64)) right)))
+            (#block (#let left (#pin-ref-mut #u64)
+              (#match (#pin-borrow-mut owner)
+                (#case-pin-mut (Left left-payload) left-payload)
+                (#case _ (#block (#forget owner) (#return 0u64))))) left)
+            (#block (#let right (#pin-ref-mut #u64)
+              (#match (#pin-borrow-mut owner)
+                (#case-pin-mut (Right right-payload) right-payload)
+                (#case _ (#block (#forget owner) (#return 0u64))))) right)))
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))
           (#let answer #u64 (#deref view))

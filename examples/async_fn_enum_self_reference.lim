@@ -1,4 +1,5 @@
 ; A pinned async frame may retain a reference into an active enum payload.
+(#import "/<lim-std>/enum_project.lim")
 (#enum Child (#linear) ((Waiting #u64)))
 
 (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
@@ -13,14 +14,16 @@
 (#struct NumberPayload () ((value #u64)))
 (#enum Choice () ((Number NumberPayload) (Other #u64)))
 (#struct Owner () ((choice Choice)))
+(@#enum-project
+  (: enum Choice : variant Number : payload NumberPayload : mode #pin-ref : name NumberView))
 
 (@#async-fn-pinned ( : protocol ReadAfterAwaitAwait
                    : waker #u64
                    : function
   (#fn read-after-await ((owner Owner)) #u64
-    (#let-else-pin (Number payload) (#pin-ref Choice)
-      (#pin-borrow (#get owner choice))
-      (#return 0u64))
+    (#let-else (NumberView::Some payload)
+      (#call NumberView::project (: source (#pin-borrow (#get owner choice))))
+      (#else (#return 0u64)))
     (#let view (#pin-ref #u64) (#pin-borrow (#get payload value)))
     (#let result #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))

@@ -36,8 +36,6 @@ for [s:token, s:group] in [
       \ ['#let-mut', 'limDeclaration'], ['#case', 'limConditional'],
       \ ['#case-pin', 'limConditional'], ['#case-pin-mut', 'limConditional'],
       \ ['#let-else', 'limConditional'], ['#while', 'limRepeat'],
-      \ ['#let-else-ref', 'limConditional'], ['#let-else-ref-mut', 'limConditional'],
-      \ ['#let-else-pin', 'limConditional'], ['#let-else-pin-mut', 'limConditional'],
       \ ['#return', 'limControl'], ['#unsafe', 'limUnsafe'],
       \ ['#gn', 'limGeneratorKeyword'], ['#gn-for-each', 'limGeneratorKeyword'],
       \ ['#cfg-if', 'limCfg'], ['@#vec', 'limGenerated'],

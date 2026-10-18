@@ -986,6 +986,62 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
 }
 
 #[test]
+fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mode() {
+    for (mode, borrow) in [
+        ("ref", "borrow"),
+        ("ref-mut", "borrow-mut"),
+        ("pin-ref", "pin-borrow"),
+        ("pin-ref-mut", "pin-borrow-mut"),
+    ] {
+        let fixture = Fixture::new("enum-project");
+        let text = format!(
+            "(#import \"/<lim-std>/enum_project.lim\")
+          (#struct Row () (: value #u64))
+          (#enum Task () ((Work Row) Idle))
+          (@#enum-project (: enum Task : variant Work : payload Row : mode #{mode} : name View))
+          (#fn main () #u64
+            (#let-mut task Task (Work (#struct-literal Row (: value 42u64))))
+            (#let-else (View::Some frame)
+              (#call View::project (: source (#{borrow} task)))
+              (#else (#forget task) (#return 0u64)))
+            (#let answer #u64 (#get frame value))
+            (#forget frame) (#forget task) (#return answer))"
+        );
+        let root = fixture.write("main.lim", &text);
+        fixture.context(&root, "first");
+        let mut client = Client::start(&fixture.0);
+        client.open(&root, &text);
+        for (name, declaration) in [
+            ("View::Some", "(View::Some"),
+            ("View::project", "#fn View::project"),
+        ] {
+            let result = client.definition(&root, &text, name);
+            let path = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
+            assert!(
+                path.starts_with(fixture.0.join(".lim/generated")),
+                "{result:?}"
+            );
+            let generated = fs::read_to_string(&path).unwrap();
+            assert_location(&result, &path, &generated, declaration, name);
+        }
+        assert_location(
+            &client.definition(&root, &text, "frame value"),
+            &root,
+            &text,
+            "(View::Some frame)",
+            "frame",
+        );
+        assert_location(
+            &client.definition(&root, &text, "value))"),
+            &root,
+            &text,
+            "(: value #u64)",
+            "value",
+        );
+    }
+}
+
+#[test]
 fn ambiguous_imports_fail_closed_and_deduplicated_imports_recover() {
     let fixture = Fixture::new("ambiguity");
     let first_text = "(#fn target () #u64 (#return 1u64))";

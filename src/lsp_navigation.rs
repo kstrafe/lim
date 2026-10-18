@@ -512,9 +512,7 @@ impl<'a> Index<'a> {
         vec![]
     }
     fn bind_statement(&self, node: &Node, scope: &mut Scope) {
-        if matches!(head(node), "let" | "let-mut" | "const" | "let-else")
-            || crate::borrow_let_else::mode(head(node)).is_some()
-        {
+        if matches!(head(node), "let" | "let-mut" | "const" | "let-else") {
             if let Some(pattern) = node.children.get(1) {
                 if !head(node).starts_with("let-else") && symbol(pattern).is_some() {
                     self.explicit_locals.borrow_mut().insert(pattern.span);
@@ -525,23 +523,7 @@ impl<'a> Index<'a> {
     }
     fn bind_let_pattern(&self, node: &Node, pattern: &Node, scope: &mut Scope) -> Vec<Span> {
         let kind = node.children.get(2).and_then(ty);
-        if let Some(mode) = crate::borrow_let_else::mode(head(node)) {
-            let wrapper = Node {
-                expr: Expr::List(vec![]),
-                span: pattern.span,
-                children: vec![
-                    Node {
-                        expr: Expr::Symbol(mode.keyword().into()),
-                        span: node.children[0].span,
-                        children: vec![],
-                    },
-                    pattern.clone(),
-                ],
-            };
-            self.bind_pattern(&wrapper, kind, scope)
-        } else {
-            self.bind_pattern(pattern, kind, scope)
-        }
+        self.bind_pattern(pattern, kind, scope)
     }
     fn sequence(&self, nodes: &[Node], scope: &mut Scope, labels: &Scope) -> Vec<Span> {
         for node in nodes {
@@ -645,8 +627,7 @@ impl<'a> Index<'a> {
                 }
                 return self.bundle(xs.get(2).unwrap_or(node));
             }
-            "let" | "let-mut" | "const" | "static" | "let-else" | "let-else-ref"
-            | "let-else-ref-mut" | "let-else-pin" | "let-else-pin-mut" => {
+            "let" | "let-mut" | "const" | "static" | "let-else" => {
                 if head(node) == "let-else" && xs.len() == 4 && head(&xs[3]) == "else" {
                     if self.contains(&xs[2]) {
                         return self.walk(&xs[2], scope, labels);

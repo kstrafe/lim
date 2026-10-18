@@ -283,8 +283,7 @@ impl Builder<'_> {
                 "let-else" if node.children.len() == 4 && head(&node.children[3]) == "else" => {
                     index == 3
                 }
-                "for-range" | "let-else" | "let-else-ref" | "let-else-ref-mut" | "let-else-pin"
-                | "let-else-pin-mut" => index >= 4,
+                "for-range" | "let-else" => index >= 4,
                 "else" => index >= 1,
                 "label" => index == 2 && statement,
                 _ => false,
@@ -886,7 +885,7 @@ impl Lowered {
         }
         let context_count = context.len();
         context.extend(program.items.drain(original_count..));
-        crate::borrow_let_else::normalize(
+        crate::let_else::normalize(
             &mut context,
             &mut program.statement_spans,
             &mut program.statement_expressions,

@@ -1,9 +1,12 @@
+(#import "/<lim-std>/enum_project.lim")
 (#enum Choice () ((Number #u64) Empty))
+(@#enum-project (: enum Choice : variant Number : payload #u64 : mode #pin-ref-mut : name NumberView))
 (#fn main () #u64
   (#let-mut value Choice (Number 42u64))
   (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
-  (#let-else-pin-mut (Number child) (#pin-ref-mut Choice) parent
-    (#return 0u64))
+  (#let-else (NumberView::Some child)
+    (#call NumberView::project (: source (#pin-borrow-mut (#deref parent))))
+    (#else (#return 0u64)))
   (#variant-is parent Number)
   (#let result #u64 (#deref child))
   (#drop child)

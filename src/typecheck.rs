@@ -6549,7 +6549,7 @@ fn statement_type_in_context(
     }
 }
 
-pub(crate) fn statement_diverges(statement: &Statement) -> bool {
+fn statement_diverges(statement: &Statement) -> bool {
     match statement {
         Statement::Return(_)
         | Statement::Break

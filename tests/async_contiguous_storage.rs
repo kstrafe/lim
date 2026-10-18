@@ -112,10 +112,10 @@ fn run_ordinary_typed_payload(on_heap: bool) {
       (#let initial Storage",
         )
         .replace(
-            "(#let-else-pin-mut (Full owner)",
+            "(#let-else (OwnerView::Some owner)",
             "
       (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of allocation initial)))
-      (#let-else-pin-mut (Full owner)",
+      (#let-else (OwnerView::Some owner)",
         )
         .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
         .replace(

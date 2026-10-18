@@ -55,7 +55,7 @@ fn pin_projection_is_inspectable_safe_generator_code_and_reuses_its_artifact() {
     fs::write(&entry, source).unwrap();
     let config = lim::CompileConfig::default();
     compile(source, &entry, &config);
-    let selected = source.find("@#pin-project").unwrap();
+    let selected = source.find("@#enum-project").unwrap();
     let located =
         lim::locate_generated(source, &entry, &config, &entry, selected, selected).unwrap();
     assert_eq!(located.len(), 1);
