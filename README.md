@@ -302,6 +302,11 @@ cfg = "feature=testing"
 module-path = "src"
 ```
 
+`cfg` entries are optional: builtin keys default to the selected target.
+`target` is optional too and defaults to the host target, as on the CLI.
+Explicit cfg entries override individual defaults; custom feature flags must
+still be specified when needed.
+
 The server discovers the nearest `lim.lsp` to the document, falling back to its
 initialized workspace root for imported files outside that directory. This file
 is authoritative: each context replaces session cfg/module-path settings rather

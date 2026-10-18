@@ -7,6 +7,16 @@ fn directory(name: &str) -> PathBuf {
     path
 }
 
+fn assert_cfg(config: &CompileConfig, key: &str, value: &str) {
+    let source = format!(
+        "(#cfg-if (#cfg-is #{key} {value}) \
+         (#fn main () #u64 (#return 0u64)) \
+         (#cfg-else (#fn main () #u64 (#return missing))))"
+    );
+    let program = lim::parse_program_with_config(&source, config).unwrap();
+    lim::check_types(&program).unwrap();
+}
+
 #[test]
 fn multiple_context_blocks_keep_settings_independent_and_reject_invalid_documents() {
     let base = directory("multiple-parser");
@@ -24,7 +34,7 @@ fn multiple_context_blocks_keep_settings_independent_and_reject_invalid_document
     );
     for invalid in [
         valid.replace("schema-version = 2", "schema-version = 3"),
-        valid.replace("target = \"aarch64-linux\"\n", ""),
+        valid.replace("target = \"aarch64-linux\"", "target = \"unsupported\""),
         valid.replace("[[context]]\nentry = \"app.lim\"", "entry = \"app.lim\""),
         valid.replace(
             "cfg = \"mode=test\"",
@@ -239,6 +249,61 @@ fn cli_records_effective_cfg_project_paths_and_target_without_rewrites() {
     .unwrap();
     assert!(!run().status.success());
     assert_eq!(text, fs::read_to_string(base.join("lim.lsp")).unwrap());
+}
+
+#[test]
+fn omitted_target_and_cfg_use_host_defaults_in_both_schemas() {
+    let base = directory("host-defaults");
+    let path = base.join("lim.lsp");
+    let target = TargetDescription::host().unwrap();
+    for header in ["schema-version = 1\n", "schema-version = 2\n[[context]]\n"] {
+        fs::write(&path, format!("{header}entry = \"app.lim\"\n")).unwrap();
+        let context = LspContext::read(&path).unwrap();
+        assert_eq!(context.target, target);
+        assert_cfg(&context.config, "arch", std::env::consts::ARCH);
+        assert_cfg(&context.config, "os", std::env::consts::OS);
+        assert_cfg(&context.config, "platform", std::env::consts::OS);
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn omitted_cfg_uses_each_selected_target_and_preserves_explicit_overrides() {
+    let base = directory("target-defaults");
+    let path = base.join("lim.lsp");
+    fs::write(
+        &path,
+        "schema-version = 2\n\
+         [[context]]\nentry = \"app.lim\"\ntarget = \"x86_64-sysv\"\n\
+         [[context]]\nentry = \"test.lim\"\ntarget = \"aarch64-linux\"\n\
+         [[context]]\nentry = \"override.lim\"\ntarget = \"aarch64-linux\"\n\
+         cfg = \"arch=custom\"\ncfg = \"feature=enabled\"\n",
+    )
+    .unwrap();
+    let contexts = LspContext::read_all(&path).unwrap();
+    for (context, (target, arch, triple)) in contexts[..2].iter().zip([
+        (
+            TargetDescription::X86_64_SYSTEM_V,
+            "x86_64",
+            "x86_64-unknown-linux-gnu",
+        ),
+        (
+            TargetDescription::AARCH64_LINUX,
+            "aarch64",
+            "aarch64-unknown-linux-gnu",
+        ),
+    ]) {
+        assert_eq!(context.target, target);
+        assert_cfg(&context.config, "arch", arch);
+        assert_cfg(&context.config, "target", triple);
+        assert_cfg(&context.config, "platform", "linux");
+    }
+    let config = &contexts[2].config;
+    assert_cfg(config, "arch", "custom");
+    assert_cfg(config, "feature", "enabled");
+    assert_cfg(config, "target", "aarch64-unknown-linux-gnu");
+    assert_cfg(config, "os", "linux");
+    fs::remove_dir_all(base).unwrap();
 }
 
 #[test]

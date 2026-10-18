@@ -50,6 +50,10 @@ and checks its full import graph with unsaved overlays. Shared-library lookups
 return all distinct definitions, including functions supplied by different entry
 points. Context-specific diagnostics identify the entry and flags. Remove stale
 `[[context]]` blocks manually when they are no longer wanted.
+Handwritten contexts may omit `cfg` entries: builtin cfg values then follow
+the selected `target`. Omitting `target` too selects the host compilation
+target, as on the CLI. Explicit cfg entries override individual defaults;
+custom feature flags are not inferred.
 Use `lim.lsp` alongside `lim.project` and `.git` as an lspconfig root marker.
 Clients supporting dynamic watched-file registration (including Neovim) receive
 a watcher for `lim.lsp`; changes recheck open documents. Otherwise the next buffer

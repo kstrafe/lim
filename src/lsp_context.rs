@@ -352,9 +352,7 @@ impl Builder {
         }
     }
     fn finish(self, path: &Path) -> Result<LspContext, String> {
-        let target = self
-            .target
-            .ok_or_else(|| format!("{}: missing target", path.display()))?;
+        let target = self.target.map_or_else(TargetDescription::host, Ok)?;
         Ok(LspContext {
             entry: self
                 .entry

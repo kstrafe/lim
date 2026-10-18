@@ -6,6 +6,12 @@ wildcards, cfg values, and literal generator inputs have no user declaration.
 
 ## Resolution model
 
+Compilation contexts may omit `cfg` entries. Builtin configuration keys are
+derived from that context's target; an omitted target defaults to the host,
+matching the compiler CLI. Explicit cfg entries override individual defaults.
+Each context derives its own defaults without inheriting another context's
+custom flags.
+
 `src/lsp_navigation.rs` is the shared source-role resolver. Its lexical scopes
 retain declaration spans and explicitly declared types. A use of a parameter,
 local, destructured binding, match payload, loop variable, or label resolves in
