@@ -372,6 +372,17 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
     let root = scratch.path();
     let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
     let source = fs::read_to_string(&example).unwrap();
+    let invocation_line = lim::parse(&source)
+        .unwrap()
+        .into_iter()
+        .find(|node| {
+            matches!(&node.expr, lim::Expr::List(items)
+            if matches!(items.first(), Some(lim::Expr::At))
+                && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "#async-fn"))
+        })
+        .expect("example contains an async generator invocation")
+        .span
+        .line;
     let output = root.join("generated");
     lim::write_generated_sources_from_path_with_config_and_cache(
         &source,
@@ -397,7 +408,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         &[absolute_origin(
             example.parent().unwrap(),
             "async_fn.lim",
-            49,
+            invocation_line,
         )],
     );
 }
