@@ -619,6 +619,14 @@ impl Server<'_> {
                 })
                 .unwrap_or_else(|| "null".into()));
         }
+        if let Some(name) = crate::parse(&doc.text)
+            .ok()
+            .and_then(|tree| case_variant_reference(&tree, byte))
+        {
+            return Ok(self
+                .resolved_symbol_definition(doc, byte, &name, true)
+                .unwrap_or_else(|| "null".into()));
+        }
         // Explicit #call callee role has a function namespace, unlike arbitrary names.
         let callee = crate::parse(&doc.text)
             .ok()
@@ -677,6 +685,16 @@ impl Server<'_> {
     }
 
     fn resolved_definition(&self, doc: &Document, byte: usize, name: &str) -> Option<String> {
+        self.resolved_symbol_definition(doc, byte, name, false)
+    }
+
+    fn resolved_symbol_definition(
+        &self,
+        doc: &Document,
+        byte: usize,
+        name: &str,
+        variant_only: bool,
+    ) -> Option<String> {
         let overlays = self
             .documents
             .values()
@@ -697,8 +715,16 @@ impl Server<'_> {
                 .source_files
                 .get(expression.span.source_id as usize)
                 .is_some_and(|file| path_key(&file.path) == doc.path)
+                && expression.span.start <= byte
+                && byte < expression.span.end
             {
-                if let Some(resolved) = semantic_symbol(expression, &expression.expr, byte) {
+                // Case normalization changes the spanned arm shape (including
+                // synthetic blocks). Align the compilation names with that
+                // same shape before mapping the cursor, especially in external
+                // imports whose source spelling differs from the semantic name.
+                let mut semantic = crate::normalize_keywords(expression.expr.clone());
+                crate::normalize_match_cases_expr(&mut semantic);
+                if let Some(resolved) = semantic_symbol(expression, &semantic, byte) {
                     names.insert(resolved);
                 }
             }
@@ -740,7 +766,7 @@ impl Server<'_> {
             {
                 continue;
             }
-            if let Some(location) = self.definition_location(doc, &program, &name) {
+            if let Some(location) = self.definition_location(doc, &program, &name, variant_only) {
                 locations.insert(location);
             }
         }
@@ -759,12 +785,17 @@ impl Server<'_> {
         doc: &Document,
         program: &crate::Program,
         name: &str,
+        variant_only: bool,
     ) -> Option<String> {
-        let expression = program.declaration_expressions.get(name)?;
-        let span = expression
-            .children
-            .get(declaration_name_index(expression))?
-            .span;
+        let span = if variant_only {
+            variant_definition_span(program, name)?
+        } else {
+            let expression = program.declaration_expressions.get(name)?;
+            expression
+                .children
+                .get(declaration_name_index(expression))?
+                .span
+        };
         let file = program.source_files.get(span.source_id as usize)?;
         if let Some(path) = file_source_path(&file.path.to_string_lossy()) {
             return Some(format!(
@@ -802,6 +833,52 @@ impl Server<'_> {
             byte_range(&source, prefix + span.start, prefix + span.end)
         ))
     }
+}
+
+/// Variants retain their own source identity, including distributed contributions
+/// and generated enums. Never redirect a variant use to its containing type.
+fn variant_definition_span(program: &crate::Program, name: &str) -> Option<Span> {
+    let mut owners = program.items.iter().filter_map(|item| match item {
+        crate::Item::Enum {
+            name: owner,
+            variants,
+            ..
+        } if variants.iter().any(|variant| variant.name == name) => Some(owner),
+        _ => None,
+    });
+    let owner = owners.next()?;
+    if owners.next().is_some()
+        || program
+            .declaration_occurrences
+            .get(owner)
+            .is_some_and(|items| items.len() > 1)
+    {
+        return None;
+    }
+    let declaration = program.declaration_expressions.get(owner)?;
+    let Expr::List(parts) = &declaration.expr else {
+        return None;
+    };
+    let Expr::List(variants) = parts.get(3)? else {
+        return None;
+    };
+    let source = declaration.children.get(3)?;
+    variants
+        .iter()
+        .zip(&source.children)
+        .find_map(|(variant, source)| {
+            let (symbol, span) = match variant {
+                Expr::Symbol(symbol) => (symbol, source.span),
+                Expr::List(parts) => {
+                    let Expr::Symbol(symbol) = parts.first()? else {
+                        return None;
+                    };
+                    (symbol, source.children.first()?.span)
+                }
+                _ => return None,
+            };
+            (symbol == name).then_some(span)
+        })
 }
 
 pub(crate) fn semantic_symbol(
@@ -1024,6 +1101,77 @@ fn generator_reference(expressions: &[SpannedExpr], byte: usize) -> Option<(Span
     }
     None
 }
+/// Recognize variant positions, not payload bindings or arbitrary symbols.
+fn case_variant_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
+    fn pattern(node: &SpannedExpr, byte: usize, bare: bool) -> Option<String> {
+        if byte < node.span.start || byte >= node.span.end {
+            return None;
+        }
+        match &node.expr {
+            Expr::Symbol(name) if bare && name != "_" && !name.starts_with('#') => {
+                Some(name.clone())
+            }
+            Expr::List(_) => {
+                let head = node.children.first()?;
+                let Expr::Symbol(name) = &head.expr else {
+                    return None;
+                };
+                if !name.starts_with('#')
+                    && name != "_"
+                    && head.span.start <= byte
+                    && byte < head.span.end
+                {
+                    return Some(name.clone());
+                }
+                if matches!(name.as_str(), "#range" | "#literal") {
+                    return None;
+                }
+                node.children.iter().skip(1).find_map(|child| {
+                    pattern(
+                        child,
+                        byte,
+                        matches!(name.as_str(), "#or" | "#tuple" | "#array"),
+                    )
+                })
+            }
+            _ => None,
+        }
+    }
+    for node in expressions {
+        if byte < node.span.start || byte >= node.span.end {
+            continue;
+        }
+        if matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            continue;
+        }
+        let head = node.children.first().map(|child| &child.expr);
+        if matches!(head, Some(Expr::Symbol(name)) if matches!(name.as_str(), "#gn" | "#gn-fn"))
+            || matches!(head, Some(Expr::At))
+        {
+            continue;
+        }
+        if matches!(head, Some(Expr::Symbol(name)) if name == "#match") {
+            for arm in node.children.iter().skip(2) {
+                if matches!(arm.children.first().map(|child| &child.expr), Some(Expr::Symbol(name))
+                    if name == "#case" || crate::borrow_case::Mode::from_keyword(name).is_some())
+                {
+                    if let Some(name) = arm
+                        .children
+                        .get(1)
+                        .and_then(|node| pattern(node, byte, true))
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+        if let Some(name) = case_variant_reference(&node.children, byte) {
+            return Some(name);
+        }
+    }
+    None
+}
+
 fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
     for expression in expressions {
         if byte < expression.span.start || byte >= expression.span.end {

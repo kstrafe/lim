@@ -68,12 +68,383 @@ fn finish(messages: &mut Vec<String>) {
 }
 
 fn definition(id: i64, uri: &str, text: &str, needle: &str) -> String {
-    let byte = text.find(needle).unwrap();
+    definition_offset(id, uri, text, needle, 0)
+}
+
+fn definition_offset(id: i64, uri: &str, text: &str, needle: &str, offset: usize) -> String {
+    let byte = text.find(needle).unwrap() + offset;
     let (line, character) = lsp::byte_position(text, byte);
     request(id, "textDocument/definition", &format!(
         "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",
         diagnostic_json::quoted(uri)
     ))
+}
+
+fn assert_definition_token(location: &Json, uri: &str, source: &str, start: usize, name: &str) {
+    assert_eq!(location.get("uri").and_then(Json::string), Some(uri));
+    let range = location.get("range").unwrap();
+    for (edge, byte) in [("start", start), ("end", start + name.len())] {
+        let (line, character) = lsp::byte_position(source, byte);
+        let position = range.get(edge).unwrap();
+        assert_eq!(
+            position.get("line").and_then(Json::integer),
+            Some(line as i64),
+            "{location:?}"
+        );
+        assert_eq!(
+            position.get("character").and_then(Json::integer),
+            Some(character as i64),
+            "{location:?}"
+        );
+    }
+}
+
+#[test]
+fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positives() {
+    for (keyword, ty, read) in [
+        ("#case", "Choice", "payload"),
+        ("#case-ref", "(#ref Choice)", "(#deref payload)"),
+        ("#case-ref-mut", "(#ref-mut Choice)", "(#deref payload)"),
+        (
+            "#case-pin",
+            "(#pin-ref Choice)",
+            "(#unsafe (#pin-read payload))",
+        ),
+        (
+            "#case-pin-mut",
+            "(#pin-ref-mut Choice)",
+            "(#unsafe (#pin-read payload))",
+        ),
+    ] {
+        let base =
+            std::env::temp_dir().join(format!("lim-lsp-case-{}-{keyword}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let path = base.join("main.lim");
+        let uri = lsp::path_to_uri(&path).unwrap();
+        let text = format!(
+            "(#enum Choice () ((Full #u64) Empty))\n
+          (#fn inspect (: input {ty}) #u64
+            (#return (#match input
+              ({keyword} (Full payload) (#when true)
+                (#let answer #u64 {read}) answer)
+              ({keyword} Empty 0u64)
+              (#case _ 1u64))))"
+        );
+        lim::check_types(&lim::parse_program(&text).unwrap()).unwrap();
+        let mut messages = start();
+        messages.push(open(&uri, 1, &text));
+        messages.push(definition_offset(
+            2,
+            &uri,
+            &text,
+            &format!("({keyword} (Full"),
+            keyword.len() + 3,
+        ));
+        messages.push(definition_offset(
+            3,
+            &uri,
+            &text,
+            &format!("({keyword} Empty"),
+            keyword.len() + 2,
+        ));
+        messages.push(definition_offset(4, &uri, &text, "(Full payload)", 6));
+        messages.push(definition_offset(5, &uri, &text, "(#case _", 7));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        for (id, name) in [(2, "Full"), (3, "Empty")] {
+            let locations = definition_locations(&replies, id);
+            assert_eq!(locations.len(), 1, "{keyword}: {replies:?}");
+            assert_definition_token(locations[0], &uri, &text, text.find(name).unwrap(), name);
+        }
+        for id in [4, 5] {
+            assert_eq!(reply(&replies, id).get("result"), Some(&Json::Null));
+        }
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn enum_case_variants_navigate_in_nested_and_or_patterns() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-nested-cases-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    let text = "(#enum Color () (Red Green Blue))
+      (#enum Wrapped () ((Wrap Color)))
+      (#fn nested (: input Wrapped) #u64 (#return (#match input
+        (#case (Wrap inner) (#match inner (#case Red 1u64) (#case _ 0u64))))))
+      (#fn alternatives (: input Color) #u64 (#return (#match input
+        (#case (#or Red Green) 42u64) (#case Blue 0u64))))";
+    lim::check_types(&lim::parse_program(text).unwrap()).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    for (id, needle, offset) in [
+        (2, "(Wrap inner)", 1),
+        (3, "(#case Red", 7),
+        (4, "#or Red", 4),
+        (5, "#or Red Green", 8),
+    ] {
+        messages.push(definition_offset(id, &uri, text, needle, offset));
+    }
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for (id, name) in [(2, "Wrap"), (3, "Red"), (4, "Red"), (5, "Green")] {
+        let locations = definition_locations(&replies, id);
+        assert_eq!(locations.len(), 1, "{replies:?}");
+        let declaration = if name == "Wrap" {
+            text.find("Wrap Color").unwrap()
+        } else {
+            text.find(name).unwrap()
+        };
+        assert_definition_token(locations[0], &uri, text, declaration, name);
+    }
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn enum_case_variants_resolve_transitive_external_import_names() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-imported-cases-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let types = base.join("types.lim");
+    let child = base.join("child.lim");
+    let entry = base.join("main.lim");
+    let types_text = "(#enum Choice () ((Full #u64) Empty))";
+    let child_text = "(#import \"types.lim\")
+      (#fn read (: input Choice) #u64 (#return (#match input
+        (#case (Full payload) (#let answer #u64 payload) answer)
+        (#case Empty 0u64))))";
+    let entry_text = "(#import-external \"child.lim\" ext-)
+      (#fn main () #u64 (#let input ext-Choice (ext-Full 42u64))
+        (#return (#match input (#case (ext-Full payload) payload) (#case ext-Empty 0u64))))";
+    for (path, text) in [
+        (&types, types_text),
+        (&child, child_text),
+        (&entry, entry_text),
+    ] {
+        std::fs::write(path, text).unwrap();
+    }
+    context(&entry, CompileConfig::default())
+        .write(&base.join("lim.lsp"))
+        .unwrap();
+    let child_uri = lsp::path_to_uri(&child).unwrap();
+    let entry_uri = lsp::path_to_uri(&entry).unwrap();
+    let types_uri = lsp::path_to_uri(&types).unwrap();
+    let mut messages = start();
+    messages.push(open(&child_uri, 1, child_text));
+    messages.push(open(&entry_uri, 1, entry_text));
+    messages.push(definition_offset(
+        2,
+        &child_uri,
+        child_text,
+        "(#case (Full",
+        8,
+    ));
+    messages.push(definition_offset(
+        3,
+        &entry_uri,
+        entry_text,
+        "(#case (ext-Full",
+        8,
+    ));
+    messages.push(definition_offset(
+        4,
+        &child_uri,
+        child_text,
+        "(#case Empty",
+        7,
+    ));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for (id, name) in [(2, "Full"), (3, "Full"), (4, "Empty")] {
+        let locations = definition_locations(&replies, id);
+        assert_eq!(locations.len(), 1, "{replies:?}");
+        assert_definition_token(
+            locations[0],
+            &types_uri,
+            types_text,
+            types_text.find(name).unwrap(),
+            name,
+        );
+    }
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn enum_case_variants_navigate_to_user_and_builtin_generated_definitions() {
+    for (label, declarations, ty, variant, empty, value) in [
+        (
+            "user",
+            "(#gn make () `((#enum Work () ((Work::Ready #u64) Work::Pending))))\n(@make)",
+            "Work",
+            "Work::Ready",
+            "Work::Pending",
+            "(Work::Ready 42u64)",
+        ),
+        (
+            "builtin",
+            "(@#optional (: type #u64 : name Maybe))",
+            "Maybe",
+            "Maybe-some",
+            "Maybe-none",
+            "(#call Maybe-construct (: value 42u64))",
+        ),
+    ] {
+        let base = std::env::temp_dir().join(format!(
+            "lim-lsp-generated-cases-{}-{label}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+        let source = format!(
+            "{declarations}\n(#fn main () #u64 (#let input {ty} {value})
+          (#return (#match input (#case ({variant} payload) payload) (#case {empty} 0u64))))"
+        );
+        let mut messages = start();
+        messages.push(open(&uri, 1, &source));
+        messages.push(definition_offset(
+            2,
+            &uri,
+            &source,
+            &format!("(#case ({variant}"),
+            8,
+        ));
+        messages.push(definition_offset(
+            3,
+            &uri,
+            &source,
+            &format!("(#case {empty}"),
+            7,
+        ));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        for (id, name) in [(2, variant), (3, empty)] {
+            let locations = definition_locations(&replies, id);
+            assert_eq!(locations.len(), 1, "{label}: {replies:?}");
+            let target_uri = locations[0].get("uri").and_then(Json::string).unwrap();
+            let target = lsp::uri_to_path(target_uri).unwrap();
+            assert!(target.starts_with(base.join(".lim/generated")));
+            let generated = std::fs::read_to_string(target).unwrap();
+            assert_definition_token(
+                locations[0],
+                target_uri,
+                &generated,
+                generated.find(name).unwrap(),
+                name,
+            );
+        }
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn enum_case_variants_use_the_distributed_contributions_source_identity() {
+    for generated in [false, true] {
+        let base = std::env::temp_dir().join(format!(
+            "lim-lsp-contributed-cases-{}-{generated}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let entry = base.join("main.lim");
+        let contribution = base.join("contribution.lim");
+        let source = "(#distributed-enum Event ())\n(#import \"contribution.lim\")
+          (#fn main () #u64 (#let input Event (Ready 42u64))
+            (#return (#match input (#case (Ready payload) payload))))";
+        let contribution_text = if generated {
+            "(#gn contribute () `((#enum-contribute Event (Ready #u64))))\n(@contribute)"
+        } else {
+            "(#enum-contribute Event (Ready #u64))"
+        };
+        std::fs::write(&entry, source).unwrap();
+        std::fs::write(&contribution, contribution_text).unwrap();
+        let uri = lsp::path_to_uri(&entry).unwrap();
+        let mut messages = start();
+        messages.push(open(&uri, 1, source));
+        messages.push(definition_offset(2, &uri, source, "(#case (Ready", 8));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        let locations = definition_locations(&replies, 2);
+        assert_eq!(locations.len(), 1, "{replies:?}");
+        let target_uri = locations[0].get("uri").and_then(Json::string).unwrap();
+        let target = lsp::uri_to_path(target_uri).unwrap();
+        if generated {
+            assert!(target.starts_with(base.join(".lim/generated")));
+        } else {
+            assert_eq!(target, contribution);
+        }
+        let declaration = std::fs::read_to_string(target).unwrap();
+        assert_definition_token(
+            locations[0],
+            target_uri,
+            &declaration,
+            declaration.find("Ready").unwrap(),
+            "Ready",
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
+fn enum_case_variants_return_separate_definitions_for_independent_entry_points() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-multi-cases-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let library = base.join("library.lim");
+    let app = base.join("app.lim");
+    let test = base.join("test.lim");
+    let library_text = "(#fn classify (: input Choice) #u64
+      (#return (#match input (#case (Ready payload) payload) (#case Pending 0u64))))";
+    let entry_text = "(#import \"library.lim\")\n(#enum Choice () ((Ready #u64) Pending))";
+    std::fs::write(&library, library_text).unwrap();
+    for path in [&app, &test] {
+        std::fs::write(path, entry_text).unwrap();
+    }
+    lim::lsp_context::LspContext::write_all(
+        &[
+            context(&app, CompileConfig::default()),
+            context(&test, CompileConfig::default()),
+        ],
+        &base.join("lim.lsp"),
+    )
+    .unwrap();
+    let uri = lsp::path_to_uri(&library).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, library_text));
+    messages.push(definition_offset(2, &uri, library_text, "(#case (Ready", 8));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let locations = definition_locations(&replies, 2);
+    assert_eq!(locations.len(), 2, "{replies:?}");
+    for location in locations {
+        let target_uri = location.get("uri").and_then(Json::string).unwrap();
+        let target = lsp::uri_to_path(target_uri).unwrap();
+        assert!(target == app || target == test);
+        assert_definition_token(
+            location,
+            target_uri,
+            entry_text,
+            entry_text.find("Ready").unwrap(),
+            "Ready",
+        );
+    }
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn enum_case_variants_do_not_resolve_quoted_inactive_or_ambiguous_uses() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-negative-cases-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    for source in [
+        "(#enum Choice () (Ready)) (#gn data () '(#match x (#case Ready 0u64)))",
+        "(#enum Choice () (Ready)) (#cfg-if (#cfg-is #feature enabled) (#fn inactive () #u64 (#return (#match Ready (#case Ready 0u64)))))",
+        "(#enum First () (Ready)) (#enum Second () (Ready)) (#fn main () #u64 (#return (#match Ready (#case Ready 0u64))))",
+    ] {
+        let mut messages = start();
+        messages.push(open(&uri, 1, source));
+        messages.push(definition_offset(2, &uri, source, "(#case Ready", 7));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null), "{source}: {replies:?}");
+    }
+    std::fs::remove_dir_all(base).unwrap();
 }
 
 fn artifact_paths(messages: &[Json], id: i64) -> Vec<std::path::PathBuf> {

@@ -243,7 +243,11 @@ and explicit `#call` and type definitions across the selected import graph,
 including external import prefixes. Navigation on an import path or keyword
 opens the imported file, using the compiler's module-path search order and
 unsaved buffers. Ordinary declarations remain navigable despite unrelated
-type errors. Generated call/type definitions are also supported.
+type errors. Enum variants in `#case`, `#case-ref`, `#case-ref-mut`, `#case-pin`,
+and `#case-pin-mut` navigate to their exact declaration names, including
+generated variants and distributed-enum contributions. Payload bindings and
+wildcards are not treated as variant references.
+Generated call/type definitions are also supported.
 Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
 snapshots on demand, including expansions from unsaved buffers.
 Go-to-definition on an invocation's `@` opens its current generated source

@@ -498,6 +498,7 @@ pub(crate) struct PreparedProgramSyntax {
     pub(crate) root_source: String,
     pub(crate) expressions: Vec<SpannedExpr>,
     pub(crate) source_files: Vec<SourceFile>,
+    generated_source_invocations: HashMap<u32, Span>,
     pub(crate) dependency_context: String,
     pub(crate) generator_origins: generator::Origins,
     generation_requirements: Vec<crate::generator_provenance::Requirement>,
@@ -518,7 +519,7 @@ pub(crate) fn prepare_program_syntax(
             return Err(format!("unknown async-lowering '{value}'; expected graph").into());
         }
     }
-    let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
+    let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
     let loaded = bundles
@@ -587,7 +588,36 @@ pub(crate) fn prepare_program_syntax(
         }
         unique.push(expression);
     }
-    let expressions = unique;
+    let mut expressions = unique;
+    let mut generated_source_invocations = HashMap::new();
+    // Contributions disappear into their enum during merging. Give generated
+    // contributions precise source trees first, while their invocation origin
+    // is still available; otherwise every variant points at the macro call.
+    for expression in &mut expressions {
+        if expression.children.is_empty()
+            && matches!(&expression.expr, Expr::List(parts)
+                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#enum-contribute"))
+        {
+            let origin = expression.span;
+            let text = expression_source(&expression.expr)?;
+            let mut parsed = parse(&text)?;
+            let source_id = u32::try_from(source_files.len()).map_err(|_| {
+                "too many source files while tracking enum contributions".to_owned()
+            })?;
+            let mut tree = parsed.remove(0);
+            set_source_id(&mut tree, source_id);
+            let path = source_files.get(origin.source_id as usize).map_or_else(
+                || "<source>".to_owned(),
+                |file| file.path.display().to_string(),
+            );
+            source_files.push(SourceFile {
+                path: format!("<generated from {path}:{}:{}>", origin.line, origin.column).into(),
+                source: text,
+            });
+            generated_source_invocations.insert(source_id, origin);
+            *expression = tree;
+        }
+    }
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
@@ -708,6 +738,7 @@ pub(crate) fn prepare_program_syntax(
         root_source: source.to_owned(),
         expressions,
         source_files,
+        generated_source_invocations,
         dependency_context,
         generator_origins,
         generation_requirements,
@@ -740,7 +771,7 @@ pub(crate) fn parse_prepared_program_items(
     let mut declaration_spans = HashMap::new();
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
-    let mut generated_source_invocations = HashMap::new();
+    let mut generated_source_invocations = prepared.generated_source_invocations.clone();
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {

@@ -69,6 +69,11 @@ unique function declaration across internal and external imports, and declaratio
 names to their own span. Explicit type annotations, aggregate field types and
 struct-literal types also navigate to their declarations. External prefixes are
 resolved even when navigating an unprefixed call inside the imported source.
+Enum variant names in all five `#case` forms also navigate to their exact
+declaration token, including fieldless variants, `#or` patterns, generated
+enums, and distributed-enum contributions. Payload bindings and `_` do not
+navigate as enum variants. Compilation contexts remain independent, so one
+variant use can have multiple definitions supplied by different entry points.
 Import path strings and import keywords open the resolved module; local files
 take precedence over configured module directories, including unsaved buffers.
 Unrelated type errors do not block ordinary declaration navigation. Generated
