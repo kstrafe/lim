@@ -239,15 +239,20 @@ to the new artifact even when older files remain in `.lim/generated`.
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
 diagnostics for unsaved buffers and imports, formatting, document symbols,
-and explicit `#call` and type definitions across the selected import graph,
+and source-role definitions across the selected import graph,
 including external import prefixes. Navigation on an import path or keyword
 opens the imported file, using the compiler's module-path search order and
 unsaved buffers. Ordinary declarations remain navigable despite unrelated
 type errors. Enum variants in `#case`, `#case-ref`, `#case-ref-mut`, `#case-pin`,
 and `#case-pin-mut` navigate to their exact declaration names, including
 generated variants and distributed-enum contributions. Payload bindings and
-wildcards are not treated as variant references.
-Generated call/type definitions are also supported.
+wildcards are not treated as variant references. Parameters, locals, destructured
+bindings, loop variables, labels, named arguments, and aggregate fields navigate
+through their lexical scope or concrete owner type. Constructors and conditional
+patterns also resolve enum variants. Generator parameters, helper calls, active
+unquotes, and syntax-bundle references have their own navigation roles; quoted
+data and arbitrary literal generator arguments deliberately do not resolve.
+Generated definitions and bundled standard-library sources are also supported.
 Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
 snapshots on demand, including expansions from unsaved buffers.
 Go-to-definition on an invocation's `@` opens its current generated source
@@ -258,6 +263,10 @@ It discovers project module paths
 and accepts `--cfg KEY=VALUE` and `--module-path PATH` for session settings.
 Checks do not write source files or generator caches. See the
 [Neovim setup and feature limits](utilities/nvim/README.md#language-server).
+New or changed syntax must include navigation roles and exact-range regression
+tests as specified in the [LSP design checklist](docs/lsp-design.md#new-syntax-acceptance-checklist).
+An independent keyword inventory test enforces an explicit navigation review
+when parser keywords are added.
 
 ### Compilation context for editor checks
 

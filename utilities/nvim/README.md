@@ -93,8 +93,16 @@ With compilation contexts, imported calls and explicit types navigate across
 every entry graph containing the current file. Add another entry to `lim.lsp`
 for files outside the existing graphs. Identical locations are deduplicated;
 multiple distinct locations use Neovim's normal multi-definition selection UI.
-Other references, locals, fields, quoted templates,
-and ambiguous duplicate functions return no location.
+Parameters, locals, destructuring and payload bindings, loop variables and labels
+resolve within their lexical scopes. Named call arguments resolve to the selected
+function's parameters; member names and struct-literal labels resolve through
+their concrete owner type, including imported and generated declarations. Enum
+constructors and conditional patterns resolve variants too. Generator parameters,
+helper calls, active unquotes and syntax bundles have dedicated source roles.
+Quoted templates, arbitrary literal generator inputs, wildcards, unknown names
+and ambiguous duplicate declarations return no location. `$` shorthand navigates
+to its value binding. Bundled standard-library definitions open inspectable source
+views rather than nonexistent paths.
 Generated diagnostics point to file-backed invocation provenance;
 expansion provenance is also included as related diagnostic locations.
 No completion, rename, incremental edits, general source-file watching, or workspace
@@ -105,7 +113,7 @@ URIs and rejects remote authorities and malformed percent escapes.
 Run the LSP regression suites from the repository root:
 
 ```sh
-nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end
+nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end --test lsp_navigation
 ```
 
 The end-to-end suite launches the actual `lim lsp` executable and exercises
@@ -117,6 +125,9 @@ symbols, malformed protocol recovery, ambiguous definitions, and shutdown.
 Fixtures use isolated temporary projects; neither user configuration nor
 repository examples are modified. This supplements the in-memory protocol
 and compilation-context tests, rather than claiming exhaustive LSP coverage.
+Every new or changed form must follow the
+[source-navigation design checklist](../../docs/lsp-design.md#new-syntax-acceptance-checklist)
+and update the independent keyword review inventory.
 
 Run the highlighting regression tests from the repository root:
 

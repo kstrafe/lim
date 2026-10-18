@@ -193,6 +193,106 @@ pub(crate) fn checked_program_in_context(
     program_in_context(source, path, config, overlays, context_file, true)
 }
 
+pub(crate) struct NavigationContext {
+    pub program: Option<crate::Program>,
+    pub forms: Vec<crate::SpannedExpr>,
+    pub files: Vec<crate::SourceFile>,
+}
+
+/// Keep lexical navigation available when unrelated generation/checking fails.
+/// Only the normal checked publication path may expose generated definitions.
+pub(crate) fn navigation_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    byte: usize,
+) -> Result<NavigationContext, crate::Diagnostic> {
+    with_compilation_context(
+        source,
+        path,
+        config,
+        overlays,
+        context_file,
+        |entry_source, entry, config, _| {
+            let base = entry.parent().unwrap_or(Path::new("."));
+            let (mut forms, files) =
+                crate::load_imports_with_sources(entry_source, base, Some(entry), config)
+                    .map_err(|error| crate::generator_diagnostic(error, entry, entry_source))?;
+            if let Some(file) = files
+                .iter()
+                .position(|file| path_key(&file.path) == path_key(path))
+            {
+                if !crate::lsp::navigation::Index::new(None, &forms, file as u32, byte)
+                    .resolve_lexical()
+                    .is_empty()
+                {
+                    return Ok(NavigationContext {
+                        program: None,
+                        forms,
+                        files,
+                    });
+                }
+            }
+            let program =
+                crate::prepare_program_syntax(entry_source, base, Some(entry), config, None)
+                    .and_then(|prepared| crate::expand_prepared_program(&prepared))
+                    .ok();
+            if let Some(program) = &program {
+                let map = files
+                    .iter()
+                    .map(|file| {
+                        program
+                            .source_files
+                            .iter()
+                            .position(|candidate| path_key(&candidate.path) == path_key(&file.path))
+                            .map(|id| id as u32)
+                    })
+                    .collect::<Option<Vec<_>>>();
+                let Some(map) = map else {
+                    return Err(crate::Diagnostic::new(
+                        crate::DiagnosticCode::Cli,
+                        "navigation source identities do not match the compilation context",
+                    ));
+                };
+                fn remap(node: &mut crate::SpannedExpr, map: &[u32]) {
+                    node.span.source_id = map[node.span.source_id as usize];
+                    for child in &mut node.children {
+                        remap(child, map);
+                    }
+                }
+                for form in &mut forms {
+                    remap(form, &map);
+                }
+                for (id, file) in program.source_files.iter().enumerate() {
+                    if !program
+                        .generated_source_invocations
+                        .contains_key(&(id as u32))
+                    {
+                        continue;
+                    }
+                    if let Ok(outlines) = crate::parse(&file.source) {
+                        for mut outline in outlines {
+                            if matches!(&outline.expr, crate::Expr::List(parts)
+                                if matches!(parts.first(), Some(crate::Expr::Symbol(head)) if head == "#syntax"))
+                            {
+                                crate::set_source_id(&mut outline, id as u32);
+                                forms.push(outline);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(NavigationContext {
+                program,
+                forms,
+                files,
+            })
+        },
+    )
+}
+
 pub(crate) fn program_in_context(
     source: &str,
     path: &Path,
@@ -230,8 +330,8 @@ pub(crate) fn program_in_context(
                     && path.parent().is_some_and(|parent| {
                         parent.file_name().is_some_and(|name| name == "generated")
                     })
-                    && program.generated_source_invocations.keys().any(|id| {
-                        crate::lsp::generated_snapshot(&program, *id)
+                    && (0..program.source_files.len()).any(|id| {
+                        crate::lsp::generated_snapshot(&program, id as u32)
                             .is_some_and(|(text, _)| text == source)
                     }))
             {

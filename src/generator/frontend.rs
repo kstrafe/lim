@@ -590,13 +590,13 @@ pub(crate) fn prepare_program_syntax(
     }
     let mut expressions = unique;
     let mut generated_source_invocations = HashMap::new();
-    // Contributions disappear into their enum during merging. Give generated
-    // contributions precise source trees first, while their invocation origin
-    // is still available; otherwise every variant points at the macro call.
+    // Contributions and syntax bundles disappear during preprocessing. Retain
+    // their exact generated trees and origins before merging/expanding them so
+    // navigation can still identify variant and bundle declaration tokens.
     for expression in &mut expressions {
         if expression.children.is_empty()
             && matches!(&expression.expr, Expr::List(parts)
-                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#enum-contribute"))
+                if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#enum-contribute" | "#syntax")))
         {
             let origin = expression.span;
             let text = expression_source(&expression.expr)?;

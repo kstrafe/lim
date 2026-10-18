@@ -416,17 +416,186 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         assert_eq!(result.get("uri"), Some(&string(uri(target))));
         assert_eq!(result.get("range"), Some(&source_range("", 0, 0)));
     }
-    for (path, text, needle) in [
-        (&root, root_text, "ext-)"),
-        (&root, root_text, "ext-value 42"),
-        (&bridge, bridge_text, "value value"),
-    ] {
+    for (path, text, needle) in [(&root, root_text, "ext-)")] {
         assert_eq!(client.definition(path, text, needle), Json::Null);
     }
+    assert_location(
+        &client.definition(&root, root_text, "ext-value 42"),
+        &bridge,
+        bridge_text,
+        "#fn proxy ((value",
+        "value",
+    );
+    assert_location(
+        &client.definition(&bridge, bridge_text, "value value"),
+        &leaf,
+        leaf_text,
+        "((value Number)) Number (#return value)",
+        "value",
+    );
     for path in [&root, &bridge, &leaf] {
         client.clear(path);
     }
     assert!(!fixture.0.join(".lim").exists());
+    client.shutdown();
+}
+
+#[test]
+fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
+    let fixture = Fixture::new("member-roles");
+    let definitions = "(#struct Left () (: value #u64))\n(#struct Right () (: value #u64))\n(#fn read (: item (#ref Left)) #u64 (#return (#get item value)))";
+    let module = fixture.write("types.lim", definitions);
+    let source = "(#import-external \"types.lim\" ext-)\n(#fn main () #u64
+      (#let left ext-Left (#struct-literal ext-Left (: ext-value 40u64)))
+      (#let right ext-Right (#struct-literal ext-Right (: ext-value 2u64)))
+      (#let result #u64 (#u64.+.wrap (#call ext-read (: ext-item (#borrow left))) (#get right ext-value)))
+      (#forget left) (#forget right) (#return result))";
+    let root = fixture.write("main.lim", source);
+    fixture.context(&root, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&root, source);
+    client.open(&module, definitions);
+    for (path, text, needle, declaration, name) in [
+        (
+            &module,
+            definitions,
+            "value)))",
+            "#struct Left () (: value",
+            "value",
+        ),
+        (
+            &root,
+            source,
+            "ext-value 2u64",
+            "#struct Right () (: value",
+            "value",
+        ),
+        (
+            &root,
+            source,
+            "ext-item (#borrow",
+            "#fn read (: item",
+            "item",
+        ),
+        (
+            &root,
+            source,
+            "ext-value)))",
+            "#struct Right () (: value",
+            "value",
+        ),
+    ] {
+        assert_location(
+            &client.definition(path, text, needle),
+            &module,
+            definitions,
+            declaration,
+            name,
+        );
+    }
+    let updated = format!("; unsaved declaration shift\n; second line\n{definitions}");
+    client.change(&module, 2, &updated);
+    assert_location(
+        &client.definition(&root, source, "ext-value 2u64"),
+        &module,
+        &updated,
+        "#struct Right () (: value",
+        "value",
+    );
+    client.shutdown();
+}
+
+#[test]
+fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
+    let fixture = Fixture::new("generated-source-roles");
+    let source = "(#gn emit () `((#struct Box () (: value #u64))
+      (#fn forward (: value #u64) #u64 (#return value))))\n(@emit)
+      (#fn main () #u64
+        (#let object Box (#struct-literal Box (: value 42u64)))
+        (#let result #u64 (#call forward (: value (#get object value))))
+        (#forget object) (#return result))";
+    let root = fixture.write("main.lim", source);
+    fixture.context(&root, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&root, source);
+    let field = client.definition(&root, source, "value 42u64");
+    let field_path = lsp::uri_to_path(field.get("uri").unwrap().string().unwrap()).unwrap();
+    let field_source = fs::read_to_string(&field_path).unwrap();
+    assert_location(&field, &field_path, &field_source, "value #u64", "value");
+    let label = client.definition(&root, source, "value (#get");
+    let function_path = lsp::uri_to_path(label.get("uri").unwrap().string().unwrap()).unwrap();
+    let function_source = fs::read_to_string(&function_path).unwrap();
+    assert_location(
+        &label,
+        &function_path,
+        &function_source,
+        "value #u64",
+        "value",
+    );
+    client.open(&function_path, &function_source);
+    assert_location(
+        &client.definition(&function_path, &function_source, "value))"),
+        &function_path,
+        &function_source,
+        "value #u64",
+        "value",
+    );
+    assert!(
+        !function_path.parent().unwrap().join(".lim").exists(),
+        "following a generated view must not create nested publication directories"
+    );
+    client.shutdown();
+}
+
+#[test]
+fn generated_syntax_bundles_keep_their_definition_after_expansion() {
+    let fixture = Fixture::new("generated-bundles");
+    let source = "(#gn emit () `((#syntax Number (42u64))))\n(@emit)\n(#fn main () #u64 (#return (#syntax-splice Number)))\n";
+    let root = fixture.write("main.lim", source);
+    fixture.context(&root, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&root, source);
+    let target = client.definition(&root, source, "Number)))");
+    assert!(
+        target.get("uri").is_some(),
+        "{target:?}: {:?}",
+        client.messages
+    );
+    let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+    let generated = fs::read_to_string(&path).unwrap();
+    assert_location(&target, &path, &generated, "#syntax Number", "Number");
+    assert!(generated.contains("main.lim:"));
+    client.shutdown();
+}
+
+#[test]
+fn bundled_standard_library_types_and_view_locals_have_real_targets() {
+    let fixture = Fixture::new("bundled-source-roles");
+    let source = "(#std)\n(#fn main () #usize (#return SYSTEM-ALLOCATION-ALIGNMENT))\n";
+    let root = fixture.write("main.lim", source);
+    fixture.context(&root, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&root, source);
+    let target = client.definition(&root, source, "SYSTEM-ALLOCATION-ALIGNMENT");
+    let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+    let bundled = fs::read_to_string(&path).unwrap();
+    assert_location(
+        &target,
+        &path,
+        &bundled,
+        "#const SYSTEM-ALLOCATION-ALIGNMENT",
+        "SYSTEM-ALLOCATION-ALIGNMENT",
+    );
+    assert!(bundled.starts_with("; Bundled source:"));
+    client.open(&path, &bundled);
+    assert_location(
+        &client.definition(&path, &bundled, "address #usize"),
+        &path,
+        &bundled,
+        "address #usize",
+        "address",
+    );
+    assert!(!path.parent().unwrap().join(".lim").exists());
     client.shutdown();
 }
 
@@ -530,9 +699,23 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
         foreign.get("selectionRange"),
         Some(&source_range(module_text, start, start + "foreign".len()))
     );
-    for needle in ["#abi-c", "#u64", "value Number", "field ("] {
+    for needle in ["#abi-c", "#u64"] {
         assert_eq!(client.definition(&module, module_text, needle), Json::Null);
     }
+    assert_location(
+        &client.definition(&module, module_text, "value Number"),
+        &module,
+        module_text,
+        "#extern-fn #abi-c foreign ((value",
+        "value",
+    );
+    assert_location(
+        &client.definition(&module, module_text, "field ("),
+        &module,
+        module_text,
+        "#struct Holder () ((field",
+        "field",
+    );
     client.clear(&root);
     client.clear(&module);
     client.shutdown();

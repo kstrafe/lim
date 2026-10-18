@@ -1,6 +1,10 @@
 //! Synchronous, std-only LSP server. Checks never save editor buffers.
 #[path = "lsp_json.rs"]
 pub mod json;
+#[path = "lsp_navigation.rs"]
+pub(crate) mod navigation;
+#[path = "lsp_syntax_policy.rs"]
+mod syntax_policy;
 
 use crate::diagnostic_json::quoted;
 use crate::{CompileConfig, Diagnostic, Expr, Span, SpannedExpr};
@@ -555,6 +559,15 @@ impl Server<'_> {
                 .flatten();
                 return Ok(target
                     .and_then(|(path, source, span)| {
+                        if crate::standard_library::source(&path) == Some(source.as_str()) {
+                            let header = format!("; Bundled source: {}\n", path.display());
+                            return self.snapshot_location(
+                                doc,
+                                &format!("{header}{source}"),
+                                header.len(),
+                                span,
+                            );
+                        }
                         // Builtins without a physical declaration have no definition target.
                         let uri = path_to_uri(&file_source_path(&path.to_string_lossy())?)?;
                         Some(format!(
@@ -591,6 +604,9 @@ impl Server<'_> {
             } else {
                 format!("[{}]", locations.join(","))
             });
+        }
+        if let Some(locations) = self.indexed_definition(doc, byte) {
+            return Ok(locations);
         }
         if let Some(name) = crate::parse(&doc.text)
             .ok()
@@ -688,6 +704,69 @@ impl Server<'_> {
         self.resolved_symbol_definition(doc, byte, name, false)
     }
 
+    fn indexed_definition(&self, doc: &Document, byte: usize) -> Option<String> {
+        let overlays = self
+            .documents
+            .values()
+            .map(|doc| (doc.path.clone(), doc.text.clone()))
+            .collect();
+        let context = crate::editor::navigation_context(
+            &doc.text,
+            &doc.path,
+            self.config,
+            &overlays,
+            self.context_file(doc).as_deref(),
+            byte,
+        )
+        .ok()?;
+        let files = context
+            .program
+            .as_ref()
+            .map_or(context.files.as_slice(), |program| {
+                program.source_files.as_slice()
+            });
+        let mut query = files
+            .iter()
+            .position(|file| path_key(&file.path) == doc.path)
+            .map(|file| (file as u32, byte));
+        if query.is_none() {
+            if let Some(program) = &context.program {
+                query = (0..program.source_files.len()).find_map(|id| {
+                    let (source, prefix) = generated_snapshot(program, id as u32)?;
+                    (source == doc.text)
+                        .then(|| byte.checked_sub(prefix).map(|byte| (id as u32, byte)))
+                        .flatten()
+                });
+            }
+        }
+        let (file, byte) = query?;
+        let targets =
+            navigation::Index::new(context.program.as_ref(), &context.forms, file, byte).resolve();
+        let mut locations = BTreeSet::new();
+        for span in targets {
+            let file = files.get(span.source_id as usize)?;
+            if let Some(path) = file_source_path(&file.path.to_string_lossy()) {
+                locations.insert(format!(
+                    "{{\"uri\":{},\"range\":{}}}",
+                    quoted(&path_to_uri(&path)?),
+                    span_range(&file.source, Some(span))
+                ));
+            } else if let Some(program) = &context.program {
+                if let Some(location) = self.span_location(doc, program, span) {
+                    locations.insert(location);
+                }
+            }
+        }
+        match locations.len() {
+            0 => None,
+            1 => locations.into_iter().next(),
+            _ => Some(format!(
+                "[{}]",
+                locations.into_iter().collect::<Vec<_>>().join(",")
+            )),
+        }
+    }
+
     fn resolved_symbol_definition(
         &self,
         doc: &Document,
@@ -749,8 +828,9 @@ impl Server<'_> {
                 && doc.path.parent().is_some_and(|parent| {
                     parent.file_name().is_some_and(|name| name == "generated")
                 })
-                && program.generated_source_invocations.keys().any(|id| {
-                    generated_snapshot(&program, *id).is_some_and(|(source, _)| source == doc.text)
+                && (0..program.source_files.len()).any(|id| {
+                    generated_snapshot(&program, id as u32)
+                        .is_some_and(|(source, _)| source == doc.text)
                 });
             if !generated && !snapshot {
                 return None;
@@ -796,6 +876,15 @@ impl Server<'_> {
                 .get(declaration_name_index(expression))?
                 .span
         };
+        self.span_location(doc, program, span)
+    }
+
+    fn span_location(
+        &self,
+        doc: &Document,
+        program: &crate::Program,
+        span: Span,
+    ) -> Option<String> {
         let file = program.source_files.get(span.source_id as usize)?;
         if let Some(path) = file_source_path(&file.path.to_string_lossy()) {
             return Some(format!(
@@ -806,16 +895,38 @@ impl Server<'_> {
         }
         // Invalid runtime programs may still navigate ordinary declarations.
         // Only publish generated source after the normal safety checks pass.
-        crate::CheckedProgram::validate_with_span(program).ok()?;
+        if crate::standard_library::source(&file.path) != Some(file.source.as_str()) {
+            crate::CheckedProgram::validate_with_span(program).ok()?;
+        }
         let (source, prefix) = generated_snapshot(&program, span.source_id)?;
+        self.snapshot_location(doc, &source, prefix, span)
+    }
+
+    fn snapshot_location(
+        &self,
+        doc: &Document,
+        source: &str,
+        prefix: usize,
+        span: Span,
+    ) -> Option<String> {
         let hash = crate::generator::stable_hash(source.as_bytes());
-        let directory = doc.path.parent()?.join(".lim/generated");
+        let parent = doc.path.parent()?;
+        let directory = if parent.file_name().is_some_and(|name| name == "generated")
+            && parent
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == ".lim")
+        {
+            parent.to_owned()
+        } else {
+            parent.join(".lim/generated")
+        };
         let path = directory.join(format!("editor-{hash:032x}.lim"));
         let uri = path_to_uri(&path)?;
         // Navigation publishes a source snapshot, never a generator-cache entry.
         // Do not overwrite an existing snapshot with different contents.
         if path.exists() {
-            if std::fs::read_to_string(&path).ok()? != source {
+            if std::fs::read_to_string(&path).ok()?.as_str() != source {
                 return None;
             }
         } else {
@@ -830,7 +941,7 @@ impl Server<'_> {
         Some(format!(
             "{{\"uri\":{},\"range\":{}}}",
             quoted(&uri),
-            byte_range(&source, prefix + span.start, prefix + span.end)
+            byte_range(source, prefix + span.start, prefix + span.end)
         ))
     }
 }
@@ -943,6 +1054,11 @@ pub(crate) fn generated_snapshot(
     source_id: u32,
 ) -> Option<(String, usize)> {
     let file = program.source_files.get(source_id as usize)?;
+    if crate::standard_library::source(&file.path) == Some(file.source.as_str()) {
+        let header = format!("; Bundled source: {}\n", file.path.display());
+        let prefix = header.len();
+        return Some((format!("{header}{}", file.source), prefix));
+    }
     let invocation = program.generated_source_invocations.get(&source_id)?;
     let origin = program.source_files.get(invocation.source_id as usize)?;
     let header = format!(

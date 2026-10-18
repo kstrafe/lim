@@ -156,9 +156,16 @@ fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positi
             assert_eq!(locations.len(), 1, "{keyword}: {replies:?}");
             assert_definition_token(locations[0], &uri, &text, text.find(name).unwrap(), name);
         }
-        for id in [4, 5] {
-            assert_eq!(reply(&replies, id).get("result"), Some(&Json::Null));
-        }
+        let binding = definition_locations(&replies, 4);
+        assert_eq!(binding.len(), 1);
+        assert_definition_token(
+            binding[0],
+            &uri,
+            &text,
+            text.find("payload").unwrap(),
+            "payload",
+        );
+        assert_eq!(reply(&replies, 5).get("result"), Some(&Json::Null));
         std::fs::remove_dir_all(base).unwrap();
     }
 }
