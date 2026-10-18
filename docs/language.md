@@ -2035,6 +2035,26 @@ it does not silently convert an array reference or erase a pinned reference.
 (#forget right)
 ```
 
+### Explicit enum construction
+
+`#enum-literal` marks value construction, just as `#struct-literal` does for
+structs. The variant declaration determines the concrete enum and payload
+type; this does not introduce type inference. A payload expression is evaluated
+once. A fieldless variant has no payload argument, while a variant carrying
+unit explicitly receives `()`.
+
+```lisp run=42
+(#enum Answer () ((Answer::Value #u64) Answer::Empty))
+(#fn main () #u64
+  (#let answer Answer (#enum-literal Answer::Value 42u64))
+  (#return (#match answer
+    (#case (Answer::Value value) value)
+    (#case Answer::Empty 0u64))))
+```
+
+Patterns do not use the construction keyword: `(Answer::Value value)` binds
+the payload, and `Answer::Empty` tests the fieldless variant.
+
 Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,
 `#break`, or `#panic`.
@@ -2365,6 +2385,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
+| `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |

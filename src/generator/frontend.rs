@@ -1035,7 +1035,7 @@ pub(crate) fn parse_prepared_program_items(
             &declaration_expressions,
             &source_files,
         )?;
-        normalize_struct_literals(
+        normalize_aggregate_literals(
             &mut items,
             &statement_spans,
             &statement_expressions,

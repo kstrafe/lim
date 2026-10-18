@@ -1346,7 +1346,7 @@ fn pretty_spanned_expression(
             }
             let layout_header = match items.first() {
                 Some(Expr::Symbol(head)) => match head.as_str() {
-                    "#call" | "#unsafe-call" | "#struct-literal" => 2,
+                    "#call" | "#unsafe-call" | "#struct-literal" | "#enum-literal" => 2,
                     "#let" | "#let-mut" | "#const" | "#static" => 3,
                     _ => 1,
                 },
@@ -3451,10 +3451,15 @@ fn normalize_call_expr(
     Ok(())
 }
 
-/// Lower keyed struct literals to the positional aggregate representation used
-/// internally by the type checker and backends. Source-level type-name calls
-/// are rejected separately, so this representation is never user syntax.
-fn normalize_struct_literals(
+/// Concrete declarations used to validate explicit aggregate construction.
+struct LiteralDeclarations {
+    structs: HashMap<String, Vec<Field>>,
+    variants: HashMap<String, usize>,
+}
+
+/// Lower explicit struct and enum literals to the checked aggregate
+/// representation shared by semantic analysis and both native backends.
+fn normalize_aggregate_literals(
     items: &mut [Item],
     statement_spans: &HashMap<(String, usize), Span>,
     statement_expressions: &HashMap<(String, usize), SpannedExpr>,
@@ -3470,15 +3475,28 @@ fn normalize_struct_literals(
         })
         .collect::<HashMap<_, _>>();
 
+    let variants = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { variants, .. } => Some(variants),
+            _ => None,
+        })
+        .flatten()
+        .map(|variant| (variant.name.clone(), variant.fields.len()))
+        .collect();
+    let literals = LiteralDeclarations { structs, variants };
+
     for item in items {
         match item {
             Item::Function(function) => {
                 for (index, statement) in function.body.iter_mut().enumerate() {
-                    normalize_struct_statement(statement, &structs).map_err(|error| {
+                    normalize_literal_statement(statement, &literals).map_err(|error| {
                         let key = (function.name.clone(), index);
                         statement_expressions
                             .get(&key)
-                            .map(|expression| struct_normalization_span(expression, &error))
+                            .map(|expression| {
+                                literal_normalization_span(expression, &error, &literals)
+                            })
                             .or_else(|| statement_spans.get(&key).copied())
                             .map_or(error.clone().into(), |span| {
                                 attach_span_to_source_error(error, span, source_files)
@@ -3487,10 +3505,10 @@ fn normalize_struct_literals(
                 }
             }
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
-                normalize_struct_expr(value, &structs).map_err(|error| {
+                normalize_literal_expr(value, &literals).map_err(|error| {
                     declaration_expressions
                         .get(name)
-                        .map(|expression| struct_normalization_span(expression, &error))
+                        .map(|expression| literal_normalization_span(expression, &error, &literals))
                         .or_else(|| declaration_spans.get(name).copied())
                         .map_or(error.clone().into(), |span| {
                             attach_span_to_source_error(error, span, source_files)
@@ -3503,7 +3521,41 @@ fn normalize_struct_literals(
     Ok(())
 }
 
-fn struct_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
+fn literal_normalization_span(
+    expression: &SpannedExpr,
+    error: &str,
+    literals: &LiteralDeclarations,
+) -> Span {
+    fn invalid_enum(node: &SpannedExpr, literals: &LiteralDeclarations) -> Option<Span> {
+        if is_form(&node.expr, "enum-literal") || is_form(&node.expr, "#enum-literal") {
+            let children = &node.children;
+            if !(2..=3).contains(&children.len()) {
+                return Some(
+                    children
+                        .get(3)
+                        .or_else(|| children.first())
+                        .unwrap_or(node)
+                        .span,
+                );
+            }
+            let count = match &children[1].expr {
+                Expr::Symbol(name) => literals.variants.get(name),
+                _ => None,
+            };
+            if count.is_none() {
+                return Some(children[1].span);
+            }
+            if children.len() - 2 != *count.unwrap() {
+                return Some(children.get(2).unwrap_or(&children[1]).span);
+            }
+        }
+        node.children
+            .iter()
+            .find_map(|child| invalid_enum(child, literals))
+    }
+    if error.starts_with("enum-literal") {
+        return invalid_enum(expression, literals).unwrap_or_else(|| source_value_span(expression));
+    }
     if error.contains("missing field") {
         if let Some(span) =
             source_form_child_span(expression, &["#struct-literal", "struct-literal"], 2)
@@ -3521,9 +3573,9 @@ fn struct_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
         .unwrap_or_else(|| source_value_span(expression))
 }
 
-fn normalize_struct_statement(
+fn normalize_literal_statement(
     statement: &mut Statement,
-    structs: &HashMap<String, Vec<Field>>,
+    literals: &LiteralDeclarations,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { value, .. }
@@ -3536,20 +3588,20 @@ fn normalize_struct_statement(
         | Statement::BreakValue(value)
         | Statement::BreakToValue { value, .. }
         | Statement::Return(Some(value))
-        | Statement::Expr(value) => normalize_struct_expr(value, structs)?,
+        | Statement::Expr(value) => normalize_literal_expr(value, literals)?,
         Statement::ArrayAssign { index, value, .. } => {
-            normalize_struct_expr(index, structs)?;
-            normalize_struct_expr(value, structs)?;
+            normalize_literal_expr(index, literals)?;
+            normalize_literal_expr(value, literals)?;
         }
         Statement::While { condition, body } => {
-            normalize_struct_expr(condition, structs)?;
+            normalize_literal_expr(condition, literals)?;
             for statement in body {
-                normalize_struct_statement(statement, structs)?;
+                normalize_literal_statement(statement, literals)?;
             }
         }
         Statement::Loop { body } => {
             for statement in body {
-                normalize_struct_statement(statement, structs)?;
+                normalize_literal_statement(statement, literals)?;
             }
         }
         Statement::For {
@@ -3558,14 +3610,14 @@ fn normalize_struct_statement(
             step,
             body,
         } => {
-            normalize_struct_statement(init, structs)?;
-            normalize_struct_expr(condition, structs)?;
-            normalize_struct_statement(step, structs)?;
+            normalize_literal_statement(init, literals)?;
+            normalize_literal_expr(condition, literals)?;
+            normalize_literal_statement(step, literals)?;
             for statement in body {
-                normalize_struct_statement(statement, structs)?;
+                normalize_literal_statement(statement, literals)?;
             }
         }
-        Statement::Labeled { statement, .. } => normalize_struct_statement(statement, structs)?,
+        Statement::Labeled { statement, .. } => normalize_literal_statement(statement, literals)?,
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -3574,17 +3626,41 @@ fn normalize_struct_statement(
     }
     if let Statement::LetElse { else_body, .. } = statement {
         for statement in else_body {
-            normalize_struct_statement(statement, structs)?;
+            normalize_literal_statement(statement, literals)?;
         }
     }
     Ok(())
 }
 
-fn normalize_struct_expr(
+fn normalize_literal_expr(
     expression: &mut Expr,
-    structs: &HashMap<String, Vec<Field>>,
+    literals: &LiteralDeclarations,
 ) -> Result<(), String> {
     if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "enum-literal") {
+            if !(2..=3).contains(&items.len()) {
+                return Err("enum-literal requires (#enum-literal Variant [payload])".into());
+            }
+            let Expr::Symbol(variant) = &items[1] else {
+                return Err("enum-literal requires a variant name".into());
+            };
+            let count = literals.variants.get(variant).ok_or_else(|| {
+                format!("enum-literal refers to unknown enum variant '{variant}'")
+            })?;
+            if items.len() - 2 != *count {
+                return Err(format!(
+                    "enum-literal variant '{variant}' expects {count} payloads"
+                ));
+            }
+            let variant = variant.clone();
+            if *count == 0 {
+                *expression = Expr::Symbol(variant);
+            } else {
+                normalize_literal_expr(&mut items[2], literals)?;
+                *expression = Expr::List(vec![Expr::Symbol(variant), items[2].clone()]);
+            }
+            return Ok(());
+        }
         if matches!(items.first(), Some(Expr::Symbol(name)) if name == "struct-literal") {
             if items.len() != 3 {
                 return Err(
@@ -3595,7 +3671,8 @@ fn normalize_struct_expr(
                 return Err("struct-literal requires a struct type name".into());
             };
             let struct_name = struct_name.clone();
-            let fields = structs
+            let fields = literals
+                .structs
                 .get(&struct_name)
                 .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
             let Expr::List(entries) = &mut items[2] else {
@@ -3613,7 +3690,7 @@ fn normalize_struct_expr(
                     return Err("struct-literal field names must be symbols".into());
                 };
                 let field_name = field_name.clone();
-                normalize_struct_expr(&mut pair[1], structs)?;
+                normalize_literal_expr(&mut pair[1], literals)?;
                 if values.insert(field_name.clone(), pair[1].clone()).is_some() {
                     return Err(format!(
                         "struct-literal '{struct_name}' contains duplicate field '{field_name}'"
@@ -3647,20 +3724,20 @@ fn normalize_struct_expr(
             return Ok(());
         }
         if let Some(Expr::Symbol(name)) = items.first() {
-            if structs.contains_key(name) {
+            if literals.structs.contains_key(name) {
                 return Err(format!(
                     "'{name}' is a type, not a constructor function; use #struct-literal or a named constructor function"
                 ));
             }
             if name == "match" {
                 if let Some(scrutinee) = items.get_mut(1) {
-                    normalize_struct_expr(scrutinee, structs)?;
+                    normalize_literal_expr(scrutinee, literals)?;
                 }
                 for arm in items.iter_mut().skip(2) {
                     let Expr::List(parts) = arm else { continue };
                     // Struct-shaped forms in arm position are patterns.
                     for part in parts.iter_mut().skip(1) {
-                        normalize_struct_expr(part, structs)?;
+                        normalize_literal_expr(part, literals)?;
                     }
                 }
                 return Ok(());
@@ -3668,23 +3745,23 @@ fn normalize_struct_expr(
             if matches!(name.as_str(), "if-let" | "while-let") {
                 for (index, child) in items.iter_mut().enumerate().skip(1) {
                     if index != 1 {
-                        normalize_struct_expr(child, structs)?;
+                        normalize_literal_expr(child, literals)?;
                     }
                 }
                 return Ok(());
             }
         }
         for item in items {
-            normalize_struct_expr(item, structs)?;
+            normalize_literal_expr(item, literals)?;
         }
     } else {
         match expression {
             Expr::Block(statements) | Expr::Loop(statements) => {
                 for statement in statements {
-                    normalize_struct_statement(statement, structs)?;
+                    normalize_literal_statement(statement, literals)?;
                 }
             }
-            Expr::Labeled { expression, .. } => normalize_struct_expr(expression, structs)?,
+            Expr::Labeled { expression, .. } => normalize_literal_expr(expression, literals)?,
             Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {}
             _ => {}
         }
@@ -4631,6 +4708,9 @@ fn validate_match_pattern_prefixes(pattern: &Expr) -> Result<(), String> {
         }
         return Ok(());
     };
+    if head == "#enum-literal" {
+        return Err("#enum-literal constructs values, not patterns; use (Variant binding)".into());
+    }
     if head.starts_with('#') {
         validate_prefixed_forms_inner(&parts[0])?;
     } else if matches!(head.as_str(), "or" | "range" | "tuple") {
@@ -4887,6 +4967,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "extern-fn"
             | "struct"
             | "enum"
+            | "enum-literal"
             | "let"
             | "let-else"
             | "const"

@@ -1000,7 +1000,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
           (#enum Task () ((Work Row) Idle))
           (@#enum-project (: enum Task : variant Work : payload Row : mode #{mode} : name View))
           (#fn main () #u64
-            (#let-mut task Task (Work (#struct-literal Row (: value 42u64))))
+            (#let-mut task Task (#enum-literal Work (#struct-literal Row (: value 42u64))))
             (#let-else (View::Some frame)
               (#call View::project (: source (#{borrow} task)))
               (#else (#forget task) (#return 0u64)))
@@ -1011,6 +1011,13 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
         fixture.context(&root, "first");
         let mut client = Client::start(&fixture.0);
         client.open(&root, &text);
+        assert_location(
+            &client.definition(&root, &text, "Work (#struct-literal"),
+            &root,
+            &text,
+            "(Work Row)",
+            "Work",
+        );
         for (name, declaration) in [
             ("View::Some", "(View::Some"),
             ("View::project", "#fn View::project"),

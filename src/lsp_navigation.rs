@@ -268,6 +268,7 @@ impl<'a> Index<'a> {
                 ty(declaration.children.get(name_index(declaration) + 2)?)
             }
             "struct-literal" => Some(Type::Named(symbol(xs.get(1)?)?.to_owned())),
+            "enum-literal" => self.variant_type(symbol(xs.get(1)?)?),
             "as" => ty(xs.get(2)?),
             "literal" | "array-of" | "tuple" | "ptr-null" | "word-read" | "word-take" | "asm"
             | "linux-syscall" | "atomic-init" => ty(xs.get(1)?),
@@ -841,6 +842,17 @@ impl<'a> Index<'a> {
                             return self.parameter(callee, label);
                         }
                     }
+                }
+                return vec![];
+            }
+            "enum-literal" => {
+                if let Some(variant) = xs.get(1).filter(|variant| self.contains(variant)) {
+                    return symbol(variant)
+                        .map(|name| self.variant_target(name))
+                        .unwrap_or_default();
+                }
+                if let Some(payload) = xs.get(2).filter(|payload| self.contains(payload)) {
+                    return self.walk(payload, scope, labels);
                 }
                 return vec![];
             }

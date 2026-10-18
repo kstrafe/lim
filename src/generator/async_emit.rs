@@ -7681,7 +7681,7 @@ pub(crate) fn program(
         &program.declaration_expressions,
         &program.source_files,
     )?;
-    crate::normalize_struct_literals(
+    crate::normalize_aggregate_literals(
         &mut program.items,
         &program.statement_spans,
         &program.statement_expressions,

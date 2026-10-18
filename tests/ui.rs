@@ -11,6 +11,24 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "enum-literal-unknown-variant",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let value Outcome (#enum-literal Missing 42u64))",
+            line_number: 3,
+        },
+        Case {
+            name: "enum-literal-payload-type",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let value Outcome (#enum-literal Success false))",
+            line_number: 3,
+        },
+        Case {
+            name: "enum-literal-extra-payload",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let value Outcome (#enum-literal Success 41u64 2u64))",
+            line_number: 3,
+        },
+        Case {
             name: "let-else-fallthrough",
             diagnostic_code: "E4000",
             offending_line: "    (#else (#if true (#block (#return 0u64)) ())))",
@@ -1326,6 +1344,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-match-variant" => Some("Missing"),
             "non-exhaustive-match" => Some("#match"),
             "integer-match-coverage-gap" | "guarded-boolean-match-not-exhaustive" => Some("#match"),
+            "enum-literal-unknown-variant" => Some("Missing"),
+            "enum-literal-payload-type" => Some("false"),
+            "enum-literal-extra-payload" => Some("2u64"),
             "let-else-fallthrough" => Some("#else"),
             "let-else-owner-mismatch" => Some("42u64"),
             "unknown-let-else-variant" => Some("Missing"),

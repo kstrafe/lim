@@ -1,7 +1,7 @@
 (#enum Maybe () ((Some #u64) None))
 
 (#fn main () #u64
-  (#let value Maybe (Some 42u64))
+  (#let value Maybe (#enum-literal Some 42u64))
   (#let-else (Some payload) value
     (#else
       (#return 0u64)))

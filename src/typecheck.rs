@@ -4864,6 +4864,7 @@ fn semantic_expression_source<'a>(
             for (index, child) in items.iter().enumerate() {
                 let corresponding = match (source_head, target_head) {
                     (Some("case"), _) => source.children.get(index + 1),
+                    (Some("enum-literal"), _) => source.children.get(index + 1),
                     (Some("call" | "unsafe-call"), Some(function)) => {
                         if index == 0 {
                             source.children.get(1)
@@ -4989,6 +4990,11 @@ fn semantic_error_span(
                     } else {
                         None
                     }
+                }
+                Some(Expr::Symbol(head))
+                    if head == "enum-literal" && source.get(1) == target.first() =>
+                {
+                    Some(source[2..].to_vec())
                 }
                 _ => None,
             };
@@ -5134,6 +5140,14 @@ fn enum_constructor_payload_span(
     payload_index: usize,
 ) -> Option<crate::Span> {
     if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#enum-literal" || head == "enum-literal")
+            && matches!(items.get(1), Some(Expr::Symbol(name)) if name == variant_name)
+        {
+            return expression
+                .children
+                .get(payload_index + 2)
+                .map(|payload| payload.span);
+        }
         if matches!(items.first(), Some(Expr::Symbol(name)) if name == variant_name) {
             return expression
                 .children

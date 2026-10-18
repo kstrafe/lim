@@ -16,8 +16,8 @@
       ,(#gn-get options name)
       (#return (#match source
         (,case (,(#gn-get options variant) ,projected)
-          (,(#gn-symbol-append (#gn-get options name) "Some") ,projected))
-        (#case _ ,(#gn-symbol-append (#gn-get options name) "None")))))))
+          (#enum-literal ,(#gn-symbol-append (#gn-get options name) "Some") ,projected))
+        (#case _ (#enum-literal ,(#gn-symbol-append (#gn-get options name) "None"))))))))
 
 (#gn #enum-project (options)
   (#gn-if (#gn-equal (#gn-length options) 5)

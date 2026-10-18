@@ -603,3 +603,28 @@ fn compact_let_else_navigates_the_initializer_and_isolates_failure_scope() {
         ],
     );
 }
+
+#[test]
+fn enum_literals_navigate_only_variants_and_runtime_payloads() {
+    run(
+        r#"
+      (#struct Row () (: [[field|value]] #u64))
+      (#enum Choice () (([[full|Full]] Row) [[empty|Empty]]))
+      (#fn main (: [[input|input]] Row) #u64
+        (#let choice Choice (#enum-literal [[variant|Full]] [[payload|input]]))
+        (#let missing Choice (#enum-literal [[wrong-target|input]] input))
+        (#let none Choice (#enum-literal [[fieldless|Empty]]))
+        (#let-else ([[pattern|Full]] [[binding|row]]) choice (#else (#return 0u64)))
+        (#return (#get [[use|row]] [[member|value]])))
+    "#,
+        &[
+            ("variant", &["full"]),
+            ("payload", &["input"]),
+            ("wrong-target", &[]),
+            ("fieldless", &["empty"]),
+            ("pattern", &["full"]),
+            ("use", &["binding"]),
+            ("member", &["field"]),
+        ],
+    );
+}

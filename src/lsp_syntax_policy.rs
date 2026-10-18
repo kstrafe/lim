@@ -60,6 +60,7 @@ mod tests {
         "else",
         "enum",
         "enum-contribute",
+        "enum-literal",
         "extern-fn",
         "f32",
         "f64",

@@ -41,6 +41,7 @@ for [s:token, s:group] in [
       \ ['#cfg-if', 'limCfg'], ['@#vec', 'limGenerated'],
       \ ['@#cell', 'limGenerated'], ['@make-record', 'limGenerated'],
       \ ['#call', 'limKeyword'], ['#u64-custom', 'limKeyword'],
+      \ ['#enum-literal', 'limKeyword'], ['#struct-literal', 'limKeyword'],
       \ ['#return-value', 'limKeyword'], ['42u64', 'limNumber'],
       \ ['u64-value', ''], ['"#u64 #return"', 'limString'],
       \ ['; #u64 #return', 'limComment'], ['#\newline', 'limCharacter']]

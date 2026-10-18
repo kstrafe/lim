@@ -21,6 +21,12 @@ fields. Tuple/array indices remain literals, not identifiers. `$` puns navigate
 as the value use, since their label and value share the same source token.
 Enum constructor and pattern names resolve to variant declaration spans; this
 includes cases, conditional patterns, payload operations and fieldless values.
+In `(#enum-literal Variant payload)`, `Variant` resolves only to an enum
+variant declaration, never a local, function or type with that spelling.
+The optional payload is an ordinary expression in the current scope; it
+introduces no binding. The owning enum supplies the expression's declared
+type for chained field/payload navigation, including imported and generated
+declarations. Construction syntax is not accepted as a pattern.
 Optional-reference projection results use ordinary `#let-else` variant and
 binding roles. The generated enum's payload reference type determines member
 navigation, including all four ordinary/pinned, shared/exclusive modes. Success

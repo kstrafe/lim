@@ -1,0 +1,5 @@
+(#enum Outcome () ((Success #u64) Failure))
+(#fn main () #u64
+  (#let value Outcome (#enum-literal Success 41u64 2u64))
+  (#forget value)
+  (#return 0u64))

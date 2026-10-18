@@ -26,7 +26,7 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task ExecutorTask (ExecutorTask::Work (#call work (:))))
+  (#let-mut task ExecutorTask (#enum-literal ExecutorTask::Work (#call work (:))))
   (#let-else (WorkProjection::Some frame)
     (#call WorkProjection::project (: source (#pin-borrow-mut task)))
     (#else

@@ -7,8 +7,8 @@
   (#return (#match task
     (#case (Waiting count)
       (#if (#u64.== count 0u64)
-        (ChildPending (Waiting 1u64))
-        (ChildReady 2u64))))))
+        (#enum-literal ChildPending (#enum-literal Waiting 1u64))
+        (#enum-literal ChildReady 2u64))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
 (#struct NumberPayload () ((value #u64)))
@@ -33,7 +33,7 @@
   (#let-mut frame Read-after-await::Frame
     (#call read-after-await
       (: owner (#struct-literal Owner
-        ((choice (Number (#struct-literal NumberPayload ((value 40u64))))))))))
+        ((choice (#enum-literal Number (#struct-literal NumberPayload ((value 40u64))))))))))
   (#let waker #u64 0u64)
   (#let first Read-after-await::Poll
     (#call Read-after-await::poll
