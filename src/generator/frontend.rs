@@ -109,6 +109,7 @@ pub(crate) fn copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         declaration_expressions: HashMap::new(),
         declaration_occurrences: HashMap::new(),
         generated_source_invocations: HashMap::new(),
+        reference_authorities: HashMap::new(),
         syntax_bundle_uses: HashMap::new(),
         generator_validation: None,
     };
@@ -558,12 +559,17 @@ pub(crate) fn prepare_program_syntax(
         &mut generator_origins,
     )
     .map_err(|error| attach_generator_source(error, &source_files))?;
+    let mut generated_source_invocations = HashMap::new();
+    for (file, origin) in &generator_origins.generated_sources {
+        generated_source_invocations.insert(source_files.len() as u32, *origin);
+        source_files.push(file.clone());
+    }
     let expressions = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     // A parser-backed builtin may be emitted by a user generator and also be
     // called directly. Canonicalize literal arguments before deduplicating so
     // both routes compile one definition and retain every invocation origin.
-    let mut builtin_invocations = HashMap::<(String, String), String>::new();
+    let mut builtin_invocations = HashMap::<(String, String, String), String>::new();
     let mut unique = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate)))
@@ -582,7 +588,11 @@ pub(crate) fn prepare_program_syntax(
             let canonical = expression_source(&normalized)?;
             let original = expression_source(&expression.expr)?;
             let instance = generator_origins.expansion_context(expression.span);
-            let identity = (instance, canonical);
+            let identity = (
+                instance,
+                canonical,
+                generator_origins.authority_signature(&expression),
+            );
             if let Some(retained) = builtin_invocations.get(&identity) {
                 if retained != &original {
                     generator_origins
@@ -603,7 +613,6 @@ pub(crate) fn prepare_program_syntax(
         unique.push(expression);
     }
     let mut expressions = unique;
-    let mut generated_source_invocations = HashMap::new();
     // Contributions and syntax bundles disappear during preprocessing. Retain
     // their exact generated trees and origins before merging/expanding them so
     // navigation can still identify variant and bundle declaration tokens.
@@ -637,6 +646,7 @@ pub(crate) fn prepare_program_syntax(
         &expressions,
         &source_files,
         &generated_source_invocations,
+        &generator_origins.references,
     )?;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
@@ -686,8 +696,20 @@ pub(crate) fn prepare_program_syntax(
             }
         })
         .collect::<Result<Vec<_>, String>>()?;
+    crate::library::check_bundle_uses(
+        &with_protocols,
+        &bundles.definitions,
+        &source_files,
+        &generated_source_invocations,
+        &generator_origins.references,
+    )?;
     let expressions = bundles
-        .expand(with_protocols, true)
+        .expand_with_provenance(
+            with_protocols,
+            &mut source_files,
+            &mut generator_origins.references,
+            &mut generated_source_invocations,
+        )
         .map_err(|error| error.attach(&source_files))?;
     for (form, key) in expressions.iter().zip(builtin_keys) {
         if let Some(key) = key {
@@ -792,6 +814,7 @@ pub(crate) fn parse_prepared_program_items(
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = prepared.generated_source_invocations.clone();
+    let mut reference_authorities = prepared.generator_origins.references.clone();
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
@@ -939,6 +962,11 @@ pub(crate) fn parse_prepared_program_items(
                             set_source_id(generated_form, source_id);
                             normalize_match_case_forms(generated_form)
                                 .map_err(|(error, _)| error)?;
+                            crate::generator_authority::transfer_builtin(
+                                &source_expression,
+                                generated_form,
+                                &mut reference_authorities,
+                            );
                             collect_function_statement_spans(
                                 generated_form,
                                 &mut statement_spans,
@@ -1073,6 +1101,14 @@ pub(crate) fn parse_prepared_program_items(
             &source_files,
         )?;
     }
+    let symbols = reference_authorities.clone();
+    crate::generator_authority::add_operations(
+        declaration_expressions
+            .values()
+            .chain(statement_expressions.values()),
+        &symbols,
+        &mut reference_authorities,
+    );
     let mut program = Program {
         items,
         source: Some(prepared.root_source.clone()),
@@ -1083,6 +1119,7 @@ pub(crate) fn parse_prepared_program_items(
         declaration_expressions,
         declaration_occurrences,
         generated_source_invocations,
+        reference_authorities,
         syntax_bundle_uses: prepared.bundles.uses.clone(),
         generator_validation: None,
     };

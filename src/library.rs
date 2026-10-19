@@ -90,6 +90,7 @@ pub(crate) fn validate_metadata(forms: &[SpannedExpr]) -> Result<(), SourceError
 }
 
 pub(crate) struct Visibility {
+    authorities: HashMap<Span, Span>,
     owners: Vec<Option<PathBuf>>,
     prefixes: Vec<String>,
     exports: HashMap<PathBuf, Vec<String>>,
@@ -182,6 +183,7 @@ impl Visibility {
             }
         }
         Ok(Self {
+            authorities: HashMap::new(),
             owners,
             prefixes,
             exports,
@@ -201,6 +203,12 @@ impl Visibility {
         )
     }
 
+    pub(crate) fn has_library(&self, span: Span) -> bool {
+        self.owners
+            .get(span.source_id as usize)
+            .is_some_and(Option::is_some)
+    }
+
     fn exported(&self, name: &str, root: &Path) -> bool {
         let original = name.rsplit_once('@').map_or(name, |(_, name)| name);
         self.exports
@@ -209,6 +217,26 @@ impl Visibility {
     }
 
     pub(crate) fn access(
+        &self,
+        name: &str,
+        use_span: Span,
+        representation: bool,
+    ) -> Result<(), SourceError> {
+        self.access_from(name, use_span, representation)
+            .or_else(|error| {
+                if self
+                    .authorities
+                    .get(&use_span)
+                    .is_some_and(|author| self.access_from(name, *author, representation).is_ok())
+                {
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            })
+    }
+
+    fn access_from(
         &self,
         name: &str,
         use_span: Span,
@@ -290,6 +318,18 @@ impl Visibility {
                             .map_or(source.span, |child| child.span),
                         true,
                     )?;
+                    if let Some(fields) = source.children.get(2) {
+                        for field in &fields.children {
+                            self.access(
+                                owner,
+                                field
+                                    .children
+                                    .first()
+                                    .map_or(field.span, |label| label.span),
+                                true,
+                            )?;
+                        }
+                    }
                 }
             }
         }
@@ -356,6 +396,7 @@ pub(crate) fn check_contributions(
     forms: &[SpannedExpr],
     files: &[SourceFile],
     origins: &HashMap<u32, Span>,
+    references: &HashMap<Span, Span>,
 ) -> Result<(), SourceError> {
     if !forms.iter().any(|form| matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#distributed-enum"))) { return Ok(()) }
     let declarations = forms
@@ -373,7 +414,8 @@ pub(crate) fn check_contributions(
             Some((name.clone(), form.span))
         })
         .collect();
-    let visibility = Visibility::new(files, origins, declarations)?;
+    let mut visibility = Visibility::new(files, origins, declarations)?;
+    visibility.authorities.clone_from(references);
     for form in forms {
         let Expr::List(items) = &form.expr else {
             continue;
@@ -383,9 +425,49 @@ pub(crate) fn check_contributions(
         }
         if let Some(Expr::Symbol(name)) = items.get(1) {
             visibility
-                .access(name, form.span, true)
+                .access(
+                    name,
+                    form.children.get(1).map_or(form.span, |node| node.span),
+                    true,
+                )
                 .map_err(|error| error.attach(files))?;
         }
+    }
+    Ok(())
+}
+
+/// Splicing must check the bundle reference before replacing it with its
+/// contents. Otherwise a generated reference could bypass a private bundle's
+/// boundary, including authority captured by its generator-authored payload.
+pub(crate) fn check_bundle_uses(
+    forms: &[SpannedExpr],
+    definitions: &HashMap<String, SpannedExpr>,
+    files: &[SourceFile],
+    origins: &HashMap<u32, Span>,
+    references: &HashMap<Span, Span>,
+) -> Result<(), SourceError> {
+    let mut declarations = definitions
+        .iter()
+        .map(|(name, definition)| (name.clone(), definition.span))
+        .collect::<HashMap<_, _>>();
+    for form in forms {
+        if let Expr::List(items) = &form.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#syntax") {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    declarations.insert(name.clone(), form.span);
+                }
+            }
+        }
+    }
+    if declarations.is_empty() {
+        return Ok(());
+    }
+    let mut visibility = Visibility::new(files, origins, declarations)?;
+    visibility.authorities.clone_from(references);
+    for form in forms {
+        visibility
+            .syntax(form)
+            .map_err(|error| error.attach(files))?;
     }
     Ok(())
 }
@@ -436,6 +518,9 @@ pub(crate) fn check(
         &program.generated_source_invocations,
         names,
     )?;
+    visibility
+        .authorities
+        .clone_from(&program.reference_authorities);
     if visibility.exports.is_empty() {
         return Ok(());
     }
@@ -615,9 +700,15 @@ pub(crate) fn check(
                     ..
                 } => {
                     if let Some(id) = callee {
+                        // Normalized calls start with Expr::Function, not the
+                        // surface #call keyword. Check that reference token.
+                        let reference_span = children
+                            .first()
+                            .and_then(|id| body.nodes[id.0].span)
+                            .unwrap_or(span);
                         visibility.access(
                             declarations.declaration_name(DeclarationId::Function(*id)),
-                            span,
+                            reference_span,
                             false,
                         )?;
                     }
@@ -626,7 +717,11 @@ pub(crate) fn check(
                             if let NodeKind::Declaration(id @ DeclarationId::Aggregate(_)) =
                                 body.nodes[id.0].kind
                             {
-                                visibility.access(declarations.declaration_name(id), span, true)?;
+                                visibility.access(
+                                    declarations.declaration_name(id),
+                                    body.nodes[children[1].0].span.unwrap_or(span),
+                                    true,
+                                )?;
                             }
                         }
                     }

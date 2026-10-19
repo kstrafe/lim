@@ -29,6 +29,7 @@ mod generated_lookup;
 mod generated_validation;
 mod generation_interfaces;
 mod generator;
+mod generator_authority;
 mod generator_provenance;
 mod gensym;
 mod instruction_encoder;
@@ -1858,6 +1859,7 @@ pub struct Program {
     pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
     pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
+    pub(crate) reference_authorities: HashMap<Span, Span>,
     pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
     /// Ordinary validation witnesses supplied by code generators. They are
     /// checked in the runtime declaration context but never emitted.

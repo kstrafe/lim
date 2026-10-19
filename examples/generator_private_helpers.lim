@@ -1,0 +1,13 @@
+(#import-external "encapsulation/lib.lim" counters)
+
+; The generated function may call counters@counter-value because that
+; reference was written in the library's template. We cannot call it directly.
+(#generate counters@counter-reader read-generated-counter)
+
+(#fn main () #u64
+  (#let counter counters@Counter
+    (#call counters@counter-new (: counters@value 42u64)))
+  (#let answer #u64
+    (#call read-generated-counter (: counters@counter (#borrow counter))))
+  (#call counters@counter-destroy (: counters@counter counter))
+  (#return answer))

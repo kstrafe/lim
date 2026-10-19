@@ -1339,9 +1339,35 @@ explicitly to expose construction and matching. Exported function signatures
 and aliases cannot expose private types. All implementation declarations remain
 visible to whole-program borrow checking and optimization.
 
-Generated code inherits its invocation's library, not the generator declaration's
-library or the physical `.lim` cache directory. Exporting a generator does not
-grant its callers private access. An expansion instance is identified by its
+Generated declarations belong to their invocation's library, not the generator
+declaration's library or the physical `.lim` cache directory. Reference authority
+is tracked separately: a reference written in a generator or helper's literal
+syntax template retains access from that definition's specific library instance,
+in addition to the invocation context. This lets an exported generator call its
+own private runtime helpers or project its own private representations without
+exporting them. It does not grant an entire generated function library privileges.
+
+Unquotation, splicing, list operations, and helper calls preserve the authority
+of their input references. Caller-provided syntax cannot acquire the template's
+rights. Names manufactured by `#gn-symbol`, `#gn-symbol-append`, or `#gn-variant`
+receive no private authority; write private references literally in templates.
+Builtin lowering and syntax-bundle splicing preserve operand provenance and
+check private bundle access before replacing a reference with its contents.
+Dependencies' private declarations remain inaccessible, and `#unsafe` obligations
+are unchanged. Generators are part of a library's API: their authors must keep
+the generated safe abstraction sound, including when accepting caller code.
+
+For example, an exported `counter-reader` generator can emit a call to a private
+`counter-value` helper. The consumer still cannot invoke that helper directly:
+
+```lisp syntax
+(#import-external "encapsulation/lib.lim" counters)
+(#generate counters@counter-reader read-generated-counter)
+```
+
+See `examples/generator_private_helpers.lim` for a complete executable example.
+
+An expansion instance is identified by its
 owning library and effective external-import prefix, in addition to the generator
 and literal arguments. Identical invocations deduplicate across internal files
 of the same instance, but never merge declaration ownership across boundaries or
@@ -1352,9 +1378,13 @@ hits. The same library imported under two prefixes retains both copies of its
 internal imports and transitive dependencies; private access is instance-local.
 
 An exported generator may invoke its library-private generator helpers, including
-nested generators. These compile-time implementation calls are checked in the
-producing generator's definition context. Their emitted runtime declarations
-still belong to the original invocation and gain no implementation privileges.
+nested generators, using template-authored references. Supplied generator names
+do not gain those rights. Syntax equality compares values, not authority;
+deduplication and cache identity additionally distinguish effective reference
+authority, while equivalent rights from two templates in the same instance can
+deduplicate. Digest-checked generated cache files retain reference metadata in
+compiler-owned comments. Ordinary source loading ignores these comments, so
+copying a generated file does not grant private access.
 `#std` remains one shared compiler-provided instance, regardless of which library
 first imports it; its names and argument labels are not library-prefixed.
 See `examples/library_boundary.lim` and `examples/encapsulation/test.lim`.

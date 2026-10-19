@@ -94,7 +94,16 @@ impl Registry {
 
     // Cached output can reuse inherited symbols, or restore symbols belonging
     // to precisely this invocation. A foreign namespace never gains authority.
+    #[cfg(test)]
     pub(crate) fn restore(&mut self, forms: &[Expr], scope: &Scope) -> bool {
+        self.restore_refs(forms.iter(), scope)
+    }
+
+    pub(crate) fn restore_refs<'a>(
+        &mut self,
+        forms: impl IntoIterator<Item = &'a Expr>,
+        scope: &Scope,
+    ) -> bool {
         let mut names = Vec::new();
         for form in forms {
             collect(form, &mut names);

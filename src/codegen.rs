@@ -1056,6 +1056,7 @@ fn monomorphize_program<'a>(
         }
     }
     Ok(std::borrow::Cow::Owned(Program {
+        reference_authorities: program.reference_authorities.clone(),
         items,
         source: program.source.clone(),
         source_files: program.source_files.clone(),
@@ -1212,6 +1213,7 @@ fn prepare_checked_program(
         }
     }
     let mut result = Program {
+        reference_authorities: program.reference_authorities.clone(),
         items: program
             .items
             .iter()

@@ -4,7 +4,15 @@
   (#return (#struct-literal Counter (: value value))))
 
 (#fn counter-read (: counter (#ref Counter)) #u64
+  (#return (#call counter-value (: counter counter))))
+
+; Private implementation shared by ordinary API functions and the generator.
+(#fn counter-value (: counter (#ref Counter)) #u64
   (#return (#get counter value)))
+
+(#gn counter-reader (name)
+  `((#fn ,name (: counter (#ref Counter)) #u64
+      (#return (#call counter-value (: counter counter))))))
 
 (#fn counter-destroy (: counter Counter) ()
   (#forget counter)

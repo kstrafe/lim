@@ -365,6 +365,31 @@ fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
 }
 
 #[test]
+fn generated_private_helper_references_navigate_to_the_library_implementation() {
+    let fixture = Fixture::new("generator-private-authority");
+    let library_text = "(#export make)\n(#fn secret () #u64 (#return 42u64))\n(#gn make (name) `((#fn ,name () #u64 (#return (#call secret ())))))\n";
+    let library = fixture.write("library/lib.lim", library_text);
+    let main_text = "(#import-external \"library/lib.lim\" api)\n(#generate api@make generated-read)\n(#fn main () #u64 (#return (#call generated-read ())))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    let generated = client.definition(&main, main_text, "generated-read (");
+    let path = lsp::uri_to_path(generated.get("uri").unwrap().string().unwrap()).unwrap();
+    assert!(path.starts_with(fixture.0.join(".lim/generated")));
+    let text = fs::read_to_string(&path).unwrap();
+    client.open(&path, &text);
+    assert_location(
+        &client.definition(&path, &text, "api@secret"),
+        &library,
+        library_text,
+        "#fn secret",
+        "secret",
+    );
+    client.shutdown();
+}
+
+#[test]
 fn separate_library_instances_navigate_internal_and_generated_definitions() {
     let fixture = Fixture::new("library-instances");
     fixture.write(

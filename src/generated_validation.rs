@@ -101,6 +101,12 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
             .iter()
             .map(|(source, span)| (sources[*source as usize], remap_span(*span, &sources))),
     );
+    analysis.reference_authorities.extend(
+        witnesses
+            .reference_authorities
+            .iter()
+            .map(|(span, author)| (remap_span(*span, &sources), remap_span(*author, &sources))),
+    );
     analysis
         .syntax_bundle_uses
         .extend(witnesses.syntax_bundle_uses.iter().map(|(span, uses)| {

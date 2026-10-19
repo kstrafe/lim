@@ -162,6 +162,18 @@ fn context_key(program: &Program, config: &CompileConfig, target: &str) -> Vec<u
             put_bytes(bytes, file.source.as_bytes());
             put_bytes(bytes, file.import_prefix.as_bytes());
         }
+        let mut authorities = program
+            .reference_authorities
+            .iter()
+            .map(|(span, author)| {
+                (
+                    (span.source_id, span.start, span.end),
+                    (author.source_id, author.start, author.end),
+                )
+            })
+            .collect::<Vec<_>>();
+        authorities.sort();
+        put_bytes(bytes, format!("{authorities:?}").as_bytes());
         match &program.generator_validation {
             None => bytes.push(0),
             Some(Ok(witnesses)) => {
@@ -813,6 +825,10 @@ mod tests {
         let before_instance = context_key(&program, &a, "target");
         program.source_files[0].import_prefix = "different-instance".into();
         assert_ne!(before_instance, context_key(&program, &a, "target"));
+        let before_authority = context_key(&program, &a, "target");
+        let reference = crate::Span::new(0, 1, 1, 1);
+        program.reference_authorities.insert(reference, reference);
+        assert_ne!(before_authority, context_key(&program, &a, "target"));
         let before_witness = context_key(&program, &a, "target");
         program.generator_validation = Some(Ok(std::sync::Arc::new(
             crate::parse_program("(#fn witness () #u64 (#return 1u64))").unwrap(),

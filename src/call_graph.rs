@@ -212,6 +212,9 @@ pub(crate) fn lower(program: &mut Program) -> Result<(), SourceError> {
         .generated_source_invocations
         .extend(witnesses.generated_source_invocations.clone());
     combined
+        .reference_authorities
+        .extend(witnesses.reference_authorities.clone());
+    combined
         .syntax_bundle_uses
         .extend(witnesses.syntax_bundle_uses.clone());
     lower_inner(&mut combined)?;

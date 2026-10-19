@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use crate::generator_authority::Syntax;
 use crate::{Expr, Span, SpannedExpr};
 
 const MAX_EVALUATION_STEPS: usize = 200_000;
@@ -54,13 +55,13 @@ struct GeneratorFingerprint {
 
 #[derive(Clone, Debug)]
 enum Value {
-    Syntax(Expr),
+    Syntax(Syntax),
     Boolean(bool),
 }
 
 enum TemplateValue {
-    Syntax(Expr),
-    Splice(Vec<Expr>),
+    Syntax(Syntax),
+    Splice(Vec<Syntax>),
 }
 
 pub(crate) mod async_addresses;
@@ -98,7 +99,7 @@ pub(crate) mod frontend;
 pub(crate) use crate::capture_storage as async_storage;
 pub(crate) mod async_values;
 
-type Environment = HashMap<String, Expr>;
+type Environment = HashMap<String, Syntax>;
 type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
 type ExpandedFormsWithHits = (ExpandedForms, usize);
 
@@ -205,6 +206,8 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
 
 #[derive(Default)]
 pub(crate) struct Origins {
+    pub references: HashMap<Span, Span>,
+    pub generated_sources: Vec<(crate::SourceFile, Span)>,
     pub visibility: Option<crate::library::Visibility>,
     pub user: HashSet<Span>,
     pub builtins: HashMap<String, Vec<Span>>,
@@ -215,10 +218,60 @@ pub(crate) struct Origins {
 }
 
 impl Origins {
+    fn invocation_origin(&self, mut span: Span) -> Span {
+        for _ in 0..self.generated_sources.len() {
+            let Some(index) = (span.source_id as usize).checked_sub(self.source_paths.len()) else {
+                break;
+            };
+            let Some((_, origin)) = self.generated_sources.get(index) else {
+                break;
+            };
+            span = *origin;
+        }
+        span
+    }
+
     pub(crate) fn expansion_context(&self, span: Span) -> String {
         self.visibility
             .as_ref()
-            .map_or_else(String::new, |visibility| visibility.expansion_context(span))
+            .map_or_else(String::new, |visibility| {
+                visibility.expansion_context(self.invocation_origin(span))
+            })
+    }
+
+    pub(crate) fn authority_signature(&self, form: &SpannedExpr) -> String {
+        if self.references.is_empty() {
+            return String::new();
+        }
+        fn walk(
+            node: &SpannedExpr,
+            origins: &Origins,
+            instance: &str,
+            ordinal: &mut usize,
+            marks: &mut Vec<(usize, String)>,
+        ) {
+            if matches!(node.expr, Expr::Symbol(_) | Expr::Generate) {
+                if let Some(author) = origins.references.get(&node.span) {
+                    let authority = origins.expansion_context(*author);
+                    if authority != instance {
+                        marks.push((*ordinal, authority));
+                    }
+                }
+                *ordinal += 1;
+            }
+            for child in &node.children {
+                walk(child, origins, instance, ordinal, marks);
+            }
+        }
+        let mut marks = Vec::new();
+        walk(
+            form,
+            self,
+            &self.expansion_context(form.span),
+            &mut 0,
+            &mut marks,
+        );
+        format!("{marks:?}")
     }
 }
 
@@ -531,14 +584,14 @@ fn expand_with_hits_and_origins(
         };
         let original_expr = expression.expr.clone();
         let original_children = expression.children.clone();
-        let expanded = expand_top(expression.expr, &mut context)
+        let expanded = expand_top(expression.expr.into(), &mut context)
             .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
         if is_user_invocation {
             for form in &expanded {
                 context.budget.generated_nodes = context
                     .budget
                     .generated_nodes
-                    .saturating_add(expression_nodes(form));
+                    .saturating_add(expression_nodes(&form.expr));
             }
             if context.budget.generated_nodes > MAX_GENERATED_NODES {
                 return Err(at_span(
@@ -549,11 +602,45 @@ fn expand_with_hits_and_origins(
                     "generator expansion",
                 ));
             }
-            generated.extend(expanded.iter().cloned());
+            generated.extend(expanded.iter().map(|form| form.expr.clone()));
         }
-        output.extend(expanded.into_iter().map(|expr| {
+        for syntax in expanded {
+            if syntax.has_authority() {
+                let text = crate::expression_source(&syntax.expr)?;
+                let mut tree = crate::parse(&text)?.remove(0);
+                let id = u32::try_from(
+                    context.origins.source_paths.len() + context.origins.generated_sources.len(),
+                )
+                .map_err(|_| "too many generated source files")?;
+                crate::set_source_id(&mut tree, id);
+                syntax.attach(&tree, &mut context.origins.references);
+                context.origins.generated_sources.push((
+                    crate::SourceFile {
+                        path: format!(
+                            "<generated from {}:{}:{}>",
+                            context
+                                .origins
+                                .source_paths
+                                .get(expression.span.source_id as usize)
+                                .map_or_else(
+                                    || "<source>".into(),
+                                    |path| path.display().to_string()
+                                ),
+                            expression.span.line,
+                            expression.span.column
+                        )
+                        .into(),
+                        source: text,
+                        import_prefix: String::new(),
+                    },
+                    expression.span,
+                ));
+                output.push(tree);
+                continue;
+            }
+            let expr = syntax.expr;
             let unchanged = expr == original_expr;
-            SpannedExpr {
+            output.push(SpannedExpr {
                 expr,
                 span: expression.span,
                 children: if unchanged {
@@ -561,8 +648,8 @@ fn expand_with_hits_and_origins(
                 } else {
                     Vec::new()
                 },
-            }
-        }));
+            });
+        }
     }
     if let Some(span) = context.invocation_span {
         flush_invocation_artifacts(&context)
@@ -829,48 +916,46 @@ fn record_builtin_origin(context: &mut ExpansionContext<'_>, key: String) {
     }
 }
 
-fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Vec<Expr>, String> {
-    let Expr::List(items) = &expression else {
+fn expand_top(
+    expression: Syntax,
+    context: &mut ExpansionContext<'_>,
+) -> Result<Vec<Syntax>, String> {
+    let Expr::List(items) = &expression.expr else {
         return Ok(vec![expression]);
     };
     if !matches!(items.first(), Some(Expr::Generate)) {
         context
             .origins
             .generation
-            .record(&expression, &context.generation_origins);
+            .record(&expression.expr, &context.generation_origins);
         return Ok(vec![expression]);
     }
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '#generate'".into());
     };
-    // Nested generator calls are implementation calls by the producing
-    // generator. Runtime declarations still belong to the original invocation.
-    let generator_caller = context
-        .active
-        .last()
-        .and_then(|name| context.generators.get(name))
-        .map(|definition| definition.span)
-        .or(context.invocation_span);
-    if let (Some(visibility), Some(span)) = (&context.origins.visibility, generator_caller) {
-        visibility
-            .access(name, span, false)
-            .map_err(|error| error.message)?;
+    let parts = expression.clone().parts().unwrap();
+    if let (Some(visibility), Some(span)) = (&context.origins.visibility, context.invocation_span) {
+        if let Err(error) = visibility.access(name, span, false) {
+            if !parts[1]
+                .authority()
+                .is_some_and(|author| visibility.access(name, author, false).is_ok())
+            {
+                return Err(error.message);
+            }
+        }
     }
-    let arguments = items[2..].to_vec();
+    let arguments = parts.into_iter().skip(2).collect::<Vec<_>>();
     let Some(generator) = context.generators.get(name).cloned() else {
         if builtins::named_builtin_keys(name).is_none() {
             return Err(format!("unknown generator '#generate {name}'"));
         }
         // Built-in declarations such as #generate #optional are handled by the Lim parser.
-        let mut resolved = items[..2].to_vec();
-        resolved.extend(arguments);
-        let resolved = Expr::List(resolved);
         context
             .origins
             .generation
-            .record_builtin_parents(&resolved, &context.generation_origins)?;
-        record_builtin_origin(context, crate::expression_source(&resolved)?);
-        return Ok(vec![resolved]);
+            .record_builtin_parents(&expression.expr, &context.generation_origins)?;
+        record_builtin_origin(context, crate::expression_source(&expression.expr)?);
+        return Ok(vec![expression]);
     };
     if context.active.iter().any(|entry| entry == name) {
         let mut chain = context.active.join(" -> ");
@@ -897,7 +982,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     }
     for (parameter, argument) in generator.parameters.iter().zip(&arguments) {
         for capability in &parameter.capabilities {
-            let Expr::Symbol(type_name) = argument else {
+            let Expr::Symbol(type_name) = &argument.expr else {
                 return Err(format!(
                     "{} parameter '{}' requires capability '{}' on a concrete type symbol",
                     invocation_description(
@@ -939,7 +1024,13 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         .invocation_span
         .map(|span| context.origins.expansion_context(span))
         .unwrap_or_default();
-    let invocation_key = format!("{instance}:{name}:{arguments:?}");
+    let argument_identities = arguments
+        .iter()
+        .map(|argument| {
+            argument.identity(&instance, |span| context.origins.expansion_context(span))
+        })
+        .collect::<Vec<_>>();
+    let invocation_key = format!("{instance}:{name}:{argument_identities:?}");
     if let Some(span) = context.invocation_span {
         context.origins.user.insert(span);
     }
@@ -975,7 +1066,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v13\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}",
+        "lim-generator-cache-v14\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -983,14 +1074,30 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
         instance,
-        &arguments,
+        &argument_identities,
     );
     let scope = context.gensyms.open(&cache_key)?;
     let cached = match context.cache_dir {
         Some(directory) => load_generated_expansion(directory, &cache_key)?,
         None => None,
     }
-    .filter(|(_, forms)| context.gensyms.restore(forms, &scope));
+    .filter(|(_, forms)| {
+        let valid = if forms.iter().any(Syntax::has_authority) {
+            let allowed = context
+                .generators
+                .values()
+                .chain(context.functions.values())
+                .map(|definition| definition.span)
+                .collect();
+            crate::generator_authority::valid_authors(forms, &allowed)
+        } else {
+            true
+        };
+        valid
+            && context
+                .gensyms
+                .restore_refs(forms.iter().map(|form| &form.expr), &scope)
+    });
     if let Some(directory) = context.cache_dir {
         let path = cache_path(directory, &cache_key);
         crate::cache_report::record(
@@ -1049,7 +1156,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                     ));
                 }
             };
-            let Value::Syntax(Expr::List(forms)) = result else {
+            let Value::Syntax(result) = result else {
+                return Err(format!("#generate {name} must return syntax"));
+            };
+            let Some(forms) = result.parts() else {
                 context.active.pop();
                 context.active_builtins.pop();
                 context.gensym_scopes.pop();
@@ -1064,13 +1174,17 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         let needs_publication = cached_source.is_none();
         let source = match cached_source {
             Some(source) => source,
-            None => format_generated_source(
-                &forms
-                    .iter()
-                    .map(crate::expression_source)
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join("\n"),
-            )?,
+            None => {
+                let mut source = format_generated_source(
+                    &forms
+                        .iter()
+                        .map(|form| crate::expression_source(&form.expr))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join("\n"),
+                )?;
+                crate::generator_authority::append_metadata(&mut source, &forms);
+                source
+            }
         };
         context.invocation_artifacts.insert(
             invocation_key.clone(),
@@ -1667,7 +1781,11 @@ fn is_cache_staging_name(name: &std::ffi::OsStr) -> bool {
 
 fn interpreter_hash() -> u128 {
     *INTERPRETER_HASH.get_or_init(|| {
-        stable_hash_parts(&[include_bytes!("generator.rs"), include_bytes!("gensym.rs")])
+        stable_hash_parts(&[
+            include_bytes!("generator.rs"),
+            include_bytes!("gensym.rs"),
+            include_bytes!("generator_authority.rs"),
+        ])
     })
 }
 
@@ -1699,7 +1817,7 @@ fn generated_expansion_paths(directory: &Path, key: &str) -> (PathBuf, PathBuf) 
 fn load_generated_expansion(
     directory: &Path,
     key: &str,
-) -> Result<Option<(String, Vec<Expr>)>, String> {
+) -> Result<Option<(String, Vec<Syntax>)>, String> {
     let (path, key_path) = generated_expansion_paths(directory, key);
     cleanup_abandoned_staging(directory);
     cleanup_abandoned_staging(&generated_source_directory(directory));
@@ -1725,7 +1843,10 @@ fn load_generated_expansion(
     let Ok(forms) = crate::parse(&source) else {
         return Ok(None);
     };
-    let forms = forms.into_iter().map(|node| node.expr).collect();
+    let expressions = forms.into_iter().map(|node| node.expr).collect();
+    let Some(forms) = crate::generator_authority::restore(&source, expressions) else {
+        return Ok(None);
+    };
     Ok(Some((source, forms)))
 }
 
@@ -1740,7 +1861,7 @@ fn read_generated_expansion(directory: &Path, key: &str, origins: &[String]) -> 
         let annotated = annotate_generated_source(&source, origins);
         publish_generated_expansion(directory, key, &annotated).ok()?;
     }
-    Some(forms)
+    Some(forms.into_iter().map(|form| form.expr).collect())
 }
 
 fn publish_generated_expansion(directory: &Path, key: &str, source: &str) -> Result<(), String> {
@@ -1904,6 +2025,25 @@ fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
     bytes.get(cursor..cursor.checked_add(length)?)
 }
 
+fn current_author(context: &ExpansionContext<'_>) -> Option<Span> {
+    let definition = context
+        .active_functions
+        .last()
+        .and_then(|name| context.functions.get(name))
+        .or_else(|| {
+            context
+                .active
+                .last()
+                .and_then(|name| context.generators.get(name))
+        })?;
+    context
+        .origins
+        .visibility
+        .as_ref()?
+        .has_library(definition.span)
+        .then_some(definition.span)
+}
+
 fn evaluate(
     expression: &Expr,
     environment: &Environment,
@@ -1920,7 +2060,7 @@ fn evaluate(
             environment
                 .get(name)
                 .cloned()
-                .unwrap_or_else(|| expression.clone()),
+                .unwrap_or_else(|| Syntax::authored(expression.clone(), current_author(context))),
         ));
     }
     if let Expr::QuasiQuote(template) = expression {
@@ -1935,11 +2075,19 @@ fn evaluate(
         return Err("unquote forms are only valid inside a backtick syntax template".into());
     }
     let Expr::List(items) = expression else {
-        return Ok(Value::Syntax(expression.clone()));
+        return Ok(Value::Syntax(Syntax::authored(
+            expression.clone(),
+            current_author(context),
+        )));
     };
     let operator = match items.first() {
         Some(Expr::Symbol(operator)) => operator.as_str(),
-        _ => return Ok(Value::Syntax(expression.clone())),
+        _ => {
+            return Ok(Value::Syntax(Syntax::authored(
+                expression.clone(),
+                current_author(context),
+            )))
+        }
     };
     match operator {
         "#gn-if" => {
@@ -1954,21 +2102,21 @@ fn evaluate(
             arity(operator, items, 3)?;
             let left = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let right = syntax(evaluate(&items[2], environment, context)?, operator)?;
-            Ok(Value::Boolean(left == right))
+            Ok(Value::Boolean(left.expr == right.expr))
         }
         "#gn-symbol?" | "#gn-list?" => {
             arity(operator, items, 2)?;
             let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
             Ok(Value::Boolean(if operator == "#gn-symbol?" {
-                matches!(value, Expr::Symbol(_))
+                matches!(value.expr, Expr::Symbol(_))
             } else {
-                matches!(value, Expr::List(_))
+                matches!(value.expr, Expr::List(_))
             }))
         }
         "#gn-gensym" => {
             arity(operator, items, 2)?;
             let hint = syntax(evaluate(&items[1], environment, context)?, operator)?;
-            let Expr::String(hint) = hint else {
+            let Expr::String(hint) = hint.expr else {
                 return Err("#gn-gensym requires a string hint".into());
             };
             let name = context
@@ -1977,12 +2125,12 @@ fn evaluate(
                 .ok_or("#gn-gensym requires an active generator invocation")?
                 .fresh(&hint)?;
             context.gensyms.issue(&name);
-            Ok(Value::Syntax(Expr::Symbol(name)))
+            Ok(Value::Syntax(Expr::Symbol(name).into()))
         }
         "#gn-symbol" => {
             arity(operator, items, 2)?;
             let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
-            let Expr::String(value) = value else {
+            let Expr::String(value) = value.expr else {
                 return Err("#gn-symbol requires a string literal".into());
             };
             if crate::gensym::reserved(&value) {
@@ -1993,13 +2141,13 @@ fn evaluate(
             if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(value.clone()) {
                 return Err("#gn-symbol must produce one identifier".into());
             }
-            Ok(Value::Syntax(Expr::Symbol(value)))
+            Ok(Value::Syntax(Expr::Symbol(value).into()))
         }
         "#gn-symbol-append" | "#gn-variant" => {
             arity(operator, items, 3)?;
             let base = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let suffix = syntax(evaluate(&items[2], environment, context)?, operator)?;
-            let Expr::Symbol(mut base) = base else {
+            let Expr::Symbol(mut base) = base.expr else {
                 return Err(format!("{operator} requires a symbol base"));
             };
             if crate::gensym::reserved(&base) {
@@ -2007,7 +2155,7 @@ fn evaluate(
                     "{operator} cannot alter compiler-reserved gensym identifiers"
                 ));
             }
-            let suffix = match suffix {
+            let suffix = match suffix.expr {
                 Expr::String(suffix) | Expr::Symbol(suffix) => suffix,
                 _ => return Err(format!("{operator} requires a string or symbol suffix")),
             };
@@ -2026,14 +2174,14 @@ fn evaluate(
             if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(base.clone()) {
                 return Err(format!("{operator} must produce one ordinary identifier"));
             }
-            Ok(Value::Syntax(Expr::Symbol(base)))
+            Ok(Value::Syntax(Expr::Symbol(base).into()))
         }
         "#gn-list" => {
             let mut values = Vec::with_capacity(items.len().saturating_sub(1));
             for item in &items[1..] {
                 values.push(syntax(evaluate(item, environment, context)?, operator)?);
             }
-            Ok(Value::Syntax(Expr::List(values)))
+            Ok(Value::Syntax(Syntax::list(values)))
         }
         "#gn-get" => {
             if !matches!(items.len(), 3 | 4) {
@@ -2043,16 +2191,19 @@ fn evaluate(
             }
             let options = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let key = syntax(evaluate(&items[2], environment, context)?, operator)?;
-            let (Expr::List(options), Expr::Symbol(key)) = (options, key) else {
+            let (Some(options), Expr::Symbol(key)) = (options.parts(), key.expr) else {
                 return Err("#gn-get requires a named syntax list and a symbol key".into());
             };
             let mut seen = HashSet::new();
             let mut found = None;
             for option in options {
-                let Expr::List(pair) = option else {
+                let Some(pair) = option.parts() else {
                     return Err("#gn-get entries must be (key value) pairs".into());
                 };
-                let [Expr::Symbol(name), value] = pair.as_slice() else {
+                let [name, value] = pair.as_slice() else {
+                    return Err("#gn-get entries must be (key value) pairs".into());
+                };
+                let Expr::Symbol(name) = &name.expr else {
                     return Err("#gn-get entries must be (key value) pairs".into());
                 };
                 if !seen.insert(name.clone()) {
@@ -2071,15 +2222,15 @@ fn evaluate(
         "#gn-length" => {
             arity(operator, items, 2)?;
             let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
-            let Expr::List(values) = value else {
+            let Some(values) = value.parts() else {
                 return Err("#gn-length requires list syntax".into());
             };
-            Ok(Value::Syntax(Expr::Integer(values.len() as i128)))
+            Ok(Value::Syntax(Expr::Integer(values.len() as i128).into()))
         }
         "#gn-first" | "#gn-rest" => {
             arity(operator, items, 2)?;
             let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
-            let Expr::List(values) = value else {
+            let Some(values) = value.parts() else {
                 return Err(format!("{operator} requires list syntax"));
             };
             if operator == "#gn-first" {
@@ -2089,7 +2240,7 @@ fn evaluate(
                     .map(Value::Syntax)
                     .ok_or_else(|| "#gn-first cannot read an empty list".into())
             } else {
-                Ok(Value::Syntax(Expr::List(
+                Ok(Value::Syntax(Syntax::list(
                     values.into_iter().skip(1).collect(),
                 )))
             }
@@ -2108,7 +2259,7 @@ fn evaluate(
                 ));
             }
             let list = syntax(evaluate(&items[2], environment, context)?, operator)?;
-            let Expr::List(values) = list else {
+            let Some(values) = list.parts() else {
                 return Err("#gn-for-each requires a list of syntax values".into());
             };
             let mut result = Vec::with_capacity(values.len());
@@ -2120,7 +2271,7 @@ fn evaluate(
                     Value::Boolean(_) => return Err("#gn-for-each body must produce syntax".into()),
                 }
             }
-            Ok(Value::Syntax(Expr::List(result)))
+            Ok(Value::Syntax(Syntax::list(result)))
         }
         "#gn-call" => {
             if items.len() < 2 {
@@ -2186,13 +2337,16 @@ fn evaluate(
         "#gn-error" => {
             arity(operator, items, 2)?;
             let message = syntax(evaluate(&items[1], environment, context)?, operator)?;
-            match message {
+            match message.expr {
                 Expr::String(message) => Err(format!("generator error: {message}")),
                 _ => Err("#gn-error requires a string literal message".into()),
             }
         }
         _ if operator.starts_with("#gn-") => Err(format!("unknown generator builtin '{operator}'")),
-        _ => Ok(Value::Syntax(expression.clone())),
+        _ => Ok(Value::Syntax(Syntax::authored(
+            expression.clone(),
+            current_author(context),
+        ))),
     }
 }
 
@@ -2213,7 +2367,7 @@ fn evaluate_template(
         Expr::QuasiQuote(inner) => {
             match evaluate_template(inner, environment, context, depth + 1, false)? {
                 TemplateValue::Syntax(inner) => {
-                    Ok(TemplateValue::Syntax(Expr::QuasiQuote(Box::new(inner))))
+                    Ok(TemplateValue::Syntax(inner.wrap(Expr::QuasiQuote)))
                 }
                 TemplateValue::Splice(_) => unreachable!("nested quasiquote root cannot splice"),
             }
@@ -2225,7 +2379,7 @@ fn evaluate_template(
         Expr::Unquote(inner) => {
             match evaluate_template(inner, environment, context, depth - 1, false)? {
                 TemplateValue::Syntax(inner) => {
-                    Ok(TemplateValue::Syntax(Expr::Unquote(Box::new(inner))))
+                    Ok(TemplateValue::Syntax(inner.wrap(Expr::Unquote)))
                 }
                 TemplateValue::Splice(_) => unreachable!("unquote root cannot splice"),
             }
@@ -2235,16 +2389,16 @@ fn evaluate_template(
                 return Err("unquote-splicing is only valid inside a syntax list".into());
             }
             let value = syntax(evaluate(inner, environment, context)?, "unquote-splicing")?;
-            match value {
-                Expr::List(values) => Ok(TemplateValue::Splice(values)),
-                _ => Err("unquote-splicing requires list syntax".into()),
+            match value.parts() {
+                Some(values) => Ok(TemplateValue::Splice(values)),
+                None => Err("unquote-splicing requires list syntax".into()),
             }
         }
         Expr::UnquoteSplicing(inner) => {
             match evaluate_template(inner, environment, context, depth - 1, false)? {
-                TemplateValue::Syntax(inner) => Ok(TemplateValue::Syntax(Expr::UnquoteSplicing(
-                    Box::new(inner),
-                ))),
+                TemplateValue::Syntax(inner) => {
+                    Ok(TemplateValue::Syntax(inner.wrap(Expr::UnquoteSplicing)))
+                }
                 TemplateValue::Splice(_) => {
                     unreachable!("nested unquote-splicing root cannot splice")
                 }
@@ -2258,13 +2412,16 @@ fn evaluate_template(
                     TemplateValue::Splice(values) => result.extend(values),
                 }
             }
-            Ok(TemplateValue::Syntax(Expr::List(result)))
+            Ok(TemplateValue::Syntax(Syntax::list(result)))
         }
-        other => Ok(TemplateValue::Syntax(other.clone())),
+        other => Ok(TemplateValue::Syntax(Syntax::authored(
+            other.clone(),
+            current_author(context),
+        ))),
     }
 }
 
-fn syntax(value: Value, operation: &str) -> Result<Expr, String> {
+fn syntax(value: Value, operation: &str) -> Result<Syntax, String> {
     match value {
         Value::Syntax(value) => Ok(value),
         Value::Boolean(_) => Err(format!("{operation} requires syntax")),
@@ -2451,8 +2608,11 @@ mod tests {
 
     #[test]
     fn interpreter_fingerprint_matches_embedded_source() {
-        let expected =
-            stable_hash_parts(&[include_bytes!("generator.rs"), include_bytes!("gensym.rs")]);
+        let expected = stable_hash_parts(&[
+            include_bytes!("generator.rs"),
+            include_bytes!("gensym.rs"),
+            include_bytes!("generator_authority.rs"),
+        ]);
         assert_eq!(interpreter_hash(), expected);
         assert_eq!(interpreter_hash(), expected);
     }

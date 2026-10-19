@@ -7643,6 +7643,17 @@ pub(crate) fn program(
             .insert(source_id, generated.origin);
         for mut source in crate::parse(&generated.source)? {
             crate::set_source_id(&mut source, source_id);
+            if let Some(function) = planning
+                .functions
+                .iter()
+                .find(|function| function.source.function.span == generated.origin)
+            {
+                crate::generator_authority::transfer_builtin(
+                    &function.source.function,
+                    &source,
+                    &mut program.reference_authorities,
+                );
+            }
             // Protocol bundles have already been expanded in the prepared
             // program, but must remain in the standalone inspectable artifact.
             if matches!(&source.expr, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#syntax"))
@@ -7681,6 +7692,15 @@ pub(crate) fn program(
             program.items.push(item);
         }
     }
+    let symbols = program.reference_authorities.clone();
+    crate::generator_authority::add_operations(
+        program
+            .declaration_expressions
+            .values()
+            .chain(program.statement_expressions.values()),
+        &symbols,
+        &mut program.reference_authorities,
+    );
     crate::let_else::normalize(
         &mut program.items,
         &mut program.statement_spans,

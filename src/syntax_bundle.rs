@@ -7,6 +7,13 @@ use crate::{source_error::SourceError, DiagnosticCode, Expr, Span, SpannedExpr};
 pub(crate) struct Bundles {
     pub definitions: HashMap<String, SpannedExpr>,
     pub uses: HashMap<Span, Vec<Span>>,
+    splice_provenance: Option<SpliceProvenance>,
+}
+
+struct SpliceProvenance {
+    references: HashMap<Span, Span>,
+    base: usize,
+    sources: Vec<(crate::SourceFile, Span)>,
 }
 
 fn head(expression: &SpannedExpr, name: &str) -> bool {
@@ -48,6 +55,31 @@ fn needs_expansion(expression: &Expr) -> bool {
 }
 
 impl Bundles {
+    pub(crate) fn expand_with_provenance(
+        &mut self,
+        forms: Vec<SpannedExpr>,
+        files: &mut Vec<crate::SourceFile>,
+        references: &mut HashMap<Span, Span>,
+        origins: &mut HashMap<u32, Span>,
+    ) -> Result<Vec<SpannedExpr>, SourceError> {
+        if references.is_empty() {
+            return self.expand(forms, true);
+        }
+        self.splice_provenance = Some(SpliceProvenance {
+            references: references.clone(),
+            base: files.len(),
+            sources: Vec::new(),
+        });
+        let result = self.expand(forms, true);
+        let provenance = self.splice_provenance.take().unwrap();
+        *references = provenance.references;
+        for (file, origin) in provenance.sources {
+            origins.insert(files.len() as u32, origin);
+            files.push(file);
+        }
+        result
+    }
+
     pub fn expand(
         &mut self,
         forms: Vec<SpannedExpr>,
@@ -248,7 +280,28 @@ impl Bundles {
                 .push(definition.span);
             for index in 0..values.len() {
                 let mut value = child(&expanded, index);
-                remap(&mut value, current.span);
+                if let Some(provenance) = &mut self.splice_provenance {
+                    let syntax = crate::generator_authority::Syntax::from_tree(
+                        &value,
+                        &provenance.references,
+                    );
+                    let text = crate::expression_source(&value.expr)?;
+                    value = crate::parse(&text)?.remove(0);
+                    let source_id = u32::try_from(provenance.base + provenance.sources.len())
+                        .map_err(|_| "too many syntax splice sources")?;
+                    crate::set_source_id(&mut value, source_id);
+                    syntax.attach(&value, &mut provenance.references);
+                    provenance.sources.push((
+                        crate::SourceFile {
+                            path: "<generated syntax splice>".into(),
+                            source: text,
+                            import_prefix: String::new(),
+                        },
+                        current.span,
+                    ));
+                } else {
+                    remap(&mut value, current.span);
+                }
                 children.push(value);
             }
         }
