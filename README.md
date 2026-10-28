@@ -27,6 +27,8 @@ does not support recursion, function pointers, closures, traits, or implicit
 returns. See [docs/language.md](docs/language.md) for the implemented syntax,
 ownership rules, and current limitations. The allocator design is described
 in [docs/allocator.md](docs/allocator.md).
+Cross-feature guarantees and their executable regression coverage are recorded
+in [the semantic contracts](docs/semantic-contracts.md).
 
 The concrete pin, pinned allocation, and borrowed UTF-8 view generators are
 documented in [docs/language.md](docs/language.md#raw-pointers-and-unsafe-blocks) and
