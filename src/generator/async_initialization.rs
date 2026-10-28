@@ -6,6 +6,11 @@
 
 use std::collections::HashMap;
 
+// Before/after facts and the identity table retain three vectors per state.
+// Bound their product as well as state count: wide frames must not allocate
+// unbounded memory merely because they stay below the state-count limit.
+const MAX_FACT_CELLS: usize = 16 * 1024 * 1024;
+
 /// One dispatcher state with an exact initialization history. Two histories
 /// at the same source block are intentionally not joined. The dispatcher PC
 /// can therefore identify initialized fields without an additional bitset.
@@ -46,6 +51,26 @@ impl Specialization {
         transfer: impl Fn(usize, &mut Vec<bool>),
         edge_transfer: impl Fn(usize, usize, &mut Vec<bool>),
     ) -> Result<Self, String> {
+        Self::solve_bounded(
+            entry,
+            successors,
+            initial,
+            limit,
+            MAX_FACT_CELLS,
+            transfer,
+            edge_transfer,
+        )
+    }
+
+    fn solve_bounded(
+        entry: usize,
+        successors: &[Vec<usize>],
+        initial: Vec<bool>,
+        limit: usize,
+        fact_limit: usize,
+        transfer: impl Fn(usize, &mut Vec<bool>),
+        edge_transfer: impl Fn(usize, usize, &mut Vec<bool>),
+    ) -> Result<Self, String> {
         if entry >= successors.len()
             || successors
                 .iter()
@@ -56,6 +81,14 @@ impl Specialization {
         }
         if limit == 0 {
             return Err("async initialization specialization has no state budget".into());
+        }
+        let width = initial.len();
+        let fact_states = fact_limit / 3 / width.max(1);
+        let fact_error = || {
+            format!("async initialization specialization exceeds fact storage budget of {fact_limit} cells (storage width {width}, state limit {limit}); split the function or reduce simultaneously live storage; no partial proof was used")
+        };
+        if fact_states == 0 {
+            return Err(fact_error());
         }
         // Borrow fact vectors for lookups. Retry/converging edges usually reuse
         // an existing state and must not allocate another identity snapshot.
@@ -92,8 +125,11 @@ impl Specialization {
                 } else {
                     if states.len() == limit {
                         return Err(format!(
-                            "async initialization specialization exceeds {limit} states"
+                            "async initialization specialization exceeds {limit} states (storage width {width}); split independent suspension histories into separate functions; no partial proof was used"
                         ));
+                    }
+                    if states.len() >= fact_states {
+                        return Err(fact_error());
                     }
                     let id = states.len();
                     identities[next].insert(incoming.clone(), id);
@@ -382,6 +418,62 @@ mod tests {
                 .unwrap()
                 .contains("storage domain")
         );
+    }
+
+    #[test]
+    fn fact_storage_budget_bounds_wide_frames_and_preserves_reused_states() {
+        let solve = |edges: &[Vec<usize>], budget| {
+            Specialization::solve_bounded(
+                0,
+                edges,
+                vec![false; 2],
+                64,
+                budget,
+                |_, _| {},
+                |_, _, _| {},
+            )
+        };
+        let error = solve(&[vec![]], 5).unwrap_err();
+        assert!(
+            error.contains("storage width 2") && error.contains("no partial proof"),
+            "{error}"
+        );
+        let plan = solve(&[vec![1], vec![1]], 12).unwrap();
+        assert_eq!(
+            plan.states.len(),
+            2,
+            "a retry reuses an existing fact vector"
+        );
+        let error = solve(&[vec![1], vec![2], vec![]], 12).unwrap_err();
+        assert!(
+            error.contains("fact storage budget of 12") && error.contains("state limit 64"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    #[ignore = "manual bounded pathological analysis benchmark; run with --ignored --nocapture"]
+    fn pathological_specialization_reports_bounded_work() {
+        for width in [16, 4096] {
+            let edges = (0..8)
+                .map(|block| vec![(block + 1) % 8, (block + 1) % 8])
+                .collect::<Vec<_>>();
+            let started = std::time::Instant::now();
+            let result = Specialization::solve_bounded(
+                0,
+                &edges,
+                vec![false; width],
+                128,
+                MAX_FACT_CELLS,
+                |_, _| {},
+                |block, edge, facts| facts[block] = edge == 0,
+            );
+            assert!(
+                result.is_err(),
+                "exponential histories must hit a bound, not produce a partial graph"
+            );
+            println!("pathological async histories: width={width}, state_limit=128, fact_limit={MAX_FACT_CELLS}, elapsed_ms={:.3}, diagnostic={}", started.elapsed().as_secs_f64() * 1000.0, result.unwrap_err());
+        }
     }
 
     #[test]
