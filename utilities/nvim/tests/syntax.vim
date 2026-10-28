@@ -41,6 +41,8 @@ for [s:token, s:group] in [
       \ ['#cfg-if', 'limCfg'], ['#generate', 'limGenerated'],
       \ ['#vec', 'limKeyword'], ['#cell', 'limKeyword'],
       \ ['collection@Vec', 'limExternal'], ['#export', 'limDeclaration'],
+      \ ['@Value', 'limQualified'], ['@collection@Vec', 'limQualified'],
+      \ ['#generated-context', 'limGenerated'],
       \ ['#call', 'limKeyword'], ['#u64-custom', 'limKeyword'],
       \ ['#enum-literal', 'limKeyword'], ['#struct-literal', 'limKeyword'],
       \ ['#return-value', 'limKeyword'], ['42u64', 'limNumber'],

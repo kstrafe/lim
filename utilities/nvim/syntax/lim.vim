@@ -19,6 +19,9 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
 syn match limGenerated +#generate\ze\%($\|[[:space:]();"'`,#]\)+
 syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:]();"'`,#]\++
+" A leading @ qualifies a source name; embedded @ remains an import separator.
+syn match limQualified +\%(^\|[[:space:]('`]\)\@<=@[^[:space:]();"'`,#]\++
+syn match limGenerated +#generated-context\ze\%($\|[[:space:]();"'`,#]\)+
 " Type properties are declaration annotations, not callable forms.
 syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:]();"'`,@#]\)+
 
@@ -46,7 +49,7 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn cluster limForms contains=limKeyword,limGenerated,limExternal,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
@@ -61,6 +64,7 @@ hi def link limCharacter Character
 hi def link limKeyword Keyword
 hi def link limGenerated Special
 hi def link limExternal Identifier
+hi def link limQualified Special
 hi def link limTypeProperty Keyword
 hi def link limType Type
 hi def link limTypeForm Type

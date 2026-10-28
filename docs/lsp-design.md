@@ -25,10 +25,14 @@ The same physical file can have distinct source IDs under different effective
 external prefixes. Keep those declaration instances separate during resolution;
 their locations still navigate to the same physical source. Generated ownership
 follows the invocation's instance, not the cached artifact's path.
-Reference authority is distinct from declaration ownership. Template-authored
-private references must navigate to the actual library declaration, including
-from generated snapshots, while caller-spliced references retain caller-side
-visibility. Cache metadata comments are not source-level authority declarations.
+Generated-file access is distinct from declaration ownership. Validated
+`#generated-context` headers describe definition and invocation module instances;
+they never change which declaration a fully qualified identifier denotes.
+Source `@name` qualification must navigate to the resolved global declaration,
+including inside generator templates and literal arguments, without treating it
+as a same-spelled local or generator parameter. Generated private references
+must navigate to the original library definition. Add navigation coverage when
+introducing or changing qualification, generated headers, and argument syntax.
 
 Compilation contexts may omit `cfg` entries. Builtin configuration keys are
 derived from that context's target; an omitted target defaults to the host,

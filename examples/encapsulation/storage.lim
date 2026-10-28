@@ -11,8 +11,8 @@
   (#return (#get counter value)))
 
 (#gn counter-reader (name)
-  `((#fn ,name (: counter (#ref Counter)) #u64
-      (#return (#call counter-value (: counter counter))))))
+  `((#fn ,name (: counter (#ref @Counter)) #u64
+      (#return (#call @counter-value (: counter counter))))))
 
 (#fn counter-destroy (: counter Counter) ()
   (#forget counter)

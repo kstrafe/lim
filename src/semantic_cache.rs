@@ -163,14 +163,9 @@ fn context_key(program: &Program, config: &CompileConfig, target: &str) -> Vec<u
             put_bytes(bytes, file.import_prefix.as_bytes());
         }
         let mut authorities = program
-            .reference_authorities
+            .generated_definition_contexts
             .iter()
-            .map(|(span, author)| {
-                (
-                    (span.source_id, span.start, span.end),
-                    (author.source_id, author.start, author.end),
-                )
-            })
+            .map(|(source, author)| (*source, (author.source_id, author.start, author.end)))
             .collect::<Vec<_>>();
         authorities.sort();
         put_bytes(bytes, format!("{authorities:?}").as_bytes());
@@ -827,7 +822,9 @@ mod tests {
         assert_ne!(before_instance, context_key(&program, &a, "target"));
         let before_authority = context_key(&program, &a, "target");
         let reference = crate::Span::new(0, 1, 1, 1);
-        program.reference_authorities.insert(reference, reference);
+        program
+            .generated_definition_contexts
+            .insert(reference.source_id, reference);
         assert_ne!(before_authority, context_key(&program, &a, "target"));
         let before_witness = context_key(&program, &a, "target");
         program.generator_validation = Some(Ok(std::sync::Arc::new(

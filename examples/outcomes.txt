@@ -446,6 +446,8 @@ exit 42 string_view.lim - -
 exit 42 call_graph.lim examples/call_graph.stdout -
 exit 42 library_boundary.lim - -
 exit 42 generator_private_helpers.lim - -
+exit 42 generator_contexts.lim - -
+module generator_contexts.lim generator_contexts/lib.lim - -
 module library_boundary.lim encapsulation/lib.lim - -
 module library_boundary.lim encapsulation/storage.lim - -
 exit 42 encapsulation/test.lim - -

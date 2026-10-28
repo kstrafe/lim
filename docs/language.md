@@ -1339,23 +1339,55 @@ explicitly to expose construction and matching. Exported function signatures
 and aliases cannot expose private types. All implementation declarations remain
 visible to whole-program borrow checking and optimization.
 
-Generated declarations belong to their invocation's library, not the generator
-declaration's library or the physical `.lim` cache directory. Reference authority
-is tracked separately: a reference written in a generator or helper's literal
-syntax template retains access from that definition's specific library instance,
-in addition to the invocation context. This lets an exported generator call its
-own private runtime helpers or project its own private representations without
-exporting them. It does not grant an entire generated function library privileges.
+Generated declarations belong to their invocation's library, not the physical
+`.lim` cache directory. Each generated file has access to its producer's
+definition library and its invocation library, including private functions,
+types, and representations. A nested generator gets its own definition library
+and the original invocation library; it does not accumulate its ancestors'
+definition-library privileges. Different external prefixes remain distinct
+library instances even when their physical source paths are identical.
 
-Unquotation, splicing, list operations, and helper calls preserve the authority
-of their input references. Caller-provided syntax cannot acquire the template's
-rights. Names manufactured by `#gn-symbol`, `#gn-symbol-append`, or `#gn-variant`
-receive no private authority; write private references literally in templates.
-Builtin lowering and syntax-bundle splicing preserve operand provenance and
-check private bundle access before replacing a reference with its contents.
-Dependencies' private declarations remain inaccessible, and `#unsafe` obligations
-are unchanged. Generators are part of a library's API: their authors must keep
-the generated safe abstraction sound, including when accepting caller code.
+Write `@name` to qualify a name before generator execution. Inside a generator
+definition it uses that definition's import prefix; in supplied arguments it
+uses the invocation source's prefix. Qualification produces the actual flat
+identifier (for example, `@Helper` in the `lib` instance becomes `lib@Helper`),
+not a hidden binding or a runtime expression. Forwarding and substitution never
+qualify it again. Literal strings, generator parameters, and unmarked local
+bindings are not interpreted by this operation. Handwritten forward declarations
+are collected before qualification. Exported generated targets can be qualified
+using their library's literal export contract; other unknown names cannot be
+qualified. In particular, `@local` cannot silently become a local reference after
+splicing a literal function. Pass new declaration names as literal symbols.
+
+Invocation references are checked using caller permissions before interpreting
+the generator, including explicitly qualified references inside quoted syntax.
+A caller cannot pass `@lib@secret` when that declaration is private to `lib`.
+Literal strings and selectors remain data: a generator may deliberately turn
+them into references using `#gn-symbol`, `#gn-symbol-append`, or `#gn-variant`.
+The resulting code uses its generated file's permissions. Thus generators are
+privileged library APIs: their authors must validate data and executable syntax
+they incorporate into their output. Qualification checks are not a sandbox for
+an arbitrary code-splicing generator. `#unsafe` obligations remain unchanged.
+
+Inspectable generated files record permissions as reader syntax, for example:
+
+```lisp syntax
+(#generated-context
+  ((producer "lib@make")
+   (definition-module "/project/library/lib.lim")
+   (definition-prefix "lib")
+   (invocation-module "/project/app/lib.lim")
+   (invocation-prefix "")))
+```
+
+This compiler-owned header is checked against the current generator and
+invocation on cache reuse. It contains no serialized source IDs or per-symbol
+permission comments. Copying a header into source, supplying one to a generator,
+or manufacturing one with generator operations is rejected. A generator cannot
+manufacture late `@` qualification either: qualification is a source operation.
+Files outside a `lib.lim` boundary share the `<global>` module; physical invocation
+locations remain in the existing generated-file origin comments and do not
+prevent equivalent expansions in that module from sharing a cache artifact.
 
 For example, an exported `counter-reader` generator can emit a call to a private
 `counter-value` helper. The consumer still cannot invoke that helper directly:
@@ -1377,14 +1409,13 @@ instance identity so compiler-generated hygienic names remain distinct on cache
 hits. The same library imported under two prefixes retains both copies of its
 internal imports and transitive dependencies; private access is instance-local.
 
-An exported generator may invoke its library-private generator helpers, including
-nested generators, using template-authored references. Supplied generator names
-do not gain those rights. Syntax equality compares values, not authority;
-deduplication and cache identity additionally distinguish effective reference
-authority, while equivalent rights from two templates in the same instance can
-deduplicate. Digest-checked generated cache files retain reference metadata in
-compiler-owned comments. Ordinary source loading ignores these comments, so
-copying a generated file does not grant private access.
+An exported generator may invoke its library-private generator helpers,
+including nested generators. Syntax equality and argument deduplication compare
+values, not the way symbols were constructed. Builtin expansions also distinguish
+producing definition contexts. Cache keys include definition/invocation context
+headers as well as generator/dependency identities, and digests cover the complete
+generated file. Cached authority is reconstructed from the current expansion,
+not accepted from a file's self-asserted claims.
 `#std` remains one shared compiler-provided instance, regardless of which library
 first imports it; its names and argument labels are not library-prefixed.
 See `examples/library_boundary.lim` and `examples/encapsulation/test.lim`.
@@ -2491,6 +2522,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64::add-wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
 | `#generate` | `(#generate generator arguments...)` | `(#generate #optional (: type #u64 : name Number))` (top level) | Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators. |
+| `#generated-context` | `(#generated-context ((producer "name") (definition-module "path") (definition-prefix "prefix") (invocation-module "path") (invocation-prefix "prefix")))` | `(#generated-context ((producer "lib@make") (definition-module "/lib/lib.lim") (definition-prefix "lib") (invocation-module "/app/main.lim") (invocation-prefix "")))` (compiler-generated file header) | Records definition and invocation module instances for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
 | `#gn` | `(#gn name (name-or-(name capability...)...) body)` | ``(#gn make-alias (name) `((#type ,name #u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |

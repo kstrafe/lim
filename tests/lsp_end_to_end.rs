@@ -379,6 +379,10 @@ fn generated_private_helper_references_navigate_to_the_library_implementation() 
     assert!(path.starts_with(fixture.0.join(".lim/generated")));
     let text = fs::read_to_string(&path).unwrap();
     client.open(&path, &text);
+    assert_eq!(
+        client.definition(&path, &text, "#generated-context"),
+        Json::Null
+    );
     assert_location(
         &client.definition(&path, &text, "api@secret"),
         &library,
@@ -438,6 +442,34 @@ fn separate_library_instances_navigate_internal_and_generated_definitions() {
         }
     }
     assert_eq!(names.len(), 2);
+    client.shutdown();
+}
+
+#[test]
+fn qualified_names_navigate_from_generator_arguments_and_definition_templates() {
+    let fixture = Fixture::new("qualified-generator-references");
+    let library_text = "(#export make)\n(#fn helper () #u64 (#return 2u64))\n(#gn make (name reader) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,reader ())) (#return (#u64::add-wrap base input)))))\n";
+    let library = fixture.write("library/lib.lim", library_text);
+    let main_text = "(#import-external \"library/lib.lim\" api)\n(#fn callback () #u64 (#return 40u64))\n(#generate api@make generated-read @callback)\n(#fn main () #u64 (#return (#call generated-read ())))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    assert_location(
+        &client.definition(&main, main_text, "@callback"),
+        &main,
+        main_text,
+        "#fn callback",
+        "callback",
+    );
+    client.open(&library, library_text);
+    assert_location(
+        &client.definition(&library, library_text, "@helper"),
+        &library,
+        library_text,
+        "#fn helper",
+        "helper",
+    );
     client.shutdown();
 }
 

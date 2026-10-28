@@ -101,11 +101,11 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
             .iter()
             .map(|(source, span)| (sources[*source as usize], remap_span(*span, &sources))),
     );
-    analysis.reference_authorities.extend(
+    analysis.generated_definition_contexts.extend(
         witnesses
-            .reference_authorities
+            .generated_definition_contexts
             .iter()
-            .map(|(span, author)| (remap_span(*span, &sources), remap_span(*author, &sources))),
+            .map(|(source, author)| (sources[*source as usize], remap_span(*author, &sources))),
     );
     analysis
         .syntax_bundle_uses

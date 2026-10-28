@@ -85,23 +85,23 @@ fn template_references_can_call_private_runtime_helpers_and_run() {
 }
 
 #[test]
-fn manufactured_runtime_callee_does_not_inherit_its_call_operators_authority() {
+fn generator_can_deliberately_construct_a_private_runtime_reference() {
     let scratch = support::Scratch::new("generator-manufactured-callee");
     write(scratch.path(), "library/lib.lim", HELPERS);
-    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@dynamic read-generated \"lib@secret\") (#fn main () #u64 (#return 0u64))", Some("private"));
+    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@dynamic read-generated \"lib@secret\") (#fn main () #u64 (#return 0u64))", None);
 }
 
 #[test]
-fn spliced_field_projection_and_forwarded_input_remain_unprivileged() {
+fn literal_selectors_are_data_but_private_function_references_are_checked_early() {
     let scratch = support::Scratch::new("generator-spliced-authority");
     write(scratch.path(), "library/lib.lim", HELPERS);
     for invocation in [
         "(#generate lib@splice read-generated value (#get value lib@capacity))",
         "(#generate lib@field read-generated lib@capacity)",
-        "(#generate lib@forwarded read-generated (() (#call lib@secret ())))",
     ] {
-        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) {invocation} (#fn main () #u64 (#return 0u64))"), Some("private"));
+        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) {invocation} (#fn main () #u64 (#return 0u64))"), None);
     }
+    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@forwarded read-generated (() (#call @lib@secret ()))) (#fn main () #u64 (#return 0u64))", Some("private"));
 }
 
 #[test]
@@ -112,10 +112,10 @@ fn library_authored_projection_can_access_its_private_representation() {
 }
 
 #[test]
-fn caller_supplied_constructor_field_names_do_not_gain_private_access() {
+fn generator_can_interpret_literal_field_names_in_its_own_representation() {
     let scratch = support::Scratch::new("generator-untrusted-constructor-fields");
     write(scratch.path(), "library/lib.lim", "(#export make) (#struct Value (#linear) (: capacity #u64)) (#gn make (name fields) `((#fn ,name () #u64 (#let value Value (#struct-literal Value ,fields)) (#forget value) (#return 0u64))))");
-    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@make generated-read ((lib@capacity 42u64))) (#fn main () #u64 (#return 0u64))", Some("private"));
+    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@make generated-read ((lib@capacity 42u64))) (#fn main () #u64 (#return 0u64))", None);
 }
 
 #[test]
@@ -130,16 +130,16 @@ fn helper_authorship_is_preserved_without_granting_transitive_private_access() {
 }
 
 #[test]
-fn copied_generated_source_comments_do_not_grant_authority() {
+fn copied_generated_headers_cannot_grant_authority() {
     let scratch = support::Scratch::new("generator-authority-not-source");
     write(scratch.path(), "library/lib.lim", HELPERS);
     check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@make generated-read) (#fn main () #u64 (#return 0u64))", None);
     let artifact = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .find(|source| source.contains("lim-reference-authority-v1"))
+        .find(|source| source.contains("#generated-context"))
         .unwrap();
-    check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib)\n{artifact}\n(#fn main () #u64 (#return 0u64))"), Some("private"));
+    check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib)\n{artifact}\n(#fn main () #u64 (#return 0u64))"), Some("compiler-owned"));
 }
 
 #[test]
@@ -150,23 +150,23 @@ fn authored_construction_and_enum_patterns_keep_representation_authority() {
 }
 
 #[test]
-fn synthesized_names_and_spliced_statement_lists_remain_unprivileged() {
+fn generated_code_can_use_deliberately_derived_names_and_literal_statement_lists() {
     let scratch = support::Scratch::new("generator-derived-authority");
     write(scratch.path(), "library/lib.lim", "(#export append splice) (#fn Secret::read () #u64 (#return 42u64)) (#struct Value (#linear) (: capacity #u64)) (#gn append (name base) `((#fn ,name () #u64 (#return (#call ,(#gn-symbol-append base \"read\") ()))))) (#gn splice (name parameter body) `((#fn ,name (: ,parameter (#ref Value)) #u64 ,@body)))");
     for invocation in [
         "(#generate lib@append generated-read lib@Secret)",
         "(#generate lib@splice generated-read value ((#return (#get value lib@capacity))))",
     ] {
-        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) {invocation} (#fn main () #u64 (#return 0u64))"), Some("private"));
+        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) {invocation} (#fn main () #u64 (#return 0u64))"), None);
     }
 }
 
 #[test]
-fn identical_literals_with_different_authorities_do_not_deduplicate() {
+fn identical_literals_from_one_definition_module_deduplicate() {
     let scratch = support::Scratch::new("generator-authority-dedup");
     write(scratch.path(), "library/lib.lim", "(#export trusted forged) (#fn secret () #u64 (#return 42u64)) (#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ()))))) (#gn trusted (name) `((#generate relay ,name secret))) (#gn forged (name) `((#generate relay ,name ,(#gn-symbol \"secret\"))))");
     for (first, second) in [("trusted", "forged"), ("forged", "trusted")] {
-        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) (#generate lib@{first} generated-read) (#generate lib@{second} generated-read) (#fn main () #u64 (#return 0u64))"), Some("duplicate"));
+        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) (#generate lib@{first} generated-read) (#generate lib@{second} generated-read) (#fn main () #u64 (#return 0u64))"), None);
     }
 }
 
@@ -185,11 +185,11 @@ fn builtin_output_preserves_authored_private_worker_references() {
 }
 
 #[test]
-fn builtin_deduplication_cannot_hide_a_forged_worker_reference() {
+fn builtin_deduplication_uses_the_producing_module_not_symbol_construction() {
     let scratch = support::Scratch::new("generator-authority-builtin-dedup");
     write(scratch.path(), "library/lib.lim", "(#export trusted forged) (#fn worker () #u64 (#return 42u64)) (#gn trusted (name) `((#generate #thread-spawn (: task ,name : worker worker)))) (#gn forged (name) `((#generate #thread-spawn (: task ,name : worker ,(#gn-symbol \"worker\")))))");
     for (first, second) in [("trusted", "forged"), ("forged", "trusted")] {
-        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) (#generate lib@{first} Task) (#generate lib@{second} Task) (#fn main () #u64 (#return 0u64))"), Some("duplicate"));
+        check_modes(scratch.path(), &format!("(#import-external \"library/lib.lim\" lib) (#generate lib@{first} Task) (#generate lib@{second} Task) (#fn main () #u64 (#return 0u64))"), None);
     }
 }
 
@@ -210,11 +210,11 @@ fn call_graph_lowering_retains_private_reference_authority() {
 }
 
 #[test]
-fn async_lowering_retains_authority_without_trusting_unquoted_callees() {
+fn async_lowering_retains_generated_file_context_for_constructed_callees() {
     let scratch = support::Scratch::new("generator-authority-async");
     write(scratch.path(), "library/lib.lim", "(#export make forged) (#fn secret () #u64 (#return 42u64)) (#gn make () `((#generate #async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return (#call secret ()))))))) (#gn forged (target) `((#generate #async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return (#call ,(#gn-symbol target) ())))))))");
     check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@make) (#fn main () #u64 (#return 0u64))", None);
-    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@forged \"lib@secret\") (#fn main () #u64 (#return 0u64))", Some("private"));
+    check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@forged \"lib@secret\") (#fn main () #u64 (#return 0u64))", None);
 }
 
 #[test]
@@ -230,4 +230,157 @@ fn private_reference_authority_does_not_remove_unsafe_call_requirements() {
     let scratch = support::Scratch::new("generator-authority-not-unsafe");
     write(scratch.path(), "library/lib.lim", "(#export make) (#unsafe-fn secret () #u64 (#return 42u64)) (#gn make (name) `((#fn ,name () #u64 (#return (#call secret ())))))");
     check_modes(scratch.path(), "(#import-external \"library/lib.lim\" lib) (#generate lib@make generated-read) (#fn main () #u64 (#return 0u64))", Some("unsafe"));
+}
+
+#[test]
+fn qualified_definition_and_invocation_names_survive_two_external_prefixes() {
+    let scratch = support::Scratch::new("qualified-generator-contexts");
+    write(scratch.path(), "producer/lib.lim", "(#export make) (#fn helper () #u64 (#return 2u64)) (#gn make (name callback) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,callback ())) (#return (#u64::add-wrap base input)))))");
+    write(scratch.path(), "consumer/lib.lim", "(#export read) (#import-external \"../producer/lib.lim\" producer) (#fn callback () #u64 (#return 40u64)) (#generate producer@make read @callback)");
+    let source = "(#import-external \"consumer/lib.lim\" first) (#import-external \"consumer/lib.lim\" second) (#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))";
+    check_modes(scratch.path(), source, None);
+    let artifacts = fs::read_dir(scratch.path().join(".lim/generated"))
+        .unwrap()
+        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(artifacts.len(), 2);
+    for prefix in ["first", "second"] {
+        let artifact = artifacts
+            .iter()
+            .find(|text| text.contains(&format!("{prefix}@producer@helper")))
+            .unwrap();
+        assert!(artifact.contains("#generated-context"));
+        assert!(artifact.contains("definition-module"));
+        assert!(artifact.contains("producer/lib.lim"));
+        assert!(artifact.contains("invocation-module"));
+        assert!(artifact.contains("consumer/lib.lim"));
+        assert!(artifact.contains(&format!("{prefix}@callback")));
+        assert!(!artifact.contains("lim-reference-authority"));
+    }
+    let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &lim::generate_assembly(&program).unwrap(),
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::host().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        std::process::Command::new(binary).status().unwrap().code(),
+        Some(84)
+    );
+}
+
+#[test]
+fn private_invocation_references_fail_before_the_generator_executes() {
+    let scratch = support::Scratch::new("early-generator-input-privacy");
+    write(scratch.path(), "library/lib.lim", "(#export reject) (#fn secret () #u64 (#return 42u64)) (#gn reject (input) (#gn-error \"interpreter was executed\"))");
+    for argument in [
+        "@lib@secret",
+        "lib@secret",
+        "(#fn local () #u64 (#return (#call lib@secret ())))",
+    ] {
+        let source = format!("(#import-external \"library/lib.lim\" lib) (#generate lib@reject {argument}) (#fn main () #u64 (#return 0u64))");
+        for cache in [false, true] {
+            let result = if cache {
+                lim::parse_program_from_path_with_config_and_cache(
+                    &source,
+                    &scratch.path().join("main.lim"),
+                    &lim::CompileConfig::default(),
+                    &scratch.path().join(".lim/cache"),
+                )
+            } else {
+                lim::parse_program_from_path(&source, &scratch.path().join("main.lim"))
+            };
+            let error = result.err().expect("private argument must be rejected");
+            assert!(error.contains("private"), "{error}");
+            assert!(!error.contains("interpreter was executed"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn nested_generator_does_not_inherit_an_ancestor_definition_modules_privileges() {
+    let scratch = support::Scratch::new("non-transitive-generated-context");
+    write(scratch.path(), "inner/lib.lim", "(#export relay) (#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ())))))");
+    write(scratch.path(), "outer/lib.lim", "(#export make) (#import-external \"../inner/lib.lim\" inner) (#fn secret () #u64 (#return 42u64)) (#gn make (name) `((#generate inner@relay ,name @secret)))");
+    check_modes(scratch.path(), "(#import-external \"outer/lib.lim\" outer) (#generate outer@make generated-read) (#fn main () #u64 (#return 0u64))", Some("private"));
+}
+
+#[test]
+fn literal_function_locals_and_strings_are_not_qualified() {
+    let scratch = support::Scratch::new("qualified-literal-function");
+    let source = "(#gn identity (function) (#gn-list function)) (#generate identity (#fn main (: ) #u64 (#let input #u64 42u64) (#let text (#array #char 16) \"@not-a-reference\") (#forget text) (#return input)))";
+    check_modes(scratch.path(), source, None);
+    let artifact = fs::read_dir(scratch.path().join(".lim/generated"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = fs::read_to_string(artifact).unwrap();
+    assert!(text.contains("@not-a-reference"));
+    assert!(text.contains("#let input"));
+    assert!(text.contains("#return input"));
+}
+
+#[test]
+fn generators_cannot_manufacture_headers_or_late_qualification() {
+    let scratch = support::Scratch::new("generated-context-forgery");
+    for (body, expected) in [
+        (
+            "(#gn-list (#gn-list (#gn-symbol \"#generated-context\")))",
+            "compiler-owned",
+        ),
+        (
+            "(#gn-list (#gn-symbol \"@secret\"))",
+            "before generator execution",
+        ),
+    ] {
+        check_modes(
+            scratch.path(),
+            &format!("(#gn forge () {body}) (#generate forge) (#fn main () #u64 (#return 0u64))"),
+            Some(expected),
+        );
+    }
+}
+
+#[test]
+fn qualification_in_generator_expressions_cannot_capture_a_parameter() {
+    let scratch = support::Scratch::new("qualified-generator-parameter-capture");
+    let source = "(#fn callback () #u64 (#return 42u64)) (#gn make (callback) (#gn-list (#gn-list (#gn-symbol \"#fn\") (#gn-symbol \"generated-read\") () #u64 (#gn-list (#gn-symbol \"#return\") (#gn-list (#gn-symbol \"#call\") @callback ()))))) (#generate make unrelated-literal) (#fn main () #u64 (#return (#call generated-read ())))";
+    check_modes(scratch.path(), source, None);
+}
+
+#[test]
+fn unknown_private_generated_names_are_checked_from_import_exports_before_execution() {
+    let scratch = support::Scratch::new("qualified-forward-private");
+    write(scratch.path(), "library/lib.lim", "(#export reject PublicFuture) (#gn reject (input) (#gn-error \"interpreter was executed\"))");
+    let source = "(#import-external \"library/lib.lim\" lib) (#generate lib@reject @lib@PrivateFuture) (#fn main () #u64 (#return 0u64))";
+    let error = lim::parse_program_from_path(source, &scratch.path().join("main.lim"))
+        .err()
+        .unwrap();
+    assert!(error.contains("private"), "{error}");
+    assert!(!error.contains("interpreter was executed"), "{error}");
+}
+
+#[test]
+fn qualified_global_cannot_capture_a_local_in_a_literal_function() {
+    let scratch = support::Scratch::new("qualified-runtime-local-capture");
+    let source = "(#gn identity (function) (#gn-list function)) (#generate identity (#fn main () #u64 (#let local #u64 42u64) (#return @local)))";
+    check_modes(scratch.path(), source, Some("never refers to a local"));
+}
+
+#[test]
+fn qualification_supports_exported_generated_targets_and_handwritten_forward_declarations() {
+    let scratch = support::Scratch::new("qualified-forward-exports");
+    write(
+        scratch.path(),
+        "library/lib.lim",
+        "(#export Future) (#gn make () `((#type Future #u64))) (#generate make)",
+    );
+    let source = "(#import-external \"library/lib.lim\" lib) (#gn alias (target) `((#type Alias ,target))) (#generate alias @lib@Future) (#gn reader (target) `((#fn read () #u64 (#return (#call ,target ()))))) (#generate reader @later) (#fn later () #u64 (#return 42u64)) (#fn main () #u64 (#let answer Alias (#call read ())) (#return answer))";
+    check_modes(scratch.path(), source, None);
 }

@@ -90,7 +90,7 @@ pub(crate) fn validate_metadata(forms: &[SpannedExpr]) -> Result<(), SourceError
 }
 
 pub(crate) struct Visibility {
-    authorities: HashMap<Span, Span>,
+    authorities: HashMap<u32, Span>,
     owners: Vec<Option<PathBuf>>,
     prefixes: Vec<String>,
     exports: HashMap<PathBuf, Vec<String>>,
@@ -203,10 +203,61 @@ impl Visibility {
         )
     }
 
-    pub(crate) fn has_library(&self, span: Span) -> bool {
-        self.owners
-            .get(span.source_id as usize)
-            .is_some_and(Option::is_some)
+    pub(crate) fn module_context(&self, span: Span) -> (String, String) {
+        let index = span.source_id as usize;
+        let root = self.owners.get(index).and_then(Option::as_ref);
+        (
+            root.map_or_else(|| "<global>".into(), |root| root.display().to_string()),
+            self.prefixes.get(index).cloned().unwrap_or_default(),
+        )
+    }
+
+    fn qualified_access(&self, name: &str, span: Span) -> Result<(), SourceError> {
+        if self.declarations.contains_key(name) {
+            return self.access(name, span, false);
+        }
+        if name.starts_with('#') {
+            return Ok(());
+        }
+        // A forward/generated declaration may not exist yet. Its import
+        // instance and literal export list still establish the privacy boundary.
+        let Some((prefix, _)) = name.rsplit_once('@') else {
+            return Err(SourceError::from(format!(
+                "cannot qualify undeclared global name '{name}'; @ never refers to a local binding"
+            ))
+            .at(span));
+        };
+        let Some(Some(root)) = self.import_roots.get(prefix) else {
+            return Err(SourceError::from(format!(
+                "cannot qualify undeclared global name '{name}'"
+            ))
+            .at(span));
+        };
+        let caller = span.source_id as usize;
+        if self.exported(name, root) {
+            // Preserve the intermediate-import boundary even for forward names.
+            let same_instance = self.owners.get(caller).and_then(Option::as_ref) == Some(root)
+                && self.prefixes.get(caller).map(String::as_str) == Some(prefix);
+            if !same_instance {
+                if let Some((parent, _)) = prefix.rsplit_once('@') {
+                    if self.prefixes.get(caller).map(String::as_str) != Some(parent)
+                        || self.import_roots.get(parent).and_then(Option::as_ref)
+                            != self.owners.get(caller).and_then(Option::as_ref)
+                    {
+                        return Err(SourceError::from(format!(
+                            "'{name}' is private behind an intermediate library import"
+                        ))
+                        .at(span));
+                    }
+                }
+            }
+            return Ok(());
+        }
+        Err(SourceError::from(format!(
+            "cannot qualify private declaration '{name}' outside library '{}'",
+            root.display()
+        ))
+        .at(span))
     }
 
     fn exported(&self, name: &str, root: &Path) -> bool {
@@ -224,10 +275,8 @@ impl Visibility {
     ) -> Result<(), SourceError> {
         self.access_from(name, use_span, representation)
             .or_else(|error| {
-                if self
-                    .authorities
-                    .get(&use_span)
-                    .is_some_and(|author| self.access_from(name, *author, representation).is_ok())
+                if crate::generator_authority::source_context(use_span, &self.authorities)
+                    .is_some_and(|author| self.access_from(name, author, representation).is_ok())
                 {
                     Ok(())
                 } else {
@@ -295,6 +344,9 @@ impl Visibility {
     }
 
     fn syntax(&self, source: &SpannedExpr) -> Result<(), SourceError> {
+        if crate::generator_authority::is_header(&source.expr) {
+            return Err(SourceError::from("#generated-context is compiler-owned and cannot appear in source or generator input").at(source.span));
+        }
         if matches!(source.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
             return Ok(());
         }
@@ -374,12 +426,20 @@ pub(crate) fn check_generators(
     forms: &[SpannedExpr],
     files: &[SourceFile],
 ) -> Result<Visibility, SourceError> {
-    let declarations = forms.iter().filter_map(|form| {
-        let Expr::List(items) = &form.expr else { return None };
-        if !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#gn" | "#gn-fn" | "#syntax" | "#capability")) { return None }
-        let Expr::Symbol(name) = items.get(1)? else { return None };
-        Some((name.clone(), form.span))
-    }).collect();
+    let mut declarations = HashMap::new();
+    for form in forms {
+        for name in crate::generator_provenance::declared_names(&form.expr) {
+            declarations.insert(name.to_owned(), form.span);
+        }
+        if let Expr::List(items) = &form.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#gn" | "#gn-fn" | "#capability"))
+            {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    declarations.insert(name.clone(), form.span);
+                }
+            }
+        }
+    }
     let visibility = Visibility::new(files, &HashMap::new(), declarations)?;
     if visibility.exports.is_empty() {
         return Ok(visibility);
@@ -392,11 +452,71 @@ pub(crate) fn check_generators(
     Ok(visibility)
 }
 
+/// Qualify only explicitly marked source names. Literal syntax and local
+/// binding roles are not interpreted by this pre-generator pass.
+pub(crate) fn qualify(
+    forms: &mut [SpannedExpr],
+    visibility: &Visibility,
+    files: &[SourceFile],
+) -> Result<std::collections::HashSet<Span>, SourceError> {
+    fn walk(
+        tree: &mut SpannedExpr,
+        visibility: &Visibility,
+        qualified: &mut std::collections::HashSet<Span>,
+    ) -> Result<bool, SourceError> {
+        if crate::generator_authority::is_header(&tree.expr) {
+            return Err(SourceError::from("#generated-context is compiler-owned and cannot appear in source or generator input").at(tree.span));
+        }
+        let mut changed = false;
+        if let Expr::Symbol(name) = &mut tree.expr {
+            if let Some(absolute) = name.strip_prefix('@') {
+                if absolute.is_empty() || absolute.starts_with('@') || absolute.contains("@@") {
+                    return Err(SourceError::from(
+                        "@ must prefix a non-empty context-relative identifier",
+                    )
+                    .at(tree.span));
+                }
+                visibility.qualified_access(absolute, tree.span)?;
+                qualified.insert(tree.span);
+                *name = absolute.to_owned();
+                changed = true;
+            }
+        }
+        for child in &mut tree.children {
+            changed |= walk(child, visibility, qualified)?;
+        }
+        if changed {
+            match &mut tree.expr {
+                Expr::List(items) => {
+                    for (item, child) in items.iter_mut().zip(&tree.children) {
+                        *item = child.expr.clone();
+                    }
+                }
+                Expr::Quote(inner)
+                | Expr::QuasiQuote(inner)
+                | Expr::Unquote(inner)
+                | Expr::UnquoteSplicing(inner) => {
+                    if let Some(child) = tree.children.first() {
+                        **inner = child.expr.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(changed)
+    }
+    let mut qualified = std::collections::HashSet::new();
+    for form in forms {
+        walk(form, visibility, &mut qualified).map_err(|error| error.attach(files))?;
+    }
+    Ok(qualified)
+}
+
 pub(crate) fn check_contributions(
     forms: &[SpannedExpr],
     files: &[SourceFile],
     origins: &HashMap<u32, Span>,
-    references: &HashMap<Span, Span>,
+    references: &HashMap<u32, Span>,
 ) -> Result<(), SourceError> {
     if !forms.iter().any(|form| matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#distributed-enum"))) { return Ok(()) }
     let declarations = forms
@@ -444,7 +564,7 @@ pub(crate) fn check_bundle_uses(
     definitions: &HashMap<String, SpannedExpr>,
     files: &[SourceFile],
     origins: &HashMap<u32, Span>,
-    references: &HashMap<Span, Span>,
+    references: &HashMap<u32, Span>,
 ) -> Result<(), SourceError> {
     let mut declarations = definitions
         .iter()
@@ -520,7 +640,7 @@ pub(crate) fn check(
     )?;
     visibility
         .authorities
-        .clone_from(&program.reference_authorities);
+        .clone_from(&program.generated_definition_contexts);
     if visibility.exports.is_empty() {
         return Ok(());
     }

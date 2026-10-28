@@ -1,7 +1,7 @@
 (#import-external "encapsulation/lib.lim" counters)
 
-; The generated function may call counters@counter-value because that
-; reference was written in the library's template. We cannot call it directly.
+; The generated file's definition context permits counters@counter-value.
+; Ordinary consumer code still cannot call that private helper directly.
 (#generate counters@counter-reader read-generated-counter)
 
 (#fn main () #u64

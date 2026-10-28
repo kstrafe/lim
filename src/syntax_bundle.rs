@@ -11,7 +11,7 @@ pub(crate) struct Bundles {
 }
 
 struct SpliceProvenance {
-    references: HashMap<Span, Span>,
+    contexts: HashMap<u32, Span>,
     base: usize,
     sources: Vec<(crate::SourceFile, Span)>,
 }
@@ -59,20 +59,20 @@ impl Bundles {
         &mut self,
         forms: Vec<SpannedExpr>,
         files: &mut Vec<crate::SourceFile>,
-        references: &mut HashMap<Span, Span>,
+        contexts: &mut HashMap<u32, Span>,
         origins: &mut HashMap<u32, Span>,
     ) -> Result<Vec<SpannedExpr>, SourceError> {
-        if references.is_empty() {
+        if contexts.is_empty() {
             return self.expand(forms, true);
         }
         self.splice_provenance = Some(SpliceProvenance {
-            references: references.clone(),
+            contexts: contexts.clone(),
             base: files.len(),
             sources: Vec::new(),
         });
         let result = self.expand(forms, true);
         let provenance = self.splice_provenance.take().unwrap();
-        *references = provenance.references;
+        *contexts = provenance.contexts;
         for (file, origin) in provenance.sources {
             origins.insert(files.len() as u32, origin);
             files.push(file);
@@ -281,16 +281,14 @@ impl Bundles {
             for index in 0..values.len() {
                 let mut value = child(&expanded, index);
                 if let Some(provenance) = &mut self.splice_provenance {
-                    let syntax = crate::generator_authority::Syntax::from_tree(
-                        &value,
-                        &provenance.references,
-                    );
+                    let syntax =
+                        crate::generator_authority::Syntax::from_tree(&value, &provenance.contexts);
                     let text = crate::expression_source(&value.expr)?;
                     value = crate::parse(&text)?.remove(0);
                     let source_id = u32::try_from(provenance.base + provenance.sources.len())
                         .map_err(|_| "too many syntax splice sources")?;
                     crate::set_source_id(&mut value, source_id);
-                    syntax.attach(&value, &mut provenance.references);
+                    syntax.attach(&value, &mut provenance.contexts);
                     provenance.sources.push((
                         crate::SourceFile {
                             path: "<generated syntax splice>".into(),

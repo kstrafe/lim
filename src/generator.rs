@@ -206,7 +206,8 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
 
 #[derive(Default)]
 pub(crate) struct Origins {
-    pub references: HashMap<Span, Span>,
+    pub qualified: HashSet<Span>,
+    pub definitions: HashMap<u32, Span>,
     pub generated_sources: Vec<(crate::SourceFile, Span)>,
     pub visibility: Option<crate::library::Visibility>,
     pub user: HashSet<Span>,
@@ -218,6 +219,37 @@ pub(crate) struct Origins {
 }
 
 impl Origins {
+    pub(crate) fn context_header(
+        &self,
+        producer: &str,
+        definition: Span,
+        invocation: Span,
+    ) -> String {
+        let invocation = self.invocation_origin(invocation);
+        let descriptor = |span: Span| {
+            self.visibility.as_ref().map_or_else(
+                || ("<global>".into(), String::new()),
+                |visibility| visibility.module_context(span),
+            )
+        };
+        let (definition_module, definition_prefix) = descriptor(definition);
+        let (invocation_module, invocation_prefix) = descriptor(invocation);
+        let pair = |key: &str, value: String| {
+            Expr::List(vec![Expr::Symbol(key.into()), Expr::String(value)])
+        };
+        let header = Expr::List(vec![
+            Expr::Symbol(crate::generator_authority::HEADER.into()),
+            Expr::List(vec![
+                pair("producer", producer.into()),
+                pair("definition-module", definition_module),
+                pair("definition-prefix", definition_prefix),
+                pair("invocation-module", invocation_module),
+                pair("invocation-prefix", invocation_prefix),
+            ]),
+        ]);
+        crate::expression_source(&header).expect("context header contains only reader syntax")
+    }
+
     fn invocation_origin(&self, mut span: Span) -> Span {
         for _ in 0..self.generated_sources.len() {
             let Some(index) = (span.source_id as usize).checked_sub(self.source_paths.len()) else {
@@ -240,38 +272,9 @@ impl Origins {
     }
 
     pub(crate) fn authority_signature(&self, form: &SpannedExpr) -> String {
-        if self.references.is_empty() {
-            return String::new();
-        }
-        fn walk(
-            node: &SpannedExpr,
-            origins: &Origins,
-            instance: &str,
-            ordinal: &mut usize,
-            marks: &mut Vec<(usize, String)>,
-        ) {
-            if matches!(node.expr, Expr::Symbol(_) | Expr::Generate) {
-                if let Some(author) = origins.references.get(&node.span) {
-                    let authority = origins.expansion_context(*author);
-                    if authority != instance {
-                        marks.push((*ordinal, authority));
-                    }
-                }
-                *ordinal += 1;
-            }
-            for child in &node.children {
-                walk(child, origins, instance, ordinal, marks);
-            }
-        }
-        let mut marks = Vec::new();
-        walk(
-            form,
-            self,
-            &self.expansion_context(form.span),
-            &mut 0,
-            &mut marks,
-        );
-        format!("{marks:?}")
+        crate::generator_authority::source_context(form.span, &self.definitions)
+            .map(|definition| self.expansion_context(definition))
+            .unwrap_or_default()
     }
 }
 
@@ -519,6 +522,39 @@ fn expand_with_hits_and_origins(
         remaining.push(expression);
     }
 
+    // Preserve explicit global qualification in the interpreter even when a
+    // generator parameter happens to have the same spelling. The normalized
+    // Function node is compiler-only and is converted back to symbol syntax
+    // when evaluated; no marker survives into generated code.
+    fn bind_qualified(expr: &mut Expr, source: &SpannedExpr, qualified: &HashSet<Span>) {
+        if qualified.contains(&source.span) {
+            if let Expr::Symbol(name) = expr {
+                *expr = Expr::Function(name.clone());
+            }
+            return;
+        }
+        match expr {
+            Expr::List(items) => {
+                for (item, source) in items.iter_mut().zip(&source.children) {
+                    bind_qualified(item, source, qualified);
+                }
+            }
+            Expr::Quote(inner)
+            | Expr::QuasiQuote(inner)
+            | Expr::Unquote(inner)
+            | Expr::UnquoteSplicing(inner) => {
+                if let Some(source) = source.children.first() {
+                    bind_qualified(inner, source, qualified);
+                }
+            }
+            _ => {}
+        }
+    }
+    for definition in generators.values_mut().chain(functions.values_mut()) {
+        if let Some(source) = &definition.source_body {
+            bind_qualified(&mut definition.body, source, &origins.qualified);
+        }
+    }
     let interpreter_hash = interpreter_hash();
     let capability_hash = hash_capability_definitions(&capabilities);
     let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
@@ -606,14 +642,25 @@ fn expand_with_hits_and_origins(
         }
         for syntax in expanded {
             if syntax.has_authority() {
-                let text = crate::expression_source(&syntax.expr)?;
-                let mut tree = crate::parse(&text)?.remove(0);
+                let definition = syntax.authority().unwrap();
+                let producer = context
+                    .generators
+                    .iter()
+                    .find_map(|(name, generator)| {
+                        (generator.span == definition).then_some(name.as_str())
+                    })
+                    .unwrap_or("<builtin>");
+                let header = context
+                    .origins
+                    .context_header(producer, definition, expression.span);
+                let text = format!("{header}\n{}", crate::expression_source(&syntax.expr)?);
+                let mut tree = crate::parse(&text)?.remove(1);
                 let id = u32::try_from(
                     context.origins.source_paths.len() + context.origins.generated_sources.len(),
                 )
                 .map_err(|_| "too many generated source files")?;
                 crate::set_source_id(&mut tree, id);
-                syntax.attach(&tree, &mut context.origins.references);
+                syntax.attach(&tree, &mut context.origins.definitions);
                 context.origins.generated_sources.push((
                     crate::SourceFile {
                         path: format!(
@@ -1024,12 +1071,7 @@ fn expand_top(
         .invocation_span
         .map(|span| context.origins.expansion_context(span))
         .unwrap_or_default();
-    let argument_identities = arguments
-        .iter()
-        .map(|argument| {
-            argument.identity(&instance, |span| context.origins.expansion_context(span))
-        })
-        .collect::<Vec<_>>();
+    let argument_identities = arguments.iter().map(Syntax::identity).collect::<Vec<_>>();
     let invocation_key = format!("{instance}:{name}:{argument_identities:?}");
     if let Some(span) = context.invocation_span {
         context.origins.user.insert(span);
@@ -1065,8 +1107,13 @@ fn expand_top(
         }
         return Ok(Vec::new());
     }
+    let header = context.origins.context_header(
+        name,
+        generator.span,
+        context.invocation_span.unwrap_or(generator.span),
+    );
     let cache_key = format!(
-        "lim-generator-cache-v14\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}",
+        "lim-generator-cache-v15\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}\ncontext={header}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -1082,21 +1129,9 @@ fn expand_top(
         None => None,
     }
     .filter(|(_, forms)| {
-        let valid = if forms.iter().any(Syntax::has_authority) {
-            let allowed = context
-                .generators
-                .values()
-                .chain(context.functions.values())
-                .map(|definition| definition.span)
-                .collect();
-            crate::generator_authority::valid_authors(forms, &allowed)
-        } else {
-            true
-        };
-        valid
-            && context
-                .gensyms
-                .restore_refs(forms.iter().map(|form| &form.expr), &scope)
+        context
+            .gensyms
+            .restore_refs(forms.iter().map(|form| &form.expr), &scope)
     });
     if let Some(directory) = context.cache_dir {
         let path = cache_path(directory, &cache_key);
@@ -1170,19 +1205,26 @@ fn expand_top(
             forms
         }
     };
+    let forms = forms
+        .into_iter()
+        .map(|form| Syntax::authored(form.expr, Some(generator.span)))
+        .collect::<Vec<_>>();
+    for form in &forms {
+        crate::generator_authority::validate_output(&form.expr)?;
+    }
     if context.cache_dir.is_some() {
         let needs_publication = cached_source.is_none();
         let source = match cached_source {
             Some(source) => source,
             None => {
-                let mut source = format_generated_source(
-                    &forms
+                let source = format_generated_source(&format!(
+                    "{header}\n{}",
+                    forms
                         .iter()
                         .map(|form| crate::expression_source(&form.expr))
                         .collect::<Result<Vec<_>, _>>()?
-                        .join("\n"),
-                )?;
-                crate::generator_authority::append_metadata(&mut source, &forms);
+                        .join("\n")
+                ))?;
                 source
             }
         };
@@ -1416,7 +1458,7 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
             };
             match operator.as_str() {
                 "#gn-call" => {
-                    if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if let Some(Expr::Symbol(name) | Expr::Function(name)) = items.get(1) {
                         calls.push(name.clone());
                     }
                     for argument in items.iter().skip(2) {
@@ -1539,7 +1581,8 @@ pub(crate) fn cached_generated_source_with_origins(
             read_bounded_cache_text(&digest_path),
         ) {
             if expected_digest == generated_source_digest(key, &source)
-                && crate::parse(&source).is_ok()
+                && crate::parse(&source)
+                    .is_ok_and(|forms| crate::generator_authority::matches_key(key, &forms))
             {
                 crate::cache_report::record("source", &path, key, "hit");
                 let recorded = recorded_generated_origins(&source);
@@ -1843,10 +1886,11 @@ fn load_generated_expansion(
     let Ok(forms) = crate::parse(&source) else {
         return Ok(None);
     };
-    let expressions = forms.into_iter().map(|node| node.expr).collect();
-    let Some(forms) = crate::generator_authority::restore(&source, expressions) else {
+    if !crate::generator_authority::matches_key(key, &forms) {
         return Ok(None);
-    };
+    }
+    let expressions = forms.into_iter().map(|node| node.expr).collect();
+    let forms = crate::generator_authority::restore(expressions);
     Ok(Some((source, forms)))
 }
 
@@ -1900,7 +1944,11 @@ fn write_generated_expansion(
         .iter()
         .map(crate::expression_source)
         .collect::<Result<Vec<_>, _>>()?;
-    let source = format_generated_source(&source.join("\n"))?;
+    let body = source.join("\n");
+    let source = match key.lines().find_map(|line| line.strip_prefix("context=")) {
+        Some(header) => format_generated_source(&format!("{header}\n{body}"))?,
+        None => format_generated_source(&body)?,
+    };
     let mut origins = origins.to_vec();
     if let Some(previous) = read_bounded_cache_text(&path) {
         origins.extend(recorded_generated_origins(&previous));
@@ -2025,25 +2073,6 @@ fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
     bytes.get(cursor..cursor.checked_add(length)?)
 }
 
-fn current_author(context: &ExpansionContext<'_>) -> Option<Span> {
-    let definition = context
-        .active_functions
-        .last()
-        .and_then(|name| context.functions.get(name))
-        .or_else(|| {
-            context
-                .active
-                .last()
-                .and_then(|name| context.generators.get(name))
-        })?;
-    context
-        .origins
-        .visibility
-        .as_ref()?
-        .has_library(definition.span)
-        .then_some(definition.span)
-}
-
 fn evaluate(
     expression: &Expr,
     environment: &Environment,
@@ -2055,12 +2084,15 @@ fn evaluate(
         ));
     }
     context.budget.evaluation_steps -= 1;
+    if let Expr::Function(name) = expression {
+        return Ok(Value::Syntax(Expr::Symbol(name.clone()).into()));
+    }
     if let Expr::Symbol(name) = expression {
         return Ok(Value::Syntax(
             environment
                 .get(name)
                 .cloned()
-                .unwrap_or_else(|| Syntax::authored(expression.clone(), current_author(context))),
+                .unwrap_or_else(|| expression.clone().into()),
         ));
     }
     if let Expr::QuasiQuote(template) = expression {
@@ -2075,19 +2107,11 @@ fn evaluate(
         return Err("unquote forms are only valid inside a backtick syntax template".into());
     }
     let Expr::List(items) = expression else {
-        return Ok(Value::Syntax(Syntax::authored(
-            expression.clone(),
-            current_author(context),
-        )));
+        return Ok(Value::Syntax(expression.clone().into()));
     };
     let operator = match items.first() {
         Some(Expr::Symbol(operator)) => operator.as_str(),
-        _ => {
-            return Ok(Value::Syntax(Syntax::authored(
-                expression.clone(),
-                current_author(context),
-            )))
-        }
+        _ => return Ok(Value::Syntax(expression.clone().into())),
     };
     match operator {
         "#gn-if" => {
@@ -2343,10 +2367,7 @@ fn evaluate(
             }
         }
         _ if operator.starts_with("#gn-") => Err(format!("unknown generator builtin '{operator}'")),
-        _ => Ok(Value::Syntax(Syntax::authored(
-            expression.clone(),
-            current_author(context),
-        ))),
+        _ => Ok(Value::Syntax(expression.clone().into())),
     }
 }
 
@@ -2364,6 +2385,7 @@ fn evaluate_template(
     }
     context.budget.evaluation_steps -= 1;
     match expression {
+        Expr::Function(name) => Ok(TemplateValue::Syntax(Expr::Symbol(name.clone()).into())),
         Expr::QuasiQuote(inner) => {
             match evaluate_template(inner, environment, context, depth + 1, false)? {
                 TemplateValue::Syntax(inner) => {
@@ -2414,10 +2436,7 @@ fn evaluate_template(
             }
             Ok(TemplateValue::Syntax(Syntax::list(result)))
         }
-        other => Ok(TemplateValue::Syntax(Syntax::authored(
-            other.clone(),
-            current_author(context),
-        ))),
+        other => Ok(TemplateValue::Syntax(other.clone().into())),
     }
 }
 
@@ -2441,7 +2460,7 @@ fn symbol<'a>(expression: Option<&'a Expr>, context: &str) -> Result<&'a str, St
         Some(Expr::Symbol(value)) if context == "capability type" => {
             Ok(value.strip_prefix('#').unwrap_or(value))
         }
-        Some(Expr::Symbol(value)) => Ok(value),
+        Some(Expr::Symbol(value) | Expr::Function(value)) => Ok(value),
         _ => Err(format!("expected symbol for {context}")),
     }
 }
@@ -2815,6 +2834,30 @@ mod tests {
             .unwrap();
         assert!(read_bounded_cache_file(&path).is_none());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn generated_context_must_match_the_key_even_with_a_valid_source_digest() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-generated-context-{}-{}",
+            std::process::id(),
+            CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        fs::create_dir(directory.join("generated")).unwrap();
+        let header = "(#generated-context ((producer \"expected\")))";
+        let key = format!("lim-generator-cache-v15\ncontext={header}");
+        let wrong = "(#generated-context ((producer \"other\")))\n(#type Value #u64)";
+        publish_generated_expansion(&directory, &key, wrong).unwrap();
+        assert!(load_generated_expansion(&directory, &key)
+            .unwrap()
+            .is_none());
+        let right = format!("{header}\n(#type Value #u64)");
+        publish_generated_expansion(&directory, &key, &right).unwrap();
+        let (_, forms) = load_generated_expansion(&directory, &key).unwrap().unwrap();
+        assert_eq!(forms.len(), 1);
+        assert!(!crate::generator_authority::is_header(&forms[0].expr));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

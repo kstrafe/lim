@@ -7642,6 +7642,9 @@ pub(crate) fn program(
             .generated_source_invocations
             .insert(source_id, generated.origin);
         for mut source in crate::parse(&generated.source)? {
+            if crate::generator_authority::is_header(&source.expr) {
+                continue;
+            }
             crate::set_source_id(&mut source, source_id);
             if let Some(function) = planning
                 .functions
@@ -7651,7 +7654,7 @@ pub(crate) fn program(
                 crate::generator_authority::transfer_builtin(
                     &function.source.function,
                     &source,
-                    &mut program.reference_authorities,
+                    &mut program.generated_definition_contexts,
                 );
             }
             // Protocol bundles have already been expanded in the prepared
@@ -7692,15 +7695,6 @@ pub(crate) fn program(
             program.items.push(item);
         }
     }
-    let symbols = program.reference_authorities.clone();
-    crate::generator_authority::add_operations(
-        program
-            .declaration_expressions
-            .values()
-            .chain(program.statement_expressions.values()),
-        &symbols,
-        &mut program.reference_authorities,
-    );
     crate::let_else::normalize(
         &mut program.items,
         &mut program.statement_spans,

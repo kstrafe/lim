@@ -1,0 +1,12 @@
+(#export make-reader)
+
+(#fn private-base () #u64
+  (#return 2u64))
+
+; @private-base is qualified in this library's definition context. The callback
+; argument is already qualified in the consumer's context before expansion.
+(#gn make-reader (name callback)
+  `((#fn ,name () #u64
+      (#let base #u64 (#call @private-base ()))
+      (#let input #u64 (#call ,callback ()))
+      (#return (#u64::add-wrap base input)))))

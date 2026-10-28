@@ -109,7 +109,7 @@ pub(crate) fn copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         declaration_expressions: HashMap::new(),
         declaration_occurrences: HashMap::new(),
         generated_source_invocations: HashMap::new(),
-        reference_authorities: HashMap::new(),
+        generated_definition_contexts: HashMap::new(),
         syntax_bundle_uses: HashMap::new(),
         generator_validation: None,
     };
@@ -297,6 +297,29 @@ fn graph_generated_program(
     Ok((program.into_program(), generated))
 }
 
+fn contextual_generated_source(
+    prepared: &PreparedProgramSyntax,
+    invocation: &SpannedExpr,
+    source: &str,
+) -> String {
+    let producer = match &invocation.expr {
+        Expr::List(items) => match items.get(1) {
+            Some(Expr::Symbol(name)) => name.as_str(),
+            _ => "<builtin>",
+        },
+        _ => "<builtin>",
+    };
+    let definition = crate::generator_authority::source_context(
+        invocation.span,
+        &prepared.generator_origins.definitions,
+    )
+    .unwrap_or(invocation.span);
+    let header = prepared
+        .generator_origins
+        .context_header(producer, definition, invocation.span);
+    format!("{header}\n{source}")
+}
+
 fn graph_generated_owned_program(
     prepared: &PreparedProgramSyntax,
     cache_directory: Option<&Path>,
@@ -315,7 +338,7 @@ fn graph_generated_owned_program(
     for index in order {
         let function = &planning.functions[index];
         let invocation = invocations[index];
-        let key = graph_source_key(&key_context, invocation)?;
+        let key = graph_source_key(prepared, &key_context, invocation)?;
         let origins = vec![graph_source_origin(prepared, invocation.span)];
         // Probe through the shared key/digest/parser verifier. Its callback
         // deliberately refuses publication on a miss: all fresh output must
@@ -381,7 +404,11 @@ fn graph_generated_owned_program(
                 "\n{}\n",
                 expression_source(&super::async_interfaces::protocol_declaration(&normalized)?)?
             ));
-            output.source = generator::format_generated_source(&output.source)?;
+            output.source = generator::format_generated_source(&contextual_generated_source(
+                prepared,
+                invocation,
+                &output.source,
+            ))?;
             // Match the shared cache's inspectable provenance annotation before
             // checking, so the checked program and published text are identical.
             output.source = format!(
@@ -474,10 +501,16 @@ fn graph_source_key_context(prepared: &PreparedProgramSyntax) -> String {
         async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types))
 }
 
-fn graph_source_key(context: &str, invocation: &SpannedExpr) -> Result<String, String> {
+fn graph_source_key(
+    prepared: &PreparedProgramSyntax,
+    context: &str,
+    invocation: &SpannedExpr,
+) -> Result<String, String> {
+    let header = contextual_generated_source(prepared, invocation, "");
     Ok(format!(
-        "{context}\ninvocation={}",
-        expression_source(&invocation.expr)?
+        "{context}\ninvocation={}\ncontext={}",
+        expression_source(&invocation.expr)?,
+        header.trim()
     ))
 }
 
@@ -520,14 +553,17 @@ pub(crate) fn prepare_program_syntax(
             return Err(format!("unknown async-lowering '{value}'; expected graph").into());
         }
     }
-    let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
+    let (mut loaded, mut source_files) =
+        load_imports_with_sources(source, base, source_path, config)?;
     let visibility = crate::library::check_generators(&loaded, &source_files)?;
+    let qualified = crate::library::qualify(&mut loaded, &visibility, &source_files)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
     let loaded = bundles
         .expand(loaded, false)
         .map_err(|error| error.attach(&source_files))?;
     let mut generator_origins = generator::Origins::default();
+    generator_origins.qualified = qualified;
     generator_origins.visibility = Some(visibility);
     generator_origins.source_paths = source_files.iter().map(|file| file.path.clone()).collect();
     // Imports may prefix the bodies of library generators. Authorize only the
@@ -646,7 +682,7 @@ pub(crate) fn prepare_program_syntax(
         &expressions,
         &source_files,
         &generated_source_invocations,
-        &generator_origins.references,
+        &generator_origins.definitions,
     )?;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
@@ -701,13 +737,13 @@ pub(crate) fn prepare_program_syntax(
         &bundles.definitions,
         &source_files,
         &generated_source_invocations,
-        &generator_origins.references,
+        &generator_origins.definitions,
     )?;
     let expressions = bundles
         .expand_with_provenance(
             with_protocols,
             &mut source_files,
-            &mut generator_origins.references,
+            &mut generator_origins.definitions,
             &mut generated_source_invocations,
         )
         .map_err(|error| error.attach(&source_files))?;
@@ -770,9 +806,23 @@ pub(crate) fn prepare_program_syntax(
                 .map(|node| expression_source(&node.expr))
                 .collect::<Result<Vec<_>, _>>()?
                 .join("\n");
+            let contexts = expressions
+                .iter()
+                .filter(|node| is_async_invocation(node))
+                .map(|node| {
+                    let definition = crate::generator_authority::source_context(
+                        node.span,
+                        &generator_origins.definitions,
+                    )
+                    .unwrap_or(node.span);
+                    generator_origins.context_header("#async-fn", definition, node.span)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
             format!(
-                "cfg={settings:?}\nsyntax={:032x}",
-                generator::stable_hash(syntax.as_bytes())
+                "cfg={settings:?}\nsyntax={:032x}\ncontexts={:032x}",
+                generator::stable_hash(syntax.as_bytes()),
+                generator::stable_hash(contexts.as_bytes())
             )
         },
         bundles,
@@ -814,7 +864,7 @@ pub(crate) fn parse_prepared_program_items(
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = prepared.generated_source_invocations.clone();
-    let mut reference_authorities = prepared.generator_origins.references.clone();
+    let mut generated_definition_contexts = prepared.generator_origins.definitions.clone();
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
@@ -957,7 +1007,14 @@ pub(crate) fn parse_prepared_program_items(
                             form_span.line,
                             form_span.column
                         );
+                        let generated_text = contextual_generated_source(
+                            prepared,
+                            &source_expression,
+                            &generated_text,
+                        );
                         let mut generated_forms = parse(&generated_text)?;
+                        generated_forms
+                            .retain(|form| !crate::generator_authority::is_header(&form.expr));
                         for generated_form in &mut generated_forms {
                             set_source_id(generated_form, source_id);
                             normalize_match_case_forms(generated_form)
@@ -965,7 +1022,7 @@ pub(crate) fn parse_prepared_program_items(
                             crate::generator_authority::transfer_builtin(
                                 &source_expression,
                                 generated_form,
-                                &mut reference_authorities,
+                                &mut generated_definition_contexts,
                             );
                             collect_function_statement_spans(
                                 generated_form,
@@ -1101,14 +1158,6 @@ pub(crate) fn parse_prepared_program_items(
             &source_files,
         )?;
     }
-    let symbols = reference_authorities.clone();
-    crate::generator_authority::add_operations(
-        declaration_expressions
-            .values()
-            .chain(statement_expressions.values()),
-        &symbols,
-        &mut reference_authorities,
-    );
     let mut program = Program {
         items,
         source: Some(prepared.root_source.clone()),
@@ -1119,7 +1168,7 @@ pub(crate) fn parse_prepared_program_items(
         declaration_expressions,
         declaration_occurrences,
         generated_source_invocations,
-        reference_authorities,
+        generated_definition_contexts,
         syntax_bundle_uses: prepared.bundles.uses.clone(),
         generator_validation: None,
     };
@@ -1327,7 +1376,8 @@ fn write_prepared_generated_sources_reusing_graph(
                 .at(expression.span)
                 .attach(&prepared.source_files)
             })?;
-            let key = graph_source_key(graph_key_context.as_deref().unwrap(), expression)?;
+            let key =
+                graph_source_key(prepared, graph_key_context.as_deref().unwrap(), expression)?;
             let origins = builtin_origins
                 .get(&invocation)
                 .cloned()
@@ -1355,8 +1405,10 @@ fn write_prepared_generated_sources_reusing_graph(
         ) {
             continue;
         }
+        let context = contextual_generated_source(prepared, expression, "");
+        let context = context.trim();
         let key = format!(
-            "lim-inspectable-generated-source-v7\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v8\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}\ncontext={context}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
@@ -1370,7 +1422,10 @@ fn write_prepared_generated_sources_reusing_graph(
             &generated_cache,
             &key,
             &builtin_origins[&invocation],
-            || materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types),
+            || {
+                materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
+                    .map(|source| contextual_generated_source(prepared, expression, &source))
+            },
         )?;
         record_generated_artifact(prepared, expression, &generated_cache, &key)?;
     }
@@ -1423,12 +1478,12 @@ mod async_migration_tests {
         assert_eq!(invocations.len(), 2);
         let mut keys = Vec::new();
         for invocation in invocations {
-            // Byte-identical to the former per-invocation serialization: no
-            // cache schema change or loss of dependency/type information.
-            let expected = format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
+            // The shared environment and each invocation's explicit module
+            // context must both participate in the source-cache identity.
+            let expected = format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}\ncontext={}",
                 env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
-                async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap());
-            let actual = graph_source_key(&context, invocation).unwrap();
+                async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap(), contextual_generated_source(&prepared, invocation, "").trim());
+            let actual = graph_source_key(&prepared, &context, invocation).unwrap();
             assert_eq!(actual, expected);
             keys.push(actual);
         }
@@ -1607,7 +1662,14 @@ mod async_migration_tests {
         assert_eq!(sources.len(), 1);
         assert!(sources[0].starts_with("; Generated from:\n"));
         assert!(sources[0].ends_with(&graph_file.source));
-        let ordinary = parse_program(&format!("{CONTEXT}\n{}", sources[0])).unwrap();
+        assert!(parse_program(&sources[0])
+            .unwrap_err()
+            .contains("compiler-owned"));
+        let ordinary = parse_program(&format!(
+            "{CONTEXT}\n{}",
+            crate::generator_authority::without_header(&sources[0])
+        ))
+        .unwrap();
         typecheck::CheckedProgram::validate_with_span(&ordinary).unwrap();
         let keys = fs::read_dir(&scratch.0)
             .unwrap()
@@ -1701,7 +1763,8 @@ mod async_migration_tests {
             .iter()
             .find(|node| is_async_invocation(node))
             .unwrap();
-        let key = graph_source_key(&graph_source_key_context(&prepared), invocation).unwrap();
+        let key =
+            graph_source_key(&prepared, &graph_source_key_context(&prepared), invocation).unwrap();
         let origin = vec![graph_source_origin(&prepared, invocation.span)];
         let mut output =
             super::super::async_emit::generate_function(&planning, &planning.functions[0]).unwrap();
@@ -1714,7 +1777,11 @@ mod async_migration_tests {
             .unwrap()
         ));
         generator::cached_generated_source_with_origins(&scratch.0, &key, &origin, || {
-            Ok(output.source.clone())
+            Ok(contextual_generated_source(
+                &prepared,
+                invocation,
+                &output.source,
+            ))
         })
         .unwrap();
         let artifact = fs::read_dir(generator::generated_source_directory(&scratch.0))

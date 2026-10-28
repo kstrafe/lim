@@ -1301,6 +1301,32 @@ impl<'a> Index<'a> {
         vec![]
     }
     pub fn resolve(&self) -> Vec<Span> {
+        // Qualification is a source operation, even inside otherwise literal
+        // generator arguments and templates. Navigate the resolved identifier,
+        // not a same-spelled generator parameter or runtime local.
+        fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
+            if !index.contains(node) {
+                return None;
+            }
+            if let Some(name) = symbol(node) {
+                if index
+                    .program
+                    .and_then(|program| program.source_files.get(node.span.source_id as usize))
+                    .and_then(|file| file.source.get(node.span.start..node.span.end))
+                    .is_some_and(|text| text.starts_with('@'))
+                {
+                    return Some(index.global(name.strip_prefix('@').unwrap_or(name)));
+                }
+            }
+            node.children
+                .iter()
+                .find_map(|child| qualified(index, child))
+        }
+        for node in self.forms {
+            if let Some(targets) = qualified(self, node) {
+                return targets;
+            }
+        }
         let mut result = vec![];
         for node in self.forms {
             result.extend(self.source_form(node));

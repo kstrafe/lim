@@ -72,6 +72,7 @@ mod tests {
         "forget",
         "get",
         "generate",
+        "generated-context",
         "get-payload",
         "gn",
         "gn-call",

@@ -973,6 +973,8 @@ pub enum Expr {
     Symbol(String),
     /// An explicit, normalized user-call target, never reader syntax or a value.
     /// Kept distinct from builtin heads even when their spellings coincide.
+    /// Generator interpretation also uses this compiler-only node for an
+    /// already-qualified name, returning ordinary Symbol syntax on evaluation.
     Function(String),
     Integer(i128),
     UnsignedInteger(u128),
@@ -1859,7 +1861,7 @@ pub struct Program {
     pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
     pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
-    pub(crate) reference_authorities: HashMap<Span, Span>,
+    pub(crate) generated_definition_contexts: HashMap<u32, Span>,
     pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
     /// Ordinary validation witnesses supplied by code generators. They are
     /// checked in the runtime declaration context but never emitted.
@@ -6023,6 +6025,14 @@ fn prefix_expression(
     match expression {
         Expr::Function(_) => unreachable!("imports are prefixed before call normalization"),
         Expr::Symbol(name) => {
+            if let Some(relative) = name.strip_prefix('@') {
+                // Preserve the qualification marker until every surrounding
+                // external import has applied its instance prefix.
+                if !relative.starts_with('#') && !shared(relative) {
+                    *name = format!("@{}", names::imported(prefix, relative));
+                }
+                return;
+            }
             if !name.starts_with('#') && !is_unprefixed_builtin_name(name) && !shared(name) {
                 *name = names::imported(prefix, name);
             }
@@ -13373,7 +13383,7 @@ mod tests {
         assert!(generated.contains("#enum"));
         assert!(generated.contains("#return"));
         assert!(generated.contains("(#case "));
-        let program = parse_program(&generated).unwrap();
+        let program = parse_program(&generator_authority::without_header(&generated)).unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
         std::fs::remove_dir_all(directory).unwrap();
@@ -13485,7 +13495,8 @@ mod tests {
         assert!(generated.contains("Task::JoinResult.Error"));
 
         let lowered = parse_program(&format!(
-            "(#fn worker ((value #u64)) #u64 (#return value)) {generated}"
+            "(#fn worker ((value #u64)) #u64 (#return value)) {}",
+            generator_authority::without_header(&generated)
         ))
         .unwrap();
         let original = parse_program(source).unwrap();
