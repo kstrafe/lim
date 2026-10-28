@@ -3,6 +3,18 @@ mod support;
 use lim::{Diagnostic, DiagnosticCode};
 use std::{process::Command, time::Duration};
 
+// Re-check declarations without accepting compiler-owned access claims.
+fn ordinary_generated_source(source: &str) -> String {
+    let mut body = source.to_owned();
+    for form in lim::parse(source).unwrap().into_iter().rev() {
+        if matches!(&form.expr, lim::Expr::List(items) if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#generated-context"))
+        {
+            body.replace_range(form.span.start..form.span.end, "");
+        }
+    }
+    body
+}
+
 const CHILD: &str = "(#enum Child (#linear) ((Child.Waiting #u64)))
   (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
@@ -100,7 +112,7 @@ fn assert_independent_generated_source(source: &str) {
     let standalone = format!(
         "{}\n{}\n{}",
         &source[..form.span.start],
-        artifact,
+        ordinary_generated_source(&artifact),
         &source[form.span.end..]
     );
     assert!(!standalone.contains("#generate #async-fn"), "{standalone}");
@@ -112,18 +124,6 @@ fn assert_independent_generated_source(source: &str) {
             .unwrap_or_else(|error| panic!("{error}\n{standalone}"));
     lim::check_types(&program).unwrap_or_else(|error| panic!("{error:?}\n{standalone}"));
     lim::generate_assembly(&program).unwrap_or_else(|error| panic!("{error:?}\n{standalone}"));
-}
-
-fn generated_source_error(source: &str, label: &str) -> String {
-    let scratch = support::Scratch::new(label);
-    lim::write_generated_sources_from_path_with_config_and_cache(
-        source,
-        &scratch.path().join("input.lim"),
-        &scratch.path().join("generated"),
-        &config(),
-        &scratch.path().join("cache"),
-    )
-    .unwrap_err()
 }
 
 fn anchor_source(mutable: bool) -> String {
@@ -216,19 +216,62 @@ fn pinned_local_exclusive_reference_survives_repeated_pending() {
 }
 
 #[test]
-fn direct_local_and_static_anchor_mix_is_rejected_without_checked_parameter() {
+fn direct_local_and_static_anchor_mix_survives_pending_without_parameter_indirection() {
     let direct = anchor_source(false)
         .replace(" : external (#ref #u64)", "")
         .replace(
             "(#if choose (#borrow local) external)",
             "(#if choose (#borrow local) (#unsafe (#borrow global)))",
         )
+        .replace(" : external (#unsafe (#borrow global))", "")
+        .replace("(#let-mut local #u64 40u64)", "(#let-mut local #u64 50u64)")
+        .replace(
+            "(#call run (: choose true : cancel-at 4u64)) 42u64",
+            "(#call run (: choose true : cancel-at 4u64)) 52u64",
+        );
+    assert_independent_generated_source(&direct);
+    run_native(&direct, "async-static-direct-mix", 42);
+}
+
+#[test]
+fn direct_selected_static_array_index_is_frozen_before_await() {
+    let direct = anchor_source(false)
+        .replace(" : external (#ref #u64)", "")
+        .replace(
+            "(#static global #u64 40u64)",
+            "(#static global (#array #u64 2) (#array-of (#array #u64 2) 10u64 40u64))",
+        )
+        .replace(
+            "(#let-mut view",
+            "(#let-mut index #usize 1usize) (#let-mut view",
+        )
+        .replace(
+            "(#if choose (#borrow local) external)",
+            "(#if choose (#borrow local) (#unsafe (#borrow (#index global index))))",
+        )
+        .replace(
+            "(#let result #u64 (#await",
+            "(#set index 0usize) (#let result #u64 (#await",
+        )
         .replace(" : external (#unsafe (#borrow global))", "");
-    let error = generated_source_error(&direct, "async-static-direct-mix-rejected");
-    assert!(
-        error.contains("selected external async anchors require a checked reference parameter"),
-        "{error}"
-    );
+    assert_independent_generated_source(&direct);
+    run_native(&direct, "async-static-selected-index", 42);
+}
+
+#[test]
+fn direct_selected_static_struct_and_tuple_fields_keep_native_offsets() {
+    for (declaration, referent) in [
+        ("(#struct StaticRecord () (: padding #u8 : value #u64)) (#static global StaticRecord (#struct-literal StaticRecord (: padding 99u8 : value 40u64)))", "(#get global value)"),
+        ("(#static global (#tuple #u8 #u64) (#tuple (#tuple #u8 #u64) 99u8 40u64))", "(#get global 1)"),
+    ] {
+        let direct = anchor_source(false)
+            .replace(" : external (#ref #u64)", "")
+            .replace("(#static global #u64 40u64)", declaration)
+            .replace("(#if choose (#borrow local) external)", &format!("(#if choose (#borrow local) (#unsafe (#borrow {referent})))"))
+            .replace(" : external (#unsafe (#borrow global))", "");
+        assert_independent_generated_source(&direct);
+        run_native(&direct, "async-static-selected-field", 42);
+    }
 }
 
 #[test]

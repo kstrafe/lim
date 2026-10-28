@@ -51,12 +51,14 @@ fn classify(origins: &[LoanOrigin]) -> Result<bool, String> {
     if local
         && origins.iter().any(|origin| {
             !internal(origin)
-                && (!matches!(origin.place.root, PlaceRoot::Parameter(_))
-                    || origin.owned_allocation
+                && (!matches!(
+                    origin.place.root,
+                    PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+                ) || origin.owned_allocation
                     || origin.lifetime_only)
         })
     {
-        return Err("selected external async anchors require a checked reference parameter".into());
+        return Err("selected external async anchors require a checked reference parameter or static referent; direct allocation alternatives require a retained owner recipe".into());
     }
     Ok(local)
 }
@@ -734,6 +736,24 @@ mod tests {
         assert!(plan.bindings.values().any(|places| places
             .iter()
             .any(|place| matches!(place.root, PlaceRoot::Parameter(_)))
+            && places
+                .iter()
+                .any(|place| matches!(place.root, PlaceRoot::Local(_)))));
+    }
+
+    #[test]
+    fn direct_static_alternatives_keep_global_identity_without_parameter_captures() {
+        let plan = plan(
+            "(#static global #u64 42u64) (#fn work (: choose #bool) #u64
+          (#let owner #u64 40u64)
+          (#let view (#ref #u64) (#if choose (#borrow owner) (#unsafe (#borrow global))))
+          (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer))",
+        )
+        .unwrap();
+        assert!(plan.external_parameters.is_empty());
+        assert!(plan.bindings.values().any(|places| places
+            .iter()
+            .any(|place| matches!(place.root, PlaceRoot::Global(_)))
             && places
                 .iter()
                 .any(|place| matches!(place.root, PlaceRoot::Local(_)))));

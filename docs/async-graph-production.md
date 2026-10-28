@@ -11,6 +11,26 @@ Switching the default alone does not complete the full async safety goal.
 See [the requirement-by-requirement audit](async-goal-audit.md) for current
 invariants, coverage, performance measurements, and verification results.
 
+## Direct selected static references
+
+A pinned async function can select an ordinary reference from frame-local
+storage or a directly borrowed static, then retain the selection across Pending.
+Static projections use the real global declaration identity and native layout;
+they are not fabricated frame captures or reference parameters. Checked field,
+tuple, array, and runtime-index recipes reconstruct the originally selected
+address. Changing the source index after selection does not retarget a borrow.
+Static accesses still require `#unsafe` in the original source. Cancellation,
+source borrowing, and independent ordinary-code checks remain mandatory.
+
+Direct ordinary-reference mixtures involving allocation origins remain rejected
+unless a checked reference parameter retains the allocation's lifetime. A raw
+address or an allocation-call identity alone is not a reconstruction recipe for
+its live owning storage. Planning or final ordinary checking rejects this case
+instead of treating the pointer as a parameter or granting a fabricated owner.
+Some shapes currently report missing reference-bearing slot provenance in
+generated code rather than an early source-level owner-recipe diagnostic. This is the remaining
+scope of ASYNC-SELECTED-ANCHOR-01, not a completed general allocation model.
+
 Graph selection applies to all async invocations in the prepared program,
 including imported and generator-produced invocations. Unsupported lowering
 fails; it does not retry the legacy rewriter. Original source witnesses and the

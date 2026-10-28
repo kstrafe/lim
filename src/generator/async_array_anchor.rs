@@ -71,12 +71,13 @@ pub(crate) fn target_type(
         crate::typed_ir::resolve_type(ty, &declarations.aliases)
             .expect("array anchor types were resolved before emission")
     };
-    let (binding, external) = match place.root {
-        PlaceRoot::Local(binding) => (binding, false),
-        PlaceRoot::Parameter(binding) => (binding, true),
+    let (source_type, external) = match place.root {
+        PlaceRoot::Local(binding) => (&graph.bindings[binding.0].ty, false),
+        PlaceRoot::Parameter(binding) => (&graph.bindings[binding.0].ty, true),
+        PlaceRoot::Global(global) => (declarations.global_type(global), false),
         _ => unreachable!("array anchors retain checked local/parameter roots"),
     };
-    let mut ty = resolve(&graph.bindings[binding.0].ty);
+    let mut ty = resolve(source_type);
     if external {
         let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) = ty else {
             unreachable!("external anchors are thin reference parameters");
@@ -119,8 +120,10 @@ impl Recipes {
                         {
                             continue;
                         }
-                        let pinned = matches!(place.root, PlaceRoot::Local(_))
-                            || matches!(place.root, PlaceRoot::Parameter(binding)
+                        let pinned = matches!(
+                            place.root,
+                            PlaceRoot::Local(_) | PlaceRoot::Global(_)
+                        ) || matches!(place.root, PlaceRoot::Parameter(binding)
                                 if matches!(crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
                                     Ok(Type::PinnedReference { .. })));
                         let reference = |target| {
@@ -227,7 +230,7 @@ impl Recipes {
                 let Type::Array(_, length) = &array else {
                     unreachable!("dynamic array projection requires an array");
                 };
-                let pinned = matches!(place.root, PlaceRoot::Local(_))
+                let pinned = matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Global(_))
                     || matches!(place.root, PlaceRoot::Parameter(binding)
                         if matches!(crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
                             Ok(Type::PinnedReference { .. })));

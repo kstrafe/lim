@@ -2,6 +2,17 @@ mod support;
 
 use std::{process::Command, time::Duration};
 
+fn ordinary_generated_source(source: &str) -> String {
+    let mut body = source.to_owned();
+    for form in lim::parse(source).unwrap().into_iter().rev() {
+        if matches!(&form.expr, lim::Expr::List(items) if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#generated-context"))
+        {
+            body.replace_range(form.span.start..form.span.end, "");
+        }
+    }
+    body
+}
+
 const PREFIX: &str = r#"
 (#struct Data () (: padding #u128 : value #u64 : sentinel #u64))
 (#static fallback-storage Data (#struct-literal Data (: padding 999u128 : value 60u64 : sentinel 70u64)))
@@ -198,6 +209,53 @@ fn mixed_local_allocation_static_targets_survive_pending_and_cancel_in_order() {
 }
 
 #[test]
+fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
+    // No executor driver or dependent child is needed to exercise the planner.
+    let source = "(#struct Data (#linear) (: value #u64))
+      (#fn make () (#pin-own Data)
+        (#let pointer (#ptr-mut Data) (#unsafe (#linux-syscall (#ptr-mut Data) 9usize (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#return (#unsafe (#pin-own-of pointer (#struct-literal Data (: value 42u64))))))
+      (#fn destroy (: owner (#pin-own Data)) ()
+        (#let pointer (#ptr-mut Data) (#unsafe (#pin-release owner)))
+        (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) (#return ()))
+      (#enum Child (#linear) (: Child.Waiting #u64))
+      (#enum Poll () (: Poll.Pending Child : Poll.Ready #u64))
+      (#fn poll (: task Child : waker (#ref #u64)) Poll
+        (#return (#match task (#case (Child.Waiting value) (#enum-literal Poll.Ready value)))))
+      (#fn cancel (: task Child) () (#forget task) (#return ()))
+      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : cancel (work-cancel ((heap destroy) (await-0 cancel)))
+        : function (#fn work (: choose #bool) #u64
+          (#let-mut local #u64 40u64) (#let-mut heap (#pin-own Data) (#call make ()))
+          (#let view (#ref #u64) (#if choose (#borrow local) (#block
+            (#let anchor (#pin-ref Data) (#pin-own-borrow heap))
+            (#unsafe (#ptr-borrow anchor (#ref-ptr (#pin-borrow (#get anchor value))))))))
+          (#let ignored #u64 (#await Child Poll.Pending Poll.Ready poll (#enum-literal Child.Waiting 0u64)))
+          (#let answer #u64 (#deref view)) (#drop view) (#call destroy (: owner heap)) (#forget local) (#return answer))))
+      (#fn main () #u64 (#return 0u64))";
+    let scratch = support::Scratch::new("async-direct-allocation-owner-recipe");
+    let diagnostic =
+        compile(source, &scratch).expect_err("unrepresented owning allocation must fail closed");
+    assert!(
+        matches!(
+            diagnostic.code,
+            lim::DiagnosticCode::Linear | lim::DiagnosticCode::Type
+        ),
+        "{}",
+        diagnostic.message
+    );
+    assert!(
+        diagnostic.message.contains("retained owner recipe")
+            || diagnostic.message.contains("missing slot provenance"),
+        "{}",
+        diagnostic.message
+    );
+    assert!(
+        diagnostic.span.is_some(),
+        "unsupported recipe needs a source span"
+    );
+}
+
+#[test]
 fn mixed_local_allocation_exclusive_targets_survive_pending_and_cancellation() {
     let source = source()
         .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
@@ -287,7 +345,7 @@ fn mixed_allocation_static_artifacts_are_independently_checked_ordinary_lim() {
         let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
         assert!(!text.contains("#await"));
         standalone.push('\n');
-        standalone.push_str(&text);
+        standalone.push_str(&ordinary_generated_source(&text));
     }
     let program = lim::parse_program(&standalone).unwrap();
     lim::check_types(&program).unwrap();

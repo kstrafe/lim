@@ -718,6 +718,7 @@ impl<'a> Emitter<'a> {
                     .unwrap_or(function.source.function.span),
             };
             let pinned = match descriptor.root {
+                AddressRoot::Global(_) => true,
                 AddressRoot::Local(_) if emitter.pinned => true,
                 AddressRoot::Value(value) => match crate::typed_ir::resolve_type(
                     &function.graph.values[value.0].ty,
@@ -1203,6 +1204,32 @@ impl<'a> Emitter<'a> {
         indices: &HashMap<usize, String>,
     ) -> String {
         use crate::typed_place::Segment;
+        if let crate::typed_body::PlaceRoot::Global(global) = place.root {
+            let name = self
+                .planning
+                .declarations
+                .declaration_name(crate::typed_ir::DeclarationId::Global(global));
+            let suffix = if mutable { "-mut" } else { "" };
+            let root = format!("(#unsafe (#pin-borrow{suffix} {name}))");
+            if let Some(projected) = self
+                .array_anchors
+                .project(place, prefix, mutable, &root, indices)
+            {
+                return projected;
+            }
+            let mut projected = name.to_owned();
+            for (position, segment) in place.segments[..prefix].iter().enumerate() {
+                projected = match segment {
+                    Segment::Field(field) => format!("(#get {projected} {})", self.planning.declarations.field(*field).name),
+                    Segment::Tuple(index) => format!("(#get {projected} {index})"),
+                    Segment::Index(index) => format!("(#index {projected} {index}usize)"),
+                    Segment::DynamicIndex => format!("(#index {projected} {})", indices[&position]),
+                    Segment::Payload(variant, _) => format!("(#deref (#pin-get-payload-unchecked{suffix} (#pin-borrow{suffix} {projected}) {}))", self.planning.declarations.variant(*variant).name),
+                    _ => unreachable!("static anchors have checked projection recipes"),
+                };
+            }
+            return format!("(#unsafe (#pin-borrow{suffix} {projected}))");
+        }
         let (binding, external) = match place.root {
             crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
             crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
@@ -1483,16 +1510,23 @@ impl<'a> Emitter<'a> {
     /// materializing a reference formed by another branch.
     fn anchor_in_bounds(&self, place: &crate::typed_place::Place) -> bool {
         use crate::typed_place::Segment;
-        let (binding, external) = match place.root {
-            crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
-            crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
+        let (source_type, external) = match place.root {
+            crate::typed_body::PlaceRoot::Local(binding) => {
+                (&self.function.graph.bindings[binding.0].ty, false)
+            }
+            crate::typed_body::PlaceRoot::Parameter(binding) => {
+                (&self.function.graph.bindings[binding.0].ty, true)
+            }
+            crate::typed_body::PlaceRoot::Global(global) => {
+                (self.planning.declarations.global_type(global), false)
+            }
             _ => unreachable!(),
         };
         let resolve = |ty: &Type| {
             crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases)
                 .expect("anchor types were resolved before emission")
         };
-        let mut ty = resolve(&self.function.graph.bindings[binding.0].ty);
+        let mut ty = resolve(source_type);
         let mut skip = 0;
         if external {
             ty = match ty {
@@ -1652,6 +1686,16 @@ impl<'a> Emitter<'a> {
         let mut selected = "(#unreachable)".to_owned();
         for place in places.iter().rev() {
             if !self.anchor_in_bounds(place) {
+                continue;
+            }
+            if matches!(place.root, crate::typed_body::PlaceRoot::Global(_)) {
+                // A global has no frame occupancy bit. Its actual address and
+                // checked projection discriminate it from local candidates.
+                selected = format!(
+                    "(#if {} {} {selected})",
+                    self.anchor_probe(place, pointer),
+                    materialize(place)
+                );
                 continue;
             }
             let index = match place.root {
@@ -3359,6 +3403,25 @@ impl<'a> Emitter<'a> {
             )
         } else {
             match descriptor.root {
+                AddressRoot::Global(global) => {
+                    let name = self
+                        .planning
+                        .declarations
+                        .declaration_name(crate::typed_ir::DeclarationId::Global(global));
+                    (
+                        format!(
+                            "(#unsafe (#pin-borrow{} {name}))",
+                            if mutable { "-mut" } else { "" }
+                        ),
+                        Type::PinnedReference {
+                            mutable,
+                            target: Box::new(
+                                self.planning.declarations.global_type(global).clone(),
+                            ),
+                        },
+                        0,
+                    )
+                }
                 AddressRoot::Local(binding) => {
                     let field = self.aggregate_field(descriptor);
                     let owner =
