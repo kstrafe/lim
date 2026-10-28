@@ -55,42 +55,42 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
             }
             for (index, &a) in values.iter().enumerate() {
                 for (operator, expected) in [
-                    ("-.wrap", a.wrapping_neg()),
-                    ("-.saturate", (0 as $ty).saturating_sub(a)),
-                    ("!", !a),
-                ] { cases.push((format!("(#{name}.{operator} {a}{name})"), expected)); }
+                    ("sub-wrap", a.wrapping_neg()),
+                    ("sub-saturate", (0 as $ty).saturating_sub(a)),
+                    ("not", !a),
+                ] { cases.push((format!("(#{name}::{operator} {a}{name})"), expected)); }
                 let b = values[(index + 1) % values.len()];
                 for (op, expected) in [
-                    ("+.wrap", a.wrapping_add(b)), ("-.wrap", a.wrapping_sub(b)),
-                    ("*.wrap", a.wrapping_mul(b)), ("&", a & b), ("|", a | b), ("^", a ^ b),
-                ] { cases.push((format!("(#{name}.{op} {a}{name} {b}{name})"), expected)); }
+                    ("add-wrap", a.wrapping_add(b)), ("sub-wrap", a.wrapping_sub(b)),
+                    ("mul-wrap", a.wrapping_mul(b)), ("bit-and", a & b), ("bit-or", a | b), ("bit-xor", a ^ b),
+                ] { cases.push((format!("(#{name}::{op} {a}{name} {b}{name})"), expected)); }
                 {
-                    for (op, expected) in [("+.saturate", a.saturating_add(b)), ("-.saturate", a.saturating_sub(b)), ("*.saturate", a.saturating_mul(b))] {
-                        cases.push((format!("(#{name}.{op} {a}{name} {b}{name})"), expected));
+                    for (op, expected) in [("add-saturate", a.saturating_add(b)), ("sub-saturate", a.saturating_sub(b)), ("mul-saturate", a.saturating_mul(b))] {
+                        cases.push((format!("(#{name}::{op} {a}{name} {b}{name})"), expected));
                     }
                 }
                 if b != 0 {
-                    cases.push((format!("(#{name}./.wrap {a}{name} {b}{name})"), a.wrapping_div(b)));
-                    cases.push((format!("(#{name}.%.wrap {a}{name} {b}{name})"), a.wrapping_rem(b)));
+                    cases.push((format!("(#{name}::div-wrap {a}{name} {b}{name})"), a.wrapping_div(b)));
+                    cases.push((format!("(#{name}::rem-wrap {a}{name} {b}{name})"), a.wrapping_rem(b)));
                 }
                 for shift in [0, <$ty>::BITS - 1] {
-                    cases.push((format!("(#{name}.<< {a}{name} {shift}{name})"), a.wrapping_shl(shift)));
-                    cases.push((format!("(#{name}.>> {a}{name} {shift}{name})"), a.wrapping_shr(shift)));
+                    cases.push((format!("(#{name}::shl {a}{name} {shift}{name})"), a.wrapping_shl(shift)));
+                    cases.push((format!("(#{name}::shr {a}{name} {shift}{name})"), a.wrapping_shr(shift)));
                 }
             }
             let (a, b) = (<$ty>::MIN, !0 as $ty);
-            cases.push((format!("(#{name}./.wrap (#{name}.-.wrap {a}{name}) 2{name})"), a.wrapping_neg().wrapping_div(2)));
-            cases.push((format!("(#{name}./.wrap (#{name}.! 0{name}) 2{name})"), (!0 as $ty).wrapping_div(2)));
-            cases.push((format!("(#{name}./.wrap (#{name}.+.wrap {}{name} 1{name}) 2{name})", <$ty>::MAX), <$ty>::MAX.wrapping_add(1).wrapping_div(2)));
-            cases.push((format!("(#{name}./.wrap {a}{name} {b}{name})"), a.wrapping_div(b)));
-            cases.push((format!("(#{name}./.saturate {a}{name} {b}{name})"), a.saturating_div(b)));
-            cases.push((format!("(#{name}.%.wrap {a}{name} {b}{name})"), a.wrapping_rem(b)));
+            cases.push((format!("(#{name}::div-wrap (#{name}::sub-wrap {a}{name}) 2{name})"), a.wrapping_neg().wrapping_div(2)));
+            cases.push((format!("(#{name}::div-wrap (#{name}::not 0{name}) 2{name})"), (!0 as $ty).wrapping_div(2)));
+            cases.push((format!("(#{name}::div-wrap (#{name}::add-wrap {}{name} 1{name}) 2{name})", <$ty>::MAX), <$ty>::MAX.wrapping_add(1).wrapping_div(2)));
+            cases.push((format!("(#{name}::div-wrap {a}{name} {b}{name})"), a.wrapping_div(b)));
+            cases.push((format!("(#{name}::div-saturate {a}{name} {b}{name})"), a.saturating_div(b)));
+            cases.push((format!("(#{name}::rem-wrap {a}{name} {b}{name})"), a.wrapping_rem(b)));
             for batch in cases.chunks(32) {
                 let mut source = String::new();
                 let mut checks = String::new();
                 for (index, (expression, expected)) in batch.iter().enumerate() {
-                    source.push_str(&format!("(#const C{index} #{name} {expression})\n"));
-                    checks.push_str(&format!("(#assert (#{name}.== C{index} {expected}{name}))\n(#assert (#{name}.== {expression} {expected}{name}))\n"));
+                    source.push_str(&format!("(#const c{index} #{name} {expression})\n"));
+                    checks.push_str(&format!("(#assert (#{name}::eq c{index} {expected}{name}))\n(#assert (#{name}::eq {expression} {expected}{name}))\n"));
                 }
                 source.push_str(&format!("(#fn main () #u64 {checks} (#return 42u64))"));
                 execute(&source, None);
@@ -114,19 +114,19 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
 #[test]
 fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in ["u128", "i128"] {
-        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}.<< 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count 18446744073709551616{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count 18446744073709551616{ty}))) (#return 42u64))"), Some(4));
     }
     for ty in ["f32", "f64"] {
         execute(
             &format!(
                 "(#fn main () #u64
-          (#let nan #{ty} (#{ty}./ 0.0{ty} 0.0{ty}))
-          (#let infinity #{ty} (#{ty}./ 1.0{ty} 0.0{ty}))
-          (#assert (#{ty}.!= nan nan))
-          (#assert (#bool::eq (#{ty}.< nan infinity) false))
-          (#assert (#bool::eq (#{ty}.>= nan infinity) false))
-          (#assert (#{ty}.== -0.0{ty} 0.0{ty}))
-          (#assert (#{ty}.> infinity 1.0{ty})) (#return 42u64))"
+          (#let nan #{ty} (#{ty}::div 0.0{ty} 0.0{ty}))
+          (#let infinity #{ty} (#{ty}::div 1.0{ty} 0.0{ty}))
+          (#assert (#{ty}::ne nan nan))
+          (#assert (#bool::eq (#{ty}::lt nan infinity) false))
+          (#assert (#bool::eq (#{ty}::ge nan infinity) false))
+          (#assert (#{ty}::eq -0.0{ty} 0.0{ty}))
+          (#assert (#{ty}::gt infinity 1.0{ty})) (#return 42u64))"
             ),
             None,
         );
@@ -135,13 +135,13 @@ fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in [
         "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
     ] {
-        execute(&format!("(#fn div ((zero #{ty})) #{ty} (#return (#{ty}./.wrap 1{ty} zero))) (#fn main () #u64 (#let value #{ty} (#call div (: zero 0{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn div ((zero #{ty})) #{ty} (#return (#{ty}::div-wrap 1{ty} zero))) (#fn main () #u64 (#let value #{ty} (#call div (: zero 0{ty}))) (#return 42u64))"), Some(4));
         let width = if ty.ends_with("size") {
             64
         } else {
             ty[1..].parse::<u32>().unwrap()
         };
         // i8 cannot represent 128, but every type can represent its own width.
-        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}.<< 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count {width}{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count {width}{ty}))) (#return 42u64))"), Some(4));
     }
 }

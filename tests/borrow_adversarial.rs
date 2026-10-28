@@ -54,7 +54,10 @@ fn pending_cannot_export_a_handle_to_consumed_storage() {
         "returned reference may point to a consumed linear referent"
     );
     let span = diagnostic.span.unwrap();
-    assert_eq!(&source[span.start..span.end], "(#return (Pending item))");
+    assert_eq!(
+        &source[span.start..span.end],
+        "(#return (PendingResult.Pending item))"
+    );
     let consumed = source.find("(#pin-read item)").unwrap();
     assert!(diagnostic
         .labels
@@ -64,8 +67,8 @@ fn pending_cannot_export_a_handle_to_consumed_storage() {
 
     // Restoring the same stationary referent before returning permits the
     // handle to escape. This must not ban all reference-bearing results.
-    let restored = source.replace("(#return (Pending item))",
-        "(#unsafe (#pin-write item (#struct-literal Token (: value 2u64)))) (#return (Pending item))");
+    let restored = source.replace("(#return (PendingResult.Pending item))",
+        "(#unsafe (#pin-write item (#struct-literal Token (: value 2u64)))) (#return (PendingResult.Pending item))");
     compile(&restored, "pinned-restored-handle-pending").unwrap();
 }
 
