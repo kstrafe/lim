@@ -1,0 +1,28 @@
+; Exported enums expose all cases. Exported structs expose only their type.
+(#export Status Handle handle-create handle-status handle-close)
+
+(#enum InternalState (#linear)
+  (: InternalState.Open #u64 : InternalState.Closed))
+(#struct Handle (#linear)
+  (: state InternalState))
+
+(#enum Status ()
+  (: Status.Open #u64 : Status.Closed))
+
+(#fn handle-create (: value #u64) Handle
+  (#return
+    (#struct-literal Handle
+      (: state (#enum-literal InternalState.Open value)))))
+
+(#fn handle-status (: handle (#ref Handle)) Status
+  (#let state (#ref InternalState) (#borrow (#get handle state)))
+  (#return
+    (#match state
+      (#case-ref (InternalState.Open value)
+        (#enum-literal Status.Open (#deref value)))
+      (#case-ref InternalState.Closed
+        (#enum-literal Status.Closed)))))
+
+(#fn handle-close (: handle Handle) ()
+  (#forget handle)
+  (#return ()))

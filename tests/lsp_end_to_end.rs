@@ -365,6 +365,32 @@ fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
 }
 
 #[test]
+fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
+    let fixture = Fixture::new("library-public-enum");
+    let library_text = "(#export Status)\n(#enum Status () (: Status.Open #u64 : Status.Closed))\n";
+    let library = fixture.write("status/lib.lim", library_text);
+    let main_text = "(#import-external \"status/lib.lim\" api)\n(#fn main () #u64\n  (#let status api@Status (#enum-literal api@Status.Open 42u64))\n  (#let view (#ref api@Status) (#borrow status))\n  (#return (#match view\n    (#case-ref (api@Status.Open payload) (#deref payload))\n    (#case-ref api@Status.Closed 0u64))))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    for (needle, name) in [
+        ("api@Status.Open 42u64", "Status.Open"),
+        ("api@Status.Open payload", "Status.Open"),
+        ("api@Status.Closed 0u64", "Status.Closed"),
+    ] {
+        assert_location(
+            &client.definition(&main, main_text, needle),
+            &library,
+            library_text,
+            name,
+            name,
+        );
+    }
+    client.shutdown();
+}
+
+#[test]
 fn generated_private_helper_references_navigate_to_the_library_implementation() {
     let fixture = Fixture::new("generator-private-authority");
     let library_text = "(#export make)\n(#fn secret () #u64 (#return 42u64))\n(#gn make (name) `((#fn ,name () #u64 (#return (#call secret ())))))\n";

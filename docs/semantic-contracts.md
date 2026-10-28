@@ -14,6 +14,16 @@ or namespaces. External imports deterministically transform identifiers using
 their complete accumulated `@` prefix. Different instances have different
 identifiers and private access contexts, even for the same physical source.
 
+Exported struct types are opaque outside their library: construction,
+destructuring, and field access require representation access. Exported enums
+expose every variant for construction and matching, and every payload type must
+be publicly accessible. Individual variant exports are invalid. Private enums
+remain private; an exported struct can wrap one without exposing it. Public
+enum representation does not grant permission to contribute new variants from
+another library. Safe constructors must validate any invariants that rely on
+opaque struct representation; exported enums cannot enforce such invariants by
+hiding individual variants.
+
 Source `@name` qualification resolves in the context where it is written before
 generator interpretation. It cannot capture an interpreter parameter or runtime
 local. Handwritten forward declarations and exported generated names have

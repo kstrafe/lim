@@ -392,7 +392,7 @@ fn exported_signatures_must_not_leak_private_types() {
     )
     .unwrap_err();
     assert!(error.contains("exposes private type"), "{error}");
-    write(scratch.path(), "numbers/lib.lim", "(#export Value Value.Public) (#struct Secret () ((value #u64))) (#enum Value () ((Value.Public Secret)))");
+    write(scratch.path(), "numbers/lib.lim", "(#export Value) (#struct Secret () ((value #u64))) (#enum Value () ((Value.Public Secret)))");
     let error = check(
         scratch.path(),
         "main.lim",
@@ -403,12 +403,18 @@ fn exported_signatures_must_not_leak_private_types() {
 }
 
 #[test]
-fn enum_variants_require_explicit_exports_and_contributions_stay_internal() {
+fn exported_enums_expose_every_variant_but_contributions_stay_internal() {
     let scratch = support::Scratch::new("library-enums");
-    write(scratch.path(), "numbers/lib.lim", "(#export Number Number.Public) (#enum Number () ((Number.Public #u64) Number.Private)) (#export Events) (#distributed-enum Events ()) (#enum-contribute Events (Events.Internal #u64))");
-    check(scratch.path(), "main.lim", "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Public 42u64)) (#forget value) (#return 0u64))").unwrap();
+    write(scratch.path(), "numbers/lib.lim", "(#export Number Events) (#enum Number () ((Number.Value #u64) Number.Empty)) (#distributed-enum Events ()) (#enum-contribute Events (Events.Added #u64))");
     for body in [
-        "(#fn main () #u64 (#let value nums@Number nums@Number.Private) (#forget value) (#return 0u64))",
+        "(#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 0u64))))",
+        "(#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Empty)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 42u64))))",
+        "(#fn main () #u64 (#let value nums@Events (#enum-literal nums@Events.Added 42u64)) (#return (#match value (#case (nums@Events.Added payload) payload))))",
+    ] {
+        let source = format!("(#import-external \"numbers/lib.lim\" nums) {body}");
+        check_cache_modes(scratch.path(), &source, None);
+    }
+    for body in [
         "(#enum-contribute nums@Events (nums@Events.Forged #u64)) (#fn main () #u64 (#return 0u64))",
         "(#gn forge () `((#enum-contribute nums@Events (nums@Events.Forged #u64)))) (#generate forge) (#fn main () #u64 (#return 0u64))",
     ] {
@@ -416,6 +422,82 @@ fn enum_variants_require_explicit_exports_and_contributions_stay_internal() {
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload))))", Some("not exhaustive"));
+}
+
+#[test]
+fn individual_variant_exports_are_rejected() {
+    let scratch = support::Scratch::new("library-variant-export");
+    write(
+        scratch.path(),
+        "numbers/lib.lim",
+        "(#export Number Number.Value) (#enum Number () ((Number.Value #u64)))",
+    );
+    check_cache_modes(
+        scratch.path(),
+        "(#import-external \"numbers/lib.lim\" nums)",
+        Some("not individual variants"),
+    );
+}
+
+#[test]
+fn every_public_enum_payload_must_be_public_even_when_unused_or_generated() {
+    let scratch = support::Scratch::new("library-enum-payloads");
+    for declaration in [
+        "(#enum Value () (Value.Empty (Value.Hidden Secret)))",
+        "(#enum Value () (Value.Empty (Value.Hidden (#ref Secret))))",
+        "(#enum Value () (Value.Empty (Value.Hidden (#tuple #u64 Secret))))",
+        "(#type Alias Secret) (#enum Value () (Value.Empty (Value.Hidden Alias)))",
+        "(#generate #optional (: type Secret : name Value))",
+        "(#distributed-enum Value ()) (#enum-contribute Value (Value.Hidden Secret))",
+    ] {
+        write(
+            scratch.path(),
+            "numbers/lib.lim",
+            &format!("(#export Value) (#struct Secret () (: value #u64)) {declaration}"),
+        );
+        check_cache_modes(
+            scratch.path(),
+            "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#return 0u64))",
+            Some("exposes private type"),
+        );
+    }
+}
+
+#[test]
+fn opaque_structs_can_wrap_private_enums_and_be_public_enum_payloads() {
+    let scratch = support::Scratch::new("library-opaque-enum-wrapper");
+    let library = include_str!("../examples/opaque_handle/lib.lim");
+    write(scratch.path(), "opaque_handle/lib.lim", library);
+    check_cache_modes(
+        scratch.path(),
+        include_str!("../examples/opaque_handle.lim"),
+        None,
+    );
+    write(scratch.path(), "opaque_handle/lib.lim", &format!("{library}\n(#export Container) (#enum Container (#linear) (: Container.Handle Handle))"));
+    check_cache_modes(scratch.path(), "(#import-external \"opaque_handle/lib.lim\" api) (#fn main () #u64 (#let value api@Container (#enum-literal api@Container.Handle (#call api@handle-create (: api@value 42u64)))) (#match value (#case (api@Container.Handle handle) (#call api@handle-close (: api@handle handle)))) (#return 42u64))", None);
+    for body in [
+        "(#let value api@InternalState (#enum-literal api@InternalState.Closed))",
+        "(#match (#enum-literal api@InternalState.Closed) (#case api@InternalState.Closed ()) (#case (api@InternalState.Open value) ()))",
+        "(#let value api@Handle (#call api@handle-create (: api@value 42u64))) (#if-let (api@Handle state) value (#forget state) ())",
+        "(#let value api@Container (#enum-literal api@Container.Handle (#call api@handle-create (: api@value 42u64)))) (#match value (#case (api@Container.Handle handle) (#if-let (api@Handle state) handle (#forget state) ())))",
+        "(#let value api@Handle (#struct-literal api@Handle (: api@state (#enum-literal api@InternalState.Closed))))",
+        "(#let value api@Handle (#call api@handle-create (: api@value 42u64))) (#let field (#ref api@InternalState) (#borrow (#get value api@state))) (#forget value)",
+        "(#let value api@Handle (#call api@handle-create (: api@value 42u64))) (#let field #u64 (#match (#get value api@state) (#case api@InternalState.Closed 0u64) (#case (api@InternalState.Open payload) payload))) (#forget value)",
+    ] {
+        check_cache_modes(scratch.path(), &format!("(#import-external \"opaque_handle/lib.lim\" api) (#fn main () #u64 {body} (#return 0u64))"), Some("private"));
+    }
+}
+
+#[test]
+fn exported_generated_enums_support_borrowed_variant_matches() {
+    let scratch = support::Scratch::new("library-generated-public-enum");
+    write(
+        scratch.path(),
+        "numbers/lib.lim",
+        "(#export Value) (#generate #optional (: type #u64 : name Value))",
+    );
+    check_cache_modes(scratch.path(), "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#let value nums@Value (#enum-literal nums@Value.Some 42u64)) (#let view (#ref nums@Value) (#borrow value)) (#return (#match view (#case-ref (nums@Value.Some payload) (#deref payload)) (#case-ref nums@Value.None 0u64))))", None);
 }
 
 #[test]
@@ -523,9 +605,33 @@ fn private_field_diagnostics_underline_the_exact_source_token() {
 }
 
 #[test]
+fn private_enum_payload_diagnostics_underline_the_type() {
+    let scratch = support::Scratch::new("library-enum-payload-diagnostic");
+    let library = "(#export Value)\n(#struct Secret () (: value #u64))\n(#enum Value () (: Value.Visible #u64 : Value.Hidden Secret))\n";
+    write(scratch.path(), "numbers/lib.lim", library);
+    let source = "(#import-external \"numbers/lib.lim\" nums) (#fn main () #u64 (#return 0u64))";
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join(".lim/cache"),
+        lim::TargetDescription::host().unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("exposes private type"),
+        "{}",
+        error.message
+    );
+    let span = error.span.unwrap();
+    assert_eq!(span.line, 3);
+    assert_eq!(&library[span.start..span.end], "Secret");
+}
+
+#[test]
 fn native_thread_entry_points_are_private_unless_exported() {
     let scratch = support::Scratch::new("library-native-privacy");
-    let implementation = "(#export Task Task::join Task::SpawnResult Task::SpawnResult.Ok Task::SpawnResult.Error Task::SpawnError Task::JoinResult Task::JoinResult.Ok Task::JoinResult.Error) (#fn worker () #u64 (#return 42u64)) (#generate #thread-spawn (: task Task : worker worker))";
+    let implementation = "(#export Task Task::join Task::SpawnResult Task::SpawnError Task::JoinResult) (#fn worker () #u64 (#return 42u64)) (#generate #thread-spawn (: task Task : worker worker))";
     write(scratch.path(), "workers/lib.lim", implementation);
     let source = "(#import-external \"workers/lib.lim\" workers)
       (#fn main () #u64 (#return

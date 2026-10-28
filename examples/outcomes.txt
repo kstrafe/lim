@@ -448,6 +448,8 @@ exit 42 library_boundary.lim - -
 exit 42 generator_private_helpers.lim - -
 exit 42 generator_contexts.lim - -
 exit 42 async_static_reference.lim - -
+exit 42 opaque_handle.lim - -
+module opaque_handle.lim opaque_handle/lib.lim - -
 module generator_contexts.lim generator_contexts/lib.lim - -
 module library_boundary.lim encapsulation/lib.lim - -
 module library_boundary.lim encapsulation/storage.lim - -

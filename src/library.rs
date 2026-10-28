@@ -51,6 +51,10 @@ pub(crate) fn export_names(form: &SpannedExpr) -> Result<Option<Vec<String>>, So
                     .map_or(form.span, |child| child.span)),
             );
         };
+        if name.contains('.') {
+            return Err(SourceError::from("#export lists enum types, not individual variants; exporting an enum exposes every variant")
+                .at(form.children.get(index).map_or(form.span, |child| child.span)));
+        }
         if name.starts_with('#') || name.contains('@') || names.contains(name) {
             return Err(
                 SourceError::from("#export expects unique, locally declared identifiers").at(form
@@ -262,6 +266,11 @@ impl Visibility {
 
     fn exported(&self, name: &str, root: &Path) -> bool {
         let original = name.rsplit_once('@').map_or(name, |(_, name)| name);
+        // Variant names are not separately exported. Their representation is
+        // transparent exactly when the owning enum declaration is exported.
+        let original = original
+            .split_once('.')
+            .map_or(original, |(owner, _)| owner);
         self.exports
             .get(root)
             .is_some_and(|names| names.iter().any(|entry| entry == original))
@@ -396,6 +405,7 @@ impl Visibility {
         name: &str,
         types: impl IntoIterator<Item = &'a crate::Type>,
         span: Span,
+        declaration_source: Option<&SpannedExpr>,
     ) -> Result<(), SourceError> {
         for ty in types {
             let source = crate::type_source(ty);
@@ -410,10 +420,21 @@ impl Visibility {
                     continue;
                 };
                 if !self.exported(&type_name, root) {
+                    fn occurrence(source: &SpannedExpr, name: &str) -> Option<Span> {
+                        if matches!(&source.expr, Expr::Symbol(symbol) if symbol == name) {
+                            return Some(source.span);
+                        }
+                        source
+                            .children
+                            .iter()
+                            .find_map(|child| occurrence(child, name))
+                    }
                     return Err(SourceError::from(format!(
                         "exported declaration '{name}' exposes private type '{type_name}'"
                     ))
-                    .at(span));
+                    .at(declaration_source
+                        .and_then(|source| occurrence(source, &type_name))
+                        .unwrap_or(span)));
                 }
             }
         }
@@ -716,8 +737,8 @@ pub(crate) fn check(
             }
         }
     }
-    // An exported signature may name opaque exported types, but cannot leak an
-    // unexported type through an alias or a function parameter/result.
+    // Exported signatures may name opaque exported types, but cannot leak an
+    // unexported type through aliases, function signatures, or enum payloads.
     for item in &program.items {
         let (name, types): (&str, Vec<&crate::Type>) = match item {
             crate::Item::Function(function) => (
@@ -733,31 +754,13 @@ pub(crate) fn check(
             crate::Item::Let { name, ty, .. } | crate::Item::Static { name, ty, .. } => {
                 (name, vec![ty])
             }
-            crate::Item::Enum { name, variants, .. } => {
-                let Some(span) = program.declaration_spans.get(name).copied() else {
-                    continue;
-                };
-                let Some(Some(root)) = visibility.owners.get(span.source_id as usize) else {
-                    continue;
-                };
-                let public = variants
+            crate::Item::Enum { name, variants, .. } => (
+                name,
+                variants
                     .iter()
-                    .filter(|variant| visibility.exported(&variant.name, root))
-                    .collect::<Vec<_>>();
-                if !public.is_empty() && !visibility.exported(name, root) {
-                    return Err(SourceError::from(format!(
-                        "exported variant exposes private enum type '{name}'"
-                    ))
-                    .at(span));
-                }
-                (
-                    name,
-                    public
-                        .into_iter()
-                        .flat_map(|variant| variant.fields.iter())
-                        .collect(),
-                )
-            }
+                    .flat_map(|variant| variant.fields.iter())
+                    .collect(),
+            ),
             _ => continue,
         };
         let Some(span) = program.declaration_spans.get(name).copied() else {
@@ -769,7 +772,7 @@ pub(crate) fn check(
         if !visibility.exported(name, root) {
             continue;
         }
-        visibility.signature(name, types, span)?;
+        visibility.signature(name, types, span, program.declaration_expressions.get(name))?;
     }
     for item in &program.items {
         let crate::Item::ThreadTask { name, .. } = item else {
@@ -794,6 +797,7 @@ pub(crate) fn check(
                         .iter()
                         .chain(std::iter::once(&signature.return_type)),
                     span,
+                    program.declaration_expressions.get(&name),
                 )?;
             }
         }

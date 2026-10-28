@@ -1334,10 +1334,16 @@ externally imported for identifier prefixing, but have no library privacy.
 Only `lib.lim` may contain `(#export Type function ...)`, listing the declarations
 available outside the library. Other declarations remain library-internal.
 Exporting a struct type does not export its representation: external code cannot
-construct, read, write, borrow, or project its fields. Export enum variants
-explicitly to expose construction and matching. Exported function signatures
-and aliases cannot expose private types. All implementation declarations remain
-visible to whole-program borrow checking and optimization.
+construct, read, write, borrow, or project its fields. Exporting an enum exposes
+every variant for construction and matching; individual variants cannot appear
+in `#export`. Every payload type must also be publicly accessible, including in
+unused variants. Adding a variant changes the exhaustive matching contract.
+An unexported enum remains private. To hide its representation, store it inside
+an exported opaque struct and expose functions that operate on that struct;
+see `examples/opaque_handle.lim` and `examples/opaque_handle/lib.lim`.
+Exported function signatures and aliases cannot expose private types. All
+implementation declarations remain visible to whole-program borrow checking
+and optimization.
 
 Generated declarations belong to their invocation's library, not the physical
 `.lim` cache directory. Each generated file has access to its producer's
@@ -2513,7 +2519,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
-| `#export` | `(#export name...)` | `(#export Counter counter-new counter-destroy)` (in `lib.lim`) | Exposes declarations outside the nearest directory library. Struct representation remains private; enum variants require explicit exports. |
+| `#export` | `(#export name...)` | `(#export Counter counter-new counter-destroy)` (in `lib.lim`) | Exposes declarations outside the nearest directory library. Struct representation remains private; exporting an enum exposes all variants and requires publicly accessible payload types. Individual variant exports are rejected. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |

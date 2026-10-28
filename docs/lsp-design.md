@@ -15,7 +15,9 @@ roles as well as explicit enum literals and variant patterns.
 ## Resolution model
 
 Directory libraries use the nearest enclosing `lib.lim` as their boundary.
-`#export` operands navigate to declaration or variant tokens; the keyword has
+`#export` operands navigate to declaration tokens; individual enum variants are
+not export operands. Exporting an enum makes its construction and pattern
+variant references navigable without separate variant exports. The keyword has
 no definition. External prefixes form complete identifiers (`prefix@Name`),
 not namespace syntax. `#generate` opens the generated artifact, while its
 generator-name operand navigates to the generator declaration. Literal inputs
