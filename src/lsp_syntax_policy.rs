@@ -177,6 +177,7 @@ mod tests {
         "pt-succ",
         "pt-numeral",
         "pt-construct",
+        "pt-project",
         "pt-induct",
         "pt-self-at",
         "pt-nat-induct",

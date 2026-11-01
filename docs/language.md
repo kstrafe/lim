@@ -2208,8 +2208,8 @@ hide ill-typed components or unfold opaque theorem bodies. Arbitrary pointwise
 equality proofs are insufficient for function conversion: the fresh applications
 must definitionally compare. The eta and context regression suites cover
 symmetry, dependent indices, capture avoidance, and ill-typed negative cases.
-General user-inductive record eta with fields remains unsupported; full Lean
-eta is not claimed.
+Unindexed, single-constructor, nonrecursive mathematical records also support
+typed eta through all their field projections. Full Lean eta is not claimed.
 
 A unit-like data rule also identifies well-typed values of the same fully
 applied, unindexed user datatype when it has exactly one zero-field
@@ -2229,8 +2229,27 @@ fielded propositions remain stuck. Parameters, universes, motives, branches,
 and subjects still undergo complete typing before reduction.
 Pi/Sigma eta can compose with this rule and proof irrelevance through proof or
 qualifying unit-like fields. Source evidence and the shared type remain fully
-checked, and opaque theorem bodies stay opaque. This adds no syntax or general
-user-inductive record eta, and does not establish full Lean parity.
+checked, and opaque theorem bodies stay opaque. This does not establish full
+Lean parity.
+
+`(#pt-project FAMILY INDEX SUBJECT)` projects a field from a checked mathematical
+record. `INDEX` is an explicit zero-based untyped ordinal. `FAMILY` must match
+the subject's unindexed, single-constructor, nonrecursive inductive type;
+parameters and universes come from that type. Later field types substitute
+earlier projections of the same subject. Constructor projections compute to
+their fields, and reconstructing all fields converts to the original record
+by typed eta. Any two same-typed records compare through their projections,
+preserving proof irrelevance without identifying different data fields.
+Eligible neutral record recursors also compute through this reconstruction.
+
+Projections cannot extract non-proof data from a proposition, even indirectly
+through an earlier field required by a later field's type. Universe-polymorphic
+cases must satisfy the corresponding guarded implication. A syntactically
+unused predecessor can be skipped. All source evidence is checked before
+reduction; wrong families, ordinals, recursive/indexed types and ill-typed
+fields fail. The ordinal has no definition lookup; family and subject do.
+See [the record example](../examples/proof_records.lim) and the
+[kernel guide](kernel.md#mathematical-record-projections-and-eta).
 
 Definitional proof irrelevance identifies any two well-typed proofs of the same
 proposition. Typed conversion carries the local context through Pi, lambda, and
@@ -3208,6 +3227,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-pair` | `(#pt-pair SigmaType first second)` | `(#pt-pair (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n)) #pt-zero (#pt-refl #pt-nat #pt-zero))` (mathematical term) | Constructs a dependent pair with its full Sigma type stated explicitly. |
 | `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
 | `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |
+| `#pt-project` | `(#pt-project FAMILY INDEX SUBJECT)` | `(#pt-project package 1 value)` (mathematical term; package is an unindexed nonrecursive record, value has its type) | Checked zero-based projection with dependent field types; parameters and universes come from the subject. Rejects hidden data extraction from Prop, wrong families or ordinals, and indexed or recursive records. |
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |

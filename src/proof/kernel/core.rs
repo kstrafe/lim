@@ -28,6 +28,11 @@ pub(super) enum Term {
     Pair(T, T, T),
     First(T),
     Second(T),
+    Project {
+        family: String,
+        index: usize,
+        subject: T,
+    },
     Eq(T, T, T),
     Refl(T, T),
     EqElim {
@@ -603,6 +608,11 @@ impl Kernel {
                     self.instantiate(b, &term(Term::First(pair.clone())), depth + 1)
                 }
             }
+            Term::Project {
+                family,
+                index,
+                subject,
+            } => self.projection_type(ctx, family, *index, subject, depth + 1),
             Term::Eq(ty, a, b) => {
                 self.sort(ctx, ty, depth + 1)?;
                 self.check(ctx, a, ty, depth + 1)?;
@@ -1005,6 +1015,106 @@ impl Kernel {
         }
         Ok(arguments.split_off(desc.parameters.len()))
     }
+    /// Recognize a fully applied nonrecursive, unindexed record type. Merely
+    /// having one constructor is insufficient for projection and eta rules.
+    fn record_type(
+        &mut self,
+        shape: &T,
+        depth: usize,
+    ) -> Result<Option<(String, Vec<Level>, Vec<T>, Family)>> {
+        let mut head = shape.clone();
+        let mut parameters = vec![];
+        while let Term::App(function, argument) = head.as_ref() {
+            self.tick(depth)?;
+            parameters.push(argument.clone());
+            head = function.clone();
+        }
+        let Term::Global(name, levels) = head.as_ref() else {
+            return Ok(None);
+        };
+        let Some(family) = self.declarations.get(name).and_then(|d| d.family.clone()) else {
+            return Ok(None);
+        };
+        if !family.indices.is_empty()
+            || family.parameters.len() != parameters.len()
+            || family.constructors.len() != 1
+            || family.constructors[0]
+                .recursive
+                .iter()
+                .any(|recursive| *recursive)
+        {
+            return Ok(None);
+        }
+        parameters.reverse();
+        Ok(Some((name.clone(), levels.clone(), parameters, family)))
+    }
+    fn projection_type(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        index: usize,
+        subject: &T,
+        depth: usize,
+    ) -> Result<T> {
+        let ty = self.infer(ctx, subject, depth + 1)?;
+        let shape = self.whnf(ctx, &ty, depth + 1)?;
+        let Some((actual, levels, parameters, family)) = self.record_type(&shape, depth + 1)?
+        else {
+            return Err(
+                "#pt-project requires an unindexed, single-constructor nonrecursive record".into(),
+            );
+        };
+        if actual != name {
+            return Err("#pt-project subject belongs to a different record family".into());
+        }
+        let constructor = &family.constructors[0];
+        if index >= constructor.fields.len() {
+            return Err("#pt-project field index is out of range".into());
+        }
+        let (_, map) = self.family(name, &levels, depth + 1)?;
+        let source_sort = family.sort.substitute(&map)?;
+        let (ty, _) = self.constructor_type(name, &levels, &constructor.name, depth + 1)?;
+        let mut telescope = self.arguments(ctx, ty, &parameters, depth + 1)?;
+        for position in 0..=index {
+            let reduced = self.whnf(ctx, &telescope, depth + 1)?;
+            let Term::Pi(domain, body) = reduced.as_ref() else {
+                return Err("invalid record field telescope".into());
+            };
+            // A hidden data field cannot escape Prop, including through a
+            // later field's dependent type. Skip unused predecessors without
+            // fabricating an ill-typed projection into the returned type.
+            if position == index || self.uses_bound_variable(body, depth + 1)? {
+                let field_sort = self.sort(ctx, domain, depth + 1)?;
+                if !source_sort.zero_implies_zero(&field_sort)? {
+                    return Err("#pt-project cannot extract data or a data-dependent field from a proposition".into());
+                }
+            }
+            if position == index {
+                return Ok(domain.clone());
+            }
+            let field = term(Term::Project {
+                family: name.into(),
+                index: position,
+                subject: subject.clone(),
+            });
+            telescope = self.instantiate(body, &field, depth + 1)?;
+        }
+        Err("invalid record field index".into())
+    }
+    fn uses_bound_variable(&mut self, body: &T, depth: usize) -> Result<bool> {
+        let mut found = false;
+        self.transform(
+            body,
+            0,
+            depth,
+            &mut |_, index, binders| {
+                found |= index == binders;
+                Ok(term(Term::Var(index)))
+            },
+            &mut |level| Ok(level.clone()),
+        )?;
+        Ok(found)
+    }
     fn whnf(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<T> {
         self.tick(depth)?;
         let mut value = value.clone();
@@ -1040,6 +1150,28 @@ impl Kernel {
                     } else {
                         return Ok(value);
                     }
+                }
+                Term::Project {
+                    family,
+                    index,
+                    subject,
+                } => {
+                    let reduced = self.whnf(ctx, subject, depth + 1)?;
+                    if let Term::Ctor {
+                        family: actual,
+                        fields,
+                        ..
+                    } = reduced.as_ref()
+                    {
+                        if actual == family {
+                            value = fields
+                                .get(*index)
+                                .cloned()
+                                .ok_or("invalid record field index")?;
+                            continue;
+                        }
+                    }
+                    return Ok(value);
                 }
                 Term::EqElim {
                     proof,
@@ -1106,6 +1238,36 @@ impl Kernel {
                                     .ok_or("missing induction branch")?;
                                 continue;
                             }
+                        }
+                        // Record eta must also respect recursor computation:
+                        // eliminate the reconstruction from its projections.
+                        // Do not synthesize forbidden data projections out of
+                        // Prop, even for a proof-valued elimination.
+                        if desc.indices.is_empty()
+                            && desc.constructors.len() == 1
+                            && !desc.constructors[0].recursive.iter().any(|r| *r)
+                            && (desc.large
+                                || desc
+                                    .sort
+                                    .substitute(&map)?
+                                    .zero_implies_zero(&Level::number(1)?)?)
+                        {
+                            let mut result = branches
+                                .first()
+                                .cloned()
+                                .ok_or("missing induction branch")?;
+                            for index in 0..desc.constructors[0].fields.len() {
+                                result = term(Term::App(
+                                    result,
+                                    term(Term::Project {
+                                        family: family.clone(),
+                                        index,
+                                        subject: subject.clone(),
+                                    }),
+                                ));
+                            }
+                            value = result;
+                            continue;
                         }
                         return Ok(value);
                     };
@@ -1202,6 +1364,18 @@ impl Kernel {
             (Term::First(a), Term::First(b)) | (Term::Second(a), Term::Second(b)) => {
                 self.conversion(ctx, a, b, false, depth + 1)
             }
+            (
+                Term::Project {
+                    family: a,
+                    index: i,
+                    subject: s,
+                },
+                Term::Project {
+                    family: b,
+                    index: j,
+                    subject: t,
+                },
+            ) => Ok(a == b && i == j && self.conversion(ctx, s, t, false, depth + 1)?),
             (Term::Refl(a, b), Term::Refl(c, d)) => Ok(self.convertible(ctx, a, c, depth + 1)?
                 && self.convertible(ctx, b, d, depth + 1)?),
             (
@@ -1307,10 +1481,11 @@ impl Kernel {
         if !eta {
             return Ok(false);
         }
-        // Compare at a shared Pi/Sigma type, including two neutral values.
+        // Compare at a shared Pi/Sigma/record type, including two neutral values.
         // Restricting this to explicit lambdas/pairs loses transitivity when
         // proof-irrelevant components compare equal through a reconstruction.
-        if !matches!(shape.as_ref(), Term::Pi(..) | Term::Sigma(..)) {
+        let record = self.record_type(&shape, depth + 1)?;
+        if !matches!(shape.as_ref(), Term::Pi(..) | Term::Sigma(..)) && record.is_none() {
             return Ok(false);
         }
         let b_type = self.infer(ctx, &b, depth + 1)?;
@@ -1320,7 +1495,27 @@ impl Kernel {
         match shape.as_ref() {
             Term::Pi(domain, _) => self.function_eta(ctx, domain, &a, &b, depth + 1),
             Term::Sigma(..) => self.pair_eta(ctx, &a, &b, depth + 1),
-            _ => Ok(false),
+            _ => {
+                let Some((name, _, _, family)) = record else {
+                    return Ok(false);
+                };
+                for index in 0..family.constructors[0].fields.len() {
+                    let left = term(Term::Project {
+                        family: name.clone(),
+                        index,
+                        subject: a.clone(),
+                    });
+                    let right = term(Term::Project {
+                        family: name.clone(),
+                        index,
+                        subject: b.clone(),
+                    });
+                    if !self.convertible(ctx, &left, &right, depth + 1)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
         }
     }
     /// Recognize a fully applied, already weak-head-normalized datatype type.
@@ -1475,6 +1670,15 @@ impl Kernel {
             Term::Pair(a, b, c) => Term::Pair(walk!(a), walk!(b), walk!(c)),
             Term::First(a) => Term::First(walk!(a)),
             Term::Second(a) => Term::Second(walk!(a)),
+            Term::Project {
+                family,
+                index,
+                subject,
+            } => Term::Project {
+                family: family.clone(),
+                index: *index,
+                subject: walk!(subject),
+            },
             Term::Eq(a, b, c) => Term::Eq(walk!(a), walk!(b), walk!(c)),
             Term::Refl(a, b) => Term::Refl(walk!(a), walk!(b)),
             Term::EqElim {
@@ -1543,7 +1747,11 @@ fn contains_recursive(t: &T, name: &str) -> bool {
     match t.as_ref() {
         Term::SelfType | Term::SelfAt(_) => true,
         Term::Global(global, _) if global == name => true,
-        Term::Ctor { family, .. } | Term::Induct { family, .. } if family == name => true,
+        Term::Ctor { family, .. } | Term::Induct { family, .. } | Term::Project { family, .. }
+            if family == name =>
+        {
+            true
+        }
         Term::Pi(a, b)
         | Term::Lam(a, b)
         | Term::App(a, b)
@@ -1554,7 +1762,9 @@ fn contains_recursive(t: &T, name: &str) -> bool {
                 || contains_recursive(b, name)
                 || contains_recursive(c, name)
         }
-        Term::First(a) | Term::Second(a) => contains_recursive(a, name),
+        Term::First(a) | Term::Second(a) | Term::Project { subject: a, .. } => {
+            contains_recursive(a, name)
+        }
         Term::EqElim {
             ty,
             left,

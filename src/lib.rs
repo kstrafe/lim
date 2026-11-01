@@ -5015,6 +5015,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "pt-succ"
             | "pt-numeral"
             | "pt-construct"
+            | "pt-project"
             | "pt-induct"
             | "pt-nat-induct"
             | "pt-eq"

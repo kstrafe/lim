@@ -489,13 +489,21 @@ pub(crate) fn qualify(
             if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),
                 "#math-definition" | "#math-inductive" | "#theorem" | "#pt-use"
                 | "#pt-program" | "#pt-certificate" | "#pt-construct" | "#pt-induct")));
+        let selects_project_family = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-project"))
+            && tree.children.len() == 4
+            && tree.children.get(2).is_some_and(|index| match &index.expr {
+                Expr::Integer(value) => *value >= 0 && usize::try_from(*value).is_ok(),
+                Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
+                _ => false,
+            });
         for (index, child) in tree.children.iter_mut().enumerate() {
             changed |= walk(
                 child,
                 visibility,
                 qualified,
                 mathematical,
-                selects_global && index == 1,
+                (selects_global || selects_project_family) && index == 1,
             )?;
         }
         if changed {

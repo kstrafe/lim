@@ -1147,6 +1147,27 @@ impl<'a> Index<'a> {
                     }
                 }
             }
+            "pt-project" => {
+                let valid_index = xs.get(2).is_some_and(|index| match &index.expr {
+                    Expr::Integer(value) => *value >= 0 && usize::try_from(*value).is_ok(),
+                    Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
+                    _ => false,
+                });
+                if xs.len() != 4 || !valid_index {
+                    return vec![];
+                }
+                if let Some(family) = xs.get(1).filter(|name| self.contains(name)) {
+                    return self
+                        .kernel_proof(family)
+                        .filter(|declaration| head(declaration) == "math-inductive")
+                        .and_then(|declaration| declaration.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
+                if let Some(subject) = xs.get(3) {
+                    return self.kernel_term(subject, scope, levels);
+                }
+            }
             "pt-self-at" => {
                 if xs.len() == 2 && symbol(&xs[1]).is_none() {
                     return self.kernel_terms(&xs[1], scope, levels);

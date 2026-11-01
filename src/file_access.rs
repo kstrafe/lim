@@ -450,6 +450,20 @@ impl Resolver<'_> {
             }
             self.proof_term_list(node, 3, file, locals)?;
             self.proof_term_list(node, 5, file, locals)?;
+        } else if kind == "#pt-project" {
+            // The family is a declaration role, the ordinal is metadata, and
+            // only the subject is a term. Malformed forms remain inert.
+            let valid_index = node.children.get(2).is_some_and(|index| match &index.expr {
+                Expr::Integer(value) => *value >= 0 && usize::try_from(*value).is_ok(),
+                Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
+                _ => false,
+            });
+            if node.children.len() == 4 && valid_index {
+                if let Some(family) = node.children.get_mut(1) {
+                    self.rewrite(family, file, &HashSet::new())?;
+                }
+                self.proof_term_child(node, 3, file, locals)?;
+            }
         } else if kind == "#pt-self-at" {
             self.proof_term_list(node, 1, file, locals)?;
         } else if kind == "#pt-induct" {

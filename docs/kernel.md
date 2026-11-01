@@ -751,7 +751,7 @@ Function eta is definitional conversion, not arbitrary equality-proof-driven
 function extensionality. Proofs that two functions agree pointwise do not by
 themselves make the functions definitionally equal: their fresh applications
 must definitionally compare. Pair eta applies to the primitive dependent
-Sigma type, not general user-inductive records. Opaque theorem bodies stay
+Sigma type; mathematical record eta is checked separately below. Opaque theorem bodies stay
 opaque. These rules do not imply full Lean eta or conversion parity.
 
 The [eta regression suite](../tests/kernel_eta.rs) and
@@ -797,9 +797,47 @@ and [regressions](../tests/kernel_singleton_prop.rs) exercise this distinction.
 
 Type-directed Pi and primitive Sigma eta compose with proof irrelevance and
 this unit-like data rule: applications or projections can compare through their
-proof or qualifying fieldless components. This does not add eta for arbitrary
-user-inductive records with fields, arbitrary equality-proof-driven function
-extensionality, or full Lean conversion parity. No public syntax is added.
+proof or qualifying fieldless components. This does not add arbitrary
+equality-proof-driven function extensionality or full Lean conversion parity.
+
+### Mathematical record projections and eta
+
+`(#pt-project FAMILY INDEX SUBJECT)` projects a zero-based field of an
+unindexed, single-constructor, nonrecursive mathematical inductive record.
+The family is explicit; its parameters and universe instantiation come from
+the checked subject type. The ordinal is an untyped nonnegative integer,
+not a term or a name to resolve. Wrong families, out-of-range ordinals,
+indexed families, and direct or function-recursive records are rejected.
+Projections from constructor values reduce to the corresponding checked field.
+
+Later fields retain their dependent types: the checker specializes the
+constructor telescope with parameters, then substitutes earlier projections
+of the same subject. For a record holding `A : Type u` followed by `value : A`,
+projection 1 has the type given by projection 0. Both remain compile-time
+mathematical terms; native structs and their access rules are unchanged.
+
+Record eta compares all field projections of any two values at the same
+checked nominal record type. Thus reconstructing a record from its fields
+converts to the original value, in both orientations. Neutral records with
+only proof fields compare consistently with proof irrelevance; records with
+different data fields remain distinct. Rigid comparison of projection subjects
+prevents repeated eta expansion. Eligible neutral record recursors compute
+through the reconstruction too, preserving congruence with eta.
+
+Projection cannot extract data from Prop. The guarded-universe implication
+must establish that a requested field is proof-valued whenever the record is
+a proposition. It also applies to earlier fields needed by the remaining
+telescope: a final proof projection cannot expose a hidden data witness
+through its dependent type. A syntactically unused predecessor can be skipped.
+Neutral recursor reconstruction is disabled when it would require forbidden
+data projections. These checks precede reduction, including for constructor
+fields that would otherwise be erased. Opaque theorem bodies stay opaque.
+
+See the [record example](../examples/proof_records.lim),
+[source regressions](../tests/kernel_records.rs), and
+[navigation tests](../tests/kernel_projection_navigation.rs). This restricted
+record rule does not supply mutual/nested inductives, quotients, a Lean
+importer, or the full FLT dependency replay.
 
 The kernel has no cumulativity, quotients,
 classical axioms, `admit`, general recursion,

@@ -1,0 +1,52 @@
+; Checked record projections recover the constructor telescope from the subject.
+(#math-inductive indexed-witness ()
+  ((A (#pt-type 0)))
+  (#pt-type 0)
+  ((pack ((index A) (evidence (#pt-eq A index index))))))
+(#theorem witness-index
+  (#universes)
+  (#parameters
+    (#parameter A (#pt-type 0))
+    (#parameter value (#pt-app (#pt-use indexed-witness ()) A)))
+  (#statement
+    (#pt-eq A (#pt-project indexed-witness 0 value) (#pt-project indexed-witness 0 value)))
+  (#proof (#pt-refl A (#pt-project indexed-witness 0 value))))
+; The second field type is specialized using the first projection.
+(#theorem witness-evidence
+  (#universes)
+  (#parameters
+    (#parameter A (#pt-type 0))
+    (#parameter value (#pt-app (#pt-use indexed-witness ()) A)))
+  (#statement
+    (#pt-eq
+      (#pt-eq A (#pt-project indexed-witness 0 value) (#pt-project indexed-witness 0 value))
+      (#pt-project indexed-witness 1 value)
+      (#pt-project indexed-witness 1 value)))
+  (#proof
+    (#pt-refl
+      (#pt-eq A (#pt-project indexed-witness 0 value) (#pt-project indexed-witness 0 value))
+      (#pt-project indexed-witness 1 value))))
+; Eta reconstructs every field, and proof fields compare by proof irrelevance.
+(#math-inductive proof-tagged ()
+  ((P #pt-prop))
+  (#pt-type 0)
+  ((pack ((tag #pt-nat) (proof P)))))
+(#theorem proof-tagged-eta
+  (#universes)
+  (#parameters
+    (#parameter P #pt-prop)
+    (#parameter value (#pt-app (#pt-use proof-tagged ()) P)))
+  (#statement
+    (#pt-eq
+      (#pt-app (#pt-use proof-tagged ()) P)
+      value
+      (#pt-construct
+        proof-tagged
+        ()
+        (P)
+        pack
+        ((#pt-project proof-tagged 0 value) (#pt-project proof-tagged 1 value)))))
+  (#proof (#pt-refl (#pt-app (#pt-use proof-tagged ()) P) value)))
+
+(#fn main () #u64
+  (#return 42u64))

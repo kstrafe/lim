@@ -125,7 +125,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | --- | --- | --- |
 | Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in Sigma types or applications, mutual recursion, and current-index occurrences remain unsupported. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; implement and audit mutual and nested inductives for a full port. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Under the zero-family-sort guard, empty inductives and single-constructor inductives whose every non-proof field occurs directly as a bare variable among the constructor result indices may eliminate into data universes; proof fields need no such exposure. Computed or partial exposure and multiple constructors do not qualify. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
-| Conversion | Beta, transparent delta, typed-local-let zeta, iota, primitive Sigma projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Unit-like data conversion and fieldless neutral data recursion require an unindexed, fully applied one-constructor zero-field family. Indexed zero-field singleton propositions also admit neutral computation when their supplied indices convert to the specialized constructor indices; indexed data and mismatching fibres do not. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
+| Conversion | Beta, transparent delta, typed-local-let zeta, iota, primitive Sigma projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Unit-like data conversion and fieldless neutral data recursion require an unindexed, fully applied one-constructor zero-field family. Indexed zero-field singleton propositions also admit neutral computation when their supplied indices convert to the specialized constructor indices; indexed data and mismatching fibres do not. Checked projections and typed fieldwise eta apply to unindexed, nonrecursive single-constructor mathematical records; neutral recursors respect the reconstruction when its projections are legal. Guarded checks prevent extracting data from Prop. No indexed/recursive record eta or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
@@ -191,8 +191,12 @@ definitionally compare; arbitrary pointwise equality proofs alone do not
 suffice. The [eta regression suite](../tests/kernel_eta.rs) and
 [kernel context tests](../src/proof/kernel/core_tests.rs) cover symmetry,
 dependent indices, context shifts, and ill-typed negative cases. These rules
-do not unfold opaque theorem bodies or provide general user-inductive record
-eta with fields. Cumulativity and quotients remain
+do not unfold opaque theorem bodies. Unindexed, nonrecursive single-constructor
+mathematical records now have checked projections and typed fieldwise eta,
+including neutral records and proof-field transitivity. Dependent field types
+substitute earlier projections, and guarded Prop checks forbid hidden witness
+extraction. Indexed/recursive projection targets remain unsupported.
+Cumulativity and quotients remain
 unsupported. This is not full Lean eta or conversion parity. The implemented
 kernel is not formally verified, and these changes do not supply the missing
 FLT proof.
@@ -209,8 +213,10 @@ reduce to the sole branch, consistently with the existing fieldless
 singleton-Prop rule; indexed data families receive no such optimization.
 Pi and primitive Sigma eta compose with these value rules and proof irrelevance
 through proof or qualifying unit-like components, after source typing has been
-checked. This is not general record eta, a new syntax form, or full Lean parity;
-the full FLT proof and the other compatibility gaps remain open.
+checked. Mathematical record eta and neutral record recursor computation are
+separately checked for unindexed nonrecursive single-constructor families,
+with guarded restrictions against projecting data from proofs. The full FLT
+proof and the other compatibility gaps remain open.
 
 For indexed propositions, a one-constructor zero-field recursor can compute
 on a neutral proof when its supplied indices definitionally match the

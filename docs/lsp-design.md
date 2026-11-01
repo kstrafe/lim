@@ -124,7 +124,9 @@ Every syntax addition or change must include all of the following:
 - Add positive and negative LSP tests with exact target ranges. Include names
   reused in different scopes/types, out-of-scope uses, unsaved buffers and
   unrelated errors. For generated and cross-file syntax include provenance,
-  aliases, relative and project-root paths, cfg and multiple entry points as applicable.
+  direct paths, aliases, `@` qualification, relative and project-root paths,
+  cfg and multiple entry points as applicable. Test malformed metadata at both
+  its own token and neighboring reference roles so malformed forms stay inert.
 - Preserve read-only diagnostics, generated publication safeguards and UTF-16
   source mapping; update formatter/highlighting/documentation as appropriate.
 - Update this design, the local implementation checklist, the user-facing LSP
@@ -350,6 +352,16 @@ remain local to that recursive field: they do not enter constructor result
 indices or later field types. Constructor-label navigation continues to select
 the constructor declaration. Tests cover these roles and the negative scope
 boundaries in `tests/kernel_navigation.rs`.
+
+`(#pt-project FAMILY INDEX SUBJECT)` selects a `#math-inductive` family and a
+zero-based field ordinal. The ordinal is an explicit untyped nonnegative
+integer carried as metadata; it has no navigation target. The family navigates
+to its inductive declaration and the subject uses ordinary kernel term roles,
+including local binders. Family references support direct paths, `@` names,
+aliases, imports and generated declarations. The ordinal never resolves to a
+same-spelled global or local. Malformed arity or ordinal forms remain inert,
+including the family and subject roles. The navigation tests cover these
+positive and negative roles in `tests/kernel_projection_navigation.rs`.
 
 `#pt-app`, `#pt-eq`, `#pt-refl`, `#pt-eq-elim`, `#pt-pair`, `#pt-first`,
 `#pt-second`, `#pt-succ` and `#pt-nat-induct` navigate every term operand with

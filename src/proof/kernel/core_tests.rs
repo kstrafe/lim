@@ -996,6 +996,217 @@ fn indexed_elimination_checks_dependent_index_domains_and_result_types() {
     assert!(k.convertible(&[], &value, &zero(), 0).unwrap());
 }
 
+fn project(family: &str, index: usize, subject: T) -> T {
+    term(Term::Project {
+        family: family.into(),
+        index,
+        subject,
+    })
+}
+
+#[test]
+fn record_projection_instantiates_dependent_fields_and_preserves_substitution() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "Package",
+        vec![],
+        vec![],
+        level(2),
+        vec![("pack".into(), vec![sort(1), var(0)])],
+    )
+    .unwrap();
+    let ctx = vec![global("Package")];
+    let first = project("Package", 0, var(0));
+    let second = project("Package", 1, var(0));
+    k.check(&ctx, &first, &sort(1), 0).unwrap();
+    k.check(&ctx, &second, &first, 0).unwrap();
+    let value = ctor("Package", vec![], "pack", vec![nat(), zero()]);
+    let substituted = k.instantiate(&second, &value, 0).unwrap();
+    k.check(&[], &substituted, &nat(), 0).unwrap();
+    assert!(k.convertible(&[], &substituted, &zero(), 0).unwrap());
+    let rebuilt = ctor("Package", vec![], "pack", vec![first, second]);
+    assert!(k.convertible(&ctx, &var(0), &rebuilt, 0).unwrap());
+    assert!(k.convertible(&ctx, &rebuilt, &var(0), 0).unwrap());
+}
+
+#[test]
+fn neutral_record_eta_and_induction_respect_proof_fields_without_collapsing_data() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "Evidence",
+        vec![],
+        vec![sort(0)],
+        level(1),
+        vec![("pack".into(), vec![var(0)])],
+    )
+    .unwrap();
+    let family = app(global("Evidence"), var(0));
+    let ctx = vec![sort(0), family.clone(), k.shift(&family, 1, 0, 0).unwrap()];
+    assert!(k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+    k.reset_budget();
+    k.inductive(
+        "Number",
+        vec![],
+        vec![],
+        level(1),
+        vec![("pack".into(), vec![nat()])],
+    )
+    .unwrap();
+    let ctx = vec![global("Number"), global("Number")];
+    assert!(!k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+    let value = term(Term::Induct {
+        family: "Number".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![],
+        motive: lam(global("Number"), nat()),
+        branches: vec![lam(nat(), var(0))],
+        subject: var(0),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    assert!(k
+        .convertible(&ctx, &value, &project("Number", 0, var(0)), 0)
+        .unwrap());
+    // Rigid subjects must stop repeated eta on neutral data projections.
+    assert!(!k
+        .convertible(
+            &ctx,
+            &project("Number", 0, var(0)),
+            &project("Number", 0, var(1)),
+            0
+        )
+        .unwrap());
+}
+
+#[test]
+fn proof_record_projection_cannot_hide_data_in_a_later_dependent_type() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "ExistsNat",
+        vec![],
+        vec![],
+        level(0),
+        vec![("pack".into(), vec![nat(), eq(nat(), var(0), var(0))])],
+    )
+    .unwrap();
+    let ctx = vec![global("ExistsNat")];
+    for index in [0, 1] {
+        let error = k
+            .infer(&ctx, &project("ExistsNat", index, var(0)), 0)
+            .unwrap_err();
+        assert!(error.contains("cannot extract data"), "{error}");
+    }
+    k.reset_budget();
+    // A completely independent proof can be projected without making the
+    // hidden witness a valid intermediate projection.
+    let equality = eq(nat(), zero(), zero());
+    k.inductive(
+        "Independent",
+        vec![],
+        vec![],
+        level(0),
+        vec![("pack".into(), vec![nat(), equality.clone()])],
+    )
+    .unwrap();
+    k.check(
+        &[global("Independent")],
+        &project("Independent", 1, var(0)),
+        &equality,
+        0,
+    )
+    .unwrap();
+    // Source propositions cannot leak proposition TYPES either.
+    k.inductive(
+        "HiddenProp",
+        vec![],
+        vec![],
+        level(0),
+        vec![("pack".into(), vec![sort(0)])],
+    )
+    .unwrap();
+    let error = k
+        .infer(
+            &[global("HiddenProp")],
+            &project("HiddenProp", 0, var(0)),
+            0,
+        )
+        .unwrap_err();
+    assert!(error.contains("cannot extract data"), "{error}");
+}
+
+#[test]
+fn record_projection_guards_specialized_sorts_and_rejects_invalid_ordinals() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "MaybeProp",
+        vec!["u".into()],
+        vec![],
+        Level::variable("u".into()),
+        vec![("pack".into(), vec![nat()])],
+    )
+    .unwrap();
+    for (universe, allowed) in [
+        (level(0), false),
+        (level(1), true),
+        (Level::variable("v".into()), false),
+    ] {
+        k.reset_budget();
+        let ty = term(Term::Global("MaybeProp".into(), vec![universe.clone()]));
+        let ctx = vec![ty.clone()];
+        let value = project("MaybeProp", 0, var(0));
+        let inferred = k.infer(&ctx, &value, 0);
+        if allowed {
+            k.check(&ctx, &value, &nat(), 0).unwrap();
+            // Although the generic family disallows large elimination at
+            // Prop, its positive specialization has legal eta projections.
+            let fold = term(Term::Induct {
+                family: "MaybeProp".into(),
+                levels: vec![universe],
+                parameters: vec![],
+                indices: vec![],
+                motive: lam(ty, nat()),
+                branches: vec![lam(nat(), var(0))],
+                subject: var(0),
+            });
+            k.check(&ctx, &fold, &nat(), 0).unwrap();
+            assert!(k.convertible(&ctx, &fold, &value, 0).unwrap());
+        } else {
+            assert!(inferred.unwrap_err().contains("cannot extract data"));
+        }
+    }
+    let ty = term(Term::Global("MaybeProp".into(), vec![level(1)]));
+    for index in [1, usize::MAX] {
+        let error = k
+            .infer(&[ty.clone()], &project("MaybeProp", index, var(0)), 0)
+            .unwrap_err();
+        assert!(error.contains("out of range"), "{error}");
+    }
+}
+
+#[test]
+fn record_eta_preserves_nominal_families_and_parameter_identity() {
+    let mut k = Kernel::new();
+    for name in ["TaggedA", "TaggedB"] {
+        k.inductive(
+            name,
+            vec![],
+            vec![nat()],
+            level(1),
+            vec![("pack".into(), vec![nat()])],
+        )
+        .unwrap();
+    }
+    let left = app(global("TaggedA"), zero());
+    for right in [
+        app(global("TaggedB"), zero()),
+        app(global("TaggedA"), succ(zero())),
+    ] {
+        k.reset_budget();
+        let ctx = vec![left.clone(), right];
+        assert!(!k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+    }
+}
+
 #[test]
 fn indexed_recursive_ih_insertion_preserves_later_index_dependent_fields() {
     let mut k = Kernel::new();

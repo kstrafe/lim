@@ -366,6 +366,7 @@ impl Parser<'_> {
             "#pt-sort"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?)))},
             "#pt-type"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?.successor()?)))},
             "#pt-use"=>{arity(head,args,2)?;let name=self.global(&args[0])?;let levels=self.levels(&args[1],depth+1)?;Ok(term(Term::Global(name,levels)))},
+            "#pt-project"=>{arity(head,args,3)?;let family=self.global(&args[0])?;let index=natural(&args[1])?;Ok(term(Term::Project{family,index,subject:self.expression(&args[2],depth+1)?}))},
             "#pt-let" => {
                 arity(head, args, 3)?;
                 let declaration = list(&args[0])?;
