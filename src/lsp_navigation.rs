@@ -635,6 +635,19 @@ impl<'a> Index<'a> {
                 }
                 return vec![];
             }
+            "alias" => {
+                for name in xs.iter().skip(1).filter(|name| self.contains(name)) {
+                    if let Some(name) = symbol(name) {
+                        let target = self.global(name);
+                        return if target.is_empty() {
+                            self.variant_target(name)
+                        } else {
+                            target
+                        };
+                    }
+                }
+                return vec![];
+            }
             "syntax" => {
                 if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
                     return vec![name.span];

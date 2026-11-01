@@ -14,6 +14,15 @@ or namespaces. External imports deterministically transform identifiers using
 their complete accumulated `@` prefix. Different instances have different
 identifiers and private access contexts, even for the same physical source.
 
+Explicit file references identify declarations by canonical source file and
+declared name. File-local aliases preserve that identity without copying library
+sources or changing parameter labels. File references do not bypass library
+entry points, exports, or representation checks. `#unstable` is a targeted
+escape hatch for entry-point/export restrictions; it never grants field access
+or waives type, borrow, linearity, and unsafe-call requirements. Authorized
+generated aliases may expose exactly the declaration named in their validated
+definition context. Ordinary source cannot manufacture that authority.
+
 Exported struct types are opaque outside their library: construction,
 destructuring, and field access require representation access. Exported enums
 expose every variant for construction and matching, and every payload type must

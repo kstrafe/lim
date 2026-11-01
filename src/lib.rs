@@ -25,6 +25,7 @@ mod distributed_enum;
 mod editor;
 mod elf_object;
 mod elf_writer;
+mod file_access;
 mod generated_lookup;
 mod generated_validation;
 mod generation_interfaces;
@@ -1159,6 +1160,15 @@ pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, Stri
         let mut imports = Vec::new();
         for expression in &expressions {
             collect_internal_imports(&expression.expr, &mut imports)?;
+            let mut references = Vec::new();
+            file_access::dependencies(expression, &mut references)
+                .map_err(|error| error.to_string())?;
+            for (reference, _, _) in references {
+                let target = path.parent().unwrap_or(Path::new(".")).join(&reference);
+                if library::owner(&path) == library::owner(&target) {
+                    imports.push(reference);
+                }
+            }
         }
         files.push((path.clone(), source));
         for import in imports {
@@ -1883,6 +1893,7 @@ pub(crate) struct SourceFile {
     pub source: String,
     /// Effective external-import instance; generated sources inherit via origins.
     pub import_prefix: String,
+    pub file_scope: Option<std::sync::Arc<file_access::FileScope>>,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -5130,6 +5141,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "capability"
             | "import"
             | "import-external"
+            | "alias"
+            | "unstable"
             | "std"
             | "println"
             | "cfg-if"
@@ -5307,6 +5320,7 @@ fn load_imports_with_sources(
     active.push(root_path.clone());
     let mut source_ids = HashMap::from([((root_path.clone(), String::new()), 0u32)]);
     let mut source_files = vec![SourceFile {
+        file_scope: None,
         path: root_path,
         source: source.to_owned(),
         import_prefix: String::new(),
@@ -5324,7 +5338,7 @@ fn load_imports_with_sources(
         max_total_source_bytes: MAX_IMPORTED_SOURCE_BYTES,
         max_import_depth: MAX_IMPORT_DEPTH,
     };
-    let forms = load_imports_inner(
+    let mut forms = load_imports_inner(
         source,
         base,
         0,
@@ -5335,6 +5349,14 @@ fn load_imports_with_sources(
         &mut budget,
         config,
     )?;
+    file_access::resolve(
+        &mut forms,
+        &mut source_files,
+        &HashMap::new(),
+        &HashMap::new(),
+        config,
+    )
+    .map_err(|error| error.attach(&source_files))?;
     Ok((forms, source_files))
 }
 
@@ -5483,6 +5505,16 @@ fn load_imports_inner(
         attach_generator_source(error, source_files)
     })?;
     for token in &tokens {
+        if matches!(&token.kind, TokenKind::Symbol(name) if name == "$lim-file-import") {
+            return Err(SourceError::from(
+                "compiler-owned file import marker is not source syntax",
+            )
+            .at(Span {
+                source_id,
+                ..token.span
+            })
+            .attach(source_files));
+        }
         if matches!(&token.kind, TokenKind::Symbol(name) if gensym::reserved(name)) {
             let mut span = token.span;
             span.source_id = source_id;
@@ -5507,6 +5539,13 @@ fn load_imports_inner(
     library::validate_metadata(&expressions).map_err(|error| error.attach(source_files))?;
     let expressions = expand_cfg_forms(expressions, config)
         .map_err(|error| attach_generator_source(error, source_files))?;
+    let expressions =
+        if source.contains(".lim::") || source.contains("#alias") || source.contains("#unstable") {
+            file_access::with_dependencies(expressions)
+                .map_err(|error| error.attach(source_files))?
+        } else {
+            expressions
+        };
     let mut result = Vec::new();
     for expression in expressions {
         let Some(specification) = import_form(&expression.expr)
@@ -5550,7 +5589,11 @@ fn load_imports_inner(
                 source_files,
             )
         })?;
-        if specification.path != standard_library::ROOT {
+        if specification.direct && !specification.unstable {
+            file_access::check_path(&source_files[source_id as usize].path, &path).map_err(
+                |message| attach_span_to_source_error(message, expression.span, source_files),
+            )?;
+        } else if !specification.direct && specification.path != standard_library::ROOT {
             library::check_import(
                 &source_files[source_id as usize].path,
                 &path,
@@ -5561,6 +5604,9 @@ fn load_imports_inner(
             })?;
         }
         if active.contains(&path) {
+            if specification.direct {
+                continue;
+            }
             let mut cycle = active
                 .iter()
                 .map(|entry| entry.display().to_string())
@@ -5592,16 +5638,18 @@ fn load_imports_inner(
         }
         let parent_prefix = &source_files[source_id as usize].import_prefix;
         let instance_prefix = match specification.prefix {
+            None if specification.direct
+                && library::owner(&path)
+                    != library::owner(&source_files[source_id as usize].path) =>
+            {
+                String::new()
+            }
             None if standard_library::source(&path).is_some() => String::new(),
             Some(prefix) if !parent_prefix.is_empty() => names::imported(parent_prefix, prefix),
             Some(prefix) => prefix.to_owned(),
             None => parent_prefix.clone(),
         };
-        let key = (
-            path.clone(),
-            specification.external,
-            instance_prefix.clone(),
-        );
+        let key = (path.clone(), false, instance_prefix.clone());
         if !loaded.insert(key) {
             continue;
         }
@@ -5662,6 +5710,7 @@ fn load_imports_inner(
             .or_insert_with(|| {
                 let id = source_files.len() as u32;
                 source_files.push(SourceFile {
+                    file_scope: None,
                     path: path.clone(),
                     source: imported_source.clone(),
                     import_prefix: instance_prefix,
@@ -5779,6 +5828,15 @@ pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, Str
         visited: &mut HashSet<PathBuf>,
         keys: &mut BTreeSet<String>,
     ) -> Result<(), String> {
+        if let Expr::Symbol(name) = expression {
+            if let Some((path, _)) = file_access::split(name.trim_start_matches('@')) {
+                scan_file(
+                    &source_path.parent().unwrap_or(Path::new(".")).join(path),
+                    visited,
+                    keys,
+                )?;
+            }
+        }
         let Expr::List(items) = expression else {
             match expression {
                 Expr::Block(statements) | Expr::Loop(statements) => {
@@ -5797,6 +5855,23 @@ pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, Str
             }
             return Ok(());
         };
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#alias") {
+            let target = match items.get(3) {
+                Some(Expr::List(parts)) if matches!(parts.first(), Some(Expr::Symbol(name)) if name == "#unstable") => {
+                    parts.get(1)
+                }
+                value => value,
+            };
+            if let Some(Expr::Symbol(name) | Expr::String(name)) = target {
+                if let Some((path, _)) = file_access::split(name.trim_start_matches('@')) {
+                    scan_file(
+                        &source_path.parent().unwrap_or(Path::new(".")).join(path),
+                        visited,
+                        keys,
+                    )?;
+                }
+            }
+        }
         if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#cfg-is") {
             if items.len() != 3 {
                 return Err(format!(
@@ -5900,6 +5975,8 @@ struct ImportSpec<'a> {
     external: bool,
     path: &'a str,
     prefix: Option<&'a str>,
+    direct: bool,
+    unstable: bool,
 }
 
 pub(crate) fn import_candidate(base: &Path, name: &str, config: &CompileConfig) -> PathBuf {
@@ -5925,11 +6002,23 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
         return Ok(None);
     };
     match operator.as_str() {
+        "$lim-file-import" => Ok(Some(ImportSpec {
+            external: true,
+            path: match items.get(1) {
+                Some(Expr::String(path)) => path,
+                _ => return Err("invalid file dependency".into()),
+            },
+            prefix: None,
+            direct: true,
+            unstable: items.len() == 3,
+        })),
         "#std" => {
             if items.len() != 1 {
                 return Err("#std takes no arguments".into());
             }
             Ok(Some(ImportSpec {
+                direct: false,
+                unstable: false,
                 external: false,
                 path: standard_library::ROOT,
                 prefix: None,
@@ -5941,6 +6030,8 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
             }
             match items.get(1) {
                 Some(Expr::String(path)) => Ok(Some(ImportSpec {
+                    direct: false,
+                    unstable: false,
                     external: false,
                     path,
                     prefix: None,
@@ -5972,6 +6063,8 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
                 }
             };
             Ok(Some(ImportSpec {
+                direct: false,
+                unstable: false,
                 external: true,
                 path,
                 prefix: Some(prefix),
@@ -6022,6 +6115,17 @@ fn prefix_expression(
                     .unwrap_or(name),
             )
     };
+    if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#alias") {
+            if let Some(name) = items.get_mut(1) {
+                prefix_expression(name, prefix, generator_names, shared_names);
+            }
+            return;
+        }
+    }
+    if matches!(expression, Expr::Symbol(name) if file_access::split(name).is_some()) {
+        return;
+    }
     match expression {
         Expr::Function(_) => unreachable!("imports are prefixed before call normalization"),
         Expr::Symbol(name) => {
@@ -10780,6 +10884,7 @@ mod tests {
             let mut loaded = HashSet::new();
             let mut source_ids = HashMap::from([((canonical_root.clone(), String::new()), 0u32)]);
             let mut source_files = vec![SourceFile {
+                file_scope: None,
                 path: canonical_root,
                 source: root_source.to_owned(),
                 import_prefix: String::new(),

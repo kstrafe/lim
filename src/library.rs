@@ -97,7 +97,10 @@ pub(crate) struct Visibility {
     authorities: HashMap<u32, Span>,
     owners: Vec<Option<PathBuf>>,
     prefixes: Vec<String>,
+    file_contexts: Vec<Option<PathBuf>>,
     exports: HashMap<PathBuf, Vec<String>>,
+    resolved_exports: HashMap<PathBuf, std::collections::HashSet<String>>,
+    unstable: Vec<std::collections::HashSet<String>>,
     declarations: HashMap<String, Span>,
     struct_owners: HashMap<String, String>,
     import_roots: HashMap<String, Option<PathBuf>>,
@@ -111,7 +114,9 @@ impl Visibility {
     ) -> Result<Self, SourceError> {
         let mut owners = Vec::with_capacity(files.len());
         let mut prefixes = Vec::with_capacity(files.len());
+        let mut file_contexts = Vec::with_capacity(files.len());
         let mut directories = HashMap::new();
+        let mut unstable = Vec::with_capacity(files.len());
         for (id, file) in files.iter().enumerate() {
             let mut source = id as u32;
             let mut steps = 0;
@@ -123,6 +128,19 @@ impl Visibility {
                 }
             }
             let path = &files.get(source as usize).unwrap_or(file).path;
+            file_contexts.push(
+                files
+                    .get(source as usize)
+                    .filter(|file| file.file_scope.is_some())
+                    .map(|file| file.path.clone()),
+            );
+            unstable.push(
+                files
+                    .get(source as usize)
+                    .and_then(|file| file.file_scope.as_ref())
+                    .map(|scope| scope.declaration_access.clone())
+                    .unwrap_or_default(),
+            );
             prefixes.push(
                 files
                     .get(source as usize)
@@ -139,6 +157,18 @@ impl Visibility {
             );
         }
         let mut exports = HashMap::new();
+        let mut resolved_exports: HashMap<PathBuf, std::collections::HashSet<String>> =
+            HashMap::new();
+        for file in files {
+            if let Some(scope) = &file.file_scope {
+                if file.path.file_name().is_some_and(|name| name == "lib.lim") {
+                    resolved_exports
+                        .entry(crate::editor::path_key(&file.path))
+                        .or_default()
+                        .extend(scope.exports.iter().cloned());
+                }
+            }
+        }
         for root in owners.iter().flatten() {
             if exports.contains_key(root) {
                 continue;
@@ -190,7 +220,10 @@ impl Visibility {
             authorities: HashMap::new(),
             owners,
             prefixes,
+            file_contexts,
             exports,
+            resolved_exports,
+            unstable,
             declarations,
             struct_owners: HashMap::new(),
             import_roots,
@@ -200,6 +233,14 @@ impl Visibility {
     /// Internal files share an instance; distinct external prefixes never do.
     pub(crate) fn expansion_context(&self, span: Span) -> String {
         let index = span.source_id as usize;
+        if let Some(Some(file)) = self.file_contexts.get(index) {
+            return format!(
+                "{:?}:{:?}:file={}",
+                self.owners.get(index),
+                self.prefixes.get(index),
+                file.display()
+            );
+        }
         format!(
             "{:?}:{:?}",
             self.owners.get(index),
@@ -221,6 +262,10 @@ impl Visibility {
             return self.access(name, span, false);
         }
         if name.starts_with('#') {
+            return Ok(());
+        }
+        if crate::file_access::split(name).is_some() {
+            // A file-qualified forward name is checked again after expansion.
             return Ok(());
         }
         // A forward/generated declaration may not exist yet. Its import
@@ -265,6 +310,16 @@ impl Visibility {
     }
 
     fn exported(&self, name: &str, root: &Path) -> bool {
+        if crate::file_access::split(name).is_some() {
+            let owner = name
+                .rsplit_once('.')
+                .filter(|(_, suffix)| !suffix.contains("::"))
+                .map_or(name, |(owner, _)| owner);
+            return self
+                .resolved_exports
+                .get(root)
+                .is_some_and(|names| names.contains(owner));
+        }
         let original = name.rsplit_once('@').map_or(name, |(_, name)| name);
         // Variant names are not separately exported. Their representation is
         // transparent exactly when the owning enum declaration is exported.
@@ -300,6 +355,20 @@ impl Visibility {
         use_span: Span,
         representation: bool,
     ) -> Result<(), SourceError> {
+        if !representation
+            && self
+                .unstable
+                .get(use_span.source_id as usize)
+                .is_some_and(|names| {
+                    names.contains(name)
+                        || (crate::file_access::local_name(name).contains('.')
+                            && name
+                                .rsplit_once('.')
+                                .is_some_and(|(owner, _)| names.contains(owner)))
+                })
+        {
+            return Ok(());
+        }
         let Some(declaration) = self.declarations.get(name) else {
             return Ok(());
         };

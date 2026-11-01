@@ -2,6 +2,9 @@
 use crate::*;
 
 pub(crate) fn capitalized_type_name(name: &str) -> String {
+    if let Some((path, name)) = crate::file_access::split(name) {
+        return format!("{path}::{}", capitalized_type_name(name));
+    }
     if let Some((prefix, local)) = name.rsplit_once('@') {
         return format!("{prefix}@{}", capitalized_type_name(local));
     }

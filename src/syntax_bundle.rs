@@ -291,6 +291,7 @@ impl Bundles {
                     syntax.attach(&value, &mut provenance.contexts);
                     provenance.sources.push((
                         crate::SourceFile {
+                            file_scope: None,
                             path: "<generated syntax splice>".into(),
                             source: text,
                             import_prefix: String::new(),

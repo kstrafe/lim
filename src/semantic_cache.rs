@@ -809,6 +809,7 @@ mod tests {
         b.add_module_path("extra");
         assert_ne!(key, context_key(&program, &b, "target"));
         program.source_files.push(crate::SourceFile {
+            file_scope: None,
             import_prefix: String::new(),
             path: "dep.lim".into(),
             source: "dependency".into(),

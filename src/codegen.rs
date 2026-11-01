@@ -1400,7 +1400,11 @@ fn generate_checked_assembly_with_roots(
             function.name.clone(),
             FunctionAbi {
                 symbol_name: function.name.clone(),
-                assembly_symbol: asm_symbol(&function.name),
+                assembly_symbol: asm_symbol(if function.external {
+                    crate::file_access::local_name(&function.name)
+                } else {
+                    &function.name
+                }),
                 parameters,
                 indirect_parameters,
                 indirect_return,
@@ -1694,7 +1698,10 @@ fn generate_checked_assembly_with_roots(
     for item in &program.items {
         if let Item::Function(function) = item {
             if function.external {
-                output.push_str(&format!(".extern {}\n", asm_symbol(&function.name)));
+                output.push_str(&format!(
+                    ".extern {}\n",
+                    asm_symbol(crate::file_access::local_name(&function.name))
+                ));
             }
         }
     }

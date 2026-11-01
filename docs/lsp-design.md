@@ -14,6 +14,16 @@ roles as well as explicit enum literals and variant patterns.
 
 ## Resolution model
 
+Direct `path.lim::name` references and `#alias` operands resolve through canonical
+file/declaration identities, not spelling searches. Alias uses and both alias
+operands navigate to the final original declaration, including facade aliases,
+same-named definitions in different files, and generated definitions. `#alias`,
+`=`, and `#unstable` have no definition target. The explicit bypass affects only
+the selected declaration's visibility, never the navigation identity or struct
+representation access. File-reference paths resolve against their authored
+source, including unsaved overlays and generator definition/caller contexts.
+New resolution forms require positive and negative end-to-end tests.
+
 Directory libraries use the nearest enclosing `lib.lim` as their boundary.
 `#export` operands navigate to declaration tokens; individual enum variants are
 not export operands. Exporting an enum makes its construction and pattern

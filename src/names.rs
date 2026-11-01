@@ -55,6 +55,7 @@ pub(crate) fn numeric_source(internal: &str) -> Option<String> {
 }
 
 pub(crate) fn type_name(name: &str) -> bool {
+    let name = crate::file_access::local_name(name);
     if crate::gensym::reserved(name) {
         return true;
     }
@@ -66,6 +67,7 @@ pub(crate) fn type_name(name: &str) -> bool {
 }
 
 pub(crate) fn value_name(name: &str) -> bool {
+    let name = crate::file_access::local_name(name);
     if crate::gensym::reserved(name) {
         return true;
     }
@@ -211,7 +213,7 @@ fn pattern(expression: &crate::Expr) -> Result<(), String> {
         Expr::Symbol(name)
             if !name.starts_with('#') && !matches!(name.as_str(), "true" | "false") =>
         {
-            if name.contains('.') {
+            if crate::file_access::local_name(name).contains('.') {
                 require(name, "variant")
             } else {
                 require(name, "value")

@@ -37,6 +37,7 @@ for [s:token, s:group] in [
       \ ['#case-pin', 'limConditional'], ['#case-pin-mut', 'limConditional'],
       \ ['#let-else', 'limConditional'], ['#while', 'limRepeat'],
       \ ['#return', 'limControl'], ['#unsafe', 'limUnsafe'],
+      \ ['#alias', 'limDeclaration'], ['#unstable', 'limUnsafe'],
       \ ['#gn', 'limGeneratorKeyword'], ['#gn-for-each', 'limGeneratorKeyword'],
       \ ['#cfg-if', 'limCfg'], ['#generate', 'limGenerated'],
       \ ['#vec', 'limKeyword'], ['#cell', 'limKeyword'],

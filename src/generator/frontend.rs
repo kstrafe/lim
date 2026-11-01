@@ -430,6 +430,7 @@ fn graph_generated_owned_program(
         .collect::<Vec<_>>();
     let mut program =
         typecheck::OwnedProgram::new(super::async_emit::program(&planning, &generated)?);
+    crate::file_access::validate(program.program())?;
     validate_syntax_bundle_declarations(
         &program.program().items,
         &program.program().declaration_spans,
@@ -670,6 +671,7 @@ pub(crate) fn prepare_program_syntax(
                 |file| file.path.display().to_string(),
             );
             source_files.push(SourceFile {
+                file_scope: None,
                 import_prefix: String::new(),
                 path: format!("<generated from {path}:{}:{}>", origin.line, origin.column).into(),
                 source: text,
@@ -686,8 +688,17 @@ pub(crate) fn prepare_program_syntax(
     )?;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
-    let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
-        .map_err(|error| attach_generator_source(error, &source_files))?;
+    let (mut expressions, generation_requirements) =
+        crate::generator_provenance::extract(expressions)
+            .map_err(|error| attach_generator_source(error, &source_files))?;
+    crate::file_access::resolve(
+        &mut expressions,
+        &mut source_files,
+        &generated_source_invocations,
+        &generator_origins.definitions,
+        config,
+    )
+    .map_err(|error| error.attach(&source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if is_async_invocation(&expression) {
@@ -868,6 +879,10 @@ pub(crate) fn parse_prepared_program_items(
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
+        if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#alias"))
+        {
+            continue;
+        }
         if matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#export"))
         {
             let file = &source_files[expression.span.source_id as usize];
@@ -926,6 +941,7 @@ pub(crate) fn parse_prepared_program_items(
             let mut generated_expression = parsed.remove(0);
             set_source_id(&mut generated_expression, source_id);
             source_files.push(SourceFile {
+                file_scope: None,
                 import_prefix: String::new(),
                 path: PathBuf::from(format!(
                     "<generated from {}:{}:{}>",
@@ -1038,6 +1054,7 @@ pub(crate) fn parse_prepared_program_items(
                             }
                         }
                         source_files.push(SourceFile {
+                            file_scope: None,
                             import_prefix: String::new(),
                             path: PathBuf::from(source_path),
                             source: generated_text,
@@ -1173,6 +1190,9 @@ pub(crate) fn parse_prepared_program_items(
         generator_validation: None,
     };
     async_source::attach_validation(&mut program, &async_functions);
+    if expand_async {
+        crate::file_access::validate(&program)?;
+    }
     if expand_async {
         crate::call_graph::lower(&mut program)?;
     }

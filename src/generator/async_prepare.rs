@@ -147,6 +147,7 @@ fn invocation_tree(
             |file| file.path.display().to_string(),
         );
     program.source_files.push(crate::SourceFile {
+        file_scope: None,
         import_prefix: String::new(),
         path: format!("<generated from {path}:{}:{}>", origin.line, origin.column).into(),
         source: text,

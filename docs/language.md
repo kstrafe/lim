@@ -2467,6 +2467,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#abi-c` | `#abi-c` in `#extern-fn` | `(#extern-fn #abi-c abs ((value #i32)) #i32)` (declaration) | Selects the C calling convention; foreign calls use `#unsafe-call` inside `#unsafe`. |
 | `#addr-of` | `(#addr-of local)` | `(#unsafe (#addr-of value))` (expression) | Takes a shared raw address of a scalar local; unsafe because later access is not checked. |
 | `#addr-of-mut` | `(#addr-of-mut mutable-local)` | `(#unsafe (#addr-of-mut value))` (expression) | Takes a mutable raw address of a mutable scalar local. |
+| `#alias` | `(#alias local-name = path.lim::declaration)` | `(#alias read = ./library/lib.lim::read)` (top level) | Binds a file-local spelling to an exact declaration identity. Preserves types, parameter labels, visibility, and ownership rules; the target may be wrapped in `#unstable`. |
 | `#align-of` | `(#align-of Type)` | `(#align-of Point)` (expression) | Compile-time alignment in bytes for the Lim representation, or C layout of a `#repr-c` type. |
 | `#arch` | `(#cfg-is #arch literal)` | `(#cfg-if (#cfg-is #arch x86_64) (#type Word #u64))` (top level) | Automatically populated target architecture cfg key; overridable with `--cfg arch=VALUE`. |
 | `#array` | `(#array ElementType Length)` as a type; `(#array pattern...)` as a pattern | `(#let xs (#array #u8 2) (#array-of (#array #u8 2) 4u8 5u8))` (binding) | Names a fixed-length array type or destructures an array in a pattern; values are constructed with `#array-of`. |
@@ -2663,6 +2664,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#unsafe-call` | `(#unsafe-call function (: name value : ...))` | `(#unsafe (#unsafe-call read-byte (: pointer p)))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |
 | `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls use `#unsafe-call` inside `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
+| `#unstable` | `(#unstable path.lim::declaration)` | `(#alias inspect = (#unstable ./library/private.lim::inspect))` (alias target) | Explicitly bypasses entry-point/export restrictions for the selected declaration. Does not grant struct field access or waive ordinary safety checking. |
 | `#usize` | `#usize` | `(#fn identity ((value #usize)) #usize (#return value))` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64::gt x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
@@ -3057,6 +3059,61 @@ operation families are needed. Thread spawning likewise names the worker at
 compile time rather than passing a callable value. This keeps call targets
 explicit, preserves whole-program recursion and ownership checks, and avoids
 implicit dispatch in generated code.
+
+## Direct file references and aliases
+
+An explicit file reference has the spelling `./path/file.lim::declaration`.
+The `.lim::` delimiter separates the path from the complete declaration name,
+which may itself contain `::` or an enum variant's dot. Paths resolve relative
+to the source file containing the reference. Canonical file identity and the
+declaration name identify the target; two files may declare the same name.
+No library source is copied or rewritten to add prefixes.
+
+Bind a file-local spelling with `#alias`:
+
+```text
+(#alias allocate = ./allocator/lib.lim::allocate)
+(#alias Value = ./values.lim::Value)
+```
+
+Calls may use an alias or a direct reference. Named argument labels keep the
+callee's declared spelling. Aliases preserve type and function identity and
+cannot shadow declarations, other aliases, or local bindings. Unused aliases
+are checked too. Cyclic aliases and conflicting imported spellings are errors.
+The existing import forms remain available; explicit aliases provide selective
+file access without introducing another source-level prefix.
+
+Files in the same nearest `lib.lim` boundary may refer to implementation files.
+Cross-library references must target `lib.lim` and select an exported name.
+The entry point can export aliases to declarations in its implementation files.
+Exporting a struct alias keeps the representation opaque; exporting an enum
+alias exposes its variants under the aliased type name.
+
+For an intentional dependency on an implementation detail, wrap the target:
+
+```text
+(#alias inspect = (#unstable ./library/internal.lim::inspect))
+```
+
+`#unstable` bypasses the entry-point and export restrictions for that exact
+declaration. It does not expose other declarations or struct representations.
+Selecting an enum type includes that enum's variants, as for an enum export.
+It does not remove type, borrow, linearity, or unsafe-call checks. Private
+functions may rely on library invariants, so this escape hatch is a deliberate
+dependency on an internal contract, not a promise that arbitrary calls are safe.
+
+Generator definitions resolve their own references in their definition file.
+Explicit `@name` inputs resolve in the caller's file before interpretation;
+unmarked generator arguments remain literal syntax. Generated aliases contain
+resolved file references and retain the validated definition/invocation context.
+A generator may deliberately expose a declaration it can access by emitting an
+alias; this grants access to that declaration, never to its struct fields or
+unrelated private helpers. Forward generated targets are checked after expansion.
+Generator cache identities include resolved references and loaded dependencies.
+Fresh declarations belong to their source file. A resolved reference cannot be
+used to declare a symbol in another file; generators should receive a separate
+fresh local name for their outputs.
+See `examples/file_access.lim` for two same-named functions in different files.
 
 ## Value representation and native backend
 

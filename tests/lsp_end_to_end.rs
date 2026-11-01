@@ -391,6 +391,64 @@ fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
 }
 
 #[test]
+fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
+    let fixture = Fixture::new("file-alias-navigation");
+    let implementation_text = "(#fn read (: value #u64) #u64 (#return value))\n";
+    let implementation = fixture.write("library/implementation.lim", implementation_text);
+    fixture.write(
+        "library/lib.lim",
+        "(#export read)\n(#alias read = ./implementation.lim::read)\n",
+    );
+    let main_text = "(#alias load = ./library/lib.lim::read)\n(#fn main () #u64 (#return (#u64::add-wrap (#call load (: value 20u64)) (#call ./library/lib.lim::read (: value 22u64)))))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    for needle in [
+        "load =",
+        "./library/lib.lim::read)",
+        "load (:",
+        "./library/lib.lim::read (:",
+    ] {
+        assert_location(
+            &client.definition(&main, main_text, needle),
+            &implementation,
+            implementation_text,
+            "#fn read",
+            "read",
+        );
+    }
+    for needle in ["#alias", "= ./library"] {
+        assert_eq!(client.definition(&main, main_text, needle), Json::Null);
+    }
+    client.shutdown();
+}
+
+#[test]
+fn unstable_file_aliases_have_definition_targets() {
+    let fixture = Fixture::new("unstable-alias-navigation");
+    fixture.write("library/lib.lim", "(#export)\n");
+    let implementation_text = "(#fn read () #u64 (#return 42u64))\n";
+    let implementation = fixture.write("library/private.lim", implementation_text);
+    let main_text = "(#alias load = (#unstable ./library/private.lim::read))\n(#fn main () #u64 (#return (#call load ())))\n";
+    let main = fixture.write("main.lim", main_text);
+    fixture.context(&main, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&main, main_text);
+    for needle in ["load =", "./library/private.lim::read", "load ()"] {
+        assert_location(
+            &client.definition(&main, main_text, needle),
+            &implementation,
+            implementation_text,
+            "#fn read",
+            "read",
+        );
+    }
+    assert_eq!(client.definition(&main, main_text, "#unstable"), Json::Null);
+    client.shutdown();
+}
+
+#[test]
 fn generated_private_helper_references_navigate_to_the_library_implementation() {
     let fixture = Fixture::new("generator-private-authority");
     let library_text = "(#export make)\n(#fn secret () #u64 (#return 42u64))\n(#gn make (name) `((#fn ,name () #u64 (#return (#call secret ())))))\n";

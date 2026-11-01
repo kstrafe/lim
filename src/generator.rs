@@ -663,6 +663,7 @@ fn expand_with_hits_and_origins(
                 syntax.attach(&tree, &mut context.origins.definitions);
                 context.origins.generated_sources.push((
                     crate::SourceFile {
+                        file_scope: None,
                         path: format!(
                             "<generated from {}:{}:{}>",
                             context
