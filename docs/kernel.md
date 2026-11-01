@@ -968,8 +968,9 @@ The [native example](../examples/proof_nested.lim) implements both the tree
 and container counts, proves their generic defining equations, and checks a
 nonempty tree's result by reflexivity. The export reader uses the same
 checked group and additionally verifies exported auxiliary recursor types and
-rules; see [nested replay](lean-nested-replay.md). Native proof-source emission
-from Lean exports remains unfinished.
+rules; see [nested replay](lean-nested-replay.md). The [bounded export translator](lean-export.md#native-proof-source-translation)
+emits these native wrappers and independently rechecks its output. Full upstream
+FLT translation and replay remain unfinished.
 
 The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete

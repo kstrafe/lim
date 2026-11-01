@@ -3,6 +3,8 @@
 //! This represents imax without enumerating universe assignments or sampling.
 use super::core::Result;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[path = "level_source.rs"]
+mod source;
 
 pub(super) const LEVEL: u32 = 65_535;
 const TERMS: usize = 256;

@@ -84,8 +84,9 @@ flags and rules must still fail. Resource exhaustion establishes no theorem.
 
 Native `.lim` declarations use this same derivation. The explicit
 [`#pt-nested-induct` form](kernel.md#nested-inductive-groups) names each case
-by its physical family type rather than a private identifier. Native
-proof-source translation from exported terms remains unfinished. The kernel is not
+by its physical family type rather than a private identifier. The bounded
+[export translator](lean-export.md#native-proof-source-translation) emits these
+standard forms and rechecks them through the source frontend. The kernel is not
 formally verified; these fixtures do not establish complete Lean compatibility
 or check the full FLT proof. Existing input, universe, work and allocation
 [bounds](lean-export.md#resource-limits-and-unsupported-features) continue to apply.

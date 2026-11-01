@@ -16,7 +16,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use symbolic::{State, Value};
 use validation::ValidationRule;
 
-pub use kernel::{check_lean_export, LeanDeclarationReport, LeanExportError, LeanExportReport};
+pub use kernel::{
+    check_lean_export, translate_lean_export, LeanDeclarationReport, LeanExportError,
+    LeanExportReport, LeanExportTranslation,
+};
 
 type Result<T> = std::result::Result<T, String>;
 

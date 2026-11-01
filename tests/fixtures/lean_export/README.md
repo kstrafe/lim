@@ -97,3 +97,11 @@ without publishing them. This reproduction check has passed for the committed
 artifacts.
 The runtime reader, ordinary compiler tests and replay command need neither
 Lean nor Python.
+
+
+The [native Lim translations](../../../theorems/lean_replay/README.md) contain
+ordinary proof source for all nine genuine exports. Their manifest preserves
+input/output hashes and every original-to-native declaration mapping, linking
+this directory's source/module/license provenance. They can be rechecked with
+`--check-theorem` without Lean or the exporter. These remain small constructive
+fixtures, not the complete FLT proof port.

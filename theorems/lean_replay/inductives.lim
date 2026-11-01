@@ -1,0 +1,173 @@
+; Checked native translation of a Lean export, not an admission.
+; Lean: 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6)
+; Exporter: 15f6055e299ad5b89345e533cc2192f4cc00f659
+; Input SHA-256: 662f85a57f084df0e050fac6f678fa974dab8d32e4b0e149dd8e45ba4dbcde34
+; Native theorem: lean-9-ReplaySource-doubleTwo
+; Keep the upstream source/license provenance with this translation.
+; Lean declaration: "Eq"
+; Identity: "$lean:s2:Eq"
+; Export line: 60
+; Prefix SHA-256: 3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1
+(#math-inductive lean-0-Eq (u0)
+  ((v0 (#pt-sort u0)) (v1 v0))
+  (#indices
+    (#parameter v2 v0))
+  (#pt-sort 0)
+  ((lean-1-Eq-refl () (v1))))
+; Lean declaration: "Eq.refl"
+; Identity: "$lean:s2:Eqs4:refl"
+; Export line: 60
+; Prefix SHA-256: 3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1
+(#math-definition lean-1-Eq-refl (u0)
+  (#pt-pi ((v0 (#pt-sort u0)) (v1 v0)) (#pt-app (#pt-use lean-0-Eq (u0)) v0 v1 v1))
+  (#pt-lambda ((v0 (#pt-sort u0)) (v1 v0)) (#pt-construct lean-0-Eq (u0) (v0 v1) lean-1-Eq-refl ())))
+; Lean declaration: "Eq.rec"
+; Identity: "$lean:s2:Eqs3:rec"
+; Export line: 60
+; Prefix SHA-256: 3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1
+(#math-definition lean-2-Eq-rec (u0 u1)
+  (#pt-pi
+    (
+      (v0 (#pt-sort u1))
+      (v1 v0)
+      (v2 (#pt-pi ((v2 v0) (v3 (#pt-app (#pt-use lean-0-Eq (u1)) v0 v1 v2))) (#pt-sort u0)))
+      (v3 (#pt-app v2 v1 (#pt-app (#pt-use lean-1-Eq-refl (u1)) v0 v1)))
+      (v4 v0)
+      (v5 (#pt-app (#pt-use lean-0-Eq (u1)) v0 v1 v4)))
+    (#pt-app v2 v4 v5))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort u1))
+      (v1 v0)
+      (v2 (#pt-pi ((v2 v0) (v3 (#pt-app (#pt-use lean-0-Eq (u1)) v0 v1 v2))) (#pt-sort u0)))
+      (v3 (#pt-app v2 v1 (#pt-app (#pt-use lean-1-Eq-refl (u1)) v0 v1)))
+      (v4 v0)
+      (v5 (#pt-app (#pt-use lean-0-Eq (u1)) v0 v1 v4)))
+    (#pt-induct lean-0-Eq (u1) (v0 v1) (#indices v4) v2 (v3) v5)))
+; Lean declaration: "ReplaySource.NatLike"
+; Identity: "$lean:s12:ReplaySources7:NatLike"
+; Export line: 102
+; Prefix SHA-256: bdc5a192ddeb0dd04d7cc4ddc33dad6683ff4c75489e9e1c877408ad4b362fc4
+(#math-inductive lean-3-ReplaySource-NatLike ()
+  ()
+  (#pt-sort 1)
+  (
+    (lean-4-ReplaySource-NatLike-zero ())
+    (lean-5-ReplaySource-NatLike-succ ((v0 (#pt-use lean-3-ReplaySource-NatLike ()))))))
+; Lean declaration: "ReplaySource.NatLike.zero"
+; Identity: "$lean:s12:ReplaySources7:NatLikes4:zero"
+; Export line: 102
+; Prefix SHA-256: bdc5a192ddeb0dd04d7cc4ddc33dad6683ff4c75489e9e1c877408ad4b362fc4
+(#math-definition lean-4-ReplaySource-NatLike-zero ()
+  (#pt-use lean-3-ReplaySource-NatLike ())
+  (#pt-construct lean-3-ReplaySource-NatLike () () lean-4-ReplaySource-NatLike-zero ()))
+; Lean declaration: "ReplaySource.NatLike.succ"
+; Identity: "$lean:s12:ReplaySources7:NatLikes4:succ"
+; Export line: 102
+; Prefix SHA-256: bdc5a192ddeb0dd04d7cc4ddc33dad6683ff4c75489e9e1c877408ad4b362fc4
+(#math-definition lean-5-ReplaySource-NatLike-succ ()
+  (#pt-pi ((v0 (#pt-use lean-3-ReplaySource-NatLike ()))) (#pt-use lean-3-ReplaySource-NatLike ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-ReplaySource-NatLike ())))
+    (#pt-construct lean-3-ReplaySource-NatLike () () lean-5-ReplaySource-NatLike-succ (v0))))
+; Lean declaration: "ReplaySource.NatLike.rec"
+; Identity: "$lean:s12:ReplaySources7:NatLikes3:rec"
+; Export line: 102
+; Prefix SHA-256: bdc5a192ddeb0dd04d7cc4ddc33dad6683ff4c75489e9e1c877408ad4b362fc4
+(#math-definition lean-6-ReplaySource-NatLike-rec (u0)
+  (#pt-pi
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-ReplaySource-NatLike ()))) (#pt-sort u0)))
+      (v1 (#pt-app v0 (#pt-use lean-4-ReplaySource-NatLike-zero ())))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-use lean-3-ReplaySource-NatLike ())) (v3 (#pt-app v0 v2)))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-ReplaySource-NatLike-succ ()) v2))))
+      (v3 (#pt-use lean-3-ReplaySource-NatLike ())))
+    (#pt-app v0 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-ReplaySource-NatLike ()))) (#pt-sort u0)))
+      (v1 (#pt-app v0 (#pt-use lean-4-ReplaySource-NatLike-zero ())))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-use lean-3-ReplaySource-NatLike ())) (v3 (#pt-app v0 v2)))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-ReplaySource-NatLike-succ ()) v2))))
+      (v3 (#pt-use lean-3-ReplaySource-NatLike ())))
+    (#pt-induct
+      lean-3-ReplaySource-NatLike
+      ()
+      ()
+      v0
+      (v1
+        (#pt-lambda
+          ((v4 (#pt-use lean-3-ReplaySource-NatLike ())) (v5 (#pt-app v0 v4)))
+          (#pt-app v2 v4 v5)))
+      v3)))
+; Lean declaration: "ReplaySource.double"
+; Identity: "$lean:s12:ReplaySources6:double"
+; Export line: 125
+; Prefix SHA-256: 328623fa3d687617ec860216ea2dbd9cdb31e22877ae00f5f96d8eef05ec109d
+(#math-definition lean-7-ReplaySource-double ()
+  (#pt-pi ((v0 (#pt-use lean-3-ReplaySource-NatLike ()))) (#pt-use lean-3-ReplaySource-NatLike ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-ReplaySource-NatLike ())))
+    (#pt-app
+      (#pt-use lean-6-ReplaySource-NatLike-rec (1))
+      (#pt-lambda
+        ((v1 (#pt-use lean-3-ReplaySource-NatLike ())))
+        (#pt-use lean-3-ReplaySource-NatLike ()))
+      (#pt-use lean-4-ReplaySource-NatLike-zero ())
+      (#pt-lambda
+        (
+          (v1 (#pt-use lean-3-ReplaySource-NatLike ()))
+          (v2 (#pt-use lean-3-ReplaySource-NatLike ())))
+        (#pt-app
+          (#pt-use lean-5-ReplaySource-NatLike-succ ())
+          (#pt-app (#pt-use lean-5-ReplaySource-NatLike-succ ()) v2)))
+      v0)))
+; Lean declaration: "rfl"
+; Identity: "$lean:s3:rfl"
+; Export line: 138
+; Prefix SHA-256: 120d0a0b858d3d4616c6b100fd455d271ff6ddacfcdc782ff65f5aef1772319e
+(#math-definition lean-8-rfl (u0)
+  (#pt-pi ((v0 (#pt-sort u0)) (v1 v0)) (#pt-app (#pt-use lean-0-Eq (u0)) v0 v1 v1))
+  (#pt-lambda ((v0 (#pt-sort u0)) (v1 v0)) (#pt-app (#pt-use lean-1-Eq-refl (u0)) v0 v1)))
+; Lean declaration: "ReplaySource.doubleTwo"
+; Identity: "$lean:s12:ReplaySources9:doubleTwo"
+; Export line: 153
+; Prefix SHA-256: 662f85a57f084df0e050fac6f678fa974dab8d32e4b0e149dd8e45ba4dbcde34
+(#theorem lean-9-ReplaySource-doubleTwo
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-ReplaySource-NatLike ())
+      (#pt-app
+        (#pt-use lean-7-ReplaySource-double ())
+        (#pt-app
+          (#pt-use lean-5-ReplaySource-NatLike-succ ())
+          (#pt-app
+            (#pt-use lean-5-ReplaySource-NatLike-succ ())
+            (#pt-use lean-4-ReplaySource-NatLike-zero ()))))
+      (#pt-app
+        (#pt-use lean-5-ReplaySource-NatLike-succ ())
+        (#pt-app
+          (#pt-use lean-5-ReplaySource-NatLike-succ ())
+          (#pt-app
+            (#pt-use lean-5-ReplaySource-NatLike-succ ())
+            (#pt-app
+              (#pt-use lean-5-ReplaySource-NatLike-succ ())
+              (#pt-use lean-4-ReplaySource-NatLike-zero ())))))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-8-rfl (1))
+      (#pt-use lean-3-ReplaySource-NatLike ())
+      (#pt-app
+        (#pt-use lean-7-ReplaySource-double ())
+        (#pt-app
+          (#pt-use lean-5-ReplaySource-NatLike-succ ())
+          (#pt-app
+            (#pt-use lean-5-ReplaySource-NatLike-succ ())
+            (#pt-use lean-4-ReplaySource-NatLike-zero ())))))))

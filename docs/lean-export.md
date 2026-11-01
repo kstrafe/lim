@@ -88,6 +88,70 @@ invalidates the entire run. The command emits no native binary. A report is
 published atomically only after success; input aliases, including hard links,
 cannot be used as report destinations.
 
+## Native proof-source translation
+
+Add `--emit-proof PATH` to emit a standard Lim proof file after successful
+replay. The translator rechecks the complete emitted source through the normal
+frontend and kernel before returning it or publishing the file. With no output
+flag, the reader keeps its replay-only behavior and does not retain opaque
+initializers for source emission.
+
+```sh
+lim --check-lean-export tests/fixtures/lean_export/real-identity.ndjson ReplaySource.identityProof --emit-proof identity.lim
+lim --check-theorem identity.lim lean-1-ReplaySource-identityProof
+```
+
+The success output gives the native theorem name. `--report` and `--emit-proof`
+may appear in either order. Duplicate, unknown, missing and empty options fail.
+Input aliases and colliding output paths, including hard links, are rejected.
+Replay, translation, and source-checking failures leave both outputs untouched.
+Each successful file write is atomic; publishing two files is not a filesystem
+transaction if a later output write fails.
+
+Every checked declaration gets a deterministic native identifier containing its
+ordinal and a readable original name. The ordinal distinguishes names even when
+sanitization or truncation produces the same suffix. File comments record Lean
+and exporter pins, the exact input hash, the native theorem target, and each
+original declaration's identity, export line and prefix hash. Names in comments
+are escaped so embedded newlines cannot inject source forms. The
+[`translate_lean_export`](../src/proof/kernel/export.rs) library API returns
+`LeanExportTranslation { report, target, source }` after the same checks; `target`
+is the native identifier and `report.target` keeps the original Lean name.
+
+Inductive headers use explicit native parameter/index telescopes and mutual
+membership. Original constructor constants become typed wrappers around
+`#pt-construct`. Recursor constants become checked native definitions, including
+`#pt-nested-induct` wrappers with physical type selectors and explicit case
+ordinals. Private auxiliary identities do not appear as native constants.
+Theorems and opaque definitions retain their explicit, checked initializers;
+`#theorem` and `#math-opaque` keep those values unavailable to conversion.
+
+Universe parameters and term binders are renamed separately. Normalized universe
+levels are reconstructed using successor, max and imax. Guard ordering is chosen
+using exact symbolic dominance checks, and the complete result must be equivalent
+to the original level before emission. A source representation or resource failure
+rejects translation; it cannot change a theorem's universe or establish a claim.
+No source-level axiom, replay directive, certificate bypass or proof hole is emitted.
+
+A separate correspondence pass parses the emitted declarations and relocates
+native constants and universe parameters back to their original identities.
+It checks declaration inventory and opacity, compares inductive parameters,
+indices, sorts, constructor fields and result indices, and verifies every
+translated definition/theorem type and initializer in the original checked
+environment. Exact typed syntax is compared before normalization to avoid
+recomputing identical mathematical expressions. Otherwise the ordinary kernel's
+definitional conversion must agree. A different well-typed data body or a valid
+proof of a different proposition fails correspondence. This pass uses no source
+comments as authority and does not formally verify the translator or kernel.
+
+
+The [nine committed native translations](../theorems/lean_replay/README.md) reproduce
+the genuine producer corpus. Their manifest maps every original declaration to its
+native name and hashes both input and output files, linking the original source,
+module and license provenance. The regeneration script checks byte-for-byte
+reproduction and independently runs ordinary `--check-theorem`. These small proofs
+are not the full upstream Fermat development.
+
 ## Replay receipt and identity
 
 `--report PATH` writes JSON with schema `lim-lean-replay-v1`. It records the
@@ -140,6 +204,9 @@ kernel replay establishes the accepted theorem's typing judgment.
 | Natural-literal abbreviation | 0 through 128 |
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
+| Native translation source | 8 MiB before and after formatting; 1,000,000 expanded term visits; recursive render depth 96 |
+| Source correspondence | 1,000,000 relocated nodes, depth 256, and 64 MiB accounted node/name/universe allocations across a translation |
+| Universe source reconstruction | 64 KiB per level; at most 64 variable successors, guard/successor depth 80, and 4,096 symbolic guard-order comparisons |
 
 Allocation accounting charges term nodes, owned identifiers and normalized
 universe payloads, including temporary transformations. These are explicit
@@ -151,12 +218,13 @@ The execution guard used for development separately limits the process tree to
 establish no theorem; they never authorize an admission or unchecked cache.
 
 String literals, large natural-literal representations, quotient foundations, classical axioms,
-Lean surface syntax/tactics, native `.lim` translation and full-environment
-storage/replay are not implemented. General mathematical Nat and universe
+Lean surface syntax/tactics and full-environment storage/replay are not
+implemented. Bounded native proof-source translation is supported for the
+accepted export subset. General mathematical Nat and universe
 quantification remain unbounded; representation limits are not finite models.
 Native Lim also supports explicit type-selected nested cases through
-[`#pt-nested-induct`](kernel.md#nested-inductive-groups). This does not yet
-provide translation from exported terms to native proof-source files.
+[`#pt-nested-induct`](kernel.md#nested-inductive-groups). The translator uses that form to preserve the checked auxiliary recursor
+wrappers in ordinary source.
 
 The [kernel's trust assumptions](kernel.md#trust-assumptions) still apply.
 Local rechecking and adversarial tests do not formally verify the checker.

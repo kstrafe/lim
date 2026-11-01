@@ -5,7 +5,8 @@ mod core;
 mod level;
 use crate::{Expr, Item};
 pub use core::export::{
-    check_lean_export, LeanDeclarationReport, LeanExportError, LeanExportReport,
+    check_lean_export, translate_lean_export, LeanDeclarationReport, LeanExportError,
+    LeanExportReport, LeanExportTranslation,
 };
 use core::{apps, term, InductiveInput, Kernel, Level, NestedCase, RecursionCase, Term, T};
 use std::collections::{BTreeSet, HashSet};

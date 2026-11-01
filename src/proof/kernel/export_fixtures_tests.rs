@@ -53,6 +53,77 @@ fn digest(bytes: &[u8]) -> String {
     digest.update(bytes);
     hash::hex(&digest.finish())
 }
+
+#[test]
+fn native_proof_artifacts_reproduce_the_checked_genuine_exports() {
+    let manifest_bytes = include_bytes!("../../../theorems/lean_replay/manifest.json");
+    let manifest = crate::lsp::json::parse(std::str::from_utf8(manifest_bytes).unwrap()).unwrap();
+    assert_eq!(
+        field(&manifest, "schema").string(),
+        Some("lim-lean-native-translations-v1")
+    );
+    assert_eq!(
+        field(&manifest, "provenance_sha256").string(),
+        Some(digest(MANIFEST.as_bytes()).as_str())
+    );
+    let entries = field(&manifest, "translations").array().unwrap();
+    assert_eq!(entries.len(), EXPORTS.len());
+    for (input_name, input) in EXPORTS {
+        let entry = entries
+            .iter()
+            .find(|entry| {
+                field(entry, "input")
+                    .string()
+                    .unwrap()
+                    .ends_with(input_name)
+            })
+            .unwrap();
+        let native = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("theorems/lean_replay")
+                .join(field(entry, "file").string().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            field(entry, "sha256").string(),
+            Some(digest(&native).as_str())
+        );
+        assert_eq!(field(entry, "bytes").integer(), Some(native.len() as i64));
+        let translated =
+            translate_lean_export(input, field(entry, "original_target").string().unwrap())
+                .unwrap();
+        assert_eq!(native, translated.source.as_bytes());
+        assert_eq!(
+            field(entry, "native_target").string(),
+            Some(translated.target.as_str())
+        );
+        assert_eq!(
+            field(entry, "input_sha256").string(),
+            Some(translated.report.input_sha256.as_str())
+        );
+        let mappings = field(entry, "declarations").array().unwrap();
+        assert_eq!(mappings.len(), translated.report.declarations.len());
+        let program = crate::parse_program(&translated.source).unwrap();
+        for ((mapping, original), item) in mappings
+            .iter()
+            .zip(&translated.report.declarations)
+            .zip(&program.items)
+        {
+            let crate::Item::Proof { name, .. } = item else {
+                panic!("nonproof item in translated artifact")
+            };
+            assert_eq!(
+                field(mapping, "identity").string(),
+                Some(original.identity.as_str())
+            );
+            assert_eq!(
+                field(mapping, "sha256").string(),
+                Some(original.sha256.as_str())
+            );
+            assert_eq!(field(mapping, "native_name").string(), Some(name.as_str()));
+        }
+    }
+}
 fn field<'a>(value: &'a Json, name: &str) -> &'a Json {
     value
         .get(name)

@@ -12,8 +12,11 @@ mod fixtures_tests;
 mod hash;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_source.rs"]
+mod source;
 #[path = "export_terms.rs"]
 mod terms;
+pub use source::LeanExportTranslation;
 
 pub const LEAN_EXPORT_FORMAT: &str = "3.1.0";
 pub const LEAN_EXPORT_VERSION: &str = "4.33.1";
@@ -127,16 +130,45 @@ struct Replay {
     natural_literals: bool,
     line: usize,
     digest: String,
+    retain_bodies: bool,
+    bodies: HashMap<String, T>,
 }
 
 /// Reads the actual pinned NDJSON protocol without executing Lean or trusting
 /// a claimed check result. There is no admission/axiom or cache input mode.
 pub fn check_lean_export<R: BufRead>(
-    mut reader: R,
+    reader: R,
     target: &str,
 ) -> std::result::Result<LeanExportReport, LeanExportError> {
     let _stage = crate::timing::stage("lean_export_replay");
+    replay_export(reader, target, false).map(|(_, report, _)| report)
+}
+
+/// Replays the full export, translates its checked environment to ordinary Lim
+/// declarations, and independently checks the complete native source output.
+pub fn translate_lean_export<R: BufRead>(
+    reader: R,
+    target: &str,
+) -> std::result::Result<LeanExportTranslation, LeanExportError> {
+    let (mut replay, report, identity) = {
+        let _stage = crate::timing::stage("lean_export_replay");
+        replay_export(reader, target, true)?
+    };
+    let _stage = crate::timing::stage("lean_export_source");
+    let line = replay.line.saturating_add(1);
+    let result = source::render(&mut replay, report, &identity)
+        .map_err(|message| LeanExportError { line, message });
+    drop(replay);
+    result
+}
+
+fn replay_export<R: BufRead>(
+    mut reader: R,
+    target: &str,
+    retain_bodies: bool,
+) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
     let mut replay = Replay::new();
+    replay.retain_bodies = retain_bodies;
     let mut input_hash = hash::Sha256::new();
     let mut total = 0u64;
     let mut line = Vec::new();
@@ -205,13 +237,15 @@ pub fn check_lean_export<R: BufRead>(
             "the selected export declaration is not a theorem".into(),
         ));
     }
-    Ok(LeanExportReport {
+    let identity = matches[0].identity.clone();
+    let report = LeanExportReport {
         target: matches[0].name.clone(),
         input_sha256: hash::hex(&input_hash.finish()),
         bytes: total,
         records: replay.line as u64,
-        declarations: replay.reports,
-    })
+        declarations: std::mem::take(&mut replay.reports),
+    };
+    Ok((replay, report, identity))
 }
 
 impl Replay {
@@ -237,6 +271,8 @@ impl Replay {
             natural_literals: false,
             line: 0,
             digest: String::new(),
+            retain_bodies: false,
+            bodies: HashMap::new(),
         }
     }
     fn reset_budget(&mut self) -> Result<()> {
@@ -381,6 +417,7 @@ impl Replay {
         let universes = self.universes(&data["levelParams"])?;
         let ty = self.expression(&data["type"])?;
         let value = self.expression(&data["value"])?;
+        let retained = (self.retain_bodies && tag != "def").then(|| value.clone());
         let dependencies = dependencies(&[ty.clone(), value.clone()])?;
         self.dependencies_known(&dependencies, &[])?;
         self.room(1)?;
@@ -393,6 +430,9 @@ impl Replay {
                 .definition(&name.key, universes, ty, value, tag == "thm")
         };
         checked.map_err(|why| format!("declaration '{}': {why}", name.display))?;
+        if let Some(value) = retained {
+            self.bodies.insert(name.key.clone(), value);
+        }
         self.remember(
             &name,
             if tag == "thm" {
