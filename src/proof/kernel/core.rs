@@ -1061,13 +1061,13 @@ impl Kernel {
                     family,
                     levels,
                     parameters,
-                    indices: _,
+                    indices,
                     motive,
                     branches,
                     subject,
                 } => {
                     let subject = self.whnf(ctx, subject, depth + 1)?;
-                    let (desc, _) = self.family(family, levels, depth + 1)?;
+                    let (desc, map) = self.family(family, levels, depth + 1)?;
                     let Term::Ctor {
                         family: actual,
                         constructor,
@@ -1075,18 +1075,37 @@ impl Kernel {
                         ..
                     } = subject.as_ref()
                     else {
-                        // A fieldless singleton's subject equals its sole
-                        // constructor, for both data and propositions. Its
-                        // recursor must respect that constructor computation.
-                        if desc.indices.is_empty()
-                            && desc.constructors.len() == 1
-                            && desc.constructors[0].fields.is_empty()
-                        {
-                            value = branches
-                                .first()
-                                .cloned()
-                                .ok_or("missing induction branch")?;
-                            continue;
+                        // Unindexed fieldless singletons have unit conversion.
+                        // Indexed propositions instead require a matching fibre:
+                        // proof irrelevance cannot identify different indices.
+                        if desc.constructors.len() == 1 && desc.constructors[0].fields.is_empty() {
+                            let mut reduces = desc.indices.is_empty();
+                            if !reduces && desc.sort.substitute(&map)?.zero() {
+                                let (ty, _) = self.constructor_type(
+                                    family,
+                                    levels,
+                                    &desc.constructors[0].name,
+                                    depth + 1,
+                                )?;
+                                let ty = self.arguments(ctx, ty, parameters, depth + 1)?;
+                                let result_indices = self.family_indices(
+                                    ctx,
+                                    family,
+                                    levels,
+                                    parameters,
+                                    &ty,
+                                    depth + 1,
+                                )?;
+                                reduces =
+                                    self.same_many(ctx, indices, &result_indices, depth + 1)?;
+                            }
+                            if reduces {
+                                value = branches
+                                    .first()
+                                    .cloned()
+                                    .ok_or("missing induction branch")?;
+                                continue;
+                            }
                         }
                         return Ok(value);
                     };

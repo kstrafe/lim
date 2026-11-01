@@ -569,9 +569,9 @@ This prevents arbitrary extraction of computational data from propositional
 witnesses. Definitional proof irrelevance identifies well-typed proofs of the
 same proposition; it does not waive this elimination restriction or identify
 data values. The restriction is a kernel rule, not a runtime representation
-or erasure promise. Indexed families have no unit or K optimization: fieldless
-unit conversion and neutral recursor reduction for fieldless families apply
-only to unindexed families, since indexed families have distinct fibres.
+or erasure promise. Indexed data families have no unit conversion or neutral
+recursor shortcut, since indexed families have distinct fibres. A restricted
+proof computation rule for matching fibres is described below.
 Mutual and nested inductives remain unsupported.
 
 This recoverable-field condition follows Lean 4.33.1's
@@ -778,11 +778,22 @@ rules; this rule supplies no shortcut for their distinct values.
 
 A recursor over qualifying unindexed fieldless data reduces to its sole branch
 even when the subject is neutral, just as for the existing fieldless
-singleton-Prop recursor. Indexed families receive no such optimization. This
+singleton-Prop recursor. Indexed data families receive no such optimization. This
 preserves computation congruence with the value conversion;
 it does not require unfolding an opaque theorem body or inventing an inhabitant.
 Source evidence and the shared fully applied type must be checked before the
 rule is used.
+
+A neutral recursor for an indexed proposition with exactly one zero-field
+constructor reduces to its sole branch only when every supplied index converts
+to the corresponding constructor result index. The constructor's universe
+levels and uniform parameters are specialized before this comparison. This
+uses proof irrelevance at the same fibre; it does not identify different
+indices or unfold opaque theorem bodies. Generic or mismatching indices,
+indexed data, and constructors with fields receive no such shortcut. Subject,
+motive, indices, parameters, and branches still undergo full typing before
+normalization. The [singleton proof example](../examples/proof_singleton_prop.lim)
+and [regressions](../tests/kernel_singleton_prop.rs) exercise this distinction.
 
 Type-directed Pi and primitive Sigma eta compose with proof irrelevance and
 this unit-like data rule: applications or projections can compare through their

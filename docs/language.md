@@ -2138,7 +2138,7 @@ For example, a hidden `Nat` field blocks large elimination. A field
 among the result indices to be recoverable; exposing only part of a field or
 using a computed index such as `succ field` does not qualify. This matches
 Lean 4.33.1's [universe-zero elimination rule](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536).
-Indexed families do not receive unit or K optimization: fieldless unit
+Indexed data families do not receive unit or K optimization: fieldless unit
 conversion and neutral recursor reduction are limited to unindexed families
 because indexed families have distinct fibres. General Sort and guarded
 elimination do not add cumulativity or type-in-type,
@@ -2221,7 +2221,12 @@ It does not identify different nominal types or parameter/level instantiations,
 and does not apply to constructors with data or recursive fields, Nat, or False.
 A recursor over such unindexed fieldless data reduces to its sole branch for a
 neutral subject, consistently with the existing fieldless singleton-Prop
-computation; indexed families receive no such optimization.
+computation; indexed data families receive no such optimization.
+An indexed proposition with exactly one zero-field constructor also permits
+neutral recursor computation when all supplied indices convert to the
+constructor's specialized result indices. Generic or mismatching fibres and
+fielded propositions remain stuck. Parameters, universes, motives, branches,
+and subjects still undergo complete typing before reduction.
 Pi/Sigma eta can compose with this rule and proof irrelevance through proof or
 qualifying unit-like fields. Source evidence and the shared type remain fully
 checked, and opaque theorem bodies stay opaque. This adds no syntax or general

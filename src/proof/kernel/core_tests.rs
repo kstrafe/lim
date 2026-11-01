@@ -854,6 +854,122 @@ fn indexed_fieldless_families_do_not_gain_unit_conversion_or_neutral_computation
 }
 
 #[test]
+fn indexed_singleton_proof_computation_requires_convertible_constructor_indices() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "ZeroProof",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(0),
+        vec![("make".into(), vec![], vec![zero()])],
+    )
+    .unwrap();
+    let family = |index| app(global("ZeroProof"), index);
+    let motive = lam(nat(), lam(family(var(0)), nat()));
+    let eliminate = |index, subject| {
+        term(Term::Induct {
+            family: "ZeroProof".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![index],
+            motive: motive.clone(),
+            branches: vec![zero()],
+            subject,
+        })
+    };
+    for (ctx, index, reduces) in [
+        (vec![family(zero())], zero(), true),
+        // These assumptions may be uninhabited; that cannot let conversion
+        // silently rewrite an arbitrary index to the constructor's index.
+        (vec![family(succ(zero()))], succ(zero()), false),
+        (vec![nat(), family(var(0))], var(1), false),
+    ] {
+        k.reset_budget();
+        let value = eliminate(index, var(0));
+        k.check(&ctx, &value, &nat(), 0).unwrap();
+        assert_eq!(k.convertible(&ctx, &value, &zero(), 0).unwrap(), reduces);
+    }
+    // Beta-convertible indices count too, including a dependent result type.
+    let index = app(lam(nat(), var(0)), zero());
+    let value = term(Term::Induct {
+        family: "ZeroProof".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![index.clone()],
+        motive: lam(
+            nat(),
+            lam(family(var(0)), pi(eq(nat(), var(1), zero()), nat())),
+        ),
+        branches: vec![lam(eq(nat(), zero(), zero()), zero())],
+        subject: var(0),
+    });
+    let ctx = vec![family(index.clone())];
+    k.reset_budget();
+    k.check(&ctx, &value, &pi(eq(nat(), index, zero()), nat()), 0)
+        .unwrap();
+    assert!(k
+        .convertible(&ctx, &value, &lam(eq(nat(), zero(), zero()), zero()), 0)
+        .unwrap());
+}
+
+#[test]
+fn indexed_singleton_proof_computation_specializes_parameters_and_universes_once() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "AtParameter",
+        vec!["u".into(), "v".into()],
+        vec![term(Term::Sort(Level::variable("v".into()))), var(0)],
+        vec![var(1)],
+        Level::variable("u".into()),
+        vec![("make".into(), vec![], vec![var(0)])],
+    )
+    .unwrap();
+    for source_level in [0, 1] {
+        let levels = vec![level(source_level), level(1)];
+        let family = apps(
+            term(Term::Global("AtParameter".into(), levels.clone())),
+            &[nat(), var(0), var(0)],
+        );
+        let ctx = vec![nat(), family];
+        let motive_family = apps(
+            term(Term::Global("AtParameter".into(), levels.clone())),
+            &[nat(), var(2), var(0)],
+        );
+        let value = term(Term::Induct {
+            family: "AtParameter".into(),
+            levels,
+            parameters: vec![nat(), var(1)],
+            indices: vec![var(1)],
+            motive: lam(nat(), lam(motive_family, nat())),
+            branches: vec![zero()],
+            subject: var(0),
+        });
+        k.reset_budget();
+        k.check(&ctx, &value, &nat(), 0).unwrap();
+        assert_eq!(
+            k.convertible(&ctx, &value, &zero(), 0).unwrap(),
+            source_level == 0
+        );
+        // Substituting the constructor for the subject preserves typing and
+        // iota computation, including when the source is data-valued.
+        let constructor = term(Term::Ctor {
+            family: "AtParameter".into(),
+            levels: vec![level(source_level), level(1)],
+            parameters: vec![nat(), var(0)],
+            constructor: "make".into(),
+            fields: vec![],
+        });
+        let applied = k.instantiate(&value, &constructor, 0).unwrap();
+        k.check(&[nat()], &applied, &nat(), 0).unwrap();
+        assert!(k.convertible(&[nat()], &applied, &zero(), 0).unwrap());
+        // An ill-typed substitution must still fail before that reduction.
+        let invalid = k.instantiate(&value, &zero(), 0).unwrap();
+        assert!(k.check(&[nat()], &invalid, &nat(), 0).is_err());
+    }
+}
+
+#[test]
 fn indexed_elimination_checks_dependent_index_domains_and_result_types() {
     let mut k = Kernel::new();
     k.indexed_inductive(
