@@ -17,8 +17,9 @@ limits input size, not mathematical quantification. Constant-increment
 recursors with constant natural-valued motives can batch closed literal counts
 under the normal kernel work and allocation limits. The last two theorems use
 explicit `Nat.rec` definitions; they exercise the same syntax-based native
-optimization as ordinary Lim source. Standard Lean arithmetic's `Nat.brecOn`
-implementation is different and its large-value acceleration remains open.
+optimization as ordinary Lim source. The separate
+[standard arithmetic corpus](../lean_export_arithmetic/README.md) covers the
+different `Nat.brecOn` implementation through guarded observation fusion.
 
 [`provenance.json`](provenance.json) maps every original declaration to its
 native identifier, source module, source hash, export line and prefix hash.

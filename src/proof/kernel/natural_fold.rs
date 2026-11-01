@@ -63,7 +63,7 @@ impl Kernel {
 
     /// Deliberately stop before recursor iota. Expanding an inner addition by
     /// a huge closed count would destroy the recurrence we need to recognize.
-    fn natural_head(&mut self, value: &T, depth: usize) -> Result<T> {
+    pub(in crate::proof::kernel) fn natural_head(&mut self, value: &T, depth: usize) -> Result<T> {
         self.tick(depth)?;
         let mut value = value.clone();
         loop {
@@ -79,6 +79,12 @@ impl Kernel {
                 Term::App(function, argument) => {
                     let function = self.natural_head(function, depth + 1)?;
                     let Term::Lam(_, body) = function.as_ref() else {
+                        if let Some(fused) =
+                            self.natural_apply_fusion(&function, argument, depth + 1)?
+                        {
+                            value = fused;
+                            continue;
+                        }
                         return Ok(value);
                     };
                     value = self.instantiate(body, argument, depth + 1)?;
@@ -98,6 +104,14 @@ impl Kernel {
                         ..
                     } = projected.as_ref()
                     else {
+                        if *index == 0 {
+                            if let Some(fused) =
+                                self.natural_project_fusion(family, &projected, depth + 1)?
+                            {
+                                value = fused;
+                                continue;
+                            }
+                        }
                         return Ok(value);
                     };
                     if actual != family {
@@ -119,12 +133,65 @@ impl Kernel {
                         second.clone()
                     };
                 }
+                Term::Induct {
+                    family,
+                    levels,
+                    parameters,
+                    indices,
+                    motive,
+                    branches,
+                    subject,
+                } if levels.is_empty() && parameters.is_empty() && indices.is_empty() => {
+                    let subject = self.natural_head(subject, depth + 1)?;
+                    let subject = if matches!(subject.as_ref(), Term::NatLiteral { value, .. } if value.decimal() == "0")
+                    {
+                        self.natural_constructor(&subject, depth + 1)?
+                    } else {
+                        subject
+                    };
+                    let Term::Ctor {
+                        family: actual,
+                        levels,
+                        parameters,
+                        constructor,
+                        fields,
+                    } = subject.as_ref()
+                    else {
+                        return Ok(value);
+                    };
+                    if actual != family || !levels.is_empty() || !parameters.is_empty() {
+                        return Ok(value);
+                    }
+                    let Some(desc) = self.natural_recursor_family(family, depth + 1)? else {
+                        return Ok(value);
+                    };
+                    if branches.len() != 2 {
+                        return Ok(value);
+                    }
+                    if constructor == &desc.constructors[0].name && fields.is_empty() {
+                        value = branches[0].clone();
+                    } else if constructor == &desc.constructors[1].name && fields.len() == 1 {
+                        self.charge_transformation(384 + family.len())?;
+                        let ih = term(Term::Induct {
+                            family: family.clone(),
+                            levels: vec![],
+                            parameters: vec![],
+                            indices: vec![],
+                            motive: motive.clone(),
+                            branches: branches.clone(),
+                            subject: fields[0].clone(),
+                        });
+                        value = apps(branches[1].clone(), &[fields[0].clone(), ih]);
+                    } else {
+                        return Ok(value);
+                    }
+                }
                 _ => return Ok(value),
             }
         }
     }
 
-    fn natural_type(&mut self, value: &T, family: &str, depth: usize) -> Result<bool> {
+    pub(super) fn natural_type(&mut self, value: &T, family: &str, depth: usize) -> Result<bool> {
         let value = self.natural_head(value, depth + 1)?;
         Ok(
             matches!(value.as_ref(), Term::Global(name, levels) if name == family && levels.is_empty()),

@@ -33,6 +33,15 @@ declared axioms and each target's actual inventory are recorded separately.
 Its fixture guide and manifest preserve exact source/module/license provenance
 and document opt-in replay and independent ordinary native theorem checks.
 
+The thirteenth file, [`arithmetic.lim`](arithmetic.lim), translates the
+[standard arithmetic corpus](../../tests/fixtures/lean_export_arithmetic/README.md).
+It keeps the actual pinned `Nat.add`/`Nat.mul` definitions and their
+`Nat.brecOn` helpers. Guarded observation fusion exposes their recurrences
+without trusting their names or replacing their bodies. Its five targets
+across 34 declarations check large sums, products, zeros and nested operations;
+all have empty logical-assumption inventories and retained source/module/
+license provenance. Its fixture guide gives the fresh reproduction command.
+
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps every original declaration to its native

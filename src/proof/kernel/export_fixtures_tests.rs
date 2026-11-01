@@ -241,6 +241,19 @@ fn genuine_foundation_fixture_retains_checked_mapping_hashes_and_attribution() {
     );
 }
 
+#[test]
+fn genuine_standard_arithmetic_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_arithmetic/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_arithmetic/arithmetic.ndjson"),
+        include_str!("../../../theorems/lean_replay/arithmetic.lim"),
+        "ArithmeticSource.nested",
+        "lim-lean-arithmetic-fixture-v1",
+        &[],
+        (5, &[]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

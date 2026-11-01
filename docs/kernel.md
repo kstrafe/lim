@@ -354,10 +354,36 @@ existing kernel budgets; results exceeding 4,096 digits fail. A zero count
 returns the checked base without executing arithmetic in the unused step,
 which still undergoes ordinary typing. Dependent motives,
 predecessor-dependent or nonlinear steps, and other recursion shapes retain
-ordinary bounded iota computation. In particular, the pinned Lean toolchain's
-standard `Nat.add`/`Nat.mul` use `Nat.brecOn`; their large-value acceleration
-remains open. This optimization adds no source keyword, axiom or unchecked
-arithmetic declaration.
+ordinary bounded iota computation. This optimization adds no source keyword,
+axiom or unchecked arithmetic declaration.
+
+Two structural fusion rules expose a natural-valued recurrence inside a more
+complex carrier. Projecting the first field of a record-valued natural fold
+can become a fold of that field if the step uses its previous state only
+through the same first-field projection. The checked carrier must be an
+unindexed, nonrecursive data record whose first field is its first type
+parameter. The observed type must be a constant natural family or a function
+from that family to itself. Reading another history field or passing the
+whole old state prevents fusion. The projected base stays suspended.
+
+Likewise, applying a function-valued natural fold at a fixed argument can
+become a natural-valued fold only if every use of its old function applies
+that same argument. Binder-aware replacement checks the actual argument and
+rejects other arguments or whole-function uses. Constructor-headed natural
+recursors select branches through ordinary iota; zero literals return their
+base without inspecting the unused step. Other inductive families retain
+their normal evaluator. Source typing, including unused fields and local
+bindings, is always checked before conversion.
+
+These rules expose the pinned Lean standard `Nat.add` and `Nat.mul`
+recurrences without constructing their `Nat.brecOn` history tables. The
+[genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
+checks large addition, multiplication, zero products, a universally quantified
+right-zero identity and nested arithmetic. The [native observation example](../examples/proof_observed_arithmetic.lim)
+shows both rules directly. No declaration spelling, hash, source comment or
+exporter claim authorizes a computation. Fusion and decimal arithmetic use
+the existing work, transformation and result-size bounds. Other arithmetic
+operations and arbitrary course-of-values algorithms are separate work.
 
 Natural induction is explicit:
 
@@ -1095,7 +1121,10 @@ this same kernel; cached receipts and exporter claims cannot bypass it.
 This is an implemented proof checker, not a formally verified kernel. Accepting
 a term relies on the correctness of its parser, scope and dependency handling,
 universe checks, type checker, substitution, and conversion implementation,
-as well as the surrounding validation machinery. Explicit evidence and
+as well as the surrounding validation machinery. Structural arithmetic and
+observational fusion are part of this trusted conversion implementation;
+their pattern guards and differential tests do not formally verify them.
+Explicit evidence and
 rechecking reduce reliance on cached results; they do not establish the
 implementation's soundness by themselves.
 

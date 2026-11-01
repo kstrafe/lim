@@ -6,14 +6,21 @@ and reproducible declaration/module/license provenance. It checks the pinned
 quotient computation package without accepting `Quot.sound` or other axioms.
 
 The [compact natural-literal corpus](../lean_export_naturals/README.md) adds
-an eleventh genuine export with five large-value theorems, native proof source,
-and its own source/module/license provenance and regeneration command.
+an eleventh genuine export with seven natural-literal/arithmetic theorems,
+native proof source, and its own source/module/license provenance and
+regeneration command.
 
 The [fixed-foundation corpus](../lean_export_foundations/README.md) adds a
 twelfth genuine export. It explicitly opts into only the pinned choice,
 propositional extensionality and quotient soundness axioms, with checked opaque
 adapters and distinct declared/target assumption inventories. Default replay
 continues to reject that corpus.
+
+The [standard arithmetic corpus](../lean_export_arithmetic/README.md) adds a
+thirteenth genuine export, with five targets over the actual pinned `Nat.add`
+and `Nat.mul` definitions. It retains their course-of-values bodies in source,
+checks them through structural observation fusion, and independently audits
+the native targets with empty assumption inventories.
 
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.

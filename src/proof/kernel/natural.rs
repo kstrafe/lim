@@ -5,6 +5,8 @@ use super::*;
 mod arithmetic;
 #[path = "natural_fold.rs"]
 mod fold;
+#[path = "natural_fusion.rs"]
+mod fusion;
 
 pub(in crate::proof::kernel) const MAX_DIGITS: usize = 4096;
 
@@ -60,20 +62,32 @@ impl Kernel {
             return Err("natural literal requires a completed natural-number family".into());
         }
         let (family, _) = self.family(name, &[], depth + 1)?;
-        if family.group != [name]
-            || !family.parameters.is_empty()
-            || !family.indices.is_empty()
-            || !family.sort.equivalent(&Level::number(1)?)?
-            || family.constructors.len() != 2
-            || !family.constructors[0].fields.is_empty()
-            || !family.constructors[0].result_indices.is_empty()
-            || family.constructors[1].fields.len() != 1
-            || !family.constructors[1].result_indices.is_empty()
-            || !matches!(family.constructors[1].fields[0].as_ref(),Term::Global(actual,levels) if actual == name && levels.is_empty())
-        {
+        if !natural_shape(name, &family)? {
             return Err("natural literal requires a parameterless Type-0 family with zero and successor constructors".into());
         }
         Ok(family)
+    }
+
+    /// Speculative normalization must leave other checked inductives alone.
+    pub(super) fn natural_recursor_family(
+        &mut self,
+        name: &str,
+        depth: usize,
+    ) -> Result<Option<Family>> {
+        self.tick(depth)?;
+        if self.provisional_family(name) || self.nested.contains_key(name) {
+            return Ok(None);
+        }
+        let Some(declaration) = self.declarations.get(name) else {
+            return Ok(None);
+        };
+        if !declaration.universes.is_empty() {
+            return Ok(None);
+        }
+        let Some(family) = &declaration.family else {
+            return Ok(None);
+        };
+        Ok(natural_shape(name, family)?.then(|| family.clone()))
     }
 
     /// Expose one constructor only when induction/conversion needs it. General
@@ -111,6 +125,19 @@ impl Kernel {
             fields,
         }))
     }
+}
+
+fn natural_shape(name: &str, family: &Family) -> Result<bool> {
+    Ok(family.group == [name]
+        && family.parameters.is_empty()
+        && family.indices.is_empty()
+        && family.sort.equivalent(&Level::number(1)?)?
+        && family.constructors.len() == 2
+        && family.constructors[0].fields.is_empty()
+        && family.constructors[0].result_indices.is_empty()
+        && family.constructors[1].fields.len() == 1
+        && family.constructors[1].result_indices.is_empty()
+        && matches!(family.constructors[1].fields[0].as_ref(),Term::Global(actual,levels) if actual == name && levels.is_empty()))
 }
 
 #[cfg(test)]

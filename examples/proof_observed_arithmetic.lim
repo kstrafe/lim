@@ -1,0 +1,50 @@
+; Only the observed first field is needed; the history stays mathematical data.
+(#math-inductive history-cell () ((A (#pt-type 0)) (B (#pt-type 0)))
+  (#pt-type 0) ((make ((current A) (history B)))))
+
+(#math-definition history-count ()
+  (#pt-pi ((count #pt-nat)) (#pt-app (#pt-use history-cell ()) #pt-nat #pt-nat))
+  (#pt-lambda ((count #pt-nat))
+    (#pt-nat-induct
+      (#pt-lambda ((index #pt-nat)) (#pt-app (#pt-use history-cell ()) #pt-nat #pt-nat))
+      (#pt-construct history-cell () (#pt-nat #pt-nat) make ((#pt-numeral 7) #pt-zero))
+      (#pt-lambda ((previous #pt-nat) (state (#pt-app (#pt-use history-cell ()) #pt-nat #pt-nat)))
+        (#pt-construct history-cell () (#pt-nat #pt-nat) make
+          ((#pt-succ (#pt-project history-cell 0 state))
+           (#pt-succ (#pt-project history-cell 1 state)))))
+      count)))
+
+(#theorem observe-huge
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-project history-cell 0
+      (#pt-app (#pt-use history-count ()) (#pt-nat-literal #pt-nat "184467440737095516160")))
+    (#pt-nat-literal #pt-nat "184467440737095516167")))
+  (#proof (#pt-refl #pt-nat (#pt-nat-literal #pt-nat "184467440737095516167"))))
+
+; A function-valued fold can be specialized at its fixed input. Recursive
+; calls at another input retain ordinary computation instead of this shortcut.
+(#math-definition count-function ()
+  (#pt-pi ((count #pt-nat) (input #pt-nat)) #pt-nat)
+  (#pt-lambda ((count #pt-nat) (input #pt-nat))
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda ((index #pt-nat)) (#pt-pi ((value #pt-nat)) #pt-nat))
+        (#pt-lambda ((argument #pt-nat)) argument)
+        (#pt-lambda
+          ((previous #pt-nat) (state (#pt-pi ((value #pt-nat)) #pt-nat)) (argument #pt-nat))
+          (#pt-succ (#pt-app state argument))) count)
+      input)))
+
+(#theorem count-functions
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-app (#pt-use count-function ())
+      (#pt-nat-literal #pt-nat "184467440737095516160") (#pt-numeral 42))
+    (#pt-nat-literal #pt-nat "184467440737095516202")))
+  (#proof (#pt-refl #pt-nat (#pt-nat-literal #pt-nat "184467440737095516202"))))
+
+(#fn main () #u64
+  (#return 42u64))

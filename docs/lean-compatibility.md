@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with twelve committed genuine
+for this accepted subset, with thirteen committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -313,10 +313,19 @@ uses explicit recursors and checks values beyond machine-integer widths.
 The optimization recognizes the checked syntax of the recurrence, including
 nested translation folds, independently of function names. It preserves nominal
 types, opacity and source typing, and leaves other shapes to ordinary iota
-computation. The pinned producer's standard `Nat.add` and `Nat.mul` lower through
-`Nat.brecOn`; accelerating that course-of-values encoding remains open. A fresh
-standard-arithmetic export still fails closed on its large addition theorem
-with a kernel resource-limit error. This does not provide the full mathematical
+computation. Guarded first-field observation and fixed-argument fusion now
+expose the pinned producer's standard `Nat.add` and `Nat.mul` recurrences
+inside `Nat.brecOn` records. They require an independently checked natural
+family, data-record shape, constant natural/function observation type, and
+exclusive use of the corresponding projection or fixed recursive argument.
+They preserve binder scope, source typing and opacity; they do not identify
+operations by name or add an axiom. The
+[genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
+checks five targets across 34 declarations, including a generic right-zero
+identity and nested computations. Original/native correspondence and every
+target's empty logical-assumption inventory are checked independently.
+Other arithmetic, arbitrary course-of-values computation and large-environment
+storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:

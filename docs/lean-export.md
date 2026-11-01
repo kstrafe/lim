@@ -21,11 +21,12 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Twelve real exports of original small Lean proofs replay and translate to
+Thirteen real exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
 multiply nested, Sigma container, quotient computation and compact natural
-literal cases, plus explicitly authorized logical foundations. They do not
-check the upstream Fermat proof or the complete Lean/Mathlib environment. See the
+literal cases, standard natural arithmetic, plus explicitly authorized logical
+foundations. They do not check the upstream Fermat proof or the complete
+Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
 
 ## Exact protocol pins
@@ -65,6 +66,12 @@ constant-increment structural recursors can batch closed counts using exact
 decimal addition/multiplication, independently of declaration names, through
 the [ordinary native rule](kernel.md#natural-numbers-and-induction). Other
 recursion shapes still use ordinary computation and finite work budgets.
+Guarded first-field and fixed-argument fusion also expose the pinned standard
+`Nat.add`/`Nat.mul` recurrences inside their course-of-values records, without
+recognizing those names as privileged operations. The
+[standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
+replays five actual targets and independently rechecks their ordinary native
+translations with empty logical-assumption inventories.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown
@@ -204,8 +211,8 @@ comments as authority and does not formally verify the translator or kernel.
 
 
 The [committed native translations](../theorems/lean_replay/README.md) reproduce
-the twelve-file genuine producer corpus. Their manifests map every original declaration to its
-native name and hashes both input and output files, linking the original source,
+the thirteen-file genuine producer corpus. Their manifests map every original
+declaration to its native name and hash both input and output files, linking the original source,
 module and license provenance. The regeneration script checks byte-for-byte
 reproduction and independently runs ordinary `--check-theorem`. These small proofs
 are not the full upstream Fermat development.
@@ -281,9 +288,9 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, accelerated standard Lean `Nat.brecOn` arithmetic, arbitrary
-axiom declarations, Lean surface syntax/tactics and full-environment storage/
-replay are not implemented. Bounded native proof-source translation is supported for the
+String literals, arbitrary axiom declarations, Lean surface syntax/tactics,
+other standard arithmetic operations and full-environment storage/replay are
+not implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe
 quantification remain unbounded; representation limits are not finite models.
 Native Lim also supports explicit type-selected nested cases through

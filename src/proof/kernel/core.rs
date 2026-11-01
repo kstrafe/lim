@@ -6,6 +6,7 @@ pub(super) use super::level::Level;
 #[cfg(test)]
 use super::level::LEVEL;
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 #[path = "elimination.rs"]
 mod elimination;
@@ -929,6 +930,13 @@ impl Kernel {
         let mut value = value.clone();
         loop {
             self.tick(depth)?;
+            if matches!(value.as_ref(), Term::App(..) | Term::Project { .. }) {
+                let head = self.natural_head(&value, depth + 1)?;
+                if !Arc::ptr_eq(&head, &value) {
+                    value = head;
+                    continue;
+                }
+            }
             match value.as_ref() {
                 Term::Global(name, levels) => {
                     let (decl, map) = self.specialization(name, levels, depth + 1)?;
@@ -1552,16 +1560,41 @@ impl Kernel {
         var: &mut impl FnMut(&mut Self, usize, usize) -> Result<T>,
         level: &mut impl FnMut(&Level) -> Result<Level>,
     ) -> Result<T> {
+        self.transform_nodes(
+            value,
+            binders,
+            depth,
+            &mut |_, value, _, _| Ok(ControlFlow::Continue(value.clone())),
+            var,
+            level,
+        )
+    }
+    fn transform_nodes(
+        &mut self,
+        value: &T,
+        binders: usize,
+        depth: usize,
+        node: &mut impl FnMut(&mut Self, &T, usize, usize) -> Result<ControlFlow<T, T>>,
+        var: &mut impl FnMut(&mut Self, usize, usize) -> Result<T>,
+        level: &mut impl FnMut(&Level) -> Result<Level>,
+    ) -> Result<T> {
         self.tick(depth)?;
+        let value = match node(self, value, binders, depth)? {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(value) => {
+                self.charge_transformation(128)?;
+                return Ok(value);
+            }
+        };
         macro_rules! walk {
             ($t:expr) => {
-                self.transform($t, binders, depth + 1, var, level)?
+                self.transform_nodes($t, binders, depth + 1, node, var, level)?
             };
         }
         macro_rules! many {
             ($ts:expr) => {
                 $ts.iter()
-                    .map(|t| self.transform(t, binders, depth + 1, var, level))
+                    .map(|t| self.transform_nodes(t, binders, depth + 1, node, var, level))
                     .collect::<Result<Vec<_>>>()?
             };
         }
@@ -1581,7 +1614,7 @@ impl Kernel {
             ),
             Term::Pi(a, b) | Term::Lam(a, b) | Term::Sigma(a, b) => {
                 let a = walk!(a);
-                let b = self.transform(b, binders + 1, depth + 1, var, level)?;
+                let b = self.transform_nodes(b, binders + 1, depth + 1, node, var, level)?;
                 match value.as_ref() {
                     Term::Pi(..) => Term::Pi(a, b),
                     Term::Lam(..) => Term::Lam(a, b),
@@ -1592,7 +1625,7 @@ impl Kernel {
             Term::Let(ty, value, body) => Term::Let(
                 walk!(ty),
                 walk!(value),
-                self.transform(body, binders + 1, depth + 1, var, level)?,
+                self.transform_nodes(body, binders + 1, depth + 1, node, var, level)?,
             ),
             Term::Pair(a, b, c) => Term::Pair(walk!(a), walk!(b), walk!(c)),
             Term::First(a) => Term::First(walk!(a)),
@@ -1709,12 +1742,26 @@ impl Kernel {
                     .map(|case| {
                         Ok(RecursionCase {
                             family: case.family.clone(),
-                            motive: self.transform(&case.motive, binders, depth + 1, var, level)?,
+                            motive: self.transform_nodes(
+                                &case.motive,
+                                binders,
+                                depth + 1,
+                                node,
+                                var,
+                                level,
+                            )?,
                             branches: case
                                 .branches
                                 .iter()
                                 .map(|branch| {
-                                    self.transform(branch, binders, depth + 1, var, level)
+                                    self.transform_nodes(
+                                        branch,
+                                        binders,
+                                        depth + 1,
+                                        node,
+                                        var,
+                                        level,
+                                    )
                                 })
                                 .collect::<Result<_>>()?,
                         })
@@ -1740,19 +1787,34 @@ impl Kernel {
                     .iter()
                     .map(|case| {
                         Ok(NestedCase {
-                            selector: self.transform(
+                            selector: self.transform_nodes(
                                 &case.selector,
                                 binders,
                                 depth + 1,
+                                node,
                                 var,
                                 level,
                             )?,
-                            motive: self.transform(&case.motive, binders, depth + 1, var, level)?,
+                            motive: self.transform_nodes(
+                                &case.motive,
+                                binders,
+                                depth + 1,
+                                node,
+                                var,
+                                level,
+                            )?,
                             branches: case
                                 .branches
                                 .iter()
                                 .map(|branch| {
-                                    self.transform(branch, binders, depth + 1, var, level)
+                                    self.transform_nodes(
+                                        branch,
+                                        binders,
+                                        depth + 1,
+                                        node,
+                                        var,
+                                        level,
+                                    )
                                 })
                                 .collect::<Result<_>>()?,
                         })
