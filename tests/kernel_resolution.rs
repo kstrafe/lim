@@ -49,6 +49,32 @@ fn proof_names_resolve_inside_constructor_and_induction_data_lists() {
 }
 
 #[test]
+fn pt_let_file_resolution_preserves_type_value_body_scopes() {
+    let scratch = support::Scratch::new("kernel-let-resolution-scope");
+    write(
+        scratch.path(),
+        "math.lim",
+        "(#math-definition global-x () (#pt-type 0) #pt-nat)",
+    );
+    let source = r#"
+      (#alias x = ./math.lim::global-x)
+      (#math-definition scoped () (#pt-use x ())
+        (#pt-let (#parameter x (#pt-use x ()))
+          (#pt-app (#pt-lambda ((temporary (#pt-use x ()))) temporary) #pt-zero)
+          x))
+    "#;
+    let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
+    let resolved = format!("{:#?}", program.items);
+    assert_eq!(
+        resolved.matches("math.lim::global-x").count(),
+        4,
+        "{resolved}"
+    );
+    assert_eq!(resolved.matches("\"x\"").count(), 2, "{resolved}");
+    lim::check_types(&program).unwrap();
+}
+
+#[test]
 fn absolute_names_in_universe_positions_cannot_capture_a_local_universe() {
     let scratch = support::Scratch::new("kernel-universe-qualification");
     for level in ["@u", "(#pt-level-imax v @u)", "(#pt-level-max @u v)"] {

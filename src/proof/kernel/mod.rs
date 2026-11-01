@@ -286,6 +286,24 @@ impl Parser<'_> {
             "#pt-sort"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?)))},
             "#pt-type"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?.successor()?)))},
             "#pt-use"=>{arity(head,args,2)?;let name=self.global(&args[0])?;let levels=self.levels(&args[1],depth+1)?;Ok(term(Term::Global(name,levels)))},
+            "#pt-let" => {
+                arity(head, args, 3)?;
+                let declaration = list(&args[0])?;
+                if declaration.len() != 3 || symbol(&declaration[0])? != "#parameter" {
+                    return Err("#pt-let requires (#parameter name Type), a value, and a body".into());
+                }
+                let name = symbol(&declaration[1])?;
+                binder(name)?;
+                if self.locals.iter().any(|local| local == name) || self.universes.contains(name) {
+                    return Err(format!("kernel binding '{name}' shadows an existing binding"));
+                }
+                let ty = self.expression(&declaration[2], depth + 1)?;
+                let value = self.expression(&args[1], depth + 1)?;
+                self.locals.push(name.into());
+                let body = self.expression(&args[2], depth + 1);
+                self.locals.pop();
+                Ok(term(Term::Let(ty, value, body?)))
+            }
             "#pt-program"|"#pt-certificate"=>{arity(head,args,1)?;let name=symbol(&args[0])?;if !self.facts.contains(name){return Err(format!("'{name}' is not a checked procedural program proof"));}Ok(term(Term::Global(format!("{}:{name}",if head=="#pt-program"{"$program"}else{"$certificate"}),vec![])))},
             "#pt-pi"|"#pt-lambda"|"#pt-sigma"=>{
                 arity(head,args,2)?;let previous=self.locals.clone();let domains=self.bindings(&args[0],depth+1)?;

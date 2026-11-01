@@ -4999,6 +4999,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "pt-sort"
             | "pt-pi"
             | "pt-lambda"
+            | "pt-let"
             | "pt-sigma"
             | "pt-app"
             | "pt-use"

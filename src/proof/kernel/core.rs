@@ -22,6 +22,7 @@ pub(super) enum Term {
     Global(String, Vec<Level>),
     Pi(T, T),
     Lam(T, T),
+    Let(T, T, T),
     App(T, T),
     Sigma(T, T),
     Pair(T, T, T),
@@ -427,6 +428,15 @@ impl Kernel {
                 let ty = self.infer(&inner, body, depth + 1)?;
                 Ok(term(Term::Pi(domain.clone(), ty)))
             }
+            Term::Let(ty, value, body) => {
+                // Validate even unused bindings before zeta substitution.
+                // Checking the body under an abstract lambda binder would
+                // lose the definition needed by dependent type aliases.
+                self.sort(ctx, ty, depth + 1)?;
+                self.check(ctx, value, ty, depth + 1)?;
+                let instantiated = self.instantiate(body, value, depth + 1)?;
+                self.infer(ctx, &instantiated, depth + 1)
+            }
             Term::App(function, arg) => {
                 let ty = self.infer(ctx, function, depth + 1)?;
                 self.arguments(ctx, ty, std::slice::from_ref(arg), depth + 1)
@@ -704,6 +714,9 @@ impl Kernel {
                     } else {
                         return Ok(term(Term::App(f, arg.clone())));
                     }
+                }
+                Term::Let(_, definition, body) => {
+                    value = self.instantiate(body, definition, depth + 1)?;
                 }
                 Term::First(pair) | Term::Second(pair) => {
                     let reduced = self.whnf(ctx, pair, depth + 1)?;
@@ -1097,6 +1110,11 @@ impl Kernel {
                 }
             }
             Term::App(a, b) => Term::App(walk!(a), walk!(b)),
+            Term::Let(ty, value, body) => Term::Let(
+                walk!(ty),
+                walk!(value),
+                self.transform(body, binders + 1, depth + 1, var, level)?,
+            ),
             Term::Pair(a, b, c) => Term::Pair(walk!(a), walk!(b), walk!(c)),
             Term::First(a) => Term::First(walk!(a)),
             Term::Second(a) => Term::Second(walk!(a)),
@@ -1171,7 +1189,7 @@ fn contains_recursive(t: &T, name: &str) -> bool {
         | Term::App(a, b)
         | Term::Sigma(a, b)
         | Term::Refl(a, b) => contains_recursive(a, name) || contains_recursive(b, name),
-        Term::Pair(a, b, c) | Term::Eq(a, b, c) => {
+        Term::Pair(a, b, c) | Term::Eq(a, b, c) | Term::Let(a, b, c) => {
             contains_recursive(a, name)
                 || contains_recursive(b, name)
                 || contains_recursive(c, name)

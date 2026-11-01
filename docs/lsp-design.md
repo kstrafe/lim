@@ -285,6 +285,18 @@ the body. Navigation supports nested shadowing during editing, including terms
 that the semantic checker rejects. A definition's declared type and value have
 independent term scopes; neither scope escapes the declaration.
 
+`(#pt-let (#parameter NAME TYPE) VALUE BODY)` requires exactly three operands
+after its head and a three-child `#parameter` binder. The binder name follows
+the kernel identifier rule: it starts with a Unicode alphabetic character or
+`_`, and contains no `:`, `/`, `.`, or `@`; `_` is a valid mathematical name.
+`TYPE` and `VALUE` use the incoming term scope; the
+name enters scope only in `BODY`, where it shadows an outer term binding or a
+same-spelled universe without changing universe lookup. Its declaration token
+navigates to itself. The `#parameter` metadata token and malformed let shapes
+have no navigation fallback. Explicit `#pt-use` references inside the body
+continue to select globals. File resolution preserves these same type, value,
+and body boundaries through aliases and generated source.
+
 Universe occurrences navigate in `#pt-type`, `#pt-sort`, explicit level argument
 lists, and nested `#pt-level-succ`, `#pt-level-max`, and `#pt-level-imax`
 expressions. `(#pt-sort LEVEL)` names the sort directly: sort 0 is Prop and sort

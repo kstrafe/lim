@@ -631,6 +631,88 @@ fn unit_conversion_compares_universe_arguments_in_both_directions() {
 }
 
 #[test]
+fn proof_let_keeps_type_definitions_available_inside_its_body() {
+    let mut k = Kernel::new();
+    let value = term(Term::Let(sort(1), nat(), refl(var(0), zero())));
+    k.definition(
+        "let-type-alias",
+        vec![],
+        eq(nat(), zero(), zero()),
+        value,
+        true,
+    )
+    .unwrap();
+}
+
+#[test]
+fn proof_let_substitution_shifts_values_and_binds_only_the_body() {
+    let mut k = Kernel::new();
+    let value = term(Term::Let(nat(), var(0), lam(nat(), var(1))));
+    k.check(&[nat()], &value, &pi(nat(), nat()), 0).unwrap();
+    assert!(k
+        .convertible(&[nat()], &value, &lam(nat(), var(1)), 0)
+        .unwrap());
+    let shifted = k.shift(&value, 1, 0, 0).unwrap();
+    let expected = term(Term::Let(nat(), var(1), lam(nat(), var(1))));
+    assert!(k
+        .convertible(&[nat(), nat()], &shifted, &expected, 0)
+        .unwrap());
+    let outer = term(Term::Let(nat(), var(0), lam(nat(), var(2))));
+    let instantiated = k.instantiate(&outer, &zero(), 0).unwrap();
+    k.check(&[], &instantiated, &pi(nat(), nat()), 0).unwrap();
+    assert!(k
+        .convertible(&[], &instantiated, &lam(nat(), zero()), 0)
+        .unwrap());
+}
+
+#[test]
+fn unused_proof_let_definitions_are_checked_before_zeta_reduction() {
+    let mut k = Kernel::new();
+    let expected = eq(nat(), zero(), zero());
+    for (name, value) in [
+        (
+            "bad-let-value",
+            term(Term::Let(nat(), refl(nat(), zero()), refl(nat(), zero()))),
+        ),
+        (
+            "bad-let-type",
+            term(Term::Let(zero(), zero(), refl(nat(), zero()))),
+        ),
+    ] {
+        assert!(k
+            .definition(name, vec![], expected.clone(), value, true)
+            .is_err());
+        assert!(!k.contains(name));
+    }
+}
+
+#[test]
+fn proof_lets_cannot_hide_negative_inductive_occurrences() {
+    for hidden in [
+        term(Term::Let(sort(0), pi(global("BadLet"), falsity()), var(0))),
+        term(Term::Let(
+            term(Term::Let(sort(0), pi(global("BadLet"), falsity()), nat())),
+            zero(),
+            nat(),
+        )),
+        term(Term::Let(nat(), zero(), pi(global("BadLet"), falsity()))),
+    ] {
+        let mut k = Kernel::new();
+        let error = k
+            .inductive(
+                "BadLet",
+                vec![],
+                vec![],
+                level(1),
+                vec![("roll".into(), vec![hidden])],
+            )
+            .unwrap_err();
+        assert!(error.contains("strict positivity"), "{error}");
+        assert!(!k.contains("BadLet"));
+    }
+}
+
+#[test]
 fn maximal_malformed_variable_index_returns_error_instead_of_panicking() {
     let mut k = Kernel::new();
     // Public declaration checking reaches infer(Var), whose index+1 must be checked.

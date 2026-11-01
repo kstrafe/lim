@@ -40,6 +40,71 @@ fn sort_and_imax_operands_navigate_only_their_universe_binders() {
 }
 
 #[test]
+fn pt_let_has_scoped_binder_and_outer_type_value_roles() {
+    run(
+        r#"
+      (#math-definition global () (#pt-type 0) #pt-nat)
+      (#math-definition scoped () (#pt-pi ((A (#pt-type 0)) (y A)) A)
+        (#pt-lambda (([[outer-type|A]] (#pt-type 0)) ([[outer|y]] A))
+          (#pt-let (#[[binder-keyword|parameter]] [[binder|x]] [[type-use|A]])
+            [[value-use|y]]
+            (#pt-app (#pt-lambda ((temporary A)) [[body-use|x]]) [[nested|x]]))))
+      (#math-definition after () (#pt-type 0) [[after-let|x]])
+    "#,
+        &[
+            ("binder-keyword", &[]),
+            ("binder", &["binder"]),
+            ("type-use", &["outer-type"]),
+            ("value-use", &["outer"]),
+            ("body-use", &["binder"]),
+            ("nested", &["binder"]),
+            ("after-let", &[]),
+        ],
+    );
+}
+
+#[test]
+fn malformed_pt_let_and_explicit_pt_use_fail_closed() {
+    for term in [
+        "(#pt-let (#parameter [[query|name]] #pt-nat) #pt-zero)",
+        "(#pt-let (#parameter name #pt-nat) [[query|name]] #pt-zero #pt-zero extra)",
+        "(#pt-let (#other [[query|name]] #pt-nat) #pt-zero #pt-zero)",
+    ] {
+        let source = format!(
+            "(#math-definition name () (#pt-type 0) #pt-nat) (#math-definition check () (#pt-type 0) {term})"
+        );
+        lim::parse(&source).expect("malformed kernel form must still have balanced S-expressions");
+        run(&source, &[("query", &[])]);
+    }
+    run(
+        "(#math-definition [[x|x]] () (#pt-type 0) #pt-nat) (#math-definition check () (#pt-type 0) (#pt-let (#parameter [[binder|x]] #pt-nat) #pt-zero (#pt-use [[explicit|x]] ())))",
+        &[("binder", &["binder"]), ("explicit", &["x"])],
+    );
+}
+
+#[test]
+fn pt_let_accepts_underscore_and_rejects_invalid_or_shadowing_binders() {
+    run(
+        "(#math-definition underscore () (#pt-type 0) (#pt-let (#parameter [[binder|_]] #pt-nat) #pt-zero [[use|_]]))",
+        &[("binder", &["binder"]), ("use", &["binder"])],
+    );
+
+    for expression in [
+        "(#pt-let (#parameter [[query|a/b]] #pt-nat) #pt-zero #pt-zero)",
+        "(#pt-let (#parameter [[query|a::b]] #pt-nat) #pt-zero #pt-zero)",
+        "(#pt-let (#parameter [[query|7name]] #pt-nat) #pt-zero #pt-zero)",
+        "(#pt-lambda ((x #pt-nat)) (#pt-let (#parameter [[query|x]] #pt-nat) #pt-zero x))",
+        "(#pt-let (#parameter [[query|u]] #pt-nat) #pt-zero #pt-zero)",
+    ] {
+        let source = format!(
+            "(#math-definition u () (#pt-type 0) #pt-nat) (#math-definition check (u) (#pt-type 0) {expression})"
+        );
+        lim::parse(&source).expect("invalid binder fixture must have balanced S-expressions");
+        run(&source, &[("query", &[])]);
+    }
+}
+
+#[test]
 fn theorem_sort_parameters_use_the_shared_universe_scope() {
     run(
         r#"

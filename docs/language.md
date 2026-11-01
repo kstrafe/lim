@@ -2094,12 +2094,35 @@ conversion rule described below.
 procedural checker has passed. Procedural obligations are checked first, then
 mathematical declarations in topological dependency order; cycles are rejected.
 All proofs are rechecked on warm-cache validation and have zero native emission.
-Conversion supports beta, transparent delta, and constructor/eliminator iota
-computation, including pair projections and equality elimination J at
-reflexivity, with opaque theorems. J checks its motive at a fresh generic
-endpoint and equality, not only at the supplied endpoint. There is no term let
-or zeta reduction, cumulativity, quotient, classical axiom, admit, general
-recursion, or metavariable hole.
+Conversion supports beta, transparent delta, typed-local-let zeta, and
+constructor/eliminator iota computation, including pair projections and
+equality elimination J at reflexivity, with opaque theorems. J checks its
+motive at a fresh generic endpoint and equality, not only at the supplied
+endpoint. There is no
+cumulativity, quotient, classical axiom, admit, general recursion, or
+metavariable hole.
+
+`(#pt-let (#parameter NAME TYPE) VALUE BODY)` binds an explicitly typed local
+name only in `BODY`. `TYPE` and `VALUE` use the outer scope. Locals and universe
+parameters cannot be shadowed, and there is no implicit typing or recursion.
+The checker verifies that `TYPE` has a sort and that `VALUE` matches it, then
+substitutes the value before inferring the body. This is a genuine let with
+zeta reduction in weak-head normalization, not merely a lambda application:
+
+```lisp library
+(#theorem zero-via-alias
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof
+    (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat
+      (#pt-refl Alias #pt-zero))))
+```
+
+The alias is known to be Nat when the body is checked. An unused bad value or
+annotation still fails, as do source errors and exhausted budgets; reduction
+cannot hide these failures. No full Lean term importer or FLT proof is supplied
+by this binding form.
 
 Typed function eta identifies `f` with `lambda x. f x` at the same checked
 function type. Primitive dependent Sigma pair eta identifies `p` with
@@ -3031,7 +3054,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
-| `#parameter` | `(#parameter name TYPE)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | One explicitly typed term parameter in the #parameters clause; bound in both the statement and evidence. |
+| `#parameter` | `(#parameter name TYPE)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit typed binder in #parameters or #pt-let. Theorem parameters bind in the statement and evidence; a let name binds only its BODY, after its annotation and value are checked in the outer scope. |
 | `#parameter-of` | `(#parameter-of FUNCTION PARAMETER-NAME)` inside #proof-requires-validation | `(#theorem safe (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))` (procedural theorem declaration) | Selects an existing parameter of the named function; introduces no theorem binding. Accepted only as a validation descriptor; old bare pairs are rejected. Unlike #parameter, this is a reference rather than a binder. |
 | `#parameters` | `(#parameters (#parameter name TYPE)...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit theorem parameter clause; use (#parameters) for no term parameters. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
@@ -3099,6 +3122,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
 | `#pt-induct` | `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)` | `(#pt-induct ticks () () (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat) (#pt-zero (#pt-lambda ((p (#pt-use ticks ())) (ih #pt-nat)) (#pt-succ ih))) t)` (mathematical term) | Eliminates a user inductive with branches in constructor order; an induction hypothesis follows each recursive field. Prop-to-Type elimination is restricted. |
 | `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
+| `#pt-let` | `(#pt-let (#parameter NAME TYPE) VALUE BODY)` | `(#theorem zero-via-alias (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat (#pt-refl Alias #pt-zero))))` (mathematical theorem declaration) | Typed local binding with TYPE and VALUE in the outer scope and NAME only in BODY. Checks the annotation sort and value type before substitution and body inference; supports true aliases and zeta reduction. No local/universe shadowing, implicit typing, or recursion; unused bad values and exhausted budgets still fail. |
 | `#pt-level-imax` | `(#pt-level-imax LEFT RIGHT)` | `(#math-definition prop-imax () (#pt-type 0) (#pt-sort (#pt-level-imax 2 0)))` (mathematical definition) | Explicit two-operand universe operation: zero if RIGHT is zero, otherwise max(LEFT, RIGHT). Pi sorts use imax(domainLevel, rangeLevel); symbolic relationships are checked for all nonnegative assignments within resource budgets. |
 | `#pt-level-max` | `(#pt-level-max LEVEL...)` | `(#pt-type (#pt-level-max u v))` (mathematical universe) | Maximum of explicit universe levels; does not infer missing universe arguments. |
 | `#pt-level-succ` | `(#pt-level-succ LEVEL)` | `(#pt-type (#pt-level-succ u))` (mathematical universe) | Successor of an explicit universe level; this is level syntax, not term arithmetic. |

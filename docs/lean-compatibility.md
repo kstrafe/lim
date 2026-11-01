@@ -123,7 +123,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | --- | --- | --- |
 | Inductive families | Regular parameterized datatypes with direct recursive fields. No indices, mutual recursion, or nested self occurrences. | Implement and audit indexed, mutual, and nested inductives, their positivity conditions, recursors, and computation rules. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
-| Conversion | Beta, transparent delta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Same-type values of a fully applied one-constructor, zero-field user datatype convert by the unit-like data rule, including neutrals; its recursor reduces to the sole branch on a neutral subject. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
+| Conversion | Beta, transparent delta, typed-local-let zeta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Same-type values of a fully applied one-constructor, zero-field user datatype convert by the unit-like data rule, including neutrals; its recursor reduces to the sole branch on a neutral subject. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
@@ -192,6 +192,18 @@ Pi and primitive Sigma eta compose with these value rules and proof irrelevance
 through proof or qualifying unit-like components, after source typing has been
 checked. This is not general record eta, a new syntax form, or full Lean parity;
 the full FLT proof and the other compatibility gaps remain open.
+
+Typed local lets are supported as
+`(#pt-let (#parameter NAME TYPE) VALUE BODY)`, with annotation and value in the
+outer scope and the name bound only in the body. No existing local or universe
+parameter may be shadowed. The checker establishes the annotation's sort and
+the value's type, then substitutes the value before inferring the body;
+weak-head normalization performs zeta reduction. This supports true type
+aliases and is not implemented semantically by merely lowering to a lambda
+application. Even an unused invalid value or a budget failure rejects the term.
+There is no implicit typing or recursion. A local let is not a standard Lean
+term importer, and does not discharge the missing dependency closure or FLT
+proof.
 
 The pinned metadata lists `propext`, `Classical.choice`, and `Quot.sound` as the
 axioms used by the upstream full result. Lim currently supplies none of these

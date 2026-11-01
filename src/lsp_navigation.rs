@@ -929,6 +929,46 @@ impl<'a> Index<'a> {
         }
         let xs = &node.children;
         match head(node) {
+            "pt-let" => {
+                // A malformed let must not fall through to generic term roles.
+                if xs.len() != 4 || head(&xs[1]) != "parameter" || xs[1].children.len() != 3 {
+                    return vec![];
+                }
+                let parameter = &xs[1];
+                let Some(name) = parameter.children.get(1) else {
+                    return vec![];
+                };
+                let Some(identifier) = self.kernel_local_name(name).filter(|identifier| {
+                    !identifier.starts_with('#')
+                        && !identifier.contains([':', '/', '.', '@'])
+                        && identifier
+                            .chars()
+                            .next()
+                            .is_some_and(|character| character.is_alphabetic() || character == '_')
+                }) else {
+                    return vec![];
+                };
+                // A let binder cannot replace an existing term or universe
+                // binding. Keep the declaration and body from acquiring a
+                // synthetic navigation target for an invalid shadow.
+                if scope.contains_key(identifier) || levels.contains_key(identifier) {
+                    return vec![];
+                }
+                if self.contains(name) {
+                    return self.kernel_bind(name, &mut scope.clone());
+                }
+                if let Some(ty) = parameter.children.get(2).filter(|ty| self.contains(ty)) {
+                    return self.kernel_term(ty, scope, levels);
+                }
+                if let Some(value) = xs.get(2).filter(|value| self.contains(value)) {
+                    return self.kernel_term(value, scope, levels);
+                }
+                let mut inner = scope.clone();
+                self.kernel_bind(name, &mut inner);
+                if let Some(body) = xs.get(3) {
+                    return self.kernel_term(body, &inner, levels);
+                }
+            }
             "pt-type" | "pt-sort" => {
                 if head(node) == "pt-sort" && xs.len() != 2 {
                     return vec![];

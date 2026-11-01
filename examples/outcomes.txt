@@ -464,3 +464,4 @@ exit 42 sort_polymorphism.lim - -
 exit 42 proof_irrelevance.lim - -
 exit 42 proof_eta.lim - -
 exit 42 proof_unit.lim - -
+exit 42 proof_let.lim - -

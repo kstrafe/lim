@@ -181,6 +181,38 @@ Mathematical Pi quantification is distinct from procedural `#proof-for-all`.
 A Pi proof is a checked function term; it does not enumerate values or invoke
 the bitvector solver.
 
+## Typed local lets and aliases
+
+`(#pt-let (#parameter NAME TYPE) VALUE BODY)` is a genuine typed local binding.
+`TYPE` and `VALUE` are checked in the outer scope; `NAME` is visible only in
+`BODY`. The name cannot shadow an existing local or universe parameter. The
+annotation is required, and the value cannot recursively reference its own
+new binding.
+
+The kernel checks that `TYPE` has a sort and that `VALUE` has that type before
+substituting the value into `BODY` and inferring the substituted body. This
+supports a local type alias whose definition is known while checking the body:
+
+```lisp
+(#theorem zero-via-alias
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof
+    (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat
+      (#pt-refl Alias #pt-zero))))
+```
+
+Here `Alias` becomes Nat before the body is inferred. Simply lowering the let
+to a lambda application would instead check a body with an abstract type
+parameter and would not implement these alias semantics.
+
+Weak-head normalization uses zeta reduction to substitute the checked value.
+Neither an unused binding nor later reduction excuses an ill-typed value,
+malformed annotation, source error, or exhausted checking budget. Errors fail
+closed even when the body does not mention the new name. This feature adds
+no implicit typing, general recursion, or Lean environment importer.
+
 ## Dependent pairs
 
 `#pt-sigma` takes exactly one binder in a binder list:
@@ -563,8 +595,9 @@ fresh-endpoint check; agreement only at the supplied endpoint is insufficient.
 A recursor for a fieldless singleton proposition also reduces to its single
 branch when its proof subject is opaque. These proof-aware reductions do not
 unfold opaque theorem bodies or provide full Lean eta.
-Theorems remain opaque. There is no zeta reduction for term lets, since term
-`let` is unsupported, and no cumulativity. Typed conversion also identifies
+Theorems remain opaque. Typed local `#pt-let` bindings support zeta reduction:
+weak-head normalization substitutes the checked value into the body. There is
+no cumulativity. Typed conversion also identifies
 well-typed proofs of the same proposition, carrying the local context through
 dependent binders; it does not identify arbitrary proposition types or data.
 Conversion is not an unrestricted simplifier or a tactic search engine.
@@ -633,7 +666,7 @@ proof or qualifying fieldless components. This does not add eta for arbitrary
 user-inductive records with fields, arbitrary equality-proof-driven function
 extensionality, or full Lean conversion parity. No public syntax is added.
 
-The kernel has no term `let`, cumulativity, quotients,
+The kernel has no cumulativity, quotients,
 classical axioms, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
 normalization resources still apply; resource exhaustion must fail checking,

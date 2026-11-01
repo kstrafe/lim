@@ -386,7 +386,36 @@ impl Resolver<'_> {
         locals: &HashSet<String>,
     ) -> Result<(), SourceError> {
         let kind = head(node).to_owned();
-        if matches!(kind.as_str(), "#pt-pi" | "#pt-lambda" | "#pt-sigma") {
+        if kind == "#pt-let" {
+            // Keep malformed forms inert: a partial binder must not turn its
+            // apparent name or operands into file/global references.
+            let binder_name = node
+                .children
+                .get(1)
+                .and_then(|parameter| parameter.children.get(1))
+                .and_then(symbol)
+                .map(str::to_owned);
+            if node.children.len() != 4
+                || head(&node.children[1]) != "#parameter"
+                || node.children[1].children.len() != 3
+                || !matches!(&node.children[1].children[1].expr, Expr::Symbol(name)
+                    if !name.starts_with('#')
+                        && !name.contains([':', '/', '.', '@'])
+                        && name.chars().next().is_some_and(|character| character.is_alphabetic() || character == '_'))
+            {
+                return rebuild(node);
+            }
+            let mut inner = locals.clone();
+            if let Some(ty) = node.children[1].children.get_mut(2) {
+                self.proof_term(ty, file, locals)?;
+            }
+            if let Some(name) = binder_name {
+                inner.insert(name);
+            }
+            rebuild(&mut node.children[1])?;
+            self.proof_term_child(node, 2, file, locals)?;
+            self.proof_term_child(node, 3, file, &inner)?;
+        } else if matches!(kind.as_str(), "#pt-pi" | "#pt-lambda" | "#pt-sigma") {
             let binder_index = 1;
             let body_index = 2;
             let mut inner = locals.clone();
