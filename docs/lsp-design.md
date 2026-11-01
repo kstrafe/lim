@@ -418,3 +418,12 @@ constructor fields and labels, aliases, imports and generated declarations.
 It also covers clause metadata, shadowing, isolated scopes, missing or ambiguous
 constructors and wrong declaration kinds. `tests/proof_navigation.rs` covers
 procedural shorthand theorems and their runtime operand roles.
+
+
+Quotient terms use exact arities: `#pt-quot` and `#pt-quot-make` resolve their
+universe operand with universe scope and remaining operands as terms;
+`#pt-quot-lift` requires a two-element source/target level list, then resolves
+all term operands (including respect proof and subject); `#pt-quot-induct`
+resolves its level separately and all remaining operands as terms. None bind
+names. Malformed layouts return no navigation targets, including on keyword-like
+operand spellings.

@@ -118,6 +118,41 @@ impl Kernel {
                 }
             }
             match value.as_ref() {
+                Term::QuotType(_, a, r) => {
+                    pending.extend([a.clone(), r.clone()].into_iter().map(|v| (v, binders)))
+                }
+                Term::QuotMake(_, a, r, x) => pending.extend(
+                    [a.clone(), r.clone(), x.clone()]
+                        .into_iter()
+                        .map(|v| (v, binders)),
+                ),
+                Term::QuotLift {
+                    ty,
+                    relation,
+                    target,
+                    function,
+                    respect,
+                    subject,
+                    ..
+                } => pending.extend(
+                    [ty, relation, target, function, respect, subject]
+                        .into_iter()
+                        .cloned()
+                        .map(|v| (v, binders)),
+                ),
+                Term::QuotInduct {
+                    ty,
+                    relation,
+                    motive,
+                    branch,
+                    subject,
+                    ..
+                } => pending.extend(
+                    [ty, relation, motive, branch, subject]
+                        .into_iter()
+                        .cloned()
+                        .map(|v| (v, binders)),
+                ),
                 Term::Pi(a, b) | Term::Lam(a, b) | Term::Sigma(a, b) => {
                     pending.push((a.clone(), binders));
                     pending.push((b.clone(), binders + 1));

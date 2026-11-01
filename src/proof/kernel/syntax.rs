@@ -33,6 +33,63 @@ impl Kernel {
             }
 
             match (&*left, &*right) {
+                (Term::QuotType(u, a, r), Term::QuotType(v, b, s)) if u == v => {
+                    child!(a, b);
+                    child!(r, s);
+                }
+                (Term::QuotMake(u, a, r, x), Term::QuotMake(v, b, s, y)) if u == v => {
+                    child!(a, b);
+                    child!(r, s);
+                    child!(x, y);
+                }
+                (
+                    Term::QuotLift {
+                        source_level: u,
+                        target_level: v,
+                        ty: a,
+                        relation: r,
+                        target: b,
+                        function: f,
+                        respect: h,
+                        subject: q,
+                    },
+                    Term::QuotLift {
+                        source_level: w,
+                        target_level: z,
+                        ty: c,
+                        relation: s,
+                        target: d,
+                        function: g,
+                        respect: i,
+                        subject: p,
+                    },
+                ) if u == w && v == z => {
+                    for (a, b) in [a, r, b, f, h, q].into_iter().zip([c, s, d, g, i, p]) {
+                        child!(a, b);
+                    }
+                }
+                (
+                    Term::QuotInduct {
+                        level: u,
+                        ty: a,
+                        relation: r,
+                        motive: m,
+                        branch: b,
+                        subject: q,
+                    },
+                    Term::QuotInduct {
+                        level: v,
+                        ty: c,
+                        relation: s,
+                        motive: n,
+                        branch: d,
+                        subject: p,
+                    },
+                ) if u == v => {
+                    for (a, b) in [a, r, m, b, q].into_iter().zip([c, s, n, d, p]) {
+                        child!(a, b);
+                    }
+                }
                 (Term::Sort(a), Term::Sort(b)) if a == b => {}
                 (Term::Var(a), Term::Var(b)) if a == b => {}
                 (Term::Global(a, al), Term::Global(b, bl)) if a == b && al == bl => {}

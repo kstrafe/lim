@@ -15,6 +15,8 @@ pub(super) mod export;
 mod inductive;
 #[path = "nested.rs"]
 mod nested;
+#[path = "quotient.rs"]
+mod quotient;
 #[path = "syntax.rs"]
 mod syntax;
 use nested::{NestedBuild, NestedFamily};
@@ -46,6 +48,26 @@ pub(super) enum Term {
     },
     Eq(T, T, T),
     Refl(T, T),
+    QuotType(Level, T, T),
+    QuotMake(Level, T, T, T),
+    QuotLift {
+        source_level: Level,
+        target_level: Level,
+        ty: T,
+        relation: T,
+        target: T,
+        function: T,
+        respect: T,
+        subject: T,
+    },
+    QuotInduct {
+        level: Level,
+        ty: T,
+        relation: T,
+        motive: T,
+        branch: T,
+        subject: T,
+    },
     EqElim {
         ty: T,
         left: T,
@@ -544,6 +566,41 @@ impl Kernel {
                 self.check(ctx, a, ty, depth + 1)?;
                 Ok(term(Term::Eq(ty.clone(), a.clone(), a.clone())))
             }
+            Term::QuotType(level, ty, relation) => {
+                self.quotient_type(ctx, level, ty, relation, depth + 1)
+            }
+            Term::QuotMake(level, ty, relation, value) => {
+                self.quotient_make(ctx, level, ty, relation, value, depth + 1)
+            }
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+            } => self.quotient_lift(
+                ctx,
+                source_level,
+                target_level,
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+                depth + 1,
+            ),
+            Term::QuotInduct {
+                level,
+                ty,
+                relation,
+                motive,
+                branch,
+                subject,
+            } => self.quotient_induct(ctx, level, ty, relation, motive, branch, subject, depth + 1),
             Term::EqElim {
                 ty,
                 left,
@@ -1002,6 +1059,40 @@ impl Kernel {
                         subject: subject.clone(),
                     });
                 }
+                Term::QuotLift {
+                    source_level,
+                    ty,
+                    relation,
+                    function,
+                    subject,
+                    ..
+                }
+                | Term::QuotInduct {
+                    level: source_level,
+                    ty,
+                    relation,
+                    branch: function,
+                    subject,
+                    ..
+                } => {
+                    let reduced = self.whnf(ctx, subject, depth + 1)?;
+                    if let Term::QuotMake(
+                        actual_level,
+                        actual_ty,
+                        actual_relation,
+                        representative,
+                    ) = reduced.as_ref()
+                    {
+                        if source_level.equivalent(actual_level)?
+                            && self.convertible(ctx, ty, actual_ty, depth + 1)?
+                            && self.convertible(ctx, relation, actual_relation, depth + 1)?
+                        {
+                            value = apps(function.clone(), std::slice::from_ref(representative));
+                            continue;
+                        }
+                    }
+                    return Ok(value);
+                }
                 _ => return Ok(value),
             }
         }
@@ -1020,6 +1111,83 @@ impl Kernel {
             (Term::Sort(a), Term::Sort(b)) => a.equivalent(b),
             (Term::Var(a), Term::Var(b)) => Ok(a == b),
             (Term::Global(a, u), Term::Global(b, v)) => Ok(a == b && same_levels(u, v)?),
+            (Term::QuotType(u, a, r), Term::QuotType(v, b, s)) => Ok(u.equivalent(v)?
+                && self.convertible(ctx, a, b, depth + 1)?
+                && self.convertible(ctx, r, s, depth + 1)?),
+            (Term::QuotMake(u, a, r, x), Term::QuotMake(v, b, s, y)) => Ok(u.equivalent(v)?
+                && self.same_many(
+                    ctx,
+                    &[a.clone(), r.clone(), x.clone()],
+                    &[b.clone(), s.clone(), y.clone()],
+                    depth + 1,
+                )?),
+            (
+                Term::QuotLift {
+                    source_level: u,
+                    target_level: v,
+                    ty: a,
+                    relation: r,
+                    target: b,
+                    function: f,
+                    respect: h,
+                    subject: q,
+                },
+                Term::QuotLift {
+                    source_level: w,
+                    target_level: z,
+                    ty: c,
+                    relation: s,
+                    target: d,
+                    function: g,
+                    respect: i,
+                    subject: p,
+                },
+            ) => Ok(u.equivalent(w)?
+                && v.equivalent(z)?
+                && self.same_many(
+                    ctx,
+                    &[
+                        a.clone(),
+                        r.clone(),
+                        b.clone(),
+                        f.clone(),
+                        h.clone(),
+                        q.clone(),
+                    ],
+                    &[
+                        c.clone(),
+                        s.clone(),
+                        d.clone(),
+                        g.clone(),
+                        i.clone(),
+                        p.clone(),
+                    ],
+                    depth + 1,
+                )?),
+            (
+                Term::QuotInduct {
+                    level: u,
+                    ty: a,
+                    relation: r,
+                    motive: m,
+                    branch: b,
+                    subject: q,
+                },
+                Term::QuotInduct {
+                    level: v,
+                    ty: c,
+                    relation: s,
+                    motive: n,
+                    branch: d,
+                    subject: p,
+                },
+            ) => Ok(u.equivalent(v)?
+                && self.same_many(
+                    ctx,
+                    &[a.clone(), r.clone(), m.clone(), b.clone(), q.clone()],
+                    &[c.clone(), s.clone(), n.clone(), d.clone(), p.clone()],
+                    depth + 1,
+                )?),
             (Term::Pi(a, b), Term::Pi(c, d))
             | (Term::Lam(a, b), Term::Lam(c, d))
             | (Term::Sigma(a, b), Term::Sigma(c, d)) => {
@@ -1401,6 +1569,42 @@ impl Kernel {
             },
             Term::Eq(a, b, c) => Term::Eq(walk!(a), walk!(b), walk!(c)),
             Term::Refl(a, b) => Term::Refl(walk!(a), walk!(b)),
+            Term::QuotType(l, a, r) => Term::QuotType(level(l)?, walk!(a), walk!(r)),
+            Term::QuotMake(l, a, r, v) => Term::QuotMake(level(l)?, walk!(a), walk!(r), walk!(v)),
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+            } => Term::QuotLift {
+                source_level: level(source_level)?,
+                target_level: level(target_level)?,
+                ty: walk!(ty),
+                relation: walk!(relation),
+                target: walk!(target),
+                function: walk!(function),
+                respect: walk!(respect),
+                subject: walk!(subject),
+            },
+            Term::QuotInduct {
+                level: l,
+                ty,
+                relation,
+                motive,
+                branch,
+                subject,
+            } => Term::QuotInduct {
+                level: level(l)?,
+                ty: walk!(ty),
+                relation: walk!(relation),
+                motive: walk!(motive),
+                branch: walk!(branch),
+                subject: walk!(subject),
+            },
             Term::EqElim {
                 ty,
                 left,
@@ -1520,6 +1724,16 @@ impl Kernel {
         };
         let levels = match &transformed {
             Term::Sort(level) => level.memory_weight(),
+            Term::QuotType(level, ..)
+            | Term::QuotMake(level, ..)
+            | Term::QuotInduct { level, .. } => level.memory_weight(),
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ..
+            } => source_level
+                .memory_weight()
+                .saturating_add(target_level.memory_weight()),
             Term::Global(_, levels)
             | Term::Ctor { levels, .. }
             | Term::Induct { levels, .. }
@@ -1594,6 +1808,33 @@ fn contains_recursive(t: &T, name: &str) -> bool {
             right,
             proof,
         } => [ty, left, motive, base, right, proof]
+            .iter()
+            .any(|t| contains_recursive(t, name)),
+        Term::QuotType(_, ty, relation) => {
+            [ty, relation].iter().any(|t| contains_recursive(t, name))
+        }
+        Term::QuotMake(_, ty, relation, value) => [ty, relation, value]
+            .iter()
+            .any(|t| contains_recursive(t, name)),
+        Term::QuotLift {
+            ty,
+            relation,
+            target,
+            function,
+            respect,
+            subject,
+            ..
+        } => [ty, relation, target, function, respect, subject]
+            .iter()
+            .any(|t| contains_recursive(t, name)),
+        Term::QuotInduct {
+            ty,
+            relation,
+            motive,
+            branch,
+            subject,
+            ..
+        } => [ty, relation, motive, branch, subject]
             .iter()
             .any(|t| contains_recursive(t, name)),
         Term::Ctor {

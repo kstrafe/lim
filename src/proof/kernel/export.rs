@@ -567,6 +567,29 @@ fn dependencies(roots: &[T]) -> Result<Vec<String>> {
             return Err("export dependency traversal limit exceeded".into());
         }
         match value.as_ref() {
+            Term::QuotType(_, a, r) => stack.extend([a.clone(), r.clone()]),
+            Term::QuotMake(_, a, r, x) => stack.extend([a.clone(), r.clone(), x.clone()]),
+            Term::QuotLift {
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+                ..
+            } => stack.extend(
+                [ty, relation, target, function, respect, subject]
+                    .into_iter()
+                    .cloned(),
+            ),
+            Term::QuotInduct {
+                ty,
+                relation,
+                motive,
+                branch,
+                subject,
+                ..
+            } => stack.extend([ty, relation, motive, branch, subject].into_iter().cloned()),
             Term::Global(name, _) => {
                 names.insert(name.clone());
             }

@@ -285,6 +285,46 @@ impl Relocate<'_> {
             };
         }
         let result = term(match value.as_ref() {
+            Term::QuotType(l, a, r) => {
+                Term::QuotType(l.substitute(self.levels)?, walk!(a), walk!(r))
+            }
+            Term::QuotMake(l, a, r, x) => {
+                Term::QuotMake(l.substitute(self.levels)?, walk!(a), walk!(r), walk!(x))
+            }
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+            } => Term::QuotLift {
+                source_level: source_level.substitute(self.levels)?,
+                target_level: target_level.substitute(self.levels)?,
+                ty: walk!(ty),
+                relation: walk!(relation),
+                target: walk!(target),
+                function: walk!(function),
+                respect: walk!(respect),
+                subject: walk!(subject),
+            },
+            Term::QuotInduct {
+                level,
+                ty,
+                relation,
+                motive,
+                branch,
+                subject,
+            } => Term::QuotInduct {
+                level: level.substitute(self.levels)?,
+                ty: walk!(ty),
+                relation: walk!(relation),
+                motive: walk!(motive),
+                branch: walk!(branch),
+                subject: walk!(subject),
+            },
             Term::Sort(level) => Term::Sort(level.substitute(self.levels)?),
             Term::Var(index) => Term::Var(*index),
             Term::Global(name, levels) => Term::Global(self.name(name)?, levels!(levels)),
@@ -420,6 +460,16 @@ impl Relocate<'_> {
         });
         let level_bytes = match result.as_ref() {
             Term::Sort(level) => level.memory_weight(),
+            Term::QuotType(level, ..)
+            | Term::QuotMake(level, ..)
+            | Term::QuotInduct { level, .. } => level.memory_weight(),
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ..
+            } => source_level
+                .memory_weight()
+                .saturating_add(target_level.memory_weight()),
             Term::Global(_, levels)
             | Term::Ctor { levels, .. }
             | Term::Induct { levels, .. }

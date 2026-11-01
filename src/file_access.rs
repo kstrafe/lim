@@ -440,6 +440,24 @@ impl Resolver<'_> {
             "#pt-type" | "#pt-sort" | "#pt-level-succ" | "#pt-level-max" | "#pt-level-imax"
         ) {
             // Universe levels are metadata and never participate in file-name lookup.
+        } else if matches!(
+            kind.as_str(),
+            "#pt-quot" | "#pt-quot-make" | "#pt-quot-lift" | "#pt-quot-induct"
+        ) {
+            let arity = match kind.as_str() {
+                "#pt-quot" => 4,
+                "#pt-quot-make" => 5,
+                "#pt-quot-lift" => 8,
+                _ => 7,
+            };
+            if node.children.len() == arity
+                && (kind != "#pt-quot-lift"
+                    || matches!(&node.children[1].expr,Expr::List(parts) if parts.len()==2))
+            {
+                for index in 2..node.children.len() {
+                    self.proof_term_child(node, index, file, locals)?;
+                }
+            }
         } else if kind == "#pt-use" || kind == "#pt-program" || kind == "#pt-certificate" {
             if let Some(name) = node.children.get_mut(1) {
                 self.rewrite(name, file, &HashSet::new())?;

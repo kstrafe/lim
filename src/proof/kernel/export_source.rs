@@ -148,6 +148,57 @@ impl Writer<'_> {
                 self.level(level)?;
                 self.push(")")
             }
+            Term::QuotType(l, a, r) | Term::QuotMake(l, a, r, _) => {
+                self.push(if matches!(value.as_ref(), Term::QuotType(..)) {
+                    "(#pt-quot "
+                } else {
+                    "(#pt-quot-make "
+                })?;
+                self.level(l)?;
+                self.push(" ")?;
+                self.term(a, binders, depth + 1)?;
+                self.push(" ")?;
+                self.term(r, binders, depth + 1)?;
+                if let Term::QuotMake(_, _, _, x) = value.as_ref() {
+                    self.push(" ")?;
+                    self.term(x, binders, depth + 1)?;
+                }
+                self.push(")")
+            }
+            Term::QuotLift {
+                source_level,
+                target_level,
+                ty,
+                relation,
+                target,
+                function,
+                respect,
+                subject,
+            } => {
+                self.push("(#pt-quot-lift ")?;
+                self.levels(&[source_level.clone(), target_level.clone()])?;
+                for value in [ty, relation, target, function, respect, subject] {
+                    self.push(" ")?;
+                    self.term(value, binders, depth + 1)?;
+                }
+                self.push(")")
+            }
+            Term::QuotInduct {
+                level,
+                ty,
+                relation,
+                motive,
+                branch,
+                subject,
+            } => {
+                self.push("(#pt-quot-induct ")?;
+                self.level(level)?;
+                for value in [ty, relation, motive, branch, subject] {
+                    self.push(" ")?;
+                    self.term(value, binders, depth + 1)?;
+                }
+                self.push(")")
+            }
             Term::Var(index) => {
                 let number = index
                     .checked_add(1)

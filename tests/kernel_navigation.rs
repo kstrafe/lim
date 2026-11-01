@@ -139,6 +139,76 @@ fn sort_and_imax_operands_navigate_only_their_universe_binders() {
 }
 
 #[test]
+fn quotient_terms_separate_universe_roles_and_resolve_every_term_operand() {
+    run(
+        r#"
+      (#math-definition [[definition|quotient-use]] ([[universe|u]] [[target-universe|v]])
+        (#pt-type 0)
+        (#pt-lambda (([[type|alpha]] #pt-nat) ([[relation|rel]] #pt-nat)
+                     ([[target-type|beta]] #pt-nat) ([[function|f]] #pt-nat)
+                     ([[respect|respects]] #pt-nat) ([[value|value]] #pt-nat)
+                     ([[subject|subject]] #pt-nat) ([[motive|motive]] #pt-nat)
+                     ([[constructor-proof|constructor]] #pt-nat))
+          (#pt-pair #pt-nat
+            (#pt-quot [[quot-level|u]] [[quot-type|alpha]] [[quot-relation|rel]])
+            (#pt-pair #pt-nat
+              (#pt-quot-make [[make-level|u]] [[make-type|alpha]] [[make-relation|rel]] [[make-value|value]])
+              (#pt-pair #pt-nat
+                (#pt-quot-lift ([[source-level|u]] [[lift-target-level|v]]) [[lift-type|alpha]] [[lift-relation|rel]] [[lift-target-type|beta]] [[lift-function|f]] [[lift-respect|respects]] [[lift-subject|subject]])
+                (#pt-quot-induct [[induct-level|u]] [[induct-type|alpha]] [[induct-relation|rel]] [[induct-motive|motive]] [[induct-constructor|constructor]] [[induct-subject|subject]]))))))
+      (#math-definition namesake () #pt-nat #pt-zero)
+    "#,
+        &[
+            ("definition", &["definition"]),
+            ("universe", &["universe"]),
+            ("target-universe", &["target-universe"]),
+            ("quot-level", &["universe"]),
+            ("make-level", &["universe"]),
+            ("source-level", &["universe"]),
+            ("lift-target-level", &["target-universe"]),
+            ("induct-level", &["universe"]),
+            ("quot-type", &["type"]),
+            ("quot-relation", &["relation"]),
+            ("make-type", &["type"]),
+            ("make-relation", &["relation"]),
+            ("make-value", &["value"]),
+            ("lift-type", &["type"]),
+            ("lift-relation", &["relation"]),
+            ("lift-target-type", &["target-type"]),
+            ("lift-function", &["function"]),
+            ("lift-respect", &["respect"]),
+            ("lift-subject", &["subject"]),
+            ("induct-type", &["type"]),
+            ("induct-relation", &["relation"]),
+            ("induct-motive", &["motive"]),
+            ("induct-constructor", &["constructor-proof"]),
+            ("induct-subject", &["subject"]),
+        ],
+    );
+}
+
+#[test]
+fn malformed_quotient_arities_pair_layouts_and_keyword_clicks_have_no_fallback() {
+    for expression in [
+        "(#[[query|pt-quot]] 0)",
+        "(#pt-quot [[query|u]] alpha)",
+        "(#pt-quot-make 0 alpha [[query|relation]])",
+        "(#pt-quot-make 0 alpha relation value [[query|extra]])",
+        "(#pt-quot-lift ([[query|u]]) alpha relation beta f respects subject)",
+        "(#pt-quot-lift ([[query|u]] v extra) alpha relation beta f respects subject)",
+        "(#pt-quot-lift (u [[query|v]]) alpha relation beta f respects subject extra)",
+        "(#pt-quot-induct 0 alpha relation motive [[query|proof]])",
+        "(#pt-quot-induct 0 alpha relation motive proof [[query|subject]] extra)",
+        "(#pt-quot-induct [[query|@u]] alpha relation motive proof subject)",
+    ] {
+        run(
+            &format!("(#math-definition u () #pt-nat #pt-zero) (#math-definition v () #pt-nat #pt-zero) (#math-definition alpha () #pt-nat #pt-zero) (#math-definition editing (u v) (#pt-type 0) (#pt-lambda ((relation #pt-nat) (beta #pt-nat) (f #pt-nat) (respects #pt-nat) (subject #pt-nat) (motive #pt-nat) (proof #pt-nat) (value #pt-nat)) {expression}))"),
+            &[("query", &[])],
+        );
+    }
+}
+
+#[test]
 fn pt_let_has_scoped_binder_and_outer_type_value_roles() {
     run(
         r#"

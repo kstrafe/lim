@@ -68,7 +68,7 @@ for s:proof in [
       \ 'pt-prop', 'pt-sort', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-let', 'pt-sigma', 'pt-app', 'pt-use', 'pt-self-at',
       \ 'pt-level-succ', 'pt-level-max', 'pt-level-imax', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
       \ 'pt-succ', 'pt-numeral', 'pt-construct', 'pt-project', 'pt-induct', 'pt-recur', 'pt-mutual-induct', 'pt-nested-induct', 'pt-case', 'pt-nat-induct',
-      \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second',
+      \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second', 'pt-quot', 'pt-quot-make', 'pt-quot-lift', 'pt-quot-induct',
       \ 'pt-program', 'pt-certificate',
       \ 'proof-and',
       \ 'proof-or',

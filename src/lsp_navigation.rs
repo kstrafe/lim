@@ -1318,6 +1318,53 @@ impl<'a> Index<'a> {
                     return self.kernel_terms(&xs[1], scope, levels);
                 }
             }
+            "pt-quot" => {
+                if xs.len() != 4 {
+                    return vec![];
+                }
+                if self.contains(&xs[1]) {
+                    return self.kernel_level(&xs[1], levels);
+                }
+                for operand in xs.iter().skip(2).filter(|x| self.contains(x)) {
+                    return self.kernel_term(operand, scope, levels);
+                }
+            }
+            "pt-quot-make" => {
+                if xs.len() != 5 {
+                    return vec![];
+                }
+                if self.contains(&xs[1]) {
+                    return self.kernel_level(&xs[1], levels);
+                }
+                for operand in xs.iter().skip(2).filter(|x| self.contains(x)) {
+                    return self.kernel_term(operand, scope, levels);
+                }
+            }
+            "pt-quot-lift" => {
+                if xs.len() != 8
+                    || !matches!(xs[1].expr, Expr::List(_))
+                    || xs[1].children.len() != 2
+                {
+                    return vec![];
+                }
+                for level in xs[1].children.iter().filter(|x| self.contains(x)) {
+                    return self.kernel_level(level, levels);
+                }
+                for operand in xs.iter().skip(2).filter(|x| self.contains(x)) {
+                    return self.kernel_term(operand, scope, levels);
+                }
+            }
+            "pt-quot-induct" => {
+                if xs.len() != 7 {
+                    return vec![];
+                }
+                if self.contains(&xs[1]) {
+                    return self.kernel_level(&xs[1], levels);
+                }
+                for operand in xs.iter().skip(2).filter(|x| self.contains(x)) {
+                    return self.kernel_term(operand, scope, levels);
+                }
+            }
             "pt-app" | "pt-eq" | "pt-refl" | "pt-eq-elim" | "pt-pair" | "pt-first"
             | "pt-second" | "pt-succ" | "pt-nat-induct" => {
                 for operand in xs.iter().skip(1).filter(|node| self.contains(node)) {

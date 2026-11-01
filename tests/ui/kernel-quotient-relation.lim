@@ -1,0 +1,2 @@
+(#math-definition bad () (#pt-type 0) (#pt-quot 1 #pt-nat #pt-zero))
+(#fn main () #u64 (#return 0u64))

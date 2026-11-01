@@ -2209,8 +2209,8 @@ constructor/eliminator iota computation, including pair projections and
 equality elimination J at reflexivity, with opaque theorems. J checks its
 motive at a fresh generic endpoint and equality, not only at the supplied
 endpoint. There is no
-cumulativity, quotient, classical axiom, admit, general recursion, or
-metavariable hole.
+cumulativity, quotient soundness or external quotient replay, classical axiom,
+admit, general recursion, or metavariable hole.
 
 `(#pt-let (#parameter NAME TYPE) VALUE BODY)` binds an explicitly typed local
 name only in `BODY`. `TYPE` and `VALUE` use the outer scope. Locals and universe
@@ -3284,6 +3284,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |
 | `#pt-project` | `(#pt-project FAMILY INDEX SUBJECT)` | `(#pt-project package 1 value)` (mathematical term; package is an unindexed nonrecursive record, value has its type) | Checked zero-based projection with dependent field types; parameters and universes come from the subject. Rejects hidden data extraction from Prop, wrong families or ordinals, and indexed or recursive records. |
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
+| `#pt-quot` | `(#pt-quot LEVEL TYPE RELATION)` | `(#pt-quot 1 #pt-nat relation)` (mathematical type) | Immutable quotient of TYPE by an arbitrary binary relation TYPE → TYPE → Prop; the relation need not be an equivalence. LEVEL is explicit universe syntax. Quotient soundness is not introduced. |
+| `#pt-quot-induct` | `(#pt-quot-induct LEVEL TYPE RELATION MOTIVE CONSTRUCTOR-PROOF SUBJECT)` | `(#pt-quot-induct u α relation motive constructor-proof subject)` (mathematical term; schematic) | Eliminates into Prop from a motive and constructor proof; computes on quotient constructors. Quotient soundness and external quotient replay remain unsupported; no choice or propext axiom is added. |
+| `#pt-quot-lift` | `(#pt-quot-lift (SOURCE-LEVEL TARGET-LEVEL) TYPE RELATION TARGET-TYPE FUNCTION RESPECT-PROOF SUBJECT)` | `(#pt-quot-lift (u v) α relation β f respects subject)` (mathematical term; schematic) | Checks the respect proof and every operand before lifting; computes on constructors. The two explicit levels form a list of exactly two universe expressions; levels are never inferred. |
+| `#pt-quot-make` | `(#pt-quot-make LEVEL TYPE RELATION VALUE)` | `(#pt-quot-make 1 #pt-nat relation value)` (mathematical term) | Constructs a quotient class from a value of TYPE; LEVEL is explicit and never inferred. |
 | `#pt-recur` | `(#pt-recur FAMILY (indices...))` | `(#math-inductive left () () (#mutual left right) (#pt-type 0) ((make ((child (#pt-recur right ()))))))` (mathematical declaration; right belongs to the same group) | Recursive field marker for an explicitly selected group family. Inherits uniform parameters and universes and supplies child indices; strictly positive Pi codomains are allowed. |
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |

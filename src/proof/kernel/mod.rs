@@ -528,6 +528,22 @@ impl Parser<'_> {
             "#pt-app"=>{if args.len()>65{return Err("kernel application argument limit exceeded".into());}if args.len()<2{return Err("#pt-app requires a function and explicit arguments".into());}let f=self.expression(&args[0],depth+1)?;let args=args[1..].iter().map(|a|self.expression(a,depth+1)).collect::<Result<Vec<_>>>()?;Ok(apps(f,&args))},
             "#pt-eq"=>{arity(head,args,3)?;Ok(term(Term::Eq(self.expression(&args[0],depth+1)?,self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?)))},
             "#pt-refl"=>{arity(head,args,2)?;Ok(term(Term::Refl(self.expression(&args[0],depth+1)?,self.expression(&args[1],depth+1)?)))},
+            "#pt-quot"|"#pt-quot-make"=>{
+                arity(head,args,if head=="#pt-quot"{3}else{4})?;
+                let l=self.level(&args[0],depth+1)?;let a=self.expression(&args[1],depth+1)?;let r=self.expression(&args[2],depth+1)?;
+                Ok(term(if head=="#pt-quot"{Term::QuotType(l,a,r)}else{Term::QuotMake(l,a,r,self.expression(&args[3],depth+1)?)}))
+            },
+            "#pt-quot-lift"=>{
+                arity(head,args,7)?;let levels=self.levels(&args[0],depth+1)?;
+                if levels.len()!=2 {return Err("#pt-quot-lift requires exactly two explicit universe levels".into());}
+                Ok(term(Term::QuotLift{source_level:levels[0].clone(),target_level:levels[1].clone(),
+                    ty:self.expression(&args[1],depth+1)?,relation:self.expression(&args[2],depth+1)?,target:self.expression(&args[3],depth+1)?,
+                    function:self.expression(&args[4],depth+1)?,respect:self.expression(&args[5],depth+1)?,subject:self.expression(&args[6],depth+1)?}))
+            },
+            "#pt-quot-induct"=>{
+                arity(head,args,6)?;Ok(term(Term::QuotInduct{level:self.level(&args[0],depth+1)?,ty:self.expression(&args[1],depth+1)?,
+                    relation:self.expression(&args[2],depth+1)?,motive:self.expression(&args[3],depth+1)?,branch:self.expression(&args[4],depth+1)?,subject:self.expression(&args[5],depth+1)?}))
+            },
             "#pt-eq-elim"=>{arity(head,args,6)?;Ok(term(Term::EqElim{ty:self.expression(&args[0],depth+1)?,left:self.expression(&args[1],depth+1)?,motive:self.expression(&args[2],depth+1)?,base:self.expression(&args[3],depth+1)?,right:self.expression(&args[4],depth+1)?,proof:self.expression(&args[5],depth+1)?}))},
             "#pt-pair"=>{arity(head,args,3)?;Ok(term(Term::Pair(self.expression(&args[0],depth+1)?,self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?)))},
             "#pt-first"|"#pt-second"=>{arity(head,args,1)?;let value=self.expression(&args[0],depth+1)?;Ok(term(if head=="#pt-first"{Term::First(value)}else{Term::Second(value)}))},
