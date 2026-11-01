@@ -8,7 +8,9 @@ pub use core::export::{
     check_lean_export, translate_lean_export, LeanDeclarationReport, LeanExportError,
     LeanExportReport, LeanExportTranslation,
 };
-use core::{apps, term, InductiveInput, Kernel, Level, NestedCase, RecursionCase, Term, T};
+use core::{
+    apps, term, InductiveInput, Kernel, Level, Natural, NestedCase, RecursionCase, Term, T,
+};
 use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;
 
@@ -568,7 +570,15 @@ impl Parser<'_> {
             "#pt-succ"=>{arity(head,args,1)?;Ok(nat_constructor("succ",vec![self.expression(&args[0],depth+1)?]))},
             "#pt-numeral"=>{
                 arity(head,args,1)?;let n=natural(&args[0])?;if n>128{return Err("kernel numeral abbreviation limit is 128; Nat itself is unbounded".into());}
-                let mut value=nat_constructor("zero",vec![]);for _ in 0..n {value=nat_constructor("succ",vec![value]);}Ok(value)
+                Ok(term(Term::NatLiteral {family:"#pt-nat".into(),value:Natural::parse(&n.to_string())?}))
+            }
+            "#pt-nat-literal" => {
+                arity(head,args,2)?;
+                let family = self.global(&args[0])?;
+                let Expr::String(decimal) = &args[1] else {
+                    return Err("#pt-nat-literal requires a family and a canonical decimal string".into());
+                };
+                Ok(term(Term::NatLiteral {family,value:Natural::parse(decimal)?}))
             }
             "#pt-nat-induct"=>{arity(head,args,4)?;Ok(term(Term::Induct{family:"#pt-nat".into(),levels:vec![],parameters:vec![],indices:vec![],motive:self.expression(&args[0],depth+1)?,branches:vec![self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?],subject:self.expression(&args[3],depth+1)?}))},
             "#pt-construct"=>{arity(head,args,5)?;let family=self.global(&args[0])?;Ok(term(Term::Ctor{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,constructor:symbol(&args[3])?.into(),fields:self.terms(&args[4],depth+1)?}))},

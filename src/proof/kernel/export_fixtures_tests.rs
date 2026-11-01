@@ -204,17 +204,50 @@ fn every_fixture_declaration_keeps_its_original_source_hash_and_license_notice()
 
 #[test]
 fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
-    let manifest = crate::lsp::json::parse(include_str!(
-        "../../../tests/fixtures/lean_export_quotient/provenance.json"
-    ))
-    .unwrap();
-    assert_eq!(text(&manifest, "schema"), "lim-lean-quotient-fixture-v1");
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_quotient/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_quotient/quotient.ndjson"),
+        include_str!("../../../theorems/lean_replay/quotient.lim"),
+        "QuotientSource.inductionReflexive",
+        "lim-lean-quotient-fixture-v1",
+        &["quotient-computation-v1"],
+        3,
+    );
+}
+
+#[test]
+fn genuine_natural_fixture_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_naturals/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_naturals/naturals.ndjson"),
+        include_str!("../../../theorems/lean_replay/naturals.lim"),
+        "NaturalSource.largerSuccessor",
+        "lim-lean-natural-fixture-v1",
+        &[],
+        5,
+    );
+}
+
+fn assert_primitive_fixture(
+    manifest: &str,
+    input: &[u8],
+    native: &str,
+    target: &str,
+    schema: &str,
+    foundations: &[&str],
+    expected_targets: usize,
+) {
+    let manifest = crate::lsp::json::parse(manifest).unwrap();
+    assert_eq!(text(&manifest, "schema"), schema);
     assert_eq!(text(&manifest, "lean_revision"), LEAN_EXPORT_GITHASH);
     assert_eq!(text(&manifest, "exporter_revision"), EXPORTER_REVISION);
     assert!(field(&manifest, "axioms").array().unwrap().is_empty());
     assert_eq!(
         field(&manifest, "foundations").array().unwrap(),
-        &[text_json("quotient-computation-v1")]
+        &foundations
+            .iter()
+            .map(|name| text_json(name))
+            .collect::<Vec<_>>()
     );
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for key in ["source", "producer", "origin_reader", "export", "native"] {
@@ -230,16 +263,14 @@ fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
         assert_eq!(text(license, "license"), "Apache-2.0");
         assert_eq!(text(license, "sha256"), digest(&bytes));
     }
-    let input = include_bytes!("../../../tests/fixtures/lean_export_quotient/quotient.ndjson");
-    let report = check_lean_export(input.as_slice(), "QuotientSource.inductionReflexive").unwrap();
+    let report = check_lean_export(input, target).unwrap();
     assert_eq!(
         text(field(&manifest, "export"), "sha256"),
         report.input_sha256
     );
     let mappings = field(&manifest, "declarations").array().unwrap();
     assert_eq!(mappings.len(), report.declarations.len());
-    let native =
-        crate::parse_program(include_str!("../../../theorems/lean_replay/quotient.lim")).unwrap();
+    let native = crate::parse_program(native).unwrap();
     assert_eq!(native.items.len(), mappings.len());
     let upstream = field(&manifest, "upstream_sources").array().unwrap();
     assert_eq!(upstream.len(), 1);
@@ -287,7 +318,7 @@ fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
                 assert_eq!(text(mapping, "source"), text(&upstream[0], "source"));
                 assert_eq!(text(mapping, "source_sha256"), text(&upstream[0], "sha256"));
             }
-            other => panic!("unrecorded quotient source project {other}"),
+            other => panic!("unrecorded primitive fixture source project {other}"),
         }
         if let Some(target) = field(field(&manifest, "native"), "targets").get(&declaration.name) {
             assert_eq!(target.string(), Some(name.as_str()));
@@ -295,5 +326,5 @@ fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
             target_count += 1;
         }
     }
-    assert_eq!(target_count, 3);
+    assert_eq!(target_count, expected_targets);
 }

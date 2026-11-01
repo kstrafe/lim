@@ -236,9 +236,9 @@ fn ordinary_literals_cannot_rebind_the_standard_nat_by_its_printed_name() {
         .find(|node| node.get("in").and_then(Json::integer) == Some(name))
         .unwrap();
     *field(field(node, "str"), "str") = Json::String("notZero".into());
-    // The literal's constructor dependency is missing, so the declaration
-    // fails before the final standard-signature audit is reached.
-    rejects(&data, "unchecked declaration dependency");
+    // Compact literals retain the nominal family reference. The final audit
+    // must still reject a family whose standard constructor was renamed.
+    rejects(&data, "standard checked Nat signature");
 }
 
 #[test]

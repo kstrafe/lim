@@ -322,9 +322,17 @@ formally verified kernel.
 `#pt-nat` is the mathematical natural-number type in `(#pt-type 0)`.
 `#pt-zero` is its zero constructor; both are symbols, not empty applications.
 `(#pt-succ n)` constructs a successor. `(#pt-numeral INTEGER)` accepts a
-nonnegative source integer of at most 128 and expands it into a Peano successor
-spine. This resource bound does not bound the mathematical type or its universal
-quantifiers.
+nonnegative source integer of at most 128 as a zero/successor abbreviation.
+`(#pt-nat-literal FAMILY "DECIMAL")` checks a canonical unsigned decimal
+string of up to 4,096 digits against an explicit global family reference. The
+family must already be checked, monomorphic, parameterless and indexless, with
+Type 0 sort and exactly zero and successor constructors, in that order; axioms
+are not accepted. Values stay compact; induction and conversion expose one
+constructor at a time. Values are arbitrary precision, subject to finite
+representation and work budgets. The [native example](../examples/proof_natural_literals.lim)
+checks large successors and predecessors. [Genuine pinned exports](../tests/fixtures/lean_export_naturals/README.md)
+also replay and translate through these same rules. General arithmetic still
+uses checked definitions and may exhaust the ordinary computation budget.
 
 Natural induction is explicit:
 
@@ -1011,6 +1019,7 @@ mathematical meaning of a type:
 | Constructor fields | At most 64 per constructor. |
 | Mathematical declarations | At most 4,096. |
 | `#pt-numeral` abbreviation | Source integers from 0 through 128. |
+| `#pt-nat-literal` decimal length | At most 4,096 canonical unsigned decimal digits. |
 
 Universe normalization, zero-status guard analysis, and level comparisons have
 separate bounded work budgets in addition to the 200,000-step core checking

@@ -729,32 +729,8 @@
       (#pt-app
         (#pt-use lean-31-OfNat-ofNat (0))
         (#pt-use lean-3-Nat ())
-        (#pt-construct
-          lean-3-Nat
-          ()
-          ()
-          lean-5-Nat-succ
-          (
-            (#pt-construct
-              lean-3-Nat
-              ()
-              ()
-              lean-5-Nat-succ
-              ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-        (#pt-app
-          (#pt-use lean-32-instOfNatNat ())
-          (#pt-construct
-            lean-3-Nat
-            ()
-            ()
-            lean-5-Nat-succ
-            (
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))))))
+        (#pt-nat-literal lean-3-Nat "2")
+        (#pt-app (#pt-use lean-32-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))))
   (#proof
     (#pt-app
       (#pt-use lean-33-rfl (1))

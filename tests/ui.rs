@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "kernel-natural-literal",
+            diagnostic_code: "E4400",
+            offending_line: "(#math-definition bad () #pt-nat (#pt-nat-literal #pt-nat \"01\"))",
+            line_number: 1,
+        },
+        Case {
             name: "kernel-quotient-relation",
             diagnostic_code: "E4400",
             offending_line: "(#math-definition bad () (#pt-type 0) (#pt-quot 1 #pt-nat #pt-zero))",
@@ -1466,6 +1472,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "local-name-type-error" => Some("flag"),
             "kernel-opaque-value" => Some(case.offending_line),
+            "kernel-natural-literal" => Some(case.offending_line),
             "kernel-quotient-relation" => Some(case.offending_line),
             "kernel-nested-case-index" => Some(&include_str!("ui/kernel-nested-case-index.lim").lines().nth(3).unwrap()[..80]),
             "shadowing" => Some("value"),

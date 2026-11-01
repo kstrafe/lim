@@ -175,7 +175,7 @@
       "sha256": "43ac8a7ff02b0c0b4fc5be2316ade60a686348d07c29f31e5893f774ba3a7f2b"
     },
     {
-      "bytes": 15383,
+      "bytes": 12153,
       "declarations": [
         {
           "dependencies": [
@@ -391,8 +391,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s2:Eq",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s3:rfl",
             "$lean:s5:OfNats5:ofNat"
           ],
@@ -409,10 +407,10 @@
       "input_sha256": "c9f66397535ecbbafc19f7953f9a323185bfd64d693a3dbc31d52302b8ebfe1f",
       "native_target": "lean-17-ReplaySource-projection",
       "original_target": "ReplaySource.projection",
-      "sha256": "899b5c5c9ac356fd42816ed915e26b6239dd1a43d4769c0096991c4c68525a82"
+      "sha256": "12064db61a32ea3bab9586b4f82a40e15149866e45d5a3452aeef07297bba71c"
     },
     {
-      "bytes": 29987,
+      "bytes": 29437,
       "declarations": [
         {
           "dependencies": [
@@ -859,8 +857,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s2:Eq",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s3:rfl",
             "$lean:s5:OfNats5:ofNat"
           ],
@@ -877,10 +873,10 @@
       "input_sha256": "80950752d40cd758eeb66a95709afde391c07c799645ffa18797fe4d168f7216",
       "native_target": "lean-34-ReplaySource-mutualDepth",
       "original_target": "ReplaySource.mutualDepth",
-      "sha256": "623a084a42b621e7cb0e15706885ec521889069815bac46edfcbebdddcfe27ae"
+      "sha256": "35c74a7393d68f13b733c09f079600f4ff48722eadccfd553473b39076f881e4"
     },
     {
-      "bytes": 34018,
+      "bytes": 33140,
       "declarations": [
         {
           "dependencies": [
@@ -1338,8 +1334,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s2:Eq",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s3:rfl",
             "$lean:s4:Lists3:nil",
             "$lean:s4:Lists4:cons",
@@ -1358,7 +1352,7 @@
       "input_sha256": "5f5259b1872857b571b701b31b52b8d2b64418c2e3cc11dbbd48b3ed6505408b",
       "native_target": "lean-35-ReplaySource-nestedCount",
       "original_target": "ReplaySource.nestedCount",
-      "sha256": "f5c488626a25488f0c63c5bef1dfc214f0d722b69a479047212e81e48c687f52"
+      "sha256": "e064b25b88cce5864dcf52b5ee41fd4aabe68635f982b75540b3b1ccd3a4f0bb"
     },
     {
       "bytes": 18437,
@@ -1552,7 +1546,7 @@
       "sha256": "e593d25fc8dca6809f2a7df50b918a5998fb849689d70191974d17a9f7b7bea9"
     },
     {
-      "bytes": 27214,
+      "bytes": 26512,
       "declarations": [
         {
           "dependencies": [
@@ -1703,7 +1697,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s3:Nat",
             "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s5:OfNats5:ofNat"
           ],
           "identity": "$lean:s12:ReplaySources7:VecLike",
@@ -1718,7 +1711,6 @@
             "$lean:s12:ReplaySources7:VecLike",
             "$lean:s12:instOfNatNat",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:zero",
             "$lean:s5:OfNats5:ofNat"
           ],
           "identity": "$lean:s12:ReplaySources7:VecLikes3:nil",
@@ -1750,7 +1742,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s3:Nat",
             "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s5:OfNats5:ofNat"
           ],
           "identity": "$lean:s12:ReplaySources7:VecLikes3:rec",
@@ -1797,7 +1788,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s3:Nat",
             "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s5:OfNats5:ofNat"
           ],
           "identity": "$lean:s12:ReplaySources11:IndexedRoses3:rec",
@@ -1819,7 +1809,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s3:Nat",
             "$lean:s3:Nats4:succ",
-            "$lean:s3:Nats4:zero",
             "$lean:s5:OfNats5:ofNat"
           ],
           "identity": "$lean:s12:ReplaySources11:IndexedRoses5:rec_1",
@@ -1849,7 +1838,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s2:Eq",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:zero",
             "$lean:s3:rfl",
             "$lean:s5:OfNats5:ofNat"
           ],
@@ -1866,7 +1854,7 @@
       "input_sha256": "156e6aaaacd72808a058898ae00f6d2eeb385429d835a422be1419bea615a695",
       "native_target": "lean-21-ReplaySource-indexedNested",
       "original_target": "ReplaySource.indexedNested",
-      "sha256": "83e8648c67cd2adceaea21df588a4ed9fe67d54216a2304f7460865346f33ff4"
+      "sha256": "f7b1499d4e24e606682f02183dd0d7a15d74071ee92b3966b1ffd76f9d6a4d2a"
     },
     {
       "bytes": 28468,
@@ -2064,7 +2052,7 @@
       "sha256": "d8cf4960ecadcf53bc493edc386c2f52980ec237dfc912042f039791fcdf493b"
     },
     {
-      "bytes": 23161,
+      "bytes": 22963,
       "declarations": [
         {
           "dependencies": [
@@ -2334,7 +2322,6 @@
             "$lean:s12:instOfNatNat",
             "$lean:s2:Eq",
             "$lean:s3:Nat",
-            "$lean:s3:Nats4:zero",
             "$lean:s3:rfl",
             "$lean:s5:OfNats5:ofNat",
             "$lean:s5:Sigmas2:mk"
@@ -2352,7 +2339,7 @@
       "input_sha256": "cb4c4262c12ee1e4f9e7632af1af6dbf866b3078fb08841b5fbbd3e1ba8d448d",
       "native_target": "lean-21-ReplaySource-sigmaNested",
       "original_target": "ReplaySource.sigmaNested",
-      "sha256": "8532d90914560f7f07b5d2e1dc83ba5e716511b70424d3ed76bd2395344dcdc0"
+      "sha256": "da7d9b7e71f3a0e3864b2d7337102b8ebf17bba32b247fd5fb232f2fb33a2dc6"
     }
   ]
 }

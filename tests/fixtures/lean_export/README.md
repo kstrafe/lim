@@ -5,6 +5,10 @@ adds a tenth genuine producer output, its native translation, original source
 and reproducible declaration/module/license provenance. It checks the pinned
 quotient computation package without accepting `Quot.sound` or other axioms.
 
+The [compact natural-literal corpus](../lean_export_naturals/README.md) adds
+an eleventh genuine export with five large-value theorems, native proof source,
+and its own source/module/license provenance and regeneration command.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

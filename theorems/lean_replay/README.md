@@ -15,6 +15,15 @@ records all 24 declarations and three theorem targets, and inventories the
 primitive computation foundation separately from its empty axiom inventory.
 The fixture guide documents its own pinned-producer regeneration command.
 
+The eleventh file, [`naturals.lim`](naturals.lim), comes from the separate
+[compact natural-literal fixture](../../tests/fixtures/lean_export_naturals/README.md).
+It checks five large-value theorems across 29 declarations, including successor,
+predecessor and constructor discrimination beyond machine-integer widths.
+Its own manifest and regeneration script preserve source/module/license
+provenance and exact artifact bytes. Imported literals use the inspectable
+`#pt-nat-literal` form even for small values; this avoids unary-spine depth
+limits while keeping the same checked zero/successor semantics.
+
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps every original declaration to its native

@@ -304,6 +304,10 @@ impl Relocate<'_> {
             };
         }
         let result = term(match value.as_ref() {
+            Term::NatLiteral { family, value } => Term::NatLiteral {
+                family: self.name(family)?,
+                value: value.clone(),
+            },
             Term::QuotType(l, a, r) => {
                 Term::QuotType(l.substitute(self.levels)?, walk!(a), walk!(r))
             }
@@ -499,6 +503,9 @@ impl Relocate<'_> {
             _ => 0,
         };
         let name_bytes = match result.as_ref() {
+            Term::NatLiteral { family, value } => {
+                family.len().saturating_add(value.decimal().len())
+            }
             Term::Global(name, _) => name.len(),
             Term::Ctor {
                 family,
@@ -718,5 +725,38 @@ mod tests {
         .term(&input, 0)
         .unwrap_err()
         .contains("node limit"));
+    }
+
+    #[test]
+    fn compact_decimal_payload_is_charged_during_correspondence() {
+        let names = HashMap::from([("native".into(), "original".into())]);
+        let levels = HashMap::new();
+        let decimal = "9".repeat(4096);
+        let input = term(Term::NatLiteral {
+            family: "native".into(),
+            value: Natural::parse(&decimal).unwrap(),
+        });
+        let required = 128 + "original".len() + decimal.len();
+        for (limit, accepted) in [(required - 1, false), (required, true)] {
+            let mut nodes = 1;
+            let mut bytes = limit;
+            let result = Relocate {
+                names: &names,
+                levels: &levels,
+                remaining: &mut nodes,
+                remaining_bytes: &mut bytes,
+                memo: HashMap::new(),
+            }
+            .term(&input, 0);
+            if accepted {
+                let output = result.unwrap();
+                assert!(
+                    matches!(output.as_ref(),Term::NatLiteral{family,value} if family=="original" && value.decimal()==decimal)
+                );
+                assert_eq!(bytes, 0);
+            } else {
+                assert!(result.unwrap_err().contains("allocation limit"));
+            }
+        }
     }
 }

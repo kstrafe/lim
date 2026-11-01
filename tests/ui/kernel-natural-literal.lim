@@ -1,0 +1,2 @@
+(#math-definition bad () #pt-nat (#pt-nat-literal #pt-nat "01"))
+(#fn main () #u64 (#return 0u64))

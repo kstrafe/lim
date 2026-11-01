@@ -473,4 +473,5 @@ exit 42 proof_singleton_prop.lim - -
 exit 42 proof_mutual.lim - -
 exit 42 proof_mutual_function.lim - -
 exit 42 proof_nested.lim - -
+exit 42 proof_natural_literals.lim - -
 exit 42 proof_quotient.lim - -

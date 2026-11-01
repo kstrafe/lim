@@ -264,93 +264,21 @@
           (#pt-app
             (#pt-use lean-14-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct
-              lean-3-Nat
-              ()
-              ()
-              lean-5-Nat-succ
-              (
-                (#pt-construct
-                  lean-3-Nat
-                  ()
-                  ()
-                  lean-5-Nat-succ
-                  ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-            (#pt-app
-              (#pt-use lean-15-instOfNatNat ())
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                (
-                  (#pt-construct
-                    lean-3-Nat
-                    ()
-                    ()
-                    lean-5-Nat-succ
-                    ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))))
+            (#pt-nat-literal lean-3-Nat "2")
+            (#pt-app (#pt-use lean-15-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
           (#pt-app
             (#pt-use lean-16-rfl (1))
             (#pt-use lean-3-Nat ())
             (#pt-app
               (#pt-use lean-14-OfNat-ofNat (0))
               (#pt-use lean-3-Nat ())
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                (
-                  (#pt-construct
-                    lean-3-Nat
-                    ()
-                    ()
-                    lean-5-Nat-succ
-                    ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-              (#pt-app
-                (#pt-use lean-15-instOfNatNat ())
-                (#pt-construct
-                  lean-3-Nat
-                  ()
-                  ()
-                  lean-5-Nat-succ
-                  (
-                    (#pt-construct
-                      lean-3-Nat
-                      ()
-                      ()
-                      lean-5-Nat-succ
-                      ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ()))))))))))
+              (#pt-nat-literal lean-3-Nat "2")
+              (#pt-app (#pt-use lean-15-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2"))))))
       (#pt-app
         (#pt-use lean-14-OfNat-ofNat (0))
         (#pt-use lean-3-Nat ())
-        (#pt-construct
-          lean-3-Nat
-          ()
-          ()
-          lean-5-Nat-succ
-          (
-            (#pt-construct
-              lean-3-Nat
-              ()
-              ()
-              lean-5-Nat-succ
-              ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-        (#pt-app
-          (#pt-use lean-15-instOfNatNat ())
-          (#pt-construct
-            lean-3-Nat
-            ()
-            ()
-            lean-5-Nat-succ
-            (
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))))))
+        (#pt-nat-literal lean-3-Nat "2")
+        (#pt-app (#pt-use lean-15-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))))
   (#proof
     (#pt-app
       (#pt-use lean-16-rfl (1))
@@ -362,61 +290,13 @@
           (#pt-app
             (#pt-use lean-14-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct
-              lean-3-Nat
-              ()
-              ()
-              lean-5-Nat-succ
-              (
-                (#pt-construct
-                  lean-3-Nat
-                  ()
-                  ()
-                  lean-5-Nat-succ
-                  ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-            (#pt-app
-              (#pt-use lean-15-instOfNatNat ())
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                (
-                  (#pt-construct
-                    lean-3-Nat
-                    ()
-                    ()
-                    lean-5-Nat-succ
-                    ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))))
+            (#pt-nat-literal lean-3-Nat "2")
+            (#pt-app (#pt-use lean-15-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
           (#pt-app
             (#pt-use lean-16-rfl (1))
             (#pt-use lean-3-Nat ())
             (#pt-app
               (#pt-use lean-14-OfNat-ofNat (0))
               (#pt-use lean-3-Nat ())
-              (#pt-construct
-                lean-3-Nat
-                ()
-                ()
-                lean-5-Nat-succ
-                (
-                  (#pt-construct
-                    lean-3-Nat
-                    ()
-                    ()
-                    lean-5-Nat-succ
-                    ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
-              (#pt-app
-                (#pt-use lean-15-instOfNatNat ())
-                (#pt-construct
-                  lean-3-Nat
-                  ()
-                  ()
-                  lean-5-Nat-succ
-                  (
-                    (#pt-construct
-                      lean-3-Nat
-                      ()
-                      ()
-                      lean-5-Nat-succ
-                      ((#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))))))))))
+              (#pt-nat-literal lean-3-Nat "2")
+              (#pt-app (#pt-use lean-15-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))))))))

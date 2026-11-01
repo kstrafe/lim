@@ -614,7 +614,7 @@ fn dependencies(roots: &[T]) -> Result<Vec<String>> {
                 subject,
                 ..
             } => stack.extend([ty, relation, motive, branch, subject].into_iter().cloned()),
-            Term::Global(name, _) => {
+            Term::NatLiteral { family: name, .. } | Term::Global(name, _) => {
                 names.insert(name.clone());
             }
             Term::Pi(a, b)

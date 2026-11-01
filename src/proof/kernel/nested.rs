@@ -260,7 +260,7 @@ impl Kernel {
                 Term::SelfType | Term::SelfAt(_) | Term::Recur(..) => {
                     return Err("unexpanded marker in nested parameter specialization".into())
                 }
-                Term::Global(..) | Term::Sort(_) | Term::Var(_) => {}
+                Term::NatLiteral { .. } | Term::Global(..) | Term::Sort(_) | Term::Var(_) => {}
             }
         }
         Ok(())

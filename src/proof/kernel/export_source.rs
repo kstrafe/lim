@@ -156,6 +156,11 @@ impl Writer<'_> {
     fn term(&mut self, value: &T, binders: usize, depth: usize) -> Result<()> {
         self.node(depth)?;
         match value.as_ref() {
+            Term::NatLiteral { family, value } => self.push(&format!(
+                "(#pt-nat-literal {} {})",
+                self.name(family)?,
+                text_json(value.decimal()).render()
+            )),
             Term::Sort(level) => {
                 self.push("(#pt-sort ")?;
                 self.level(level)?;

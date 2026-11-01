@@ -1025,6 +1025,29 @@ fn kernel_metadata_and_bare_names_never_fall_back_to_global_spellings() {
 }
 
 #[test]
+fn nat_literal_navigates_only_to_its_explicit_family_reference() {
+    run(
+        r#"
+      (#math-inductive [[family|natural]] () () (#pt-type 0)
+        (([[zero|zero]] ()) ([[successor|successor]] ((predecessor #pt-self)))))
+      (#math-definition literal () (#pt-use [[result-type|natural]] ())
+        (#pt-nat-literal [[family-use|natural]] "[[decimal|184467440737095516160]]"))
+      (#math-definition malformed () #pt-nat
+        (#pt-nat-literal [[malformed-family|natural]] "2" extra))
+      (#math-definition not-string () #pt-nat
+        (#pt-nat-literal [[non-string-family|natural]] natural))
+    "#,
+        &[
+            ("result-type", &["family"]),
+            ("family-use", &["family"]),
+            ("decimal", &[]),
+            ("malformed-family", &[]),
+            ("non-string-family", &[]),
+        ],
+    );
+}
+
+#[test]
 fn constructor_lookup_fails_closed_for_missing_ambiguous_or_noninductive_targets() {
     run(
         r#"

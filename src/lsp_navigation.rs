@@ -1121,6 +1121,14 @@ impl<'a> Index<'a> {
                     return self.kernel_levels(arguments, levels);
                 }
             }
+            "pt-nat-literal" => {
+                if xs.len() != 3 || !matches!(&xs[2].expr, Expr::String(_)) {
+                    return vec![];
+                }
+                if let Some(family) = xs.get(1).filter(|family| self.contains(family)) {
+                    return self.kernel_reference(family, false);
+                }
+            }
             "pt-program" | "pt-certificate" => {
                 if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
                     return self.kernel_reference(name, true);

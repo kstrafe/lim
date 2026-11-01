@@ -33,6 +33,16 @@ impl Kernel {
             }
 
             match (&*left, &*right) {
+                (
+                    Term::NatLiteral {
+                        family: a,
+                        value: x,
+                    },
+                    Term::NatLiteral {
+                        family: b,
+                        value: y,
+                    },
+                ) if a == b && x == y => {}
                 (Term::QuotType(u, a, r), Term::QuotType(v, b, s)) if u == v => {
                     child!(a, b);
                     child!(r, s);

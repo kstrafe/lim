@@ -410,6 +410,7 @@ impl Kernel {
         depth: usize,
     ) -> Result<Option<T>> {
         let subject = self.whnf(ctx, subject, depth + 1)?;
+        let subject = self.natural_constructor(&subject, depth + 1)?;
         let (desc, map) = self.family(name, levels, depth + 1)?;
         let case = cases
             .iter()

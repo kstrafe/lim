@@ -21,9 +21,10 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Ten real exports of original small Lean proofs replay and translate to
+Eleven real exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
-multiply nested, Sigma container and quotient computation cases. They do not
+multiply nested, Sigma container, quotient computation and compact natural
+literal cases. They do not
 check the upstream Fermat proof or the complete Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
 
@@ -52,9 +53,15 @@ name. Universe levels support zero, successor, parameters, `max` and `imax`.
 Expressions support bound variables, general sorts, explicitly instantiated
 constants, applications, lambdas, dependent function types, typed local lets,
 record projections and metadata wrappers. Metadata wrappers do not supply
-typing rules. Natural literals expand to constructors of the imported,
-independently checked standard `Nat` signature; they cannot rebind Lim's
-internal natural-number type by sharing its printed name.
+typing rules. Natural literals retain canonical arbitrary-precision decimal
+values, of at most 4,096 digits, in the imported, independently checked
+standard `Nat` family. Induction and conversion expose a zero/successor
+constructor when needed. No magnitude-sized unary graph is allocated, and
+values never wrap or truncate to machine integers. They cannot rebind Lim's
+internal natural-number type by sharing its printed name. The
+[genuine natural-literal corpus](../tests/fixtures/lean_export_naturals/README.md)
+checks five large-value theorems and their native translations. General
+arithmetic still uses ordinary checked definitions and finite work budgets.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown
@@ -159,7 +166,7 @@ comments as authority and does not formally verify the translator or kernel.
 
 
 The [committed native translations](../theorems/lean_replay/README.md) reproduce
-the ten-file genuine producer corpus. Their manifests map every original declaration to its
+the eleven-file genuine producer corpus. Their manifests map every original declaration to its
 native name and hashes both input and output files, linking the original source,
 module and license provenance. The regeneration script checks byte-for-byte
 reproduction and independently runs ordinary `--check-theorem`. These small proofs
@@ -217,7 +224,7 @@ kernel replay establishes the accepted theorem's typing judgment.
 | Mutual families | 16 |
 | Expanded nested recursion group | 16 total main and scoped container cases |
 | Parameters, indices, constructors, fields and per-family rules | 64 each |
-| Natural-literal abbreviation | 0 through 128 |
+| Natural-literal representation | Canonical unsigned decimal string, at most 4,096 digits |
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
 | Native translation source | 8 MiB before and after formatting; 1,000,000 expanded term visits; recursive render depth 96 |
@@ -233,7 +240,7 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, large natural-literal representations, quotient soundness, classical axioms,
+String literals, accelerated large-natural arithmetic, quotient soundness, classical axioms,
 Lean surface syntax/tactics and full-environment storage/replay are not
 implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe

@@ -2070,8 +2070,13 @@ binder. Application, equality, reflexivity, equality elimination, dependent
 pairs, projections, and inductive eliminators are explicit `#pt-` terms.
 
 `#pt-nat` and `#pt-zero` are symbols. `#pt-succ` constructs a successor, and
-`#pt-numeral` expands a bounded source integer into a Peano spine. Mathematical
-natural numbers and Pi quantification over them are unbounded; they are not
+`#pt-numeral` abbreviates a bounded source integer as a natural value. For larger
+values, `(#pt-nat-literal FAMILY "CANONICAL-DECIMAL")` checks a decimal string
+(up to 4,096 digits) into a checked, parameterless, indexless Nat-shaped family
+with zero and successor constructors. For example, `(#math-definition huge ()
+#pt-nat (#pt-nat-literal #pt-nat "184467440737095516160"))`. The family
+is an explicit global proof reference, including when imported under an alias;
+the string is data, not a binding. Mathematical natural numbers and Pi quantification over them are unbounded; they are not
 machine integers or bounded symbolic samples. There is no automatic coercion
 from a native integer to mathematical Nat. Explicit universe polymorphism is
 compile-time mathematical generic reasoning, not native generics.
@@ -3277,8 +3282,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-mutual-induct` | `(#pt-mutual-induct FAMILY (levels...) (parameters...) (#indices values...) ((FAMILY motive (branches...))...) subject)` | `(#pt-mutual-induct left () () (#indices) ((left (#pt-lambda ((x (#pt-use left ()))) #pt-nat) (#pt-zero)) (right (#pt-lambda ((x (#pt-use right ()))) #pt-nat) (#pt-zero))) value)` (mathematical term; two zero-field data families) | Checks every group motive and branch set in declaration order; recursive IHs and computation select each child's own family and indices. The selected indices clause is explicit even when empty. |
 | `#pt-nat` | `#pt-nat` | `(#pt-pi ((n #pt-nat)) #pt-nat)` (mathematical type) | Unbounded Peano natural-number type, distinct from native machine integers; symbol, not an empty application. |
 | `#pt-nat-induct` | `(#pt-nat-induct motive zeroCase stepCase n)` | `(#pt-nat-induct (#pt-lambda ((k #pt-nat)) #pt-nat) #pt-zero (#pt-lambda ((k #pt-nat) (ih #pt-nat)) (#pt-succ ih)) n)` (mathematical term) | Natural induction or recursion using a zero case and a successor case taking the predecessor and induction hypothesis. |
+| `#pt-nat-literal` | `(#pt-nat-literal FAMILY "CANONICAL-DECIMAL")` | `(#math-definition huge () #pt-nat (#pt-nat-literal #pt-nat "184467440737095516160"))` (mathematical term) | Checks a canonical unsigned decimal string of at most 4,096 digits into a checked parameterless, indexless Type 0 zero/successor family; values are arbitrary precision within finite work budgets. FAMILY is an explicit global proof reference. |
 | `#pt-nested-induct` | `(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX (#indices values...) ((#pt-case FamilyType motive (branches...))...) subject)` | `(#pt-nested-induct tree () () 0 (#indices) ((#pt-case (#pt-use tree ()) tree-motive (leaf-branch node-branch)) (#pt-case (#pt-app (#pt-use seq ()) (#pt-use tree ())) seq-motive (nil-branch cons-branch))) value)` (mathematical term; schematic) | Selects an explicit zero-based case ordinal and checks every root and specialized container case in derivation order, comparing checked type selectors and preserving original constructors. Uses the same typed motives, family-specific IHs, computation and Prop guards as group induction. |
-| `#pt-numeral` | `(#pt-numeral nonnegative-source-integer)` | `(#pt-numeral 3)` (mathematical term) | Source integers from 0 through 128 expand to a Peano spine; this abbreviation limit does not bound Nat or its quantifiers. |
+| `#pt-numeral` | `(#pt-numeral nonnegative-source-integer)` | `(#pt-numeral 3)` (mathematical term) | Source integers from 0 through 128 abbreviate zero/successor values compactly; this abbreviation limit does not bound Nat or its quantifiers. |
 | `#pt-pair` | `(#pt-pair SigmaType first second)` | `(#pt-pair (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n)) #pt-zero (#pt-refl #pt-nat #pt-zero))` (mathematical term) | Constructs a dependent pair with its full Sigma type stated explicitly. |
 | `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
 | `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |

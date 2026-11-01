@@ -458,6 +458,13 @@ impl Resolver<'_> {
                     self.proof_term_child(node, index, file, locals)?;
                 }
             }
+        } else if kind == "#pt-nat-literal" {
+            if node.children.len() == 3
+                && matches!(&node.children[1].expr, Expr::Symbol(_))
+                && matches!(&node.children[2].expr, Expr::String(_))
+            {
+                self.rewrite(&mut node.children[1], file, &HashSet::new())?;
+            }
         } else if kind == "#pt-use" || kind == "#pt-program" || kind == "#pt-certificate" {
             if let Some(name) = node.children.get_mut(1) {
                 self.rewrite(name, file, &HashSet::new())?;

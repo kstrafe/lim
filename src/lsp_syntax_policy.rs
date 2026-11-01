@@ -173,6 +173,7 @@ mod tests {
         "pt-level-max",
         "pt-level-imax",
         "pt-nat",
+        "pt-nat-literal",
         "pt-false",
         "pt-self",
         "pt-zero",

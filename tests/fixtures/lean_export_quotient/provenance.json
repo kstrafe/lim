@@ -309,8 +309,6 @@
         "$lean:s14:QuotientSources5:eqRel",
         "$lean:s2:Eq",
         "$lean:s3:Nat",
-        "$lean:s3:Nats4:succ",
-        "$lean:s3:Nats4:zero",
         "$lean:s3:rfl",
         "$lean:s4:Quots2:mk",
         "$lean:s5:OfNats5:ofNat"
@@ -370,8 +368,6 @@
         "$lean:s14:QuotientSources5:eqRel",
         "$lean:s2:Eq",
         "$lean:s3:Nat",
-        "$lean:s3:Nats4:succ",
-        "$lean:s3:Nats4:zero",
         "$lean:s3:rfl",
         "$lean:s4:Quots2:mk",
         "$lean:s5:OfNats5:ofNat"
@@ -442,9 +438,9 @@
     }
   ],
   "native": {
-    "bytes": 28178,
+    "bytes": 19258,
     "file": "theorems/lean_replay/quotient.lim",
-    "sha256": "ec8f5cd73c21daf34af415d26af5f9e93cf047853955f7e3195dd03928b48bb0",
+    "sha256": "c604fc93d0f904f8a5d24631c0328365a7e2f515ee0cee4cfc5f7e8d2ed22421",
     "targets": {
       "QuotientSource.extraArgumentComputes": "lean-22-QuotientSource-extraArgumentComputes",
       "QuotientSource.inductionReflexive": "lean-23-QuotientSource-inductionReflexive",

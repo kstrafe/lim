@@ -283,9 +283,19 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with ten committed genuine
+for this accepted subset, with eleven committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
+
+Natural literals now stay compact as canonical decimal values rather than
+magnitude-sized unary constructor graphs. They have the exact nominal
+zero/successor semantics of the independently checked natural-number family;
+one constructor is exposed when elimination or conversion requires it. The
+[genuine large-literal fixture](../tests/fixtures/lean_export_naturals/README.md)
+checks successors, predecessors and constructor discrimination beyond native
+integer widths. Every literal is bounded to 4,096 decimal digits as a resource
+limit; arithmetic still uses checked definitions and may exhaust work budgets.
+This does not provide the full mathematical dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:
 

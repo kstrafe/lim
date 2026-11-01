@@ -2,6 +2,48 @@ use std::{fs, path::Path};
 
 mod support;
 
+#[test]
+fn natural_literal_families_resolve_imported_aliases_even_inside_colliding_term_binders() {
+    let scratch = support::Scratch::new("kernel-natural-literal-resolution");
+    write(
+        scratch.path(),
+        "math.lim",
+        "(#math-inductive natural () () (#pt-type 0) ((zero ()) (next ((previous #pt-self)))))",
+    );
+    let source = r#"
+      (#alias natural-alias = ./math.lim::natural)
+      (#math-definition literal () (#pt-use natural-alias ())
+        (#pt-nat-literal natural-alias "184467440737095516160"))
+      (#math-definition ignores-argument ()
+        (#pt-pi ((natural-alias #pt-nat)) (#pt-use natural-alias ()))
+        (#pt-lambda ((natural-alias #pt-nat))
+          (#pt-nat-literal natural-alias "184467440737095516160")))
+    "#;
+    let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
+    lim::check_types(&program).unwrap();
+    let data = format!("{:?}", program.items);
+    assert!(data.matches("math.lim::natural").count() >= 4, "{data}");
+    assert!(!data.contains("math.lim::184467440737095516160"));
+}
+
+#[test]
+fn generated_natural_literals_are_checked_instead_of_trusting_syntax() {
+    let scratch = support::Scratch::new("kernel-natural-literal-generator");
+    let source = r#"
+      (#gn emit () `((#math-definition produced () #pt-nat
+        (#pt-nat-literal #pt-nat "184467440737095516160"))))
+      (#generate emit)
+    "#;
+    let entry = scratch.path().join("main.lim");
+    let program = lim::parse_program_from_path(source, &entry).unwrap();
+    lim::check_types(&program).unwrap();
+    let bad = source.replace("184467440737095516160", "01");
+    let program = lim::parse_program_from_path(&bad, &entry).unwrap();
+    assert!(lim::check_types(&program)
+        .unwrap_err()
+        .contains("canonical unsigned decimal"));
+}
+
 fn write(base: &Path, path: &str, source: &str) {
     let path = base.join(path);
     fs::create_dir_all(path.parent().unwrap()).unwrap();

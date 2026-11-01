@@ -584,10 +584,8 @@
           (#pt-app
             (#pt-use lean-18-OfNat-ofNat (0))
             (#pt-use lean-6-Nat ())
-            (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-19-instOfNatNat ())
-              (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())))
+            (#pt-nat-literal lean-6-Nat "0")
+            (#pt-app (#pt-use lean-19-instOfNatNat ()) (#pt-nat-literal lean-6-Nat "0")))
           (#pt-use lean-11-ReplaySource-SigmaRose-leaf ())))
       (#pt-app
         (#pt-use lean-12-ReplaySource-SigmaRose-node ())
@@ -598,10 +596,8 @@
           (#pt-app
             (#pt-use lean-18-OfNat-ofNat (0))
             (#pt-use lean-6-Nat ())
-            (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-19-instOfNatNat ())
-              (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())))
+            (#pt-nat-literal lean-6-Nat "0")
+            (#pt-app (#pt-use lean-19-instOfNatNat ()) (#pt-nat-literal lean-6-Nat "0")))
           (#pt-use lean-11-ReplaySource-SigmaRose-leaf ())))))
   (#proof
     (#pt-app
@@ -616,8 +612,6 @@
           (#pt-app
             (#pt-use lean-18-OfNat-ofNat (0))
             (#pt-use lean-6-Nat ())
-            (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-19-instOfNatNat ())
-              (#pt-construct lean-6-Nat () () lean-7-Nat-zero ())))
+            (#pt-nat-literal lean-6-Nat "0")
+            (#pt-app (#pt-use lean-19-instOfNatNat ()) (#pt-nat-literal lean-6-Nat "0")))
           (#pt-use lean-11-ReplaySource-SigmaRose-leaf ()))))))

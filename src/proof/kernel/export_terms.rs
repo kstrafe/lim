@@ -212,12 +212,6 @@ impl Replay {
             1 + child_depth(value, "struct")?
         } else if let Some(value) = data.get("mdata") {
             child_depth(value, "expr")?
-        } else if let Some(value) = data.get("natVal") {
-            // The literal constructor above already bounds and parses this.
-            string(value)?
-                .parse::<usize>()
-                .map_err(|_| "invalid natural literal")?
-                + 1
         } else {
             1
         };
@@ -225,6 +219,9 @@ impl Replay {
             return Err("export expression depth limit exceeded".into());
         }
         let payload = match expression.as_ref() {
+            Term::NatLiteral { family, value } => {
+                family.len().saturating_add(value.decimal().len())
+            }
             Term::Sort(level) => level.memory_weight(),
             Term::Global(name, levels) => levels.iter().fold(name.len(), |total, level| {
                 total.saturating_add(level.memory_weight())
@@ -232,18 +229,10 @@ impl Replay {
             Term::Project { family, .. } => family.len(),
             _ => 0,
         };
-        // A literal's Peano expansion is not represented by earlier table
-        // entries; charge all its constructor nodes and owned name strings.
-        let literal_payload = if data.contains_key("natVal") {
-            depth.saturating_mul(128 + "$lean:s3:Nat".len() + "$lean:s3:Nats4:succ".len())
-        } else {
-            0
-        };
         self.payload_bytes = self
             .payload_bytes
             .saturating_add(128)
-            .saturating_add(payload)
-            .saturating_add(literal_payload);
+            .saturating_add(payload);
         if self.payload_bytes > 64 * 1024 * 1024 {
             return Err("export primitive payload limit exceeded".into());
         }
@@ -251,42 +240,13 @@ impl Replay {
         Ok(())
     }
     fn natural_literal(&mut self, literal: &str) -> Result<T> {
-        if literal.is_empty()
-            || !literal.bytes().all(|b| b.is_ascii_digit())
-            || literal.len() > 1 && literal.starts_with('0')
-        {
-            return Err("natural literals require a canonical unsigned decimal string".into());
-        }
-        let n: usize = literal
-            .parse()
-            .map_err(|_| "scalable natural literal replay is not implemented")?;
-        if n > 128 {
-            return Err(
-                "scalable natural literal replay is not implemented (Peano abbreviation limit 128)"
-                    .into(),
-            );
-        }
+        let value = Natural::parse(literal)?;
         let nat = "$lean:s3:Nat";
-        let zero = "$lean:s3:Nats4:zero";
-        let succ = "$lean:s3:Nats4:succ";
         self.natural_literals = true;
-        let mut value = term(Term::Ctor {
+        Ok(term(Term::NatLiteral {
             family: nat.into(),
-            levels: vec![],
-            parameters: vec![],
-            constructor: zero.into(),
-            fields: vec![],
-        });
-        for _ in 0..n {
-            value = term(Term::Ctor {
-                family: nat.into(),
-                levels: vec![],
-                parameters: vec![],
-                constructor: succ.into(),
-                fields: vec![value],
-            });
-        }
-        Ok(value)
+            value,
+        }))
     }
     pub(super) fn check_natural_signature(&self) -> Result<()> {
         let nat = "$lean:s3:Nat";
@@ -315,5 +275,26 @@ impl Replay {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_literal_payload_counts_every_owned_decimal_digit() {
+        let decimal = "9".repeat(4096);
+        let input = object([("ie", number_json(0)), ("natVal", text_json(&decimal))]);
+        let bytes = 128 + "$lean:s3:Nat".len() + decimal.len();
+        let mut replay = Replay::new();
+        replay.payload_bytes = 64 * 1024 * 1024 - bytes;
+        replay.expression_record(&input).unwrap();
+        assert_eq!(replay.payload_bytes, 64 * 1024 * 1024);
+        let input = object([("ie", number_json(1)), ("natVal", text_json(&decimal))]);
+        assert!(replay
+            .expression_record(&input)
+            .unwrap_err()
+            .contains("primitive payload limit"));
     }
 }

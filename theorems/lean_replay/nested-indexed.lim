@@ -181,10 +181,8 @@
         (#pt-app
           (#pt-use lean-10-OfNat-ofNat (0))
           (#pt-use lean-3-Nat ())
-          (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-          (#pt-app
-            (#pt-use lean-11-instOfNatNat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
     (lean-14-ReplaySource-VecLike-cons
       (
         (v1 (#pt-use lean-3-Nat ()))
@@ -204,10 +202,8 @@
       (#pt-app
         (#pt-use lean-10-OfNat-ofNat (0))
         (#pt-use lean-3-Nat ())
-        (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-        (#pt-app
-          (#pt-use lean-11-instOfNatNat ())
-          (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))))
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
   (#pt-lambda
     ((v0 (#pt-sort 1)))
     (#pt-construct lean-12-ReplaySource-VecLike () (v0) lean-13-ReplaySource-VecLike-nil ())))
@@ -255,10 +251,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app (#pt-use lean-13-ReplaySource-VecLike-nil ()) v0)))
       (v3
         (#pt-pi
@@ -289,10 +283,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app (#pt-use lean-13-ReplaySource-VecLike-nil ()) v0)))
       (v3
         (#pt-pi
@@ -401,10 +393,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app
             (#pt-use lean-13-ReplaySource-VecLike-nil ())
             (#pt-use lean-16-ReplaySource-IndexedRose ()))))
@@ -461,10 +451,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app
             (#pt-use lean-13-ReplaySource-VecLike-nil ())
             (#pt-use lean-16-ReplaySource-IndexedRose ()))))
@@ -565,10 +553,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app
             (#pt-use lean-13-ReplaySource-VecLike-nil ())
             (#pt-use lean-16-ReplaySource-IndexedRose ()))))
@@ -630,10 +616,8 @@
           (#pt-app
             (#pt-use lean-10-OfNat-ofNat (0))
             (#pt-use lean-3-Nat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-            (#pt-app
-              (#pt-use lean-11-instOfNatNat ())
-              (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
           (#pt-app
             (#pt-use lean-13-ReplaySource-VecLike-nil ())
             (#pt-use lean-16-ReplaySource-IndexedRose ()))))
@@ -727,10 +711,8 @@
         (#pt-app
           (#pt-use lean-10-OfNat-ofNat (0))
           (#pt-use lean-3-Nat ())
-          (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-          (#pt-app
-            (#pt-use lean-11-instOfNatNat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
         (#pt-app
           (#pt-use lean-13-ReplaySource-VecLike-nil ())
           (#pt-use lean-16-ReplaySource-IndexedRose ())))
@@ -739,10 +721,8 @@
         (#pt-app
           (#pt-use lean-10-OfNat-ofNat (0))
           (#pt-use lean-3-Nat ())
-          (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-          (#pt-app
-            (#pt-use lean-11-instOfNatNat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
         (#pt-app
           (#pt-use lean-13-ReplaySource-VecLike-nil ())
           (#pt-use lean-16-ReplaySource-IndexedRose ())))))
@@ -755,10 +735,8 @@
         (#pt-app
           (#pt-use lean-10-OfNat-ofNat (0))
           (#pt-use lean-3-Nat ())
-          (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())
-          (#pt-app
-            (#pt-use lean-11-instOfNatNat ())
-            (#pt-construct lean-3-Nat () () lean-4-Nat-zero ())))
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
         (#pt-app
           (#pt-use lean-13-ReplaySource-VecLike-nil ())
           (#pt-use lean-16-ReplaySource-IndexedRose ()))))))

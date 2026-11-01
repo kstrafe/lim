@@ -13,8 +13,11 @@ mod elimination;
 pub(super) mod export;
 #[path = "inductive.rs"]
 mod inductive;
+#[path = "natural.rs"]
+mod natural;
 #[path = "nested.rs"]
 mod nested;
+pub(super) use natural::Natural;
 #[path = "quotient.rs"]
 mod quotient;
 #[path = "syntax.rs"]
@@ -33,6 +36,10 @@ pub(super) enum Term {
     Sort(Level),
     Var(usize),
     Global(String, Vec<Level>),
+    NatLiteral {
+        family: String,
+        value: Natural,
+    },
     Pi(T, T),
     Lam(T, T),
     Let(T, T, T),
@@ -609,6 +616,10 @@ impl Kernel {
                 right,
                 proof,
             } => self.equality_elimination(ctx, ty, left, motive, base, right, proof, depth + 1),
+            Term::NatLiteral { family, .. } => {
+                self.natural_family(family, depth + 1)?;
+                Ok(term(Term::Global(family.clone(), vec![])))
+            }
             Term::Ctor {
                 family,
                 levels,
@@ -1107,7 +1118,26 @@ impl Kernel {
         }
         let a = self.whnf(ctx, a, depth + 1)?;
         let b = self.whnf(ctx, b, depth + 1)?;
+        if matches!(
+            (a.as_ref(), b.as_ref()),
+            (Term::NatLiteral { .. }, Term::Ctor { .. })
+                | (Term::Ctor { .. }, Term::NatLiteral { .. })
+        ) {
+            let a = self.natural_constructor(&a, depth + 1)?;
+            let b = self.natural_constructor(&b, depth + 1)?;
+            return self.conversion(ctx, &a, &b, eta, depth + 1);
+        }
         let structurally_equal = match (a.as_ref(), b.as_ref()) {
+            (
+                Term::NatLiteral {
+                    family: a,
+                    value: x,
+                },
+                Term::NatLiteral {
+                    family: b,
+                    value: y,
+                },
+            ) => Ok(a == b && x == y),
             (Term::Sort(a), Term::Sort(b)) => a.equivalent(b),
             (Term::Var(a), Term::Var(b)) => Ok(a == b),
             (Term::Global(a, u), Term::Global(b, v)) => Ok(a == b && same_levels(u, v)?),
@@ -1536,6 +1566,10 @@ impl Kernel {
                 return var(self, *index, binders);
             }
             Term::Sort(l) => Term::Sort(level(l)?),
+            Term::NatLiteral { family, value } => Term::NatLiteral {
+                family: family.clone(),
+                value: value.clone(),
+            },
             Term::Global(n, ls) => Term::Global(
                 n.clone(),
                 ls.iter().map(&mut *level).collect::<Result<_>>()?,
@@ -1742,6 +1776,9 @@ impl Kernel {
             _ => 0,
         };
         let name_bytes = match &transformed {
+            Term::NatLiteral { family, value } => {
+                family.len().saturating_add(value.decimal().len())
+            }
             Term::Global(name, _) | Term::Recur(name, _) => name.len(),
             Term::Ctor {
                 family,
@@ -1778,7 +1815,8 @@ fn contains_recursive(t: &T, name: &str) -> bool {
     match t.as_ref() {
         Term::SelfType | Term::SelfAt(_) | Term::Recur(..) => true,
         Term::Global(global, _) if global == name => true,
-        Term::Ctor { family, .. }
+        Term::NatLiteral { family, .. }
+        | Term::Ctor { family, .. }
         | Term::Induct { family, .. }
         | Term::MutualInduct { family, .. }
         | Term::NestedInduct { family, .. }
