@@ -123,7 +123,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | --- | --- | --- |
 | Inductive families | Regular parameterized datatypes with direct recursive fields. No indices, mutual recursion, or nested self occurrences. | Implement and audit indexed, mutual, and nested inductives, their positivity conditions, recursors, and computation rules. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
-| Conversion | Beta, transparent delta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. The local context is retained through Pi/lambda/Sigma binders; opaque theorem bodies stay opaque. No eta or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
+| Conversion | Beta, transparent delta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. No general user-inductive record eta, data-unit eta, or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
@@ -157,9 +157,28 @@ Sigma binders and checks the shared proposition, rather than relying on syntax
 alone. Proposition types and distinct opaque native-program fact atoms are not
 identified by this rule. Data and generic Sort-polymorphic values remain
 distinct unless their type's sort is provably zero. Opaque theorem bodies stay
-opaque, and the rule introduces no axiom, admit, or tactic. Eta, cumulativity,
-and quotients remain unsupported. The implemented kernel is not formally
-verified, and these changes do not supply the missing FLT proof.
+opaque, and the rule introduces no axiom, admit, or tactic.
+
+Typed function eta (`f` versus `lambda x. f x`) and primitive dependent Sigma
+pair eta (`p` versus its first/second reconstruction at the same Sigma type)
+are supported in both directions as type-directed rules for any two terms
+of a shared Pi or primitive Sigma type. Neither side must be an explicit
+constructor. Functions compare fresh applications, while pairs compare
+dependent projections; rigid neutral head and subject comparison avoids
+repeated eta expansion. Neutral Sigma values containing only proof fields
+therefore convert consistently with proof irrelevance.
+
+Conversion checks the shared type, shifts terms and contexts through binders,
+and fully infers source evidence before reduction. Fresh applications must
+definitionally compare; arbitrary pointwise equality proofs alone do not
+suffice. The [eta regression suite](../tests/kernel_eta.rs) and
+[kernel context tests](../src/proof/kernel/core_tests.rs) cover symmetry,
+dependent indices, context shifts, and ill-typed negative cases. These rules
+do not unfold opaque theorem bodies or provide general user-inductive record
+eta or data-unit eta. Cumulativity and quotients remain
+unsupported. This is not full Lean eta or conversion parity. The implemented
+kernel is not formally verified, and these changes do not supply the missing
+FLT proof.
 
 The pinned metadata lists `propext`, `Classical.choice`, and `Quot.sound` as the
 axioms used by the upstream full result. Lim currently supplies none of these

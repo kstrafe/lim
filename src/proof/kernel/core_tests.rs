@@ -116,11 +116,12 @@ fn nested_self_marker_is_rejected() {
 }
 
 #[test]
-fn equality_motive_constant_loop_binder_must_not_admit_axiom_k() {
+fn equality_motive_must_bind_the_fresh_endpoint() {
     let mut k = Kernel::new();
     // At the elimination site: A=#2, a=#1, p=#0 : Eq(A,a,a).
     // Invalid J motive: lambda y:A. lambda q:Eq(A,a,a). Eq(Eq(A,a,a),refl,q).
-    // The equality domain is constant in y; checking it only at y=a admits K.
+    // The equality domain is constant in y. Even though proof irrelevance
+    // validates K, a malformed J motive must still be rejected before use.
     let motive = lam(
         var(2),
         lam(
@@ -334,14 +335,15 @@ fn levels_maximum_and_substitution_preserve_natural_offsets() {
 }
 
 #[test]
-fn proof_irrelevance_preserves_data_distinctions_without_eta_or_cumulativity() {
+fn proof_irrelevance_and_function_eta_do_not_introduce_cumulativity() {
     let mut k = Kernel::new();
     assert!(k.check(&[], &sort(0), &sort(2), 0).is_err());
     let function = pi(nat(), nat());
     let ctx = vec![function];
     let eta = lam(nat(), app(var(1), var(0)));
     k.infer(&ctx, &eta, 0).unwrap();
-    assert!(!k.convertible(&ctx, &var(0), &eta, 0).unwrap());
+    assert!(k.convertible(&ctx, &var(0), &eta, 0).unwrap());
+    assert!(k.convertible(&ctx, &eta, &var(0), 0).unwrap());
     k.inductive(
         "TwoProofs",
         vec![],
@@ -389,6 +391,103 @@ fn opaque_loop_equality_proofs_compute_but_arbitrary_endpoints_do_not() {
         k.check(&ctx, &value, &nat(), 0).unwrap();
         assert_eq!(k.convertible(&ctx, &value, &zero(), 0).unwrap(), computes);
     }
+}
+
+#[test]
+fn function_eta_shifts_outer_locals_without_capture() {
+    let mut k = Kernel::new();
+    let function_type = pi(nat(), nat());
+    let ctx = vec![function_type.clone(), nat()];
+    let function = var(1);
+    let expanded = lam(nat(), app(var(2), var(0)));
+    let captured = lam(nat(), app(var(2), var(1)));
+    for value in [&function, &expanded, &captured] {
+        k.check(&ctx, value, &function_type, 0).unwrap();
+    }
+    assert!(k.convertible(&ctx, &function, &expanded, 0).unwrap());
+    assert!(k.convertible(&ctx, &expanded, &function, 0).unwrap());
+    assert!(!k.convertible(&ctx, &function, &captured, 0).unwrap());
+    assert!(!k.convertible(&ctx, &captured, &function, 0).unwrap());
+}
+
+#[test]
+fn dependent_pair_eta_preserves_the_second_component_type() {
+    let mut k = Kernel::new();
+    let sigma = term(Term::Sigma(nat(), eq(nat(), var(0), var(0))));
+    let ctx = vec![sigma.clone()];
+    let pair = var(0);
+    let first = term(Term::First(pair.clone()));
+    let second = term(Term::Second(pair.clone()));
+    let expanded = term(Term::Pair(sigma.clone(), first.clone(), second.clone()));
+    k.check(&ctx, &expanded, &sigma, 0).unwrap();
+    assert!(k.convertible(&ctx, &pair, &expanded, 0).unwrap());
+    assert!(k.convertible(&ctx, &expanded, &pair, 0).unwrap());
+    // Eta works inside dependent type indices, not just a top-level equality.
+    let carrier = term(Term::Sigma(nat(), nat()));
+    let ctx = vec![carrier.clone(), pi(carrier.clone(), sort(1))];
+    let rebuilt = term(Term::Pair(
+        carrier,
+        term(Term::First(var(1))),
+        term(Term::Second(var(1))),
+    ));
+    let direct = app(var(0), var(1));
+    let through_eta = app(var(0), rebuilt);
+    k.sort(&ctx, &direct, 0).unwrap();
+    k.sort(&ctx, &through_eta, 0).unwrap();
+    assert!(k.convertible(&ctx, &direct, &through_eta, 0).unwrap());
+}
+
+#[test]
+fn eta_conversion_is_transitive_for_neutral_pairs_with_proof_components() {
+    let mut k = Kernel::new();
+    let proof = eq(nat(), zero(), zero());
+    let sigma = term(Term::Sigma(proof.clone(), proof));
+    let ctx = vec![sigma.clone(), sigma.clone()];
+    let a = var(1);
+    let b = var(0);
+    let rebuilt = term(Term::Pair(
+        sigma.clone(),
+        term(Term::First(a.clone())),
+        term(Term::Second(a.clone())),
+    ));
+    for value in [&a, &b, &rebuilt] {
+        k.check(&ctx, value, &sigma, 0).unwrap();
+    }
+    for (left, right) in [(&a, &rebuilt), (&rebuilt, &b), (&a, &b), (&b, &a)] {
+        assert!(k.convertible(&ctx, left, right, 0).unwrap());
+    }
+    // The same issue propagates through eta for functions returning pairs.
+    let function_type = pi(nat(), sigma);
+    let ctx = vec![function_type.clone(), function_type.clone()];
+    let expanded = lam(nat(), app(var(2), var(0)));
+    k.check(&ctx, &expanded, &function_type, 0).unwrap();
+    assert!(k.convertible(&ctx, &var(1), &expanded, 0).unwrap());
+    assert!(k.convertible(&ctx, &expanded, &var(0), 0).unwrap());
+    assert!(k.convertible(&ctx, &var(1), &var(0), 0).unwrap());
+}
+
+#[test]
+fn neutral_data_eta_comparisons_terminate_with_false() {
+    let mut k = Kernel::new();
+    let sigma = term(Term::Sigma(nat(), nat()));
+    for ty in [pi(nat(), nat()), pi(nat(), sigma.clone()), sigma] {
+        let ctx = vec![ty.clone(), ty.clone()];
+        for value in [var(0), var(1)] {
+            k.check(&ctx, &value, &ty, 0).unwrap();
+        }
+        for (a, b) in [(var(0), var(1)), (var(1), var(0))] {
+            k.reset_budget();
+            // Budget exhaustion is a failure, not a negative conversion.
+            assert!(!k.convertible(&ctx, &a, &b, 0).unwrap());
+        }
+    }
+    let nat_function = lam(nat(), zero());
+    let prop_function = lam(sort(0), zero());
+    k.infer(&[], &nat_function, 0).unwrap();
+    k.infer(&[], &prop_function, 0).unwrap();
+    assert!(!k
+        .convertible(&[], &nat_function, &prop_function, 0)
+        .unwrap());
 }
 
 #[test]

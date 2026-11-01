@@ -2098,8 +2098,27 @@ Conversion supports beta, transparent delta, and constructor/eliminator iota
 computation, including pair projections and equality elimination J at
 reflexivity, with opaque theorems. J checks its motive at a fresh generic
 endpoint and equality, not only at the supplied endpoint. There is no term let
-or zeta reduction, eta conversion, cumulativity, quotient, classical axiom,
-admit, general recursion, or metavariable hole.
+or zeta reduction, cumulativity, quotient, classical axiom, admit, general
+recursion, or metavariable hole.
+
+Typed function eta identifies `f` with `lambda x. f x` at the same checked
+function type. Primitive dependent Sigma pair eta identifies `p` with
+`(#pt-pair S (#pt-first p) (#pt-second p))` at its checked Sigma type `S`.
+Both rules compare any two terms at a shared Pi or primitive Sigma type;
+neither side must be an explicit lambda or pair. Functions compare fresh
+applications, and pairs compare their dependent projections. Rigid neutral
+heads and subjects are compared without repeated eta expansion. This makes
+neutral Sigma values containing only proof fields convertible consistently
+with proof irrelevance, without collapsing distinct data components.
+
+The comparisons are symmetric, shift terms and contexts correctly under
+binders, and fully infer source evidence before eta reduction. They do not
+hide ill-typed components or unfold opaque theorem bodies. Arbitrary pointwise
+equality proofs are insufficient for function conversion: the fresh applications
+must definitionally compare. The eta and context regression suites cover
+symmetry, dependent indices, capture avoidance, and ill-typed negative cases.
+General user-inductive record eta and data-unit eta remain unsupported;
+full Lean eta is not claimed.
 
 Definitional proof irrelevance identifies any two well-typed proofs of the same
 proposition. Typed conversion carries the local context through Pi, lambda, and

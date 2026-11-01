@@ -563,14 +563,51 @@ fresh-endpoint check; agreement only at the supplied endpoint is insufficient.
 A recursor for a fieldless singleton proposition also reduces to its single
 branch when its proof subject is opaque. These proof-aware reductions do not
 unfold opaque theorem bodies, add data-unit eta, or provide full Lean eta.
-Theorems remain opaque. There is no zeta reduction
-for term lets, since term `let` is unsupported, and no eta conversion or
-cumulativity. Typed conversion also identifies well-typed proofs of the same
-proposition, carrying the local context through dependent binders; it does not
-identify arbitrary proposition types or data. Conversion is not an unrestricted
-simplifier or a tactic search engine.
+Theorems remain opaque. There is no zeta reduction for term lets, since term
+`let` is unsupported, and no cumulativity. Typed conversion also identifies
+well-typed proofs of the same proposition, carrying the local context through
+dependent binders; it does not identify arbitrary proposition types or data.
+Conversion is not an unrestricted simplifier or a tactic search engine.
 
-The kernel has no term `let`, eta conversion, cumulativity, quotients,
+Typed function eta and primitive dependent Sigma pair eta are supported:
+
+- At a checked function type, `f` converts to
+  `(#pt-lambda ((x A)) (#pt-app f x))`, with a fresh `x`.
+- At the same checked primitive Sigma type `S`, `p` converts to
+  `(#pt-pair S (#pt-first p) (#pt-second p))`.
+
+These examples are instances of type-directed comparison of any two terms
+at a shared Pi or primitive Sigma type, not a restriction to a comparison with
+one explicit lambda or pair constructor. Functions are compared by applying
+both to a fresh argument and definitionally comparing the resulting bodies.
+Pairs are compared through their first and second projections, retaining the
+dependent type of the second component. Both rules are symmetric.
+
+The checker verifies the shared type and shifts terms and typing contexts under
+binders so existing free variables retain their meaning. It compares rigid
+neutral heads and projection subjects without repeatedly eta-expanding those
+same neutrals. Consequently, neutral Sigma values containing only proof fields
+can convert through their projections consistently with proof irrelevance;
+an explicit pair constructor is not required on either side.
+
+The source evidence is fully inferred before eta reduction; comparison cannot
+hide an ill-typed function argument, pair component, or dependent type.
+Function eta is definitional conversion, not arbitrary equality-proof-driven
+function extensionality. Proofs that two functions agree pointwise do not by
+themselves make the functions definitionally equal: their fresh applications
+must definitionally compare. Pair eta applies to the primitive dependent
+Sigma type, not general user-inductive records. Data-unit eta is unsupported,
+and opaque theorem bodies stay opaque. These rules do not imply full Lean eta
+or conversion parity.
+
+The [eta regression suite](../tests/kernel_eta.rs) and
+[kernel context tests](../src/proof/kernel/core_tests.rs) cover both orientations,
+dependent result indices, capture-free context shifts, and rejection of
+mismatched or ill-typed components. Neutral proof-field Sigma comparisons must
+retain the same proof-irrelevance behavior under type-directed comparison,
+without recursive re-expansion or collapse of distinct data components.
+
+The kernel has no term `let`, cumulativity, quotients,
 classical axioms, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
 normalization resources still apply; resource exhaustion must fail checking,

@@ -801,6 +801,9 @@ impl Kernel {
         }
     }
     fn convertible(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
+        self.conversion(ctx, a, b, true, depth)
+    }
+    fn conversion(&mut self, ctx: &[T], a: &T, b: &T, eta: bool, depth: usize) -> Result<bool> {
         self.tick(depth)?;
         if Arc::ptr_eq(a, b) {
             return Ok(true);
@@ -822,15 +825,19 @@ impl Kernel {
                     Ok(false)
                 }
             }
-            (Term::App(a, b), Term::App(c, d)) => Ok(self.convertible(ctx, a, c, depth + 1)?
-                && self.convertible(ctx, b, d, depth + 1)?),
+            // Comparing neutral heads or projection subjects with eta again
+            // would revisit the same problem. Arguments keep full conversion.
+            (Term::App(a, b), Term::App(c, d)) => {
+                Ok(self.conversion(ctx, a, c, false, depth + 1)?
+                    && self.convertible(ctx, b, d, depth + 1)?)
+            }
             (Term::Pair(a, b, c), Term::Pair(d, e, f)) | (Term::Eq(a, b, c), Term::Eq(d, e, f)) => {
                 Ok(self.convertible(ctx, a, d, depth + 1)?
                     && self.convertible(ctx, b, e, depth + 1)?
                     && self.convertible(ctx, c, f, depth + 1)?)
             }
             (Term::First(a), Term::First(b)) | (Term::Second(a), Term::Second(b)) => {
-                self.convertible(ctx, a, b, depth + 1)
+                self.conversion(ctx, a, b, false, depth + 1)
             }
             (Term::Refl(a, b), Term::Refl(c, d)) => Ok(self.convertible(ctx, a, c, depth + 1)?
                 && self.convertible(ctx, b, d, depth + 1)?),
@@ -921,12 +928,51 @@ impl Kernel {
         }
         // Classify the type of a term, not the term's syntax. Prop itself is a
         // type, and arbitrary Sort-polymorphic data is not necessarily proof.
-        let proposition = self.infer(ctx, &a, depth + 1)?;
-        if !self.sort(ctx, &proposition, depth + 1)?.zero() {
+        let a_type = self.infer(ctx, &a, depth + 1)?;
+        if self.sort(ctx, &a_type, depth + 1)?.zero() {
+            let b_type = self.infer(ctx, &b, depth + 1)?;
+            return self.convertible(ctx, &a_type, &b_type, depth + 1);
+        }
+        if !eta {
             return Ok(false);
         }
-        let other_proposition = self.infer(ctx, &b, depth + 1)?;
-        self.convertible(ctx, &proposition, &other_proposition, depth + 1)
+        // Compare at a shared Pi/Sigma type, including two neutral values.
+        // Restricting this to explicit lambdas/pairs loses transitivity when
+        // proof-irrelevant components compare equal through a reconstruction.
+        let shape = self.whnf(ctx, &a_type, depth + 1)?;
+        if !matches!(shape.as_ref(), Term::Pi(..) | Term::Sigma(..)) {
+            return Ok(false);
+        }
+        let b_type = self.infer(ctx, &b, depth + 1)?;
+        if !self.convertible(ctx, &a_type, &b_type, depth + 1)? {
+            return Ok(false);
+        }
+        match shape.as_ref() {
+            Term::Pi(domain, _) => self.function_eta(ctx, domain, &a, &b, depth + 1),
+            Term::Sigma(..) => self.pair_eta(ctx, &a, &b, depth + 1),
+            _ => Ok(false),
+        }
+    }
+    fn function_eta(&mut self, ctx: &[T], domain: &T, a: &T, b: &T, depth: usize) -> Result<bool> {
+        let mut inner = ctx.to_vec();
+        inner.push(domain.clone());
+        let argument = term(Term::Var(0));
+        let a = term(Term::App(self.shift(a, 1, 0, depth + 1)?, argument.clone()));
+        let b = term(Term::App(self.shift(b, 1, 0, depth + 1)?, argument));
+        self.convertible(&inner, &a, &b, depth + 1)
+    }
+    fn pair_eta(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
+        Ok(self.convertible(
+            ctx,
+            &term(Term::First(a.clone())),
+            &term(Term::First(b.clone())),
+            depth + 1,
+        )? && self.convertible(
+            ctx,
+            &term(Term::Second(a.clone())),
+            &term(Term::Second(b.clone())),
+            depth + 1,
+        )?)
     }
     fn same_many(&mut self, ctx: &[T], a: &[T], b: &[T], depth: usize) -> Result<bool> {
         if a.len() != b.len() {
