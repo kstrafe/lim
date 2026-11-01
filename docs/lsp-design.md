@@ -204,3 +204,58 @@ keywords, positive function/value/type references, scope isolation, runtime
 member/argument roles, metadata collisions, aliases, generated declarations,
 and unsaved proof buffers. `src/lsp_syntax_policy.rs` independently inventories
 all proof forms; the Neovim syntax tests also reject partial keyword matches.
+
+## Kernel proof source roles
+
+Kernel declarations retain the outer `(#proof name body)` declaration identity.
+`#proof-definition` and `#proof-theorem` introduce universe parameters from their
+first operand, then navigate the declared type and value as kernel terms.
+`#proof-inductive` introduces universe parameters, sequential term parameters,
+a sort, and constructor declarations. Each constructor's fields have a separate
+sequential scope containing the datatype parameters. Earlier fields are visible
+in later field types; fields do not escape to another constructor. Constructor
+names navigate to their own declaration tokens.
+
+Kernel types are proof terms, not runtime `Type` expressions. The resolver uses
+separate lexical namespaces for term bindings and universe parameters, with no
+fallback from a bare name to a runtime declaration or a global proof. The
+`#pt-pi`, `#pt-lambda`, and single-binder `#pt-sigma` forms navigate each binder's
+type before introducing its name; earlier binders are visible in later types
+and all binders are visible in the body. Nested scopes may shadow outer names.
+The declared type and value of a definition have independent term scopes.
+This source-role navigation remains available while editing ill-typed terms.
+
+Universe parameters navigate to their own tokens in `#pt-type`, explicit level
+argument lists, and nested `#pt-level-succ`/`#pt-level-max` expressions. Integer
+levels and the level keywords have no definition. Term binders cannot capture
+universe occurrences, and universes are not implicit term bindings.
+
+`(#pt-use proof-name (levels...))` explicitly selects a kernel declaration.
+`#pt-program` and `#pt-certificate` select procedural proof declarations.
+These global-reference roles ignore same-spelled lexical bindings and reject
+runtime functions/types. They use canonical declaration identities through
+aliases, imports and the final file scope for generated names. Explicit level
+arguments always occupy a list, including the empty list.
+
+`#pt-construct` and `#pt-induct` select an inductive proof declaration, navigate
+their explicit levels in the universe scope, and navigate parameter values in
+the current term scope. A construction's constructor label resolves only to a
+unique constructor of that selected datatype; an unrelated global or another
+datatype's same-spelled constructor cannot supply a target. Field values,
+induction motives, branch terms and subjects use the current term scope. Lists
+of parameter values, field values and branches are containers, so their first
+element is a term rather than a keyword or an implicit call head.
+
+`#pt-app`, `#pt-eq`, `#pt-refl`, `#pt-eq-elim`, `#pt-pair`, `#pt-first`,
+`#pt-second`, `#pt-succ` and `#pt-nat-induct` navigate every term operand with
+these same kernel roles. `#pt-numeral` carries integer metadata. All kernel
+keywords, including the atomic `#pt-prop`, `#pt-nat`, `#pt-zero`, `#pt-false`
+and `#pt-self`, have no definition. Unknown or malformed terms never fall back
+to the runtime expression walker or global spelling lookup. The general
+`@name` prepass does not bypass these explicit kernel-reference roles.
+
+`tests/kernel_navigation.rs` reuses the proof navigation protocol harness to
+assert exact ranges for lexical binders, dependent types, universe levels,
+constructor fields and labels, proof references, aliases, imported proofs and
+generated declarations. It also covers metadata, shadowing, isolated scopes,
+missing or ambiguous constructors and wrong declaration kinds.

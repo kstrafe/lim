@@ -1743,9 +1743,11 @@ and [the runnable printing example](../examples/heap_string.lim).
 
 `(#proof name proposition)` declares a compile-time obligation over the checked,
 expanded program. The name follows value-identifier rules. Validation rejects a
-false or unproved obligation; a proof emits no runtime assertion and supplies no
-assumptions to other proofs. Ordinary type, ownership, and unsafe checks still
-apply to the program.
+false or unproved obligation; a procedural proof emits no runtime assertion and
+supplies no unchecked assumptions to other proofs. The mathematical kernel can
+reuse an accepted procedural obligation through the explicit `#pt-program` and
+`#pt-certificate` bridge described below. Ordinary type, ownership, and unsafe
+checks still apply to the program.
 
 ```lisp library
 (#fn identity ((value #u8)) #u8
@@ -1932,6 +1934,75 @@ bitvectors, but raw memory operations are not thereby supported. Use explicitly
 typed literals and `#array-of`; context-dependent `#array-repeat`, slices,
 arbitrary ownership/runtime facilities, and unsupported operations are not
 made provable by increasing the loop limit.
+
+### Constructive mathematical proofs
+
+The outer `#proof` form also declares checked mathematical definitions,
+theorems, and regular inductive datatypes. These use a constructive dependent
+kernel distinct from the procedural bitvector checker. See the detailed
+[kernel user guide](kernel.md) for examples, binder rules, equality transport,
+natural induction, and the procedural-certificate bridge.
+
+```text
+(#proof NAME (#proof-definition (u...) TYPE VALUE))
+(#proof NAME (#proof-theorem (u...) PROPOSITION PROOF))
+(#proof NAME
+  (#proof-inductive (u...) ((parameter Type)...) SORT
+    ((constructor ((field Type)...))...)))
+```
+
+The theorem's type must inhabit `#pt-prop`. Definitions are transparent to
+conversion; checked theorem bodies are opaque. `#pt-prop` is `Sort 0` and
+`(#pt-type LEVEL)` is `Sort (LEVEL + 1)`. Universe levels are explicit
+nonnegative integers, declared universe parameters, successors, or maxima.
+`(#pt-use proof-name (levels...))` requires its level list, including `()`.
+Pi and lambda use explicit typed binder lists; Sigma requires exactly one
+binder. Application, equality, reflexivity, equality elimination, dependent
+pairs, projections, and inductive eliminators are explicit `#pt-` terms.
+
+`#pt-nat` and `#pt-zero` are symbols. `#pt-succ` constructs a successor, and
+`#pt-numeral` expands a bounded source integer into a Peano spine. Mathematical
+natural numbers and Pi quantification over them are unbounded; they are not
+machine integers or bounded symbolic samples. There is no automatic coercion
+from a native integer to mathematical Nat. Explicit universe polymorphism is
+compile-time mathematical generic reasoning, not native generics.
+
+User inductives initially have parameters and direct recursive fields, without
+indices, nested self occurrences, or mutual recursion. `#pt-self` is legal only
+as a complete direct recursive field type. `#pt-induct` takes explicit universe
+and parameter lists, a motive, constructor branches in declaration order, and
+a subject. Each recursive field is immediately followed by its induction
+hypothesis in the branch arguments. Elimination of inductive propositions into
+data-type universes is restricted to empty inductives or a single constructor
+whose fields are all proofs. `#pt-false` is an empty proposition.
+
+`(#pt-program procedural-proof-name)` is a proposition atom;
+`(#pt-certificate procedural-proof-name)` is its evidence only after the existing
+procedural checker has passed. Procedural obligations are checked first, then
+mathematical declarations in topological dependency order; cycles are rejected.
+All proofs are rechecked on warm-cache validation and have zero native emission.
+Conversion supports beta, transparent delta, and constructor/eliminator iota
+computation, including pair projections and equality elimination J at
+reflexivity, with opaque theorems. J checks its motive at a fresh generic
+endpoint and equality, not only at the supplied endpoint. There is no term let
+or zeta reduction, eta conversion, proof irrelevance, cumulativity, quotient,
+classical axiom, admit, general recursion, or metavariable hole.
+
+Kernel checking allows 200,000 core steps per declaration and recursive depth
+96; mathematical parsing allows 50,000 nodes per declaration and depth 64.
+Other limits are 32 universe parameters, constant universe levels at most 65,535,
+64 inductive parameters, 64 constructors per datatype, 64 fields per constructor,
+and 4,096 mathematical declarations. `#pt-numeral` accepts source integers from
+0 through 128; Nat and natural-number quantification remain unbounded. Limits
+fail closed and are separate from the procedural symbolic checker's budgets.
+
+The kernel is inspired by Lean 4 but is not full Lean 4, does not include mathlib,
+and claims neither feature parity nor formal verification. Acceptance trusts
+the implementation of parsing, scoping, universes, checking, and conversion.
+Native certificates additionally trust the existing procedural checker and its
+program model; the adapter is not a proof of compiler correctness or a native
+executable's entire behavior. The user guide links to primary Lean references for the background concepts; Lim's rules govern the
+accepted subset.
 
 ### Functions
 
@@ -2793,7 +2864,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
-| `#proof` | `(#proof name proposition)` | `(#proof reflexive (#proof-eq 1u8 1u8))` (top level) | Checks a compile-time proposition over the validated expanded program; false, unsupported, or exhausted obligations fail validation. |
+| `#proof` | `(#proof name proposition)` | `(#proof reflexive (#proof-eq 1u8 1u8))` (top level) | Declares a procedural obligation or a mathematical definition, theorem, or inductive; failed checking prevents validation, and all forms have zero native emission. |
 | `#proof-allocation` | `#proof-allocation in an effect list` | `(#proof-no-effects helper (#proof-allocation))` (proof proposition) | Conservative allocation effect; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-and` | `(#proof-and proposition...)` | `(#proof-and true (#proof-eq 1u8 1u8))` (proof proposition) | Conjunction of one or more propositions; unsupported operands still fail. |
 | `#proof-asm` | `#proof-asm in an effect list` | `(#proof-no-effects helper (#proof-asm))` (proof proposition) | Inline assembly or conservatively unknown assembly effects; a tag for #proof-no-effects, not a standalone proposition. |
@@ -2802,11 +2873,13 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-calls-transitively` | `(#proof-calls-transitively caller callee)` | `(#proof-calls-transitively main helper)` (proof proposition) | Checks a nonempty structural path of one or more call edges; equal endpoints require an actual cycle, and reachability does not establish execution feasibility. |
 | `#proof-calls-when` | `(#proof-calls-when entry observed expected action)` | `(#proof-calls-when main validate false commit)` (proof proposition) | Forbids an action call and the selected Boolean observation from co-occurring in either order; executes the observed function's checked body and uses its actual symbolic result. |
 | `#proof-contract` | `(#proof-contract function precondition postcondition)` | `(#proof-contract identity true (#proof-eq (#proof-result) value))` (proof proposition) | Quantifies declared parameters, runs the checked implementation under the precondition, checks the postcondition, and returns a closed Boolean; nested contracts or universal claims are unsupported. |
+| `#proof-definition` | `(#proof NAME (#proof-definition (u...) TYPE VALUE))` | `(#proof identity-nat (#proof-definition () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n)))` (top level) | Declares an explicitly typed, universe-parameterized mathematical definition; its checked value is transparent to conversion and emits no native code. |
 | `#proof-eq` | `(#proof-eq left right)` | `(#proof-eq 1u8 1u8)` (proof proposition) | Modeled structural value equality; reference identity comparison is unsupported. |
 | `#proof-external` | `#proof-external in an effect list` | `(#proof-no-effects helper (#proof-external))` (proof proposition) | External or conservatively unknown execution effects; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-for-all` | `(#proof-for-all ((name Type)...) proposition)` | `(#proof-for-all ((x #u8)) (#proof-eq x x))` (proof proposition) | Universally quantifies supported symbolic values without sampling and discharges them to a closed Boolean; nested universal or contract claims are unsupported. |
 | `#proof-global-write` | `#proof-global-write in an effect list` | `(#proof-no-effects helper (#proof-global-write))` (proof proposition) | Direct or possible indirect writes to global storage; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-implies` | `(#proof-implies antecedent consequence)` | `(#proof-implies (#u8::lt x 255u8) (#proof-no-overflow #u8::add-wrap x 1u8))` (quantified proof proposition) | Checks the consequence under the antecedent; does not separately establish satisfiability of the antecedent. |
+| `#proof-inductive` | `(#proof NAME (#proof-inductive (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...)))` | `(#proof ticks (#proof-inductive () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self))))))` (top level) | Declares a regular mathematical inductive with explicit parameters, sort, constructors, and direct recursive fields; no indices, nested self, or mutual recursion. |
 | `#proof-io` | `#proof-io in an effect list` | `(#proof-no-effects helper (#proof-io))` (proof proposition) | IO or conservatively unknown IO effects; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-loop-limit` | `(#proof-loop-limit literal-limit proposition)` | `(#proof-loop-limit 64 (#proof-contract count true true))` (proof proposition) | Scopes the symbolic loop bound to 1 through 1024; feasible execution beyond the limit fails closed. |
 | `#proof-mutation` | `#proof-mutation in an effect list` | `(#proof-no-effects helper (#proof-mutation))` (proof proposition) | Observable reference, aggregate, array, or global writes; local scalar reassignment is ignored; a tag for #proof-no-effects, not a standalone proposition. |
@@ -2820,8 +2893,35 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
 | `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
+| `#proof-theorem` | `(#proof NAME (#proof-theorem (u...) PROPOSITION PROOF))` | `(#proof zero-refl (#proof-theorem () (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-refl #pt-nat #pt-zero)))` (top level) | Checks a proof whose declared type inhabits Prop; checked theorem bodies are opaque to conversion. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
+| `#pt-app` | `(#pt-app function argument...)` | `(#pt-app (#pt-use identity (0)) #pt-nat #pt-zero)` (mathematical term) | Explicit term application after universe instantiation, substituting arguments into dependent result types. |
+| `#pt-certificate` | `(#pt-certificate procedural-proof-name)` | `(#pt-certificate identity-native-law)` (mathematical evidence) | Evidence of the corresponding program atom only after that procedural proof has passed its existing checker; not an unchecked assumption. |
+| `#pt-construct` | `(#pt-construct datatype (levels...) (parameters...) constructor-label (fields...))` | `(#pt-construct ticks () () tick-zero ())` (mathematical term) | Constructs a user-inductive value with explicit universe, parameter, constructor, and field arguments, including empty lists. |
+| `#pt-eq` | `(#pt-eq Type lhs rhs)` | `(#pt-eq #pt-nat #pt-zero #pt-zero)` (mathematical proposition) | Propositional equality between two terms of the stated type; its type is Prop. |
+| `#pt-eq-elim` | `(#pt-eq-elim Type lhs motive base rhs equality)` | `(#pt-eq-elim #pt-nat a (#pt-lambda ((x #pt-nat) (h (#pt-eq #pt-nat a x))) (#pt-eq #pt-nat x x)) (#pt-refl #pt-nat a) b e)` (mathematical term) | Dependent equality elimination; motive takes x and evidence of Eq(lhs,x), and base supplies its value at reflexivity. |
+| `#pt-false` | `#pt-false` | `(#pt-pi ((h #pt-false)) #pt-false)` (mathematical proposition) | Empty proposition with no introduction constructor; no admit or unchecked axiom creates an inhabitant. |
+| `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
+| `#pt-induct` | `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)` | `(#pt-induct ticks () () (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat) (#pt-zero (#pt-lambda ((p (#pt-use ticks ())) (ih #pt-nat)) (#pt-succ ih))) t)` (mathematical term) | Eliminates a user inductive with branches in constructor order; an induction hypothesis follows each recursive field. Prop-to-Type elimination is restricted. |
+| `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
+| `#pt-level-max` | `(#pt-level-max LEVEL...)` | `(#pt-type (#pt-level-max u v))` (mathematical universe) | Maximum of explicit universe levels; does not infer missing universe arguments. |
+| `#pt-level-succ` | `(#pt-level-succ LEVEL)` | `(#pt-type (#pt-level-succ u))` (mathematical universe) | Successor of an explicit universe level; this is level syntax, not term arithmetic. |
+| `#pt-nat` | `#pt-nat` | `(#pt-pi ((n #pt-nat)) #pt-nat)` (mathematical type) | Unbounded Peano natural-number type, distinct from native machine integers; symbol, not an empty application. |
+| `#pt-nat-induct` | `(#pt-nat-induct motive zeroCase stepCase n)` | `(#pt-nat-induct (#pt-lambda ((k #pt-nat)) #pt-nat) #pt-zero (#pt-lambda ((k #pt-nat) (ih #pt-nat)) (#pt-succ ih)) n)` (mathematical term) | Natural induction or recursion using a zero case and a successor case taking the predecessor and induction hypothesis. |
+| `#pt-numeral` | `(#pt-numeral nonnegative-source-integer)` | `(#pt-numeral 3)` (mathematical term) | Source integers from 0 through 128 expand to a Peano spine; this abbreviation limit does not bound Nat or its quantifiers. |
+| `#pt-pair` | `(#pt-pair SigmaType first second)` | `(#pt-pair (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n)) #pt-zero (#pt-refl #pt-nat #pt-zero))` (mathematical term) | Constructs a dependent pair with its full Sigma type stated explicitly. |
+| `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
+| `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |
+| `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
+| `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using definitional conversion. |
+| `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
+| `#pt-self` | `#pt-self as a direct recursive field type` | `(#proof ticks (#proof-inductive () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self))))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
+| `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
+| `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |
+| `#pt-type` | `(#pt-type LEVEL)` | `(#pt-type 0)` (mathematical sort) | Sort (LEVEL + 1), with an explicit nonnegative universe expression; no cumulativity or native generic instantiation. |
+| `#pt-use` | `(#pt-use global-proof-name (LEVEL...))` | `(#pt-use nat-reflexive ())` (mathematical term) | References a global mathematical declaration at explicit universe arguments; the list is required even when empty. |
+| `#pt-zero` | `#pt-zero` | `(#pt-refl #pt-nat #pt-zero)` (mathematical term) | Zero constructor of mathematical Nat; symbol, not an empty application. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |

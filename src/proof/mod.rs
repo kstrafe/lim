@@ -3,6 +3,7 @@
 mod graph;
 #[cfg(test)]
 mod induction_tests;
+mod kernel;
 mod logic;
 mod symbolic;
 
@@ -10,7 +11,7 @@ use crate::typecheck::{AnalysisError, CheckedProgram};
 use crate::{Expr, Function, Item, Span, Type};
 use graph::Graph;
 use logic::{Bit, Circuit, Word, FALSE, TRUE};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use symbolic::{State, Value};
 
 type Result<T> = std::result::Result<T, String>;
@@ -74,7 +75,11 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
     }
     let _timing = crate::timing::stage("proof");
     let graph = Graph::new(checked.program(), checked.declarations());
+    let mut verified_program_proofs = HashSet::new();
     for (name, proposition) in proofs {
+        if kernel::is_declaration(proposition) {
+            continue;
+        }
         let declaration = checked.program().declaration_expressions.get(name);
         let span = declaration
             .and_then(|node| node.children.get(2))
@@ -96,7 +101,26 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
                 Vec::new(),
             ));
         }
+        verified_program_proofs.insert(name.clone());
     }
+    kernel::check(checked.program(), &verified_program_proofs).map_err(|(name, message)| {
+        let span = checked
+            .program()
+            .declaration_expressions
+            .get(&name)
+            .and_then(|node| node.children.get(2))
+            .map(|node| node.span)
+            .or_else(|| checked.program().declaration_spans.get(&name).copied());
+        (
+            format!(
+                "proof '{}': {message}",
+                crate::file_access::local_name(&name)
+            ),
+            crate::DiagnosticCode::Proof,
+            span,
+            Vec::new(),
+        )
+    })?;
     Ok(())
 }
 

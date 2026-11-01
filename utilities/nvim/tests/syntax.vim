@@ -61,6 +61,12 @@ endfor
 " Canonical proof forms use exact tokens; similar names remain generic keywords.
 call s:check('#proof', 'limDeclaration')
 for s:proof in [
+      \ 'proof-definition', 'proof-theorem', 'proof-inductive',
+      \ 'pt-prop', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-sigma', 'pt-app', 'pt-use',
+      \ 'pt-level-succ', 'pt-level-max', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
+      \ 'pt-succ', 'pt-numeral', 'pt-construct', 'pt-induct', 'pt-nat-induct',
+      \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second',
+      \ 'pt-program', 'pt-certificate',
       \ 'proof-and',
       \ 'proof-or',
       \ 'proof-not',

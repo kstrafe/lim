@@ -4583,6 +4583,13 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     let Expr::List(items) = expression else {
         return Ok(());
     };
+    // Mathematical terms have their own context-sensitive grammar. Keep them
+    // intact for the kernel adapter, which checks every keyword, binder, level,
+    // and metadata list without treating a binder called `index` as #index.
+    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-theorem"|"#proof-inductive"))
+    {
+        return Ok(());
+    }
     if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#struct" | "#enum"))
     {
         if let Some(Expr::List(properties)) = items.get(2) {
@@ -4973,6 +4980,35 @@ fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
         "proof"
+            | "proof-definition"
+            | "proof-theorem"
+            | "proof-inductive"
+            | "pt-prop"
+            | "pt-type"
+            | "pt-pi"
+            | "pt-lambda"
+            | "pt-sigma"
+            | "pt-app"
+            | "pt-use"
+            | "pt-level-succ"
+            | "pt-level-max"
+            | "pt-nat"
+            | "pt-false"
+            | "pt-self"
+            | "pt-zero"
+            | "pt-succ"
+            | "pt-numeral"
+            | "pt-construct"
+            | "pt-induct"
+            | "pt-nat-induct"
+            | "pt-eq"
+            | "pt-refl"
+            | "pt-eq-elim"
+            | "pt-pair"
+            | "pt-first"
+            | "pt-second"
+            | "pt-program"
+            | "pt-certificate"
             | "proof-and"
             | "proof-or"
             | "proof-not"

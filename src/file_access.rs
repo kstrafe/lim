@@ -352,6 +352,157 @@ struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
+    fn proof_term_child(
+        &self,
+        node: &mut Node,
+        index: usize,
+        file: usize,
+        locals: &HashSet<String>,
+    ) -> Result<(), SourceError> {
+        if let Some(child) = node.children.get_mut(index) {
+            self.proof_term(child, file, locals)?;
+        }
+        Ok(())
+    }
+    fn proof_term_list(
+        &self,
+        node: &mut Node,
+        index: usize,
+        file: usize,
+        locals: &HashSet<String>,
+    ) -> Result<(), SourceError> {
+        if let Some(list) = node.children.get_mut(index) {
+            for term in &mut list.children {
+                self.proof_term(term, file, locals)?;
+            }
+            rebuild(list)?;
+        }
+        Ok(())
+    }
+    fn proof_term(
+        &self,
+        node: &mut Node,
+        file: usize,
+        locals: &HashSet<String>,
+    ) -> Result<(), SourceError> {
+        let kind = head(node).to_owned();
+        if matches!(kind.as_str(), "#pt-pi" | "#pt-lambda" | "#pt-sigma") {
+            let binder_index = 1;
+            let body_index = 2;
+            let mut inner = locals.clone();
+            if let Some(params) = node.children.get_mut(binder_index) {
+                for parameter in &mut params.children {
+                    if let Some(ty) = parameter.children.get_mut(1) {
+                        self.proof_term(ty, file, &inner)?;
+                    }
+                    if let Some(name) = parameter.children.first().and_then(symbol) {
+                        inner.insert(name.to_owned());
+                    }
+                    rebuild(parameter)?;
+                }
+                rebuild(params)?;
+            }
+            if kind == "#pt-sigma" {
+                // Sigma binds its name only in the codomain.
+            }
+            self.proof_term_child(node, body_index, file, &inner)?;
+        } else if kind == "#pt-use" || kind == "#pt-program" || kind == "#pt-certificate" {
+            if let Some(name) = node.children.get_mut(1) {
+                self.rewrite(name, file, &HashSet::new())?;
+            }
+        } else if kind == "#pt-construct" {
+            if let Some(name) = node.children.get_mut(1) {
+                self.rewrite(name, file, &HashSet::new())?;
+            }
+            self.proof_term_list(node, 3, file, locals)?;
+            self.proof_term_list(node, 5, file, locals)?;
+        } else if kind == "#pt-induct" {
+            if let Some(name) = node.children.get_mut(1) {
+                self.rewrite(name, file, &HashSet::new())?;
+            }
+            self.proof_term_list(node, 3, file, locals)?;
+            self.proof_term_child(node, 4, file, locals)?;
+            self.proof_term_list(node, 5, file, locals)?;
+            self.proof_term_child(node, 6, file, locals)?;
+        } else {
+            for index in 1..node.children.len() {
+                self.proof_term_child(node, index, file, locals)?;
+            }
+        }
+        rebuild(node)
+    }
+
+    fn proof_item_body(
+        &self,
+        node: &mut Node,
+        file: usize,
+        locals: &HashSet<String>,
+    ) -> Result<(), SourceError> {
+        let kind = head(node).to_owned();
+        if kind == "#proof-definition" || kind == "#proof-theorem" {
+            let mut inner = locals.clone();
+            if let Some(params) = node.children.get_mut(1) {
+                for parameter in &mut params.children {
+                    if let Some(ty) = parameter.children.get_mut(1) {
+                        self.proof_term(ty, file, &inner)?;
+                    }
+                    if let Some(name) = parameter.children.first().and_then(symbol) {
+                        inner.insert(name.to_owned());
+                    }
+                    rebuild(parameter)?;
+                }
+                rebuild(params)?;
+            }
+            for index in 2..node.children.len() {
+                self.proof_term(&mut node.children[index], file, &inner)?;
+            }
+        } else if kind == "#proof-inductive" {
+            let mut inner = locals.clone();
+            if let Some(universes) = node.children.get(1) {
+                for universe in &universes.children {
+                    if let Some(name) = symbol(universe) {
+                        inner.insert(name.to_owned());
+                    }
+                }
+            }
+            if let Some(params) = node.children.get_mut(2) {
+                for parameter in &mut params.children {
+                    if let Some(ty) = parameter.children.get_mut(1) {
+                        self.proof_term(ty, file, &inner)?;
+                    }
+                    if let Some(name) = parameter.children.first().and_then(symbol) {
+                        inner.insert(name.to_owned());
+                    }
+                    rebuild(parameter)?;
+                }
+                rebuild(params)?;
+            }
+            if let Some(sort) = node.children.get_mut(3) {
+                self.proof_term(sort, file, &inner)?;
+            }
+            if let Some(ctors) = node.children.get_mut(4) {
+                for ctor in &mut ctors.children {
+                    let mut ctor_scope = inner.clone();
+                    if let Some(fields) = ctor.children.get_mut(1) {
+                        for field in &mut fields.children {
+                            if let Some(ty) = field.children.get_mut(1) {
+                                self.proof_term(ty, file, &ctor_scope)?;
+                            }
+                            if let Some(name) = field.children.first().and_then(symbol) {
+                                ctor_scope.insert(name.to_owned());
+                            }
+                            rebuild(field)?;
+                        }
+                        rebuild(fields)?;
+                    }
+                    rebuild(ctor)?;
+                }
+                rebuild(ctors)?;
+            }
+        }
+        rebuild(node)
+    }
+
     fn file(&self, from: usize, path: &str) -> Result<usize, String> {
         if let Some(id) = self
             .files
@@ -557,6 +708,20 @@ impl Resolver<'_> {
             return rebuild(node);
         }
         let kind = head(node).to_owned();
+        if kind == "#proof" {
+            if let Some(name) = node.children.get_mut(1) {
+                self.rewrite(name, file, locals)?;
+            }
+            if let Some(body) = node.children.get_mut(2) {
+                if matches!(
+                    head(body),
+                    "#proof-definition" | "#proof-theorem" | "#proof-inductive"
+                ) {
+                    self.proof_item_body(body, file, locals)?;
+                    return rebuild(node);
+                }
+            }
+        }
         if matches!(kind.as_str(), "#proof-for-all" | "#proof-with-invariants") {
             proof_children(node);
         }

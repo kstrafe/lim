@@ -769,6 +769,274 @@ impl<'a> Index<'a> {
             self.bind_statement(node, &mut scope);
         }
     }
+    // Kernel terms have their own namespaces. Their types are terms, not
+    // runtime Types, and bare names never fall back to global declarations.
+    fn kernel_bind(&self, node: &Node, scope: &mut Scope) -> Vec<Span> {
+        let Some(name) = symbol(node).filter(|name| !name.starts_with('#')) else {
+            return vec![];
+        };
+        self.explicit_locals.borrow_mut().insert(node.span);
+        scope.insert(
+            name.to_owned(),
+            Binding {
+                spans: vec![node.span],
+                ty: None,
+            },
+        );
+        if self.contains(node) {
+            vec![node.span]
+        } else {
+            vec![]
+        }
+    }
+    fn kernel_binders(&self, node: &Node, scope: &mut Scope, levels: &Scope) -> Option<Vec<Span>> {
+        for binding in &node.children {
+            // A binder is not in scope in its own type. Earlier binders are.
+            if let Some(kind) = binding.children.get(1).filter(|kind| self.contains(kind)) {
+                return Some(self.kernel_term(kind, scope, levels));
+            }
+            if let Some(name) = binding.children.first() {
+                let found = self.kernel_bind(name, scope);
+                if self.contains(name) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    fn kernel_level(&self, node: &Node, levels: &Scope) -> Vec<Span> {
+        if !self.contains(node) {
+            return vec![];
+        }
+        if let Some(name) = symbol(node) {
+            return levels
+                .get(name)
+                .map(|binding| binding.spans.clone())
+                .unwrap_or_default();
+        }
+        if matches!(head(node), "pt-level-succ" | "pt-level-max") {
+            for level in node
+                .children
+                .iter()
+                .skip(1)
+                .filter(|level| self.contains(level))
+            {
+                return self.kernel_level(level, levels);
+            }
+        }
+        vec![]
+    }
+    fn kernel_levels(&self, node: &Node, levels: &Scope) -> Vec<Span> {
+        node.children
+            .iter()
+            .find(|level| self.contains(level))
+            .map(|level| self.kernel_level(level, levels))
+            .unwrap_or_default()
+    }
+    fn kernel_proof(&self, node: &Node) -> Option<&'a Node> {
+        let name = symbol(node)?;
+        if name.starts_with('#') {
+            return None;
+        }
+        self.declaration(name.strip_prefix('@').unwrap_or(name))
+            .filter(|node| head(node) == "proof")
+    }
+    fn kernel_reference(&self, node: &Node, procedural: bool) -> Vec<Span> {
+        self.kernel_proof(node)
+            .filter(|node| {
+                let kernel = node.children.get(2).is_some_and(|body| {
+                    matches!(
+                        head(body),
+                        "proof-definition" | "proof-theorem" | "proof-inductive"
+                    )
+                });
+                kernel != procedural
+            })
+            .and_then(|node| node.children.get(1))
+            .map(|name| vec![name.span])
+            .unwrap_or_default()
+    }
+    fn kernel_constructor(&self, datatype: &Node, label: &Node) -> Vec<Span> {
+        let Some(declaration) = self.kernel_proof(datatype) else {
+            return vec![];
+        };
+        let Some(body) = declaration
+            .children
+            .get(2)
+            .filter(|body| head(body) == "proof-inductive")
+        else {
+            return vec![];
+        };
+        let Some(constructors) = body.children.get(4) else {
+            return vec![];
+        };
+        let Some(label) = symbol(label).filter(|name| !name.starts_with('#')) else {
+            return vec![];
+        };
+        let mut found = constructors
+            .children
+            .iter()
+            .filter_map(|ctor| ctor.children.first())
+            .filter(|name| symbol(name) == Some(label));
+        let Some(target) = found.next() else {
+            return vec![];
+        };
+        if found.next().is_some() {
+            vec![]
+        } else {
+            vec![target.span]
+        }
+    }
+    fn kernel_terms(&self, node: &Node, scope: &Scope, levels: &Scope) -> Vec<Span> {
+        node.children
+            .iter()
+            .find(|term| self.contains(term))
+            .map(|term| self.kernel_term(term, scope, levels))
+            .unwrap_or_default()
+    }
+    fn kernel_term(&self, node: &Node, scope: &Scope, levels: &Scope) -> Vec<Span> {
+        if !self.contains(node) {
+            return vec![];
+        }
+        if let Some(name) = symbol(node) {
+            return if name.starts_with('#') {
+                vec![]
+            } else {
+                scope
+                    .get(name)
+                    .map(|binding| binding.spans.clone())
+                    .unwrap_or_default()
+            };
+        }
+        let xs = &node.children;
+        match head(node) {
+            "pt-type" => {
+                if let Some(level) = xs.get(1) {
+                    return self.kernel_level(level, levels);
+                }
+            }
+            "pt-pi" | "pt-lambda" | "pt-sigma" => {
+                let mut inner = scope.clone();
+                if let Some(binders) = xs.get(1) {
+                    if let Some(found) = self.kernel_binders(binders, &mut inner, levels) {
+                        return found;
+                    }
+                }
+                if let Some(body) = xs.get(2) {
+                    return self.kernel_term(body, &inner, levels);
+                }
+            }
+            "pt-use" => {
+                if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
+                    return self.kernel_reference(name, false);
+                }
+                if let Some(arguments) = xs.get(2) {
+                    return self.kernel_levels(arguments, levels);
+                }
+            }
+            "pt-program" | "pt-certificate" => {
+                if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
+                    return self.kernel_reference(name, true);
+                }
+            }
+            "pt-construct" | "pt-induct" => {
+                if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
+                    return self
+                        .kernel_proof(name)
+                        .filter(|declaration| {
+                            declaration
+                                .children
+                                .get(2)
+                                .is_some_and(|body| head(body) == "proof-inductive")
+                        })
+                        .and_then(|declaration| declaration.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
+                if let Some(arguments) = xs.get(2).filter(|node| self.contains(node)) {
+                    return self.kernel_levels(arguments, levels);
+                }
+                if let Some(arguments) = xs.get(3).filter(|node| self.contains(node)) {
+                    return self.kernel_terms(arguments, scope, levels);
+                }
+                if head(node) == "pt-construct" {
+                    if let (Some(datatype), Some(label)) =
+                        (xs.get(1), xs.get(4).filter(|node| self.contains(node)))
+                    {
+                        return self.kernel_constructor(datatype, label);
+                    }
+                    if let Some(fields) = xs.get(5) {
+                        return self.kernel_terms(fields, scope, levels);
+                    }
+                } else {
+                    if let Some(motive) = xs.get(4).filter(|node| self.contains(node)) {
+                        return self.kernel_term(motive, scope, levels);
+                    }
+                    if let Some(branches) = xs.get(5).filter(|node| self.contains(node)) {
+                        return self.kernel_terms(branches, scope, levels);
+                    }
+                    if let Some(subject) = xs.get(6) {
+                        return self.kernel_term(subject, scope, levels);
+                    }
+                }
+            }
+            "pt-app" | "pt-eq" | "pt-refl" | "pt-eq-elim" | "pt-pair" | "pt-first"
+            | "pt-second" | "pt-succ" | "pt-nat-induct" => {
+                for operand in xs.iter().skip(1).filter(|node| self.contains(node)) {
+                    return self.kernel_term(operand, scope, levels);
+                }
+            }
+            // Numerals, builtin symbols, unknown forms and malformed operands
+            // deliberately have no runtime/global navigation fallback.
+            _ => {}
+        }
+        vec![]
+    }
+    fn kernel_declaration(&self, node: &Node) -> Vec<Span> {
+        let xs = &node.children;
+        let mut levels = Scope::new();
+        if let Some(universes) = xs.get(1) {
+            for universe in &universes.children {
+                let found = self.kernel_bind(universe, &mut levels);
+                if self.contains(universe) {
+                    return found;
+                }
+            }
+        }
+        let mut scope = Scope::new();
+        if head(node) == "proof-inductive" {
+            if let Some(parameters) = xs.get(2) {
+                if let Some(found) = self.kernel_binders(parameters, &mut scope, &levels) {
+                    return found;
+                }
+            }
+            if let Some(sort) = xs.get(3).filter(|node| self.contains(node)) {
+                return self.kernel_term(sort, &scope, &levels);
+            }
+            if let Some(constructors) = xs.get(4) {
+                for ctor in constructors
+                    .children
+                    .iter()
+                    .filter(|node| self.contains(node))
+                {
+                    if let Some(name) = ctor.children.first().filter(|node| self.contains(node)) {
+                        return vec![name.span];
+                    }
+                    let mut fields = scope.clone();
+                    if let Some(binders) = ctor.children.get(1) {
+                        if let Some(found) = self.kernel_binders(binders, &mut fields, &levels) {
+                            return found;
+                        }
+                    }
+                }
+            }
+        } else {
+            for term in xs.iter().skip(2).filter(|node| self.contains(node)) {
+                return self.kernel_term(term, &scope, &levels);
+            }
+        }
+        vec![]
+    }
     fn proof(&self, node: &Node, scope: &Scope, labels: &Scope) -> Vec<Span> {
         let xs = &node.children;
         let form = head(node);
@@ -778,7 +1046,16 @@ impl<'a> Index<'a> {
             }
             return xs
                 .get(2)
-                .map(|body| self.walk(body, &mut Scope::new(), &Scope::new()))
+                .map(|body| {
+                    if matches!(
+                        head(body),
+                        "proof-definition" | "proof-theorem" | "proof-inductive"
+                    ) {
+                        self.kernel_declaration(body)
+                    } else {
+                        self.walk(body, &mut Scope::new(), &Scope::new())
+                    }
+                })
                 .unwrap_or_default();
         }
         if form == "proof-for-all" {
@@ -1683,6 +1960,12 @@ impl<'a> Index<'a> {
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
         fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
+            if matches!(
+                head(node),
+                "proof-definition" | "proof-theorem" | "proof-inductive"
+            ) {
+                return None;
+            }
             if !index.contains(node) {
                 return None;
             }
