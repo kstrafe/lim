@@ -171,6 +171,35 @@ builtin entries in that list have no definition. The boolean observation in
 `#proof-calls-when`, effect tags in `#proof-no-effects`, and stack ABI string and
 limit remain metadata; their contents do not undergo global spelling lookup.
 
+`(#proof-requires-validation entry (validate user) (perform user))` has distinct
+function and parameter-reference roles. The `entry` operand and each descriptor's
+function operand navigate through the canonical function declaration table to
+their actual definitions. Aliases, file references, and generated function names
+preserve the same identity rules as other proof function operands.
+
+The second descriptor token navigates only to the named parameter token of the
+function selected by that descriptor: `(validate user)` selects `validate`'s
+`user` parameter, while `(perform user)` selects `perform`'s parameter. These
+need not be the same source span or have matching spellings. Neither token is
+a local binding or an expression in the theorem's or entry function's scope.
+An unknown parameter or unresolved descriptor function has no definition;
+there is no fallback to a same-spelled caller parameter, local, global, or an
+unrelated function's parameter. Descriptor lists introduce no lexical bindings.
+
+The builtin keyword and descriptor list structure are metadata, not runtime
+calls or values. Function and parameter leaves retain the explicit navigation
+roles above; clicking the builtin or delimiters has no definition. Semantic
+checking separately enforces reference or pinned-reference parameters, equal
+resolved referent types, and a Boolean validator. Navigation while editing
+must not substitute a different role when these requirements fail.
+
+Navigation regression coverage must distinguish the two parameter spans,
+include reused names in the caller and globals, and reject missing parameters,
+unresolved functions, and malformed descriptors without spelling fallback.
+The exact `#proof-requires-validation` token is highlighted as `limProof` at
+all nesting depths; bare names are identifiers and unknown suffixed spellings
+remain generic keywords.
+
 `(#proof-for-all (: x Type : y Type) proposition)` gives each name its own binder
 span and explicit type. Its bindings are visible only in its proposition;
 nested quantifiers retain outer bindings and sibling propositions cannot see

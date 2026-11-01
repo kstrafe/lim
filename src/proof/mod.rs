@@ -6,6 +6,7 @@ mod induction_tests;
 mod kernel;
 mod logic;
 mod symbolic;
+mod validation;
 
 use crate::typecheck::{AnalysisError, CheckedProgram};
 use crate::{Expr, Function, Item, Span, Type};
@@ -13,6 +14,7 @@ use graph::Graph;
 use logic::{Bit, Circuit, Word, FALSE, TRUE};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use symbolic::{State, Value};
+use validation::ValidationRule;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -33,6 +35,16 @@ enum Trace {
         required: String,
         action: String,
     },
+    Validated(ValidationRule),
+}
+
+impl Trace {
+    fn action(&self) -> &str {
+        match self {
+            Self::When { action, .. } | Self::Before { action, .. } => action,
+            Self::Validated(rule) => &rule.action,
+        }
+    }
 }
 
 struct Engine<'a, 'p> {
@@ -258,14 +270,22 @@ impl<'a, 'p> Engine<'a, 'p> {
             .satisfy(bad)
             .map_err(|why| format!("unproved: {why}"))?;
         if let Some(model) = &model {
-            self.counterexample = Some(
-                self.inputs[input_start..]
-                    .iter()
-                    .take(12)
-                    .map(|(name, value)| format!("{name} = {}", self.display_value(value, model)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
+            let inputs = self.inputs[input_start..]
+                .iter()
+                .take(12)
+                .map(|(name, value)| format!("{name} = {}", self.display_value(value, model)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.counterexample = Some(if let Some(Trace::Validated(rule)) = &self.trace {
+                let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));
+                if inputs.is_empty() {
+                    explanation
+                } else {
+                    format!("{explanation}; {inputs}")
+                }
+            } else {
+                inputs
+            });
         }
         self.inputs.truncate(input_start);
         Ok(vec![(original, Value::Bool(bit(model.is_none())))])
@@ -498,7 +518,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 self.quantified = false;
                 self.close_claim(original, output, input_start)
             }
-            "proof-calls-when" | "proof-calls-before" => {
+            "proof-calls-when" | "proof-calls-before" | "proof-requires-validation" => {
                 if self.quantified {
                     return Err("trace claims quantify their own function inputs; put them outside #proof-for-all".into());
                 }
@@ -526,7 +546,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                             action: symbol(&args[3])?.into(),
                         },
                     )
-                } else {
+                } else if head == "proof-calls-before" {
                     arity(head, args, 3)?;
                     (
                         self.function(symbol(&args[0])?)?,
@@ -535,17 +555,17 @@ impl<'a, 'p> Engine<'a, 'p> {
                             action: symbol(&args[2])?.into(),
                         },
                     )
+                } else {
+                    self.validation_rule(args)?
                 };
-                let action = match &trace {
-                    Trace::When { action, .. } | Trace::Before { action, .. } => action,
-                };
-                self.function(action)?;
+                self.function(trace.action())?;
                 if let Trace::Before { required, .. } = &trace {
                     self.function(required)?;
                 }
                 self.trace = Some(trace);
                 self.trace_violation = FALSE;
                 let mut state = state;
+                state.validations.clear();
                 let mut arguments = Vec::new();
                 for parameter in &function.parameters {
                     let value = self.fresh_value(&mut state, &parameter.ty, 0)?;
@@ -559,8 +579,10 @@ impl<'a, 'p> Engine<'a, 'p> {
                     return Err("unproved: no complete execution trace".into());
                 }
                 let safe = self.circuit.not(self.trace_violation);
+                let result =
+                    self.close_claim(original, vec![(state, Value::Bool(safe))], input_start);
                 self.trace = None;
-                self.close_claim(original, vec![(state, Value::Bool(safe))], input_start)
+                result
             }
             "proof-no-overflow" => {
                 arity(head, args, 3)?;

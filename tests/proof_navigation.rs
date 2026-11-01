@@ -159,6 +159,49 @@ fn run_files(input: &str, files: &[(&str, &str)], expected: &[(&str, &[&str])]) 
 }
 
 #[test]
+fn validation_descriptors_resolve_function_and_parameter_roles() {
+    run_files(
+        r#"
+      (#alias check-user = ./validation.lim::validate)
+      (#alias action = ./validation.lim::perform)
+      (#const [[global|missing]] #u64 0u64)
+      (#fn [[entry|entry]] ((object (#ref #u64))) () (#return ()))
+      (#theorem safe
+        (#[[keyword|proof-requires-validation]] [[entry-use|entry]]
+          ([[validator-use|check-user]] [[validator-parameter|user]])
+          ([[action-use|action]] [[action-parameter|input]])))
+      (#theorem editing
+        (#proof-requires-validation entry (check-user [[missing-parameter|missing]])
+          (action [[wrong-function-parameter|user]])))
+      (#theorem bad-function
+        (#proof-requires-validation entry ([[not-a-function|missing]] input) (action input)))
+      (#theorem malformed
+        (#proof-requires-validation entry ([[malformed-function|check-user]] [[malformed-parameter|user]] extra) (action input)))
+      "#,
+        &[(
+            "validation.lim",
+            r#"
+      (#fn [[validator|validate]] (([[validated|user]] (#ref #u64))) #bool (#return true))
+      (#fn [[action|perform]] (([[acted|input]] (#ref #u64))) () (#return ()))
+      "#,
+        )],
+        &[
+            ("keyword", &[]),
+            ("entry-use", &["entry"]),
+            ("validator-use", &["validator"]),
+            ("validator-parameter", &["validated"]),
+            ("action-use", &["action"]),
+            ("action-parameter", &["acted"]),
+            ("missing-parameter", &[]),
+            ("wrong-function-parameter", &[]),
+            ("not-a-function", &[]),
+            ("malformed-function", &[]),
+            ("malformed-parameter", &[]),
+        ],
+    );
+}
+
+#[test]
 fn proof_names_and_function_operands_have_distinct_declaration_roles() {
     run(
         r#"

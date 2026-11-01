@@ -381,6 +381,55 @@ stronger claim than the original obligation.
 The bridge is directional. It does not execute a mathematical proof as native
 code or turn a theorem into an assumption that bypasses the procedural checker.
 
+## Evidence for a validation protocol
+
+Storage-specific validation is a procedural obligation, declared with the
+shared theorem shorthand:
+
+```lisp
+(#theorem safe
+  (#proof-requires-validation process (validate user) (perform user)))
+```
+
+Each descriptor is exactly `(FUNCTION PARAMETER-NAME)`. The parameter is looked
+up in that function's declaration, not in the entry function or theorem scope.
+Both selected parameters must be ordinary or pinned references to the same
+resolved referent type, and `validate` must return `#bool`.
+
+For universally quantified entry inputs, every reachable action entry through
+the synchronous call tree must have an earlier completed validator call that
+returned `true` for that same storage location. A distinct object with equal
+contents, a `false` result, or validation completing after the action does not
+satisfy the claim. A later `false` validation for the same object revokes an
+earlier success. Writes overlapping the validated object or its transitive
+referenced dependencies invalidate prior validation, including transitive
+primitive reference dependencies; a new successful validator call can restore
+it after a write or false result. The checker executes the validator body and checks its
+result, without proving that it implements the desired business rule.
+Dependency guards preserve the active enum variant. Observing a child with
+another validator call does not count as a write to its parent; only actual
+writes or a later false check of the same object revoke that object's evidence.
+
+All branches and complete bounded loops from the explicit entry are checked.
+Using `main` covers its synchronous tree, while separate roots require separate
+claims. Unsupported operations, external or unavailable implementations, and
+resource exhaustion are unproved. Existing `#proof-calls-before` and
+`#proof-calls-when` remain weaker call-order/observation claims without this
+same-object freshness requirement. This theorem emits no runtime proof code
+and does not insert validation calls.
+
+Validation tracking is limited to 64 facts, 128 dependencies per fact, and
+256 dependencies total per symbolic state. Reference-dependency traversal depth
+is limited to 32, and the existing 100,000 symbolic execution steps still apply.
+Exhaustion is unproved, not evidence that a stale validation is safe.
+
+After `safe` passes its procedural checker, a mathematical theorem may use
+`(#pt-program safe)` as its proposition and `(#pt-certificate safe)` as evidence
+through the existing adapter. This retains the procedural model and trust
+assumptions; it does not turn a failed protocol check into mathematical evidence.
+See the [full validation example](language.md#compile-time-proofs) for complete
+function declarations and helper calls.
+
 ## Check a named theorem from the CLI
 
 ```sh

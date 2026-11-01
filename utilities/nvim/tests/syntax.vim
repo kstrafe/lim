@@ -83,6 +83,7 @@ for s:proof in [
       \ 'proof-for-all',
       \ 'proof-eq',
       \ 'proof-contract',
+      \ 'proof-requires-validation',
       \ 'proof-result',
       \ 'proof-old',
       \ 'proof-no-overflow',
@@ -110,6 +111,18 @@ for s:declaration in ['theorem', 'math-definition', 'math-inductive']
   call s:check(s:declaration, '')
   call s:check('#' . s:declaration . '-custom', 'limKeyword')
 endfor
+
+" Descriptor words are identifiers, not runtime call heads or proof keywords.
+call setline(1, '(#theorem safe (#proof-requires-validation entry (validate user) (perform user)))')
+for [s:token, s:group] in [['#theorem', 'limDeclaration'],
+      \ ['#proof-requires-validation', 'limProof'], ['safe', ''], ['entry', ''],
+      \ ['validate', ''], ['perform', ''], ['user', '']]
+  let s:column = stridx(getline(1), s:token) + 1
+  for s:byte in range(s:column, s:column + strlen(s:token) - 1)
+    call assert_equal(s:group, synIDattr(synID(1, s:byte, 1), 'name'), s:token)
+  endfor
+endfor
+call s:check('#proof-requires-validation-unknown', 'limKeyword')
 
 call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64::add-wrap value 1)))')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],

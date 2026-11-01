@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "validation-wrong-object",
+            diagnostic_code: "E4400",
+            offending_line: "  (#proof-requires-validation main (validate user) (perform user)))",
+            line_number: 12,
+        },
+        Case {
             name: "proof-disproved",
             diagnostic_code: "E4400",
             offending_line: "  (#proof-eq 1u64 2u64))",
@@ -1287,6 +1293,7 @@ fn compilation_errors_render_the_offending_source_line() {
             }
             let precise_fragment = match case.name {
             "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),
+            "validation-wrong-object" => Some("(#proof-requires-validation main (validate user) (perform user))"),
             "reserved-generator-name" => Some("#future-generator"),
             "reserved-local-name" => Some("#local"),
             "println-missing-std" | "println-arity" => Some("#println"),

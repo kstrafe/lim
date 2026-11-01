@@ -1894,6 +1894,86 @@ result or an abstract validation boundary. Unmodeled operations still fail
 closed. Nested trace claims are unsupported, and trace claims require complete
 bounded loop exploration.
 
+`(#proof-requires-validation entry (validate user) (perform user))` checks a
+storage-specific validation protocol. Each descriptor is a literal pair of a
+function identity and one of that function's declared parameter names, not a
+call expression or an argument expression. The two selected parameters must be
+ordinary or pinned references with the same resolved referent type; the
+validator must return `#bool`. The descriptor names select parameter positions,
+so they need not have the same spelling in the two functions.
+
+The checker universally quantifies the explicit entry function's inputs and
+follows every reachable action entry, including calls through helpers. Before
+each action entry, a validator call must have completed with `true` for the same
+storage location as the action's selected argument. Equal data in a different
+object is insufficient. A missing validator call, a call that completes later,
+or a completed `false` result supplies no valid evidence. A later validator
+call returning `false` for the same object also revokes any earlier success.
+
+Validation is invalidated by writes overlapping the object or its transitive
+referenced dependencies. This includes writes through aliases and dependencies
+whose contents may affect validation, even if the outer object is unchanged.
+Primitive reference dependencies are tracked transitively as well.
+Fresh successful validation can restore evidence after a write or false result. The claim
+tracks storage and freshness, not just matching scalar values or function names.
+Only an enum's active payload contributes referenced dependencies. Merely
+checking a referenced child does not invalidate an unchanged parent's evidence.
+It checks the actual validator body's Boolean result; it does not establish
+that the body implements the intended business criterion.
+
+```lisp library
+(#struct User () ((age #u8)))
+
+(#fn validate ((user (#ref User))) #bool
+  (#return (#u8::ge (#get user age) 18u8)))
+
+(#fn perform ((user (#ref User))) ()
+  (#drop (#get user age))
+  (#return ()))
+
+(#fn dispatch ((user (#ref User))) ()
+  (#call perform (: user user))
+  (#return ()))
+
+(#fn process ((user (#ref User))) ()
+  (#if (#call validate (: user user))
+    (#block
+      (#call dispatch (: user user))
+      ())
+    ())
+  (#return ()))
+
+(#theorem safe
+  (#proof-requires-validation process (validate user) (perform user)))
+
+(#fn main () ()
+  (#let user User (#struct-literal User ((age 21u8))))
+  (#call process (: user (#borrow user)))
+  (#forget user)
+  (#return ()))
+```
+
+Here the `process` claim covers all supported `User` inputs and sees the action
+inside `dispatch`. The `perform` body is a small modeled action for the example;
+replace it with other supported code when applying the protocol. Calling the
+validator for one local `User` and performing the action on a distinct local
+with the same fields would fail. Mutating the validated object or a referenced
+dependency before `perform` requires a new completed successful validation.
+
+Claims begin at the specified root. Choosing `main` covers its synchronous call
+tree; other roots need separate claims. Every branch and complete bounded loop
+execution is considered. Unsupported semantics, unavailable or external
+implementations, and exhausted budgets are unproved rather than assumed safe.
+The theorem emits no runtime proof code and adds no runtime validation call.
+Unlike this claim, `#proof-calls-before` does not require a `true` result or track
+an object, and `#proof-calls-when` does not establish same-object freshness.
+Their existing call-order and observation semantics are unchanged.
+
+Validation tracking allows at most 64 facts, 128 dependencies per fact, and
+256 dependencies total per symbolic state, with reference-dependency traversal
+depth limited to 32. The existing 100,000-step symbolic execution budget also
+applies. Exhausting these limits makes the obligation unproved.
+
 `(#proof-stack-at-most function "x86_64-sysv" bytes)` checks a literal byte bound
 against generated assembly for that explicit target. The current certificate
 supports only `x86_64-sysv`. It includes reachable generated callees and their
@@ -2914,6 +2994,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-only-unsafe` | `(#proof-only-unsafe entry (allowed...))` | `(#proof-only-unsafe main (trusted-helper #ptr-read))` (proof proposition) | Inspects unsafe primitives outside explicitly allowed function boundaries or builtin spellings; does not establish memory safety. |
 | `#proof-or` | `(#proof-or proposition...)` | `(#proof-or false true)` (proof proposition) | Disjunction of one or more propositions; unsupported operands still fail. |
 | `#proof-permutation` | `(#proof-permutation left-array right-array)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and element multiplicities of fixed arrays of at most 64 elements, including direct literals; matching element types are required even for empty arrays, and equality must be modeled. |
+| `#proof-requires-validation` | `(#proof-requires-validation entry (validator parameter) (action parameter))` | `(#theorem safe (#proof-requires-validation process (validate user) (perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Descriptors are literal function/parameter pairs with matching resolved referent types; unsupported execution and exhausted budgets are unproved. |
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
 | `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |

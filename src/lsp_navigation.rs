@@ -1175,6 +1175,37 @@ impl<'a> Index<'a> {
             }
             _ => 0,
         };
+        if form == "proof-requires-validation" {
+            if let Some(entry) = xs.get(1).filter(|node| self.contains(node)) {
+                return self
+                    .proof_function(entry)
+                    .map(|function| vec![function.children[name_index(function)].span])
+                    .unwrap_or_default();
+            }
+            for descriptor in xs.iter().skip(2).filter(|node| self.contains(node)) {
+                if descriptor.children.len() != 2 {
+                    return vec![];
+                }
+                let Some(function) = descriptor
+                    .children
+                    .first()
+                    .and_then(|name| self.proof_function(name))
+                else {
+                    return vec![];
+                };
+                if self.contains(&descriptor.children[0]) {
+                    return vec![function.children[name_index(function)].span];
+                }
+                if self.contains(&descriptor.children[1]) {
+                    let parameters = self.proof_parameters(function);
+                    return symbol(&descriptor.children[1])
+                        .and_then(|name| parameters.get(name))
+                        .map(|binding| binding.spans.clone())
+                        .unwrap_or_default();
+                }
+            }
+            return vec![];
+        }
         // calls-when's observed boolean is between its second and third functions.
         for index in 1..=functions {
             let index = if form == "proof-calls-when" && index == 3 {
@@ -1218,6 +1249,7 @@ impl<'a> Index<'a> {
             | "proof-calls-transitively"
             | "proof-calls-before"
             | "proof-calls-when"
+            | "proof-requires-validation"
             | "proof-no-effects"
             | "proof-stack-at-most"
             | "proof-allocation"
@@ -1279,6 +1311,7 @@ impl<'a> Index<'a> {
             | "proof-stack-at-most"
             | "proof-for-all"
             | "proof-eq"
+            | "proof-requires-validation"
             | "proof-contract"
             | "proof-result"
             | "proof-old"

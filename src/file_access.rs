@@ -786,6 +786,21 @@ impl Resolver<'_> {
             }
             return rebuild(node);
         }
+        if kind == "#proof-requires-validation" {
+            if let Some(entry) = node.children.get_mut(1) {
+                self.rewrite(entry, file, &HashSet::new())?;
+            }
+            for descriptor in node.children.iter_mut().skip(2) {
+                proof_children(descriptor);
+                if let Some(function) = descriptor.children.first_mut() {
+                    self.rewrite(function, file, &HashSet::new())?;
+                }
+                // The other operand is a label from this function's signature,
+                // not a reference in the theorem's file or lexical scope.
+                rebuild(descriptor)?;
+            }
+            return rebuild(node);
+        }
         if kind == "#proof-contract" {
             if let Some(function) = node.children.get_mut(1) {
                 self.rewrite(function, file, locals)?;

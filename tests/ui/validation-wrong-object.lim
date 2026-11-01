@@ -1,0 +1,12 @@
+(#fn validate (: user (#ref #u64)) #bool (#return true))
+(#fn perform (: user (#ref #u64)) () (#return ()))
+
+(#fn main () ()
+  (#let first #u64 42u64)
+  (#let second #u64 42u64)
+  (#call validate (: user (#borrow first)))
+  (#call perform (: user (#borrow second)))
+  (#return ()))
+
+(#theorem wrong-object
+  (#proof-requires-validation main (validate user) (perform user)))

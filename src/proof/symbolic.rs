@@ -1,5 +1,6 @@
 //! Bounded symbolic execution of checked Lim. Values keep machine widths and
 //! references keep locations; the evaluator never executes native program code.
+use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
@@ -67,15 +68,15 @@ impl Value {
 }
 
 #[derive(Clone, Debug)]
-enum Segment {
+pub(super) enum Segment {
     Field(usize),
     Index(Word),
     Payload(usize),
 }
 #[derive(Clone, Debug)]
 pub(super) struct Location {
-    root: usize,
-    path: Vec<Segment>,
+    pub root: usize,
+    pub path: Vec<Segment>,
 }
 #[derive(Clone)]
 pub(super) struct Frame {
@@ -102,6 +103,7 @@ pub(super) struct State {
     observed: Bit,
     acted: Bit,
     required: Bit,
+    pub validations: Vec<ValidationFact>,
 }
 impl State {
     pub fn new() -> Self {
@@ -119,6 +121,7 @@ impl State {
             observed: FALSE,
             acted: FALSE,
             required: FALSE,
+            validations: Vec::new(),
         }
     }
 }
@@ -350,7 +353,7 @@ impl Engine<'_, '_> {
         }
         Err(format!("unknown proof value '{name}'"))
     }
-    fn read(&mut self, state: &State, place: &Location) -> Result<Value> {
+    pub(super) fn read(&mut self, state: &State, place: &Location) -> Result<Value> {
         let value = state
             .heap
             .get(place.root)
@@ -384,6 +387,7 @@ impl Engine<'_, '_> {
         self.read_path(next, rest)
     }
     fn write(&mut self, state: &mut State, place: &Location, value: Value) -> Result<()> {
+        self.invalidate_validations(state, place)?;
         let previous = state
             .heap
             .get(place.root)
@@ -668,6 +672,11 @@ impl Engine<'_, '_> {
         }
         let (head, args) = form(expr)
             .ok_or("proof values require explicitly typed literals or modeled expressions")?;
+        // Ordinary checking has already lowered #struct-literal to its ordered
+        // internal constructor. Raw proof expressions still need the keyword.
+        if !spec && self.records.contains_key(head) {
+            return self.checked_record(state, head, args);
+        }
         if head.starts_with("proof-") {
             match head {
                 "proof-result" => {
@@ -1256,14 +1265,17 @@ impl Engine<'_, '_> {
             let value = self.fresh_value(&mut state, &function.return_type, 0)?;
             return Ok(vec![(state, value)]);
         }
+        let validating = self.validation_argument(&function.name, &arguments)?;
         if let Some(trace) = self.trace.clone() {
-            let action = match &trace {
-                Trace::When { action, .. } | Trace::Before { action, .. } => action,
-            };
-            if action == &function.name {
+            if trace.action() == function.name {
                 let violation = match &trace {
                     Trace::When { .. } => state.observed,
                     Trace::Before { .. } => self.circuit.not(state.required),
+                    Trace::Validated(rule) => {
+                        let valid =
+                            self.validated_argument(&state, &arguments[rule.action_parameter])?;
+                        self.circuit.not(valid)
+                    }
                 };
                 let violation = self.circuit.and(state.guard, violation);
                 self.trace_violation = self.circuit.or(self.trace_violation, violation);
@@ -1351,6 +1363,9 @@ impl Engine<'_, '_> {
                 if required == &function.name {
                     state.required = TRUE;
                 }
+            }
+            if let Some(subject) = &validating {
+                self.complete_validation(&mut state, subject, value.boolean()?)?;
             }
             output.push((state, value));
         }
@@ -2058,6 +2073,38 @@ impl Engine<'_, '_> {
         Ok(states
             .into_iter()
             .map(|(state, fields)| (state, Value::Record(owner.clone(), fields)))
+            .collect())
+    }
+    fn checked_record(
+        &mut self,
+        state: State,
+        owner: &str,
+        args: &[Expr],
+    ) -> Result<Vec<(State, Value)>> {
+        let fields = self
+            .records
+            .get(owner)
+            .cloned()
+            .ok_or("unknown checked record type")?;
+        if args.len() != fields.len() {
+            return Err("checked record constructor arity mismatch".into());
+        }
+        let mut states = vec![(state, Vec::new())];
+        for (field, expr) in fields.iter().zip(args) {
+            let mut next = Vec::new();
+            for (state, previous) in states {
+                for (state, value) in self.expr_as(state, expr, false, &field.ty)? {
+                    let mut fields = previous.clone();
+                    fields.push((field.name.clone(), value));
+                    next.push((state, fields));
+                    self.limit_paths(next.len())?;
+                }
+            }
+            states = next;
+        }
+        Ok(states
+            .into_iter()
+            .map(|(state, fields)| (state, Value::Record(owner.to_owned(), fields)))
             .collect())
     }
     fn pattern(
