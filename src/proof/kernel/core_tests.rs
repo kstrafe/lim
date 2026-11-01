@@ -7,6 +7,40 @@ fn level(n: u32) -> Level {
     Level::number(n).unwrap()
 }
 
+#[test]
+fn shared_export_terms_cannot_expand_past_the_transformation_allocation_budget() {
+    let mut k = Kernel::new();
+    let name = "Tree".repeat(512);
+    k.inductive(
+        &name,
+        vec![],
+        vec![],
+        level(1),
+        vec![
+            ("leaf".into(), vec![]),
+            (
+                "node".into(),
+                vec![term(Term::SelfType), term(Term::SelfType)],
+            ),
+        ],
+    )
+    .unwrap();
+    let leaf = ctor(&name, vec![], "leaf", vec![]);
+    let mut tree = leaf.clone();
+    for _ in 0..16 {
+        tree = ctor(&name, vec![], "node", vec![tree.clone(), tree]);
+    }
+    k.reset_budget();
+    let error = k
+        .definition("oversized-tree", vec![], global(&name), tree, false)
+        .unwrap_err();
+    assert!(error.contains("allocation limit"), "{error}");
+    assert!(!k.contains("oversized-tree"));
+    k.reset_budget();
+    k.definition("small-tree", vec![], global(&name), leaf, false)
+        .unwrap();
+}
+
 fn mutual_input(
     name: &str,
     indices: Vec<T>,

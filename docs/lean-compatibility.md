@@ -255,7 +255,14 @@ unprovided mathematical proof term.
 This task's execution budget is 2 GiB of memory and 200% CPU. The upstream
 resource requirements exceed that budget. No full clone, Lean or Mathlib
 installation, dependency download, export, build, or independent replay was
-attempted here. Inspection was limited to small metadata and text requests.
+attempted for the upstream development. Inspection was limited to small
+metadata and text requests. Lim now has a
+[version-pinned bounded NDJSON reader](lean-export.md), exercised with local,
+independently hand-authored fixtures for polymorphism, indexed equality,
+dependent records and mutual recursors. Those fixtures are not exported Lean
+proofs. The reader rejects all axioms and quotient records, unsupported nested
+families and resource exhaustion; native `.lim` emission, upstream provenance
+manifests and full-environment replay remain unfinished.
 
 The remaining work is a staged port, not a completed deliverable:
 

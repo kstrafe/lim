@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 #[path = "elimination.rs"]
 mod elimination;
+#[path = "export.rs"]
+pub(super) mod export;
 #[path = "inductive.rs"]
 mod inductive;
 
@@ -115,12 +117,14 @@ pub(super) struct Declaration {
 pub(super) struct Kernel {
     declarations: HashMap<String, Declaration>,
     work: usize,
+    transformed_bytes: usize,
 }
 impl Kernel {
     pub fn new() -> Self {
         let mut result = Self {
             declarations: HashMap::new(),
             work: 0,
+            transformed_bytes: 0,
         };
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
@@ -189,6 +193,17 @@ impl Kernel {
     }
     pub fn reset_budget(&mut self) {
         self.work = 0;
+        self.transformed_bytes = 0;
+    }
+    fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
+        self.transformed_bytes = self.transformed_bytes.saturating_add(bytes);
+        if self.transformed_bytes > 64 * 1024 * 1024 {
+            return Err(
+                "kernel transformation allocation limit exceeded; no theorem was established"
+                    .into(),
+            );
+        }
+        Ok(())
     }
     fn tick(&mut self, depth: usize) -> Result<()> {
         self.work += 1;
@@ -1238,8 +1253,11 @@ impl Kernel {
                     .collect::<Result<Vec<_>>>()?
             };
         }
-        Ok(term(match value.as_ref() {
-            Term::Var(index) => return var(self, *index, binders),
+        let transformed = match value.as_ref() {
+            Term::Var(index) => {
+                self.charge_transformation(128)?;
+                return var(self, *index, binders);
+            }
             Term::Sort(l) => Term::Sort(level(l)?),
             Term::Global(n, ls) => Term::Global(
                 n.clone(),
@@ -1352,7 +1370,32 @@ impl Kernel {
                     .collect::<Result<_>>()?,
                 subject: walk!(subject),
             },
-        }))
+        };
+        let levels = match &transformed {
+            Term::Sort(level) => level.memory_weight(),
+            Term::Global(_, levels)
+            | Term::Ctor { levels, .. }
+            | Term::Induct { levels, .. }
+            | Term::MutualInduct { levels, .. } => levels.iter().map(Level::memory_weight).sum(),
+            _ => 0,
+        };
+        let name_bytes = match &transformed {
+            Term::Global(name, _) | Term::Recur(name, _) => name.len(),
+            Term::Ctor {
+                family,
+                constructor,
+                ..
+            } => family.len().saturating_add(constructor.len()),
+            Term::MutualInduct { family, cases, .. } => {
+                cases.iter().fold(family.len(), |total, case| {
+                    total.saturating_add(case.family.len())
+                })
+            }
+            Term::Induct { family, .. } | Term::Project { family, .. } => family.len(),
+            _ => 0,
+        };
+        self.charge_transformation(128usize.saturating_add(levels).saturating_add(name_bytes))?;
+        Ok(term(transformed))
     }
 }
 pub(super) fn apps(mut f: T, args: &[T]) -> T {

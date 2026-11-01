@@ -56,12 +56,13 @@ fn run_command() -> ExitCode {
             .iter()
             .find(|arg| !arg.starts_with("--diagnostic-format="))
             .map(String::as_str);
-        let supported = matches!(command, Some("--check" | "--check-theorem" | "--emit-asm"))
-            || command.is_some_and(|command| {
-                !command.starts_with('-') && !matches!(command, "fmt" | "lsp")
-            });
+        let supported = matches!(
+            command,
+            Some("--check" | "--check-theorem" | "--check-lean-export" | "--emit-asm")
+        ) || command
+            .is_some_and(|command| !command.starts_with('-') && !matches!(command, "fmt" | "lsp"));
         if !supported {
-            eprintln!("lim: --timings is supported for compile, --check, --check-theorem, and --emit-asm commands");
+            eprintln!("lim: --timings is supported for compile, --check, --check-theorem, --check-lean-export, and --emit-asm commands");
             return ExitCode::FAILURE;
         }
     }
@@ -202,7 +203,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -225,6 +226,9 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
         Some("--check" | "--check-theorem")
     ) {
         return check_command(&arguments);
+    }
+    if arguments.first().map(String::as_str) == Some("--check-lean-export") {
+        return check_lean_export_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("fmt") {
         if arguments.len() != 2 {
@@ -441,6 +445,71 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
         }
     };
     compile_with_links(&input_path, &output_path, false, &config, target, &links)
+}
+
+fn check_lean_export_command(arguments: &[String]) -> ExitCode {
+    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH]";
+    if arguments.len() < 3 || arguments.len() > 5 {
+        eprintln!("{usage}");
+        return ExitCode::FAILURE;
+    }
+    if arguments[1].is_empty() || arguments[1].starts_with('-') {
+        eprintln!("lim: INPUT must be a nonempty path, not an option");
+        return ExitCode::FAILURE;
+    }
+    let input = Path::new(&arguments[1]);
+    let target = &arguments[2];
+    if target.is_empty() || target.starts_with('-') {
+        eprintln!("lim: TARGET must be a nonempty theorem name");
+        return ExitCode::FAILURE;
+    }
+    let report_path = match arguments.get(3).map(String::as_str) {
+        None => None,
+        Some("--report")
+            if arguments.len() == 5
+                && !arguments[4].is_empty()
+                && !arguments[4].starts_with('-') =>
+        {
+            Some(Path::new(&arguments[4]))
+        }
+        _ => {
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Some(report) = report_path {
+        if let Err(error) = lim::reject_source_output_collision(input, report) {
+            eprintln!("lim: {}: {error}", report.display());
+            return ExitCode::FAILURE;
+        }
+    }
+    let file = match fs::File::open(input) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("lim: {}: {error}", input.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let result = lim::check_lean_export(std::io::BufReader::new(file), target);
+    let report = match result {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("lim: {}: {error}", input.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Some(path) = report_path {
+        if let Err(error) = lim::write_output_atomic(path, report.render_json()) {
+            eprintln!("lim: {}: {error}", path.display());
+            return ExitCode::FAILURE;
+        }
+    }
+    println!(
+        "checked Lean export theorem {} ({} declarations)",
+        target,
+        report.declarations.len()
+    );
+    ExitCode::SUCCESS
 }
 
 #[derive(Debug, PartialEq)]

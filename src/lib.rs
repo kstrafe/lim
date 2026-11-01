@@ -80,6 +80,7 @@ pub use diagnostic_json::render_diagnostic_json;
 pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic};
+pub use proof::{check_lean_export, LeanDeclarationReport, LeanExportError, LeanExportReport};
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};

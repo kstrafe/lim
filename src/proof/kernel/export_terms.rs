@@ -1,0 +1,319 @@
+//! Indexed NDJSON primitive tables. Only backward references are accepted.
+use super::*;
+
+impl Replay {
+    pub(super) fn name_record(&mut self, value: &Json) -> Result<()> {
+        let Json::Object(data) = value else {
+            unreachable!()
+        };
+        if index(&data["in"])? != self.names.len() || self.names.len() >= MAX_NAMES {
+            return Err("name IDs must be contiguous and within the name table limit".into());
+        }
+        let (pre, part, key) = if let Some(value) = data.get("str") {
+            fields(value, &["pre", "str"])?;
+            let part = string(value.get("str").ok_or("missing name string")?)?;
+            let display = if !part.is_empty()
+                && part
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+                && part
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '\''))
+            {
+                part.to_owned()
+            } else {
+                crate::diagnostic_json::quoted(part)
+            };
+            (
+                self.name(value.get("pre").ok_or("missing name prefix")?)?,
+                display,
+                format!("s{}:{part}", part.len()),
+            )
+        } else if let Some(value) = data.get("num") {
+            let value = fields(value, &["pre", "i"])?;
+            let Json::Number(number) = &value["i"] else {
+                return Err("numeric name component must be an unsigned integer".into());
+            };
+            if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+                return Err("numeric name component must be an unsigned integer".into());
+            }
+            (
+                self.name(&value["pre"])?,
+                format!("[{number}]"),
+                format!("n{number};"),
+            )
+        } else {
+            return Err("unsupported name record".into());
+        };
+        let name = Name {
+            key: format!("{}{key}", pre.key),
+            display: if pre.depth == 0 {
+                part
+            } else {
+                format!("{}.{part}", pre.display)
+            },
+            depth: pre.depth + 1,
+        };
+        if name.depth > 256 || name.key.len() > 16_384 || name.display.len() > 16_384 {
+            return Err("export name size or depth limit exceeded".into());
+        }
+        self.name_bytes = self
+            .name_bytes
+            .checked_add(name.key.len() + name.display.len())
+            .ok_or("name byte count overflow")?;
+        if self.name_bytes > MAX_NAME_BYTES {
+            return Err("export name byte limit exceeded".into());
+        }
+        if !self.name_keys.insert(name.key.clone()) {
+            return Err("duplicate interned export name".into());
+        }
+        self.names.push(name);
+        Ok(())
+    }
+    pub(super) fn level_record(&mut self, value: &Json) -> Result<()> {
+        let Json::Object(data) = value else {
+            unreachable!()
+        };
+        if index(&data["il"])? != self.levels.len() || self.levels.len() >= MAX_LEVELS {
+            return Err(
+                "universe IDs must be contiguous and within the universe table limit".into(),
+            );
+        }
+        let level = if let Some(value) = data.get("succ") {
+            self.level(value)?.successor()?
+        } else if let Some(value) = data.get("max") {
+            let pair = array(value, 2)?;
+            if pair.len() != 2 {
+                return Err("universe max requires exactly two references".into());
+            }
+            self.level(&pair[0])?.maximum(&self.level(&pair[1])?)?
+        } else if let Some(value) = data.get("imax") {
+            let pair = array(value, 2)?;
+            if pair.len() != 2 {
+                return Err("universe imax requires exactly two references".into());
+            }
+            self.level(&pair[0])?.imax(&self.level(&pair[1])?)?
+        } else if let Some(value) = data.get("param") {
+            let name = self.name(value)?;
+            if name.depth == 0 {
+                return Err("anonymous universe parameter".into());
+            }
+            if name.key.len() > 512 {
+                return Err("export universe parameter name byte limit exceeded".into());
+            }
+            Level::variable(name.key)
+        } else {
+            return Err("unsupported universe record".into());
+        };
+        let weight = level.memory_weight();
+        if weight > 64 * 1024 {
+            return Err("export universe payload limit exceeded".into());
+        }
+        self.payload_bytes = self.payload_bytes.saturating_add(weight);
+        if self.payload_bytes > 64 * 1024 * 1024 {
+            return Err("export primitive payload limit exceeded".into());
+        }
+        self.levels.push(level);
+        Ok(())
+    }
+    pub(super) fn expression_record(&mut self, value: &Json) -> Result<()> {
+        let Json::Object(data) = value else {
+            unreachable!()
+        };
+        if index(&data["ie"])? != self.expressions.len()
+            || self.expressions.len() >= MAX_EXPRESSIONS
+        {
+            return Err(
+                "expression IDs must be contiguous and within the expression table limit".into(),
+            );
+        }
+        let expression = if let Some(value) = data.get("bvar") {
+            term(Term::Var(index(value)?))
+        } else if let Some(value) = data.get("sort") {
+            term(Term::Sort(self.level(value)?))
+        } else if let Some(value) = data.get("const") {
+            let value = fields(value, &["name", "us"])?;
+            let name = self.name(&value["name"])?;
+            let levels = array(&value["us"], 32)?
+                .iter()
+                .map(|v| self.level(v))
+                .collect::<Result<_>>()?;
+            term(Term::Global(name.key, levels))
+        } else if let Some(value) = data.get("app") {
+            let value = fields(value, &["fn", "arg"])?;
+            term(Term::App(
+                self.expression(&value["fn"])?,
+                self.expression(&value["arg"])?,
+            ))
+        } else if data.contains_key("lam") || data.contains_key("forallE") {
+            let lambda = data.contains_key("lam");
+            let value = fields(
+                &data[if lambda { "lam" } else { "forallE" }],
+                &["name", "type", "body", "binderInfo"],
+            )?;
+            self.name(&value["name"])?;
+            if !matches!(
+                string(&value["binderInfo"])?,
+                "default" | "implicit" | "strictImplicit" | "instImplicit"
+            ) {
+                return Err("invalid exported binder style".into());
+            }
+            let domain = self.expression(&value["type"])?;
+            let body = self.expression(&value["body"])?;
+            term(if lambda {
+                Term::Lam(domain, body)
+            } else {
+                Term::Pi(domain, body)
+            })
+        } else if let Some(value) = data.get("letE") {
+            let value = fields(value, &["name", "type", "value", "body", "nondep"])?;
+            self.name(&value["name"])?;
+            boolean(&value["nondep"])?;
+            term(Term::Let(
+                self.expression(&value["type"])?,
+                self.expression(&value["value"])?,
+                self.expression(&value["body"])?,
+            ))
+        } else if let Some(value) = data.get("proj") {
+            let value = fields(value, &["typeName", "idx", "struct"])?;
+            term(Term::Project {
+                family: self.name(&value["typeName"])?.key,
+                index: index(&value["idx"])?,
+                subject: self.expression(&value["struct"])?,
+            })
+        } else if let Some(value) = data.get("mdata") {
+            let value = fields(value, &["expr", "data"])?;
+            if !matches!(value["data"], Json::Object(_)) {
+                return Err("expression metadata must be an object".into());
+            }
+            self.expression(&value["expr"])?
+        } else if let Some(value) = data.get("natVal") {
+            self.natural_literal(string(value)?)?
+        } else if data.contains_key("strVal") {
+            return Err("string literal replay is not implemented".into());
+        } else {
+            return Err("unsupported exported expression; free variables, metavariables and unknown term forms are forbidden".into());
+        };
+        // Bound unused graphs too: dropping a final Arc in a long chain must
+        // not recurse through an unbounded number of expression allocations.
+        let child_depth = |value: &Json, key: &str| {
+            self.expression_depth(value.get(key).ok_or("missing expression child")?)
+        };
+        let depth = if let Some(value) = data.get("app") {
+            1 + child_depth(value, "fn")?.max(child_depth(value, "arg")?)
+        } else if let Some(value) = data.get("lam").or_else(|| data.get("forallE")) {
+            1 + child_depth(value, "type")?.max(child_depth(value, "body")?)
+        } else if let Some(value) = data.get("letE") {
+            1 + child_depth(value, "type")?
+                .max(child_depth(value, "value")?)
+                .max(child_depth(value, "body")?)
+        } else if let Some(value) = data.get("proj") {
+            1 + child_depth(value, "struct")?
+        } else if let Some(value) = data.get("mdata") {
+            child_depth(value, "expr")?
+        } else if let Some(value) = data.get("natVal") {
+            // The literal constructor above already bounds and parses this.
+            string(value)?
+                .parse::<usize>()
+                .map_err(|_| "invalid natural literal")?
+                + 1
+        } else {
+            1
+        };
+        if depth > MAX_EXPRESSION_DEPTH {
+            return Err("export expression depth limit exceeded".into());
+        }
+        let payload = match expression.as_ref() {
+            Term::Sort(level) => level.memory_weight(),
+            Term::Global(name, levels) => levels.iter().fold(name.len(), |total, level| {
+                total.saturating_add(level.memory_weight())
+            }),
+            Term::Project { family, .. } => family.len(),
+            _ => 0,
+        };
+        // A literal's Peano expansion is not represented by earlier table
+        // entries; charge all its constructor nodes and owned name strings.
+        let literal_payload = if data.contains_key("natVal") {
+            depth.saturating_mul(128 + "$lean:s3:Nat".len() + "$lean:s3:Nats4:succ".len())
+        } else {
+            0
+        };
+        self.payload_bytes = self
+            .payload_bytes
+            .saturating_add(128)
+            .saturating_add(payload)
+            .saturating_add(literal_payload);
+        if self.payload_bytes > 64 * 1024 * 1024 {
+            return Err("export primitive payload limit exceeded".into());
+        }
+        self.expressions.push((expression, depth));
+        Ok(())
+    }
+    fn natural_literal(&mut self, literal: &str) -> Result<T> {
+        if literal.is_empty()
+            || !literal.bytes().all(|b| b.is_ascii_digit())
+            || literal.len() > 1 && literal.starts_with('0')
+        {
+            return Err("natural literals require a canonical unsigned decimal string".into());
+        }
+        let n: usize = literal
+            .parse()
+            .map_err(|_| "scalable natural literal replay is not implemented")?;
+        if n > 128 {
+            return Err(
+                "scalable natural literal replay is not implemented (Peano abbreviation limit 128)"
+                    .into(),
+            );
+        }
+        let nat = "$lean:s3:Nat";
+        let zero = "$lean:s3:Nats4:zero";
+        let succ = "$lean:s3:Nats4:succ";
+        self.natural_literals = true;
+        let mut value = term(Term::Ctor {
+            family: nat.into(),
+            levels: vec![],
+            parameters: vec![],
+            constructor: zero.into(),
+            fields: vec![],
+        });
+        for _ in 0..n {
+            value = term(Term::Ctor {
+                family: nat.into(),
+                levels: vec![],
+                parameters: vec![],
+                constructor: succ.into(),
+                fields: vec![value],
+            });
+        }
+        Ok(value)
+    }
+    pub(super) fn check_natural_signature(&self) -> Result<()> {
+        let nat = "$lean:s3:Nat";
+        let zero = "$lean:s3:Nats4:zero";
+        let succ = "$lean:s3:Nats4:succ";
+        let family = self
+            .kernel
+            .declarations
+            .get(nat)
+            .and_then(|d| d.family.as_ref())
+            .ok_or("Nat literals require the previously checked standard Nat declaration")?;
+        let valid = family.group == [nat]
+            && family.parameters.is_empty()
+            && family.indices.is_empty()
+            && family.sort.equivalent(&Level::number(1)?)?
+            && family.constructors.len() == 2
+            && family.constructors[0].name == zero
+            && family.constructors[0].fields.is_empty()
+            && family.constructors[1].name == succ
+            && family.constructors[1].fields.len() == 1
+            && matches!(family.constructors[1].fields[0].as_ref(),Term::Global(name,levels) if name == nat && levels.is_empty())
+            && self.checked.contains_key(nat);
+        if !valid {
+            return Err(
+                "Nat literal declaration does not have the standard checked Nat signature".into(),
+            );
+        }
+        Ok(())
+    }
+}

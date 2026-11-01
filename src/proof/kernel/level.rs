@@ -29,6 +29,17 @@ fn spend(work: &mut usize) -> Result<()> {
 }
 
 impl Level {
+    /// Conservative local payload accounting for bounded term transformations.
+    pub(super) fn memory_weight(&self) -> usize {
+        self.terms.keys().fold(0usize, |total, monomial| {
+            monomial.nonzero.iter().fold(
+                total
+                    .saturating_add(96)
+                    .saturating_add(monomial.base.as_ref().map_or(0, String::len)),
+                |total, name| total.saturating_add(64).saturating_add(name.len()),
+            )
+        })
+    }
     pub fn number(number: u32) -> Result<Self> {
         if number > LEVEL {
             return Err("universe level limit exceeded".into());

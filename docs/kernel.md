@@ -922,6 +922,7 @@ mathematical meaning of a type:
 | Resource | Limit |
 | --- | --- |
 | Core checking and conversion work | 200,000 core steps per declaration or complete mutual group. |
+| Term transformation allocations | 64 MiB accounted node, name and universe payload per core budget. |
 | Recursive kernel depth | 96. |
 | Parsed mathematical nodes | 50,000 per declaration. |
 | Mathematical parser nesting depth | 64. |
@@ -959,6 +960,15 @@ obligation; it does not permit an unchecked term or count as a proof of
 unreachability. The numeral bound limits source expansion, not Nat: larger
 naturals can be described by constructors and checked definitions, subject to
 resources, and universal natural-number proofs remain unbounded.
+
+Transformation accounting also bounds expansion of shared term graphs during
+substitution and universe instantiation; a small input DAG cannot authorize
+unbounded allocation. It includes temporary nodes and owned identifier/level
+payloads, rather than measuring exact RSS. The
+[elaborated export reader](lean-export.md) additionally bounds line buffers,
+primitive tables, graph depth, dependency receipts and cumulative transformations
+across declarations. Exported types, bodies and recursor rules are checked by
+this same kernel; cached receipts and exporter claims cannot bypass it.
 
 ## Trust assumptions
 

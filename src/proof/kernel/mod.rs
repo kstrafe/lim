@@ -4,6 +4,9 @@
 mod core;
 mod level;
 use crate::{Expr, Item};
+pub use core::export::{
+    check_lean_export, LeanDeclarationReport, LeanExportError, LeanExportReport,
+};
 use core::{apps, term, InductiveInput, Kernel, Level, RecursionCase, Term, T};
 use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;

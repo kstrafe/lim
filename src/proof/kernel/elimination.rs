@@ -199,7 +199,7 @@ impl Kernel {
     }
 
     #[expect(clippy::too_many_arguments)]
-    fn group_branch_type(
+    pub(super) fn group_branch_type(
         &mut self,
         ctx: &[T],
         name: &str,

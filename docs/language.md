@@ -2297,7 +2297,8 @@ its pinned Lean reference. This capability does not establish full Lean
 conversion parity, formal verification of the kernel, or a completed FLT port.
 
 Kernel checking allows 200,000 core steps per declaration and recursive depth
-96; mathematical parsing allows 50,000 nodes per declaration and depth 64.
+96, with 64 MiB of accounted transformation allocations per core budget;
+mathematical parsing allows 50,000 nodes per declaration and depth 64.
 Other limits are 32 universe parameters, constant universe levels at most 65,535,
 64 inductive parameters, 64 constructors per datatype, 64 fields per constructor,
 and 4,096 mathematical declarations. `#pt-numeral` accepts source integers from
@@ -2334,6 +2335,13 @@ defines a proposition. Missing or cfg-excluded targets, false or unproved
 obligations, and other validation failures cause failure. The command emits no
 native outputs. See the [kernel guide](kernel.md#check-a-named-theorem-from-the-cli)
 for usage and the distinction between a statement and evidence.
+
+`lim --check-lean-export INPUT TARGET [--report PATH] [--timings]` replays a
+bounded, version-pinned subset of lean4export NDJSON through the same kernel.
+It requires a theorem target and validates the entire stream before success;
+it does not invoke Lean or trust prior receipts. See the
+[export guide](lean-export.md) for exact pins, supported forms, hashes and
+limits. Native `.lim` proof translation and the full FLT port remain open.
 
 ### Functions
 
