@@ -476,5 +476,6 @@ exit 42 proof_nested.lim - -
 exit 42 proof_natural_literals.lim - -
 exit 42 proof_natural_arithmetic.lim - -
 exit 42 proof_observed_arithmetic.lim - -
+exit 42 proof_natural_powers.lim - -
 exit 42 proof_foundations.lim - -
 exit 42 proof_quotient.lim - -

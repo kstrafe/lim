@@ -1,15 +1,28 @@
 //! Acceleration of checked natural-number recursors, independent of names.
 //!
-//! A fold with a constant natural motive, base b, and step ih + k computes
-//! b + n*k. Recognize that syntax (including nested translation folds) after
+//! A fold with a constant natural motive and affine step a*ih+b can be
+//! evaluated with bounded exact arithmetic. Recognize nested affine folds after
 //! beta/delta/zeta and constructor projections. Other motives,
 //! predecessor-dependent steps, opaque functions and nonlinear steps keep the
 //! ordinary bounded iota evaluator.
 use super::*;
 
+#[path = "natural_iteration.rs"]
+mod iteration;
+
+#[derive(Debug)]
 struct Affine {
-    coefficient: Natural,
+    coefficients: Vec<Natural>,
     constant: Natural,
+}
+
+impl Affine {
+    fn is_constant(&self) -> bool {
+        self.coefficients.iter().all(|n| n.decimal() == "0")
+    }
+    fn is_zero(&self) -> bool {
+        self.is_constant() && self.constant.decimal() == "0"
+    }
 }
 
 impl Kernel {
@@ -46,13 +59,13 @@ impl Kernel {
             &cases[0].motive,
             &cases[0].branches,
             subject,
-            None,
+            &[],
             depth + 1,
         )?
         else {
             return Ok(None);
         };
-        debug_assert_eq!(result.coefficient.decimal(), "0");
+        debug_assert!(result.coefficients.is_empty());
         self.charge_transformation(128 + name.len() + result.constant.decimal().len())?;
         // Preserve the exact nominal family of the subject, not builtin Nat.
         Ok(Some(term(Term::NatLiteral {
@@ -203,26 +216,32 @@ impl Kernel {
         desc: &Family,
         family: &str,
         value: &T,
-        variable: Option<usize>,
+        variables: &[usize],
         depth: usize,
     ) -> Result<Option<Affine>> {
         self.tick(depth)?;
         let value = self.natural_head(value, depth + 1)?;
         match value.as_ref() {
-            Term::Var(index) if Some(*index) == variable => Ok(Some(Affine {
-                coefficient: Natural::parse("1")?,
-                constant: Natural::parse("0")?,
-            })),
+            Term::Var(index) => {
+                let Some(position) = variables.iter().position(|variable| variable == index) else {
+                    return Ok(None);
+                };
+                let mut affine = self.natural_affine_constant(
+                    &Natural::parse("0")?,
+                    variables.len(),
+                    depth + 1,
+                )?;
+                affine.coefficients[position] = Natural::parse("1")?;
+                Ok(Some(affine))
+            }
             Term::NatLiteral {
                 family: actual,
                 value,
-            } if actual == family => {
-                self.charge_transformation(128 + value.decimal().len())?;
-                Ok(Some(Affine {
-                    coefficient: Natural::parse("0")?,
-                    constant: value.clone(),
-                }))
-            }
+            } if actual == family => Ok(Some(self.natural_affine_constant(
+                value,
+                variables.len(),
+                depth + 1,
+            )?)),
             Term::Ctor {
                 family: actual,
                 levels,
@@ -231,13 +250,14 @@ impl Kernel {
                 fields,
             } if actual == family && levels.is_empty() && parameters.is_empty() => {
                 if constructor == &desc.constructors[0].name && fields.is_empty() {
-                    Ok(Some(Affine {
-                        coefficient: Natural::parse("0")?,
-                        constant: Natural::parse("0")?,
-                    }))
+                    Ok(Some(self.natural_affine_constant(
+                        &Natural::parse("0")?,
+                        variables.len(),
+                        depth + 1,
+                    )?))
                 } else if constructor == &desc.constructors[1].name && fields.len() == 1 {
                     let Some(mut affine) =
-                        self.natural_affine(desc, family, &fields[0], variable, depth + 1)?
+                        self.natural_affine(desc, family, &fields[0], variables, depth + 1)?
                     else {
                         return Ok(None);
                     };
@@ -267,7 +287,7 @@ impl Kernel {
                     motive,
                     branches,
                     subject,
-                    variable,
+                    variables,
                     depth + 1,
                 )
             }
@@ -291,7 +311,7 @@ impl Kernel {
                     &cases[0].motive,
                     &cases[0].branches,
                     subject,
-                    variable,
+                    variables,
                     depth + 1,
                 )
             }
@@ -307,7 +327,7 @@ impl Kernel {
         motive: &T,
         branches: &[T],
         subject: &T,
-        variable: Option<usize>,
+        variables: &[usize],
         depth: usize,
     ) -> Result<Option<Affine>> {
         self.tick(depth)?;
@@ -323,13 +343,13 @@ impl Kernel {
         {
             return Ok(None);
         }
-        let Some(count) = self.natural_affine(desc, family, subject, variable, depth + 1)? else {
+        let Some(count) = self.natural_affine(desc, family, subject, variables, depth + 1)? else {
             return Ok(None);
         };
         // Iota at zero never executes the step. In particular, do not spend
         // a digit budget evaluating a well-typed but unused huge computation.
-        if count.coefficient.decimal() == "0" && count.constant.decimal() == "0" {
-            return self.natural_affine(desc, family, &branches[0], variable, depth + 1);
+        if count.is_zero() {
+            return self.natural_affine(desc, family, &branches[0], variables, depth + 1);
         }
         let step = self.natural_head(&branches[1], depth + 1)?;
         let Term::Lam(domain, body) = step.as_ref() else {
@@ -345,26 +365,129 @@ impl Kernel {
         if !self.natural_type(domain, family, depth + 1)? {
             return Ok(None);
         }
-        // Only the innermost accumulator is admitted. The predecessor and
-        // every free outer variable are intentionally absent from this scope.
-        let Some(step) = self.natural_affine(desc, family, body, Some(0), depth + 1)? else {
+        // Introduce this accumulator and shift the already selected outer
+        // variables past both binders. No predecessor enters the variable map.
+        self.natural_arithmetic_budget(variables.len() + 1, 128 + variables.len() * 8, depth + 1)?;
+        let mut inner = vec![0];
+        inner.extend(variables.iter().map(|index| index + 2));
+        let Some(mut step) = self.natural_affine(desc, family, body, &inner, depth + 1)? else {
             return Ok(None);
         };
-        if step.coefficient.decimal() != "1" {
+        let coefficient = step.coefficients.remove(0);
+        // A positive reset fold discards its base. Its source still undergoes
+        // full typing before conversion. Unknown counts may be zero.
+        if coefficient.decimal() == "0" {
+            return Ok(count.is_constant().then_some(step));
+        }
+        if coefficient.decimal() != "1" && !count.is_constant() {
             return Ok(None);
         }
-        // A nontranslation step can ignore the base entirely. Only evaluate
-        // it once the translation shape has established that it is needed.
-        let Some(base) = self.natural_affine(desc, family, &branches[0], variable, depth + 1)?
+        let translation = if coefficient.decimal() == "1" {
+            let Some(product) = self.natural_affine_product(&count, &step, depth + 1)? else {
+                return Ok(None);
+            };
+            Some(product)
+        } else {
+            None
+        };
+        let Some(base) = self.natural_affine(desc, family, &branches[0], variables, depth + 1)?
         else {
             return Ok(None);
         };
-        let coefficient = self.natural_product(&count.coefficient, &step.constant, depth + 1)?;
-        let constant = self.natural_product(&count.constant, &step.constant, depth + 1)?;
-        Ok(Some(Affine {
-            coefficient: self.natural_sum(&base.coefficient, &coefficient, depth + 1)?,
-            constant: self.natural_sum(&base.constant, &constant, depth + 1)?,
-        }))
+        match translation {
+            Some(product) => Ok(Some(self.natural_affine_sum(&base, &product, depth + 1)?)),
+            None => Ok(Some(self.natural_iterate(
+                base,
+                coefficient,
+                step,
+                count.constant,
+                depth + 1,
+            )?)),
+        }
+    }
+
+    fn natural_affine_constant(
+        &mut self,
+        constant: &Natural,
+        dimensions: usize,
+        depth: usize,
+    ) -> Result<Affine> {
+        self.natural_arithmetic_budget(
+            dimensions + 1,
+            128 + constant.decimal().len() + dimensions * 128,
+            depth + 1,
+        )?;
+        Ok(Affine {
+            coefficients: vec![Natural::parse("0")?; dimensions],
+            constant: constant.clone(),
+        })
+    }
+
+    fn natural_affine_sum(&mut self, a: &Affine, b: &Affine, depth: usize) -> Result<Affine> {
+        self.natural_arithmetic_budget(
+            a.coefficients.len(),
+            128 + a.coefficients.len() * 32,
+            depth,
+        )?;
+        debug_assert_eq!(a.coefficients.len(), b.coefficients.len());
+        let coefficients = a
+            .coefficients
+            .iter()
+            .zip(&b.coefficients)
+            .map(|(a, b)| self.natural_sum(a, b, depth + 1))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Affine {
+            coefficients,
+            constant: self.natural_sum(&a.constant, &b.constant, depth + 1)?,
+        })
+    }
+
+    fn natural_affine_scale(
+        &mut self,
+        value: &Affine,
+        factor: &Natural,
+        depth: usize,
+    ) -> Result<Affine> {
+        self.natural_arithmetic_budget(
+            value.coefficients.len(),
+            128 + value.coefficients.len() * 32,
+            depth,
+        )?;
+        let coefficients = value
+            .coefficients
+            .iter()
+            .map(|value| self.natural_product(value, factor, depth + 1))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Affine {
+            coefficients,
+            constant: self.natural_product(&value.constant, factor, depth + 1)?,
+        })
+    }
+
+    /// Naturals have no coefficient cancellation: two variable-dependent
+    /// affine factors would create a genuinely nonlinear polynomial.
+    fn natural_affine_product(
+        &mut self,
+        a: &Affine,
+        b: &Affine,
+        depth: usize,
+    ) -> Result<Option<Affine>> {
+        self.tick(depth)?;
+        if a.is_constant() {
+            Ok(Some(self.natural_affine_scale(
+                b,
+                &a.constant,
+                depth + 1,
+            )?))
+        } else if b.is_constant() {
+            Ok(Some(self.natural_affine_scale(
+                a,
+                &b.constant,
+                depth + 1,
+            )?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn natural_arithmetic_budget(&mut self, work: usize, bytes: usize, depth: usize) -> Result<()> {
@@ -481,5 +604,104 @@ mod tests {
             kernel.natural_product(&a, &a, 0).unwrap().decimal(),
             "152399025"
         );
+    }
+
+    fn add(left: T, right: T) -> T {
+        term(Term::Induct {
+            family: "#pt-nat".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: term(Term::Lam(nat(), nat())),
+            branches: vec![
+                left,
+                term(Term::Lam(
+                    nat(),
+                    term(Term::Lam(
+                        nat(),
+                        constructor("succ", vec![term(Term::Var(0))]),
+                    )),
+                )),
+            ],
+            subject: right,
+        })
+    }
+    fn multiply(kernel: &mut Kernel, left: T, right: T) -> T {
+        let shifted = kernel.shift(&left, 2, 0, 0).unwrap();
+        term(Term::Induct {
+            family: "#pt-nat".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: term(Term::Lam(nat(), nat())),
+            branches: vec![
+                literal(0),
+                term(Term::Lam(
+                    nat(),
+                    term(Term::Lam(nat(), add(term(Term::Var(0)), shifted))),
+                )),
+            ],
+            subject: right,
+        })
+    }
+
+    #[test]
+    fn nested_folds_track_each_selected_outer_variable_without_capture() {
+        let mut kernel = Kernel::new();
+        let left = multiply(&mut kernel, literal(3), term(Term::Var(3)));
+        let right = multiply(&mut kernel, term(Term::Var(0)), literal(2));
+        let value = add(left, right);
+        kernel
+            .check(&[nat(), nat(), nat(), nat()], &value, &nat(), 0)
+            .unwrap();
+        let family = kernel.natural_family("#pt-nat", 0).unwrap();
+        let result = kernel
+            .natural_affine(&family, "#pt-nat", &value, &[3, 0], 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            result
+                .coefficients
+                .iter()
+                .map(Natural::decimal)
+                .collect::<Vec<_>>(),
+            ["3", "2"]
+        );
+        assert_eq!(result.constant.decimal(), "0");
+        assert!(kernel
+            .natural_affine(&family, "#pt-nat", &term(Term::Var(1)), &[3, 0], 0)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn products_of_two_variable_factors_are_not_mistaken_for_affine_values() {
+        let mut kernel = Kernel::new();
+        let family = kernel.natural_family("#pt-nat", 0).unwrap();
+        for right in [term(Term::Var(0)), term(Term::Var(1))] {
+            kernel.reset_budget();
+            let value = multiply(&mut kernel, term(Term::Var(0)), right);
+            kernel.check(&[nat(), nat()], &value, &nat(), 0).unwrap();
+            assert!(kernel
+                .natural_affine(&family, "#pt-nat", &value, &[0, 1], 0)
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn affine_payload_accounting_includes_owned_digits_and_variable_slots() {
+        let mut kernel = Kernel::new();
+        let value = Natural::parse(&"9".repeat(4096)).unwrap();
+        let bytes = 128 + 4096 + 2 * 128;
+        kernel.transformed_bytes = 64 * 1024 * 1024 - bytes;
+        let affine = kernel.natural_affine_constant(&value, 2, 0).unwrap();
+        assert_eq!(affine.constant, value);
+        assert_eq!(affine.coefficients.len(), 2);
+        assert_eq!(kernel.transformed_bytes, 64 * 1024 * 1024);
+        assert!(kernel
+            .natural_affine_constant(&value, 2, 0)
+            .unwrap_err()
+            .contains("allocation limit"));
     }
 }

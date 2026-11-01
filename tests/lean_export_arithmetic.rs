@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 const FIXTURE: &str = include_str!("fixtures/lean_export_arithmetic/arithmetic.ndjson");
 const NATIVE: &str = include_str!("../theorems/lean_replay/arithmetic.lim");
-const TARGET: &str = "ArithmeticSource.nested";
+const TARGET: &str = "ArithmeticSource.affineGrowth";
 const TARGETS: &[(&str, &str)] = &[
     (
         "ArithmeticSource.addition",
@@ -23,7 +23,25 @@ const TARGETS: &[(&str, &str)] = &[
         "ArithmeticSource.zeroRight",
         "lean-32-ArithmeticSource-zeroRight",
     ),
-    (TARGET, "lean-33-ArithmeticSource-nested"),
+    ("ArithmeticSource.nested", "lean-33-ArithmeticSource-nested"),
+    ("ArithmeticSource.power", "lean-39-ArithmeticSource-power"),
+    (
+        "ArithmeticSource.zeroBase",
+        "lean-40-ArithmeticSource-zeroBase",
+    ),
+    (
+        "ArithmeticSource.zeroExponent",
+        "lean-41-ArithmeticSource-zeroExponent",
+    ),
+    (
+        "ArithmeticSource.oneBase",
+        "lean-42-ArithmeticSource-oneBase",
+    ),
+    (
+        "ArithmeticSource.nestedPower",
+        "lean-43-ArithmeticSource-nestedPower",
+    ),
+    (TARGET, "lean-45-ArithmeticSource-affineGrowth"),
 ];
 fn rows() -> Vec<Json> {
     FIXTURE
@@ -47,10 +65,10 @@ fn rejected_source(source: &str) {
 }
 
 #[test]
-fn actual_standard_add_and_mul_replay_with_empty_axiom_inventories() {
+fn actual_standard_add_mul_and_pow_replay_with_empty_axiom_inventories() {
     for (original, _) in TARGETS {
         let report = check_lean_export(FIXTURE.as_bytes(), original).unwrap();
-        assert_eq!(report.declarations.len(), 34);
+        assert_eq!(report.declarations.len(), 46);
         assert_eq!(&report.target, original);
         assert!(report.axioms.is_empty());
         assert!(report.target_axioms.is_empty());
@@ -64,7 +82,7 @@ fn exact_native_translation_independently_checks_every_target() {
     assert_eq!(translated.source, NATIVE);
     assert_eq!(translated.target, TARGETS.last().unwrap().1);
     assert!(NATIVE.contains("Nat-brecOn-go"));
-    assert!(NATIVE.len() < 40 * 1024);
+    assert!(NATIVE.len() < 64 * 1024);
     lim::check_types(&lim::parse_program(NATIVE).unwrap()).unwrap();
     for (_, name) in TARGETS {
         let checked = lim::check_theorem_details_from_path_with_config(
@@ -107,6 +125,112 @@ fn changing_any_large_result_is_rejected_by_the_normal_checker() {
     }
 }
 
+fn shift_expression_ids(value: &mut Json, start: i64) {
+    match value {
+        Json::Object(fields) => {
+            for (key, value) in fields {
+                if matches!(
+                    key.as_str(),
+                    "ie" | "type" | "value" | "body" | "fn" | "arg" | "expr" | "rhs" | "struct"
+                ) {
+                    if let Some(id) = value.integer().filter(|id| *id >= start) {
+                        *value = Json::Number((id + 2).to_string());
+                    }
+                }
+                shift_expression_ids(value, start);
+            }
+        }
+        Json::Array(items) => {
+            for item in items {
+                shift_expression_ids(item, start);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Copy only this theorem's Eq right endpoint. The 2^128 literal is also an
+/// earlier addition input, so changing its shared row would test that earlier
+/// theorem instead of reaching the power obligation.
+fn with_expected_endpoint(target: &str, decimal: &str) -> (Vec<Json>, usize) {
+    let mut data = rows();
+    let name = data
+        .iter()
+        .find(|row| {
+            row.get("str")
+                .and_then(|v| v.get("str"))
+                .and_then(Json::string)
+                == Some(target)
+        })
+        .unwrap()
+        .get("in")
+        .unwrap()
+        .clone();
+    let at = data
+        .iter()
+        .position(|row| row.get("thm").and_then(|v| v.get("name")) == Some(&name))
+        .unwrap();
+    let next = data[..at]
+        .iter()
+        .filter(|row| row.get("ie").is_some())
+        .count() as i64;
+    let ty = data[at].get("thm").unwrap().get("type").unwrap();
+    let root = data[..at]
+        .iter()
+        .find(|row| row.get("ie") == Some(ty))
+        .unwrap();
+    let function = root.get("app").unwrap().get("fn").unwrap().clone();
+    for row in &mut data[at..] {
+        shift_expression_ids(row, next);
+    }
+    object(object(&mut data[at]).get_mut("thm").unwrap())
+        .insert("type".into(), Json::Number((next + 1).to_string()));
+    data.insert(
+        at,
+        Json::Object(BTreeMap::from([
+            ("ie".into(), Json::Number(next.to_string())),
+            ("natVal".into(), Json::String(decimal.into())),
+        ])),
+    );
+    data.insert(
+        at + 1,
+        Json::Object(BTreeMap::from([
+            ("ie".into(), Json::Number((next + 1).to_string())),
+            (
+                "app".into(),
+                Json::Object(BTreeMap::from([
+                    ("fn".into(), function),
+                    ("arg".into(), Json::Number(next.to_string())),
+                ])),
+            ),
+        ])),
+    );
+    (data, at + 2)
+}
+
+#[test]
+fn false_power_endpoints_are_rejected_at_the_actual_power_obligation() {
+    // Positive control validates every shifted ID and the direct Nat endpoint.
+    let (data, _) = with_expected_endpoint("power", "340282366920938463463374607431768211456");
+    check_lean_export(render(&data).as_bytes(), TARGET).unwrap();
+    for (target, wrong) in [
+        ("power", "340282366920938463463374607431768211457"),
+        ("zeroBase", "1"),
+        ("oneBase", "0"),
+        ("affineGrowth", "340282366920938463463374607431768211454"),
+    ] {
+        let (data, at) = with_expected_endpoint(target, wrong);
+        check_lean_export(render(&data[..at]).as_bytes(), "ArithmeticSource.nested").unwrap();
+        let why = check_lean_export(render(&data).as_bytes(), TARGET).unwrap_err();
+        assert!(
+            why.message.contains(&format!("ArithmeticSource.{target}")),
+            "{why}"
+        );
+        assert!(why.message.contains("type mismatch"), "{why}");
+        assert!(!why.message.contains("resource limit"), "{why}");
+    }
+}
+
 #[test]
 fn names_and_provenance_comments_do_not_authorize_arithmetic() {
     let source = NATIVE
@@ -116,6 +240,7 @@ fn names_and_provenance_comments_do_not_authorize_arithmetic() {
         .join("\n")
         .replace("Nat-add", "unrelated-operation")
         .replace("Nat-mul", "other-operation")
+        .replace("Nat-pow", "different-operation")
         .replace("PProd", "Another-record")
         .replace("Nat", "Tally");
     lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
@@ -136,51 +261,76 @@ fn a_well_typed_changed_standard_addition_body_is_not_the_original_operation() {
 }
 
 #[test]
-fn opaque_standard_names_do_not_expose_their_initializers() {
-    let original = "(#math-definition lean-19-Nat-add";
+fn a_well_typed_changed_power_step_does_not_authorize_the_original_result() {
+    let original = "(#pt-app (#pt-use lean-29-Nat-mul ()) (#pt-project lean-10-PProd 0 v4) v0)";
     assert!(NATIVE.contains(original));
-    let source = NATIVE.replacen(original, "(#math-opaque lean-19-Nat-add", 1);
+    let changed = "(#pt-app (#pt-use lean-19-Nat-add ()) (#pt-project lean-10-PProd 0 v4) v0)";
+    let source = NATIVE.replacen(original, changed, 1);
     let prefix = source
-        .split("(#theorem lean-26-ArithmeticSource-addition")
+        .split("(#theorem lean-39-ArithmeticSource-power")
         .next()
         .unwrap();
     lim::check_types(&lim::parse_program(prefix).unwrap()).unwrap();
-    rejected_source(&source);
+    let why = lim::check_types(&lim::parse_program(&source).unwrap()).unwrap_err();
+    assert!(why.contains("lean-39-ArithmeticSource-power"), "{why}");
+    assert!(why.contains("type mismatch"), "{why}");
+    assert!(!why.contains("resource limit"), "{why}");
+}
+
+#[test]
+fn opaque_standard_names_do_not_expose_their_initializers() {
+    for (function, theorem) in [
+        ("lean-19-Nat-add", "lean-26-ArithmeticSource-addition"),
+        ("lean-38-Nat-pow", "lean-39-ArithmeticSource-power"),
+    ] {
+        let original = format!("(#math-definition {function}");
+        assert!(NATIVE.contains(&original));
+        let source = NATIVE.replacen(&original, &format!("(#math-opaque {function}"), 1);
+        let prefix = source
+            .split(&format!("(#theorem {theorem}"))
+            .next()
+            .unwrap();
+        lim::check_types(&lim::parse_program(prefix).unwrap()).unwrap();
+        rejected_source(&source);
+    }
 }
 
 #[test]
 fn a_standard_name_does_not_bypass_the_provided_signature() {
-    let mut rows = rows();
-    let prop = rows
-        .iter()
-        .find(|row| row.get("sort").and_then(Json::integer) == Some(0))
-        .unwrap()
-        .get("ie")
-        .unwrap()
-        .clone();
-    let name = rows
-        .iter()
-        .find(|row| {
-            row.get("str")
-                .and_then(|v| v.get("str"))
-                .and_then(Json::string)
-                == Some("add")
-        })
-        .unwrap()
-        .get("in")
-        .unwrap()
-        .clone();
-    let record = rows
-        .iter_mut()
-        .find_map(|row| {
-            let record = object(row).get_mut("def")?;
-            (record.get("name") == Some(&name)).then_some(record)
-        })
-        .unwrap();
-    object(record).insert("type".into(), prop);
-    let why = check_lean_export(render(&rows).as_bytes(), TARGET).unwrap_err();
-    assert!(why.message.contains("type mismatch"), "{why}");
-    assert!(!why.message.contains("resource limit"), "{why}");
+    for operation in ["add", "pow"] {
+        let mut rows = rows();
+        let prop = rows
+            .iter()
+            .find(|row| row.get("sort").and_then(Json::integer) == Some(0))
+            .unwrap()
+            .get("ie")
+            .unwrap()
+            .clone();
+        let name = rows
+            .iter()
+            .find(|row| {
+                row.get("str")
+                    .and_then(|v| v.get("str"))
+                    .and_then(Json::string)
+                    == Some(operation)
+            })
+            .unwrap()
+            .get("in")
+            .unwrap()
+            .clone();
+        let record = rows
+            .iter_mut()
+            .find_map(|row| {
+                let record = object(row).get_mut("def")?;
+                (record.get("name") == Some(&name)).then_some(record)
+            })
+            .unwrap();
+        object(record).insert("type".into(), prop);
+        let why = check_lean_export(render(&rows).as_bytes(), TARGET).unwrap_err();
+        assert!(why.message.contains(&format!("Nat.{operation}")), "{why}");
+        assert!(why.message.contains("type mismatch"), "{why}");
+        assert!(!why.message.contains("resource limit"), "{why}");
+    }
 }
 
 #[test]

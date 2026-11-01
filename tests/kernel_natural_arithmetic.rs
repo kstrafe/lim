@@ -159,7 +159,7 @@ fn a_function_named_add_with_a_different_step_keeps_its_actual_meaning() {
 }
 
 #[test]
-fn nonlinear_steps_use_ordinary_computation_and_never_the_translation_formula() {
+fn nontranslation_affine_steps_preserve_their_actual_meaning() {
     let definitions = EXAMPLE.split("(#theorem").next().unwrap();
     let doubling = definitions.replace("(#pt-succ sum)", "(#pt-app (#pt-use twice ()) sum)");
     let twice = "(#math-definition twice () (#pt-pi ((x #pt-nat)) #pt-nat)

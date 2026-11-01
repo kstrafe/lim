@@ -22,7 +22,9 @@ FIXTURES = ROOT / "tests/fixtures/lean_export_arithmetic"
 SOURCE = FIXTURES / "Source.lean"
 TARGETS = ["ArithmeticSource.addition", "ArithmeticSource.multiplication",
            "ArithmeticSource.zeroProduct", "ArithmeticSource.zeroRight",
-           "ArithmeticSource.nested"]
+           "ArithmeticSource.nested", "ArithmeticSource.power", "ArithmeticSource.zeroBase",
+           "ArithmeticSource.zeroExponent", "ArithmeticSource.oneBase", "ArithmeticSource.nestedPower",
+           "ArithmeticSource.affineGrowth"]
 
 
 def digest(data):
@@ -115,7 +117,7 @@ def main():
         native_targets = {}
         for item, name in zip(originals, names):
             owner = owners[item["name"]]
-            if item["name"] in ["Nat.add", "Nat.mul"] and owner != "Init.Prelude":
+            if item["name"] in ["Nat.add", "Nat.mul", "Nat.pow"] and owner != "Init.Prelude":
                 raise ValueError(f"standard arithmetic declaration has unexpected owner: {item['name']} ({owner})")
             if owner not in ["Source", "Init.Prelude"]:
                 raise ValueError(f"unexpected fixture source module: {owner}")
@@ -127,7 +129,7 @@ def main():
             if item["name"] in TARGETS:
                 native_targets[item["name"]] = name
         if set(native_targets) != set(TARGETS):
-            raise ValueError("native mapping does not include all five arithmetic targets")
+            raise ValueError("native mapping does not include all arithmetic targets")
         for name in native_targets.values():
             checked = subprocess.run([str(lim), "--check-theorem", str(proof), name], check=True,
                                      capture_output=True, timeout=60)

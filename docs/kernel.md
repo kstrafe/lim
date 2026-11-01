@@ -334,17 +334,28 @@ representation and work budgets. The [native example](../examples/proof_natural_
 checks large successors and predecessors. [Genuine pinned exports](../tests/fixtures/lean_export_naturals/README.md)
 also replay and translate through these same rules.
 
-Constant-increment structural folds can compute in decimal digits instead of
-one recursion step per numeric value. For a checked natural family, a constant
-natural-valued motive, base `b` and step `ih + k`, a closed literal count `n`
-reduces to `b + n*k`. The recognizer unfolds transparent definitions and
-beta/zeta redexes and constructor projections, then checks constructors and
-nested translation folds. It admits only the accumulator as a variable in the
-step: a predecessor or an unresolved outer local cannot become an increment.
-This supports the explicit
-addition and repeated-addition multiplication definitions in
-[`proof_natural_arithmetic.lim`](../examples/proof_natural_arithmetic.lim),
-including operands larger than machine integers. Definition names do not
+Structural affine folds can compute in decimal digits instead of one recursion
+step per numeric value. For a checked natural family and constant natural-valued
+motive, a step `ih + k` still reduces a closed count `n` to `base + n*k`.
+More general steps `a*ih+b`, with a constant natural multiplier and closed
+count, use binary composition: composing the step with itself yields
+`a*a*ih + (a*b+b)`. Exact decimal halving chooses the count bits without a
+machine-integer conversion. The final unused square is not computed.
+
+The recognizer unfolds transparent definitions, beta/zeta redexes and
+constructor projections. Nested folds keep distinct coefficient slots for
+their current accumulator and already selected outer accumulators, shifting
+the variable map past both binders. Predecessors and unrelated free locals
+never enter that map. An affine product requires one variable-independent
+factor; two variable-dependent factors retain ordinary evaluation. Iteration
+with a nontranslation multiplier requires a closed count, and a positive reset
+fold can discard its base only when its count is known nonzero.
+
+This supports the explicit addition/multiplication definitions in
+[`proof_natural_arithmetic.lim`](../examples/proof_natural_arithmetic.lim) and
+the powers and nonzero-offset recurrence in
+[`proof_natural_powers.lim`](../examples/proof_natural_powers.lim), including
+operands larger than machine integers. Definition names do not
 authorize arithmetic. Nominal family identities and opaque bodies remain
 distinct, and every source body and erased let still undergoes ordinary typing.
 
@@ -352,7 +363,8 @@ Digit addition and grade-school multiplication use exact decimal arithmetic.
 They charge digit work and temporary allocation before computation against the
 existing kernel budgets; results exceeding 4,096 digits fail. A zero count
 returns the checked base without executing arithmetic in the unused step,
-which still undergoes ordinary typing. Dependent motives,
+which still undergoes ordinary typing. A reset can discard its checked base,
+and a zero fixed point avoids constructing an unused huge power. Dependent motives,
 predecessor-dependent or nonlinear steps, and other recursion shapes retain
 ordinary bounded iota computation. This optimization adds no source keyword,
 axiom or unchecked arithmetic declaration.
@@ -375,11 +387,12 @@ base without inspecting the unused step. Other inductive families retain
 their normal evaluator. Source typing, including unused fields and local
 bindings, is always checked before conversion.
 
-These rules expose the pinned Lean standard `Nat.add` and `Nat.mul`
+These rules expose the pinned Lean standard `Nat.add`, `Nat.mul` and `Nat.pow`
 recurrences without constructing their `Nat.brecOn` history tables. The
 [genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-checks large addition, multiplication, zero products, a universally quantified
-right-zero identity and nested arithmetic. The [native observation example](../examples/proof_observed_arithmetic.lim)
+checks eleven targets over 46 declarations, including large powers, zero/one
+bases, generic right-zero and zero-exponent identities, nested arithmetic and
+an affine recurrence with a nonzero offset. The [native observation example](../examples/proof_observed_arithmetic.lim)
 shows both rules directly. No declaration spelling, hash, source comment or
 exporter claim authorizes a computation. Fusion and decimal arithmetic use
 the existing work, transformation and result-size bounds. Other arithmetic

@@ -1,6 +1,30 @@
 use super::{Natural, Result, MAX_DIGITS};
 
 impl Natural {
+    pub(super) fn halve(&self) -> (Self, bool) {
+        let bytes = self.0.as_bytes();
+        let odd = (bytes[bytes.len() - 1] - b'0') % 2 != 0;
+        let mut quotient = Vec::with_capacity(bytes.len());
+        let mut carry = 0u8;
+
+        for &byte in bytes {
+            let value = carry * 10 + (byte - b'0');
+            let digit = value / 2;
+            carry = value % 2;
+            if !quotient.is_empty() || digit != 0 {
+                quotient.push(b'0' + digit);
+            }
+        }
+
+        if quotient.is_empty() {
+            quotient.push(b'0');
+        }
+        (
+            Self(String::from_utf8(quotient).expect("decimal halving")),
+            odd,
+        )
+    }
+
     pub(super) fn add(&self, other: &Self) -> Result<Self> {
         let left = self.0.as_bytes();
         let right = other.0.as_bytes();
@@ -148,5 +172,77 @@ mod tests {
         let huge = natural(&"9".repeat(MAX_DIGITS));
         assert_eq!(natural("0").multiply(&huge).unwrap().decimal(), "0");
         assert_eq!(huge.multiply(&natural("0")).unwrap().decimal(), "0");
+    }
+
+    #[test]
+    fn halving_matches_small_integer_reference() {
+        for value in 0..10_000u128 {
+            let (quotient, odd) = natural(&value.to_string()).halve();
+            assert_eq!(quotient.decimal(), (value / 2).to_string());
+            assert_eq!(odd, value % 2 != 0);
+        }
+        assert_eq!(natural("0").halve(), (natural("0"), false));
+        assert_eq!(natural("1").halve(), (natural("0"), true));
+    }
+
+    #[test]
+    fn halving_handles_powers_of_ten_and_values_above_u128() {
+        for exponent in 1..=100 {
+            let value = format!("1{}", "0".repeat(exponent));
+            let expected = format!("5{}", "0".repeat(exponent - 1));
+            assert_eq!(natural(&value).halve(), (natural(&expected), false));
+        }
+
+        let even = natural("340282366920938463463374607431768211456");
+        assert_eq!(
+            even.halve(),
+            (natural("170141183460469231731687303715884105728"), false)
+        );
+        let odd = natural("340282366920938463463374607431768211457");
+        assert_eq!(
+            odd.halve(),
+            (natural("170141183460469231731687303715884105728"), true)
+        );
+    }
+
+    #[test]
+    fn halving_maximum_length_nines_is_exact() {
+        let nines = natural(&"9".repeat(MAX_DIGITS));
+        let (quotient, odd) = nines.halve();
+        assert_eq!(
+            quotient.decimal(),
+            format!("4{}", "9".repeat(MAX_DIGITS - 1))
+        );
+        assert!(odd);
+    }
+
+    #[test]
+    fn repeated_halving_of_two_to_128_takes_exactly_128_steps() {
+        let mut value = natural("340282366920938463463374607431768211456");
+        let mut steps = 0;
+        while value.decimal() != "1" {
+            let (next, odd) = value.halve();
+            assert!(!odd);
+            value = next;
+            steps += 1;
+        }
+        assert_eq!(steps, 128);
+        assert_eq!(value.decimal(), "1");
+        assert_eq!(value.halve(), (natural("0"), true));
+
+        for original in [0u128, 1, 2, 3, 17, 255, 1024, 65_537, 1_000_000] {
+            let mut current = natural(&original.to_string());
+            let mut rebuilt = 0u128;
+            let mut place = 1u128;
+            while current.decimal() != "0" {
+                let (next, odd) = current.halve();
+                if odd {
+                    rebuilt += place;
+                }
+                place *= 2;
+                current = next;
+            }
+            assert_eq!(rebuilt, original);
+        }
     }
 }

@@ -67,11 +67,15 @@ decimal addition/multiplication, independently of declaration names, through
 the [ordinary native rule](kernel.md#natural-numbers-and-induction). Other
 recursion shapes still use ordinary computation and finite work budgets.
 Guarded first-field and fixed-argument fusion also expose the pinned standard
-`Nat.add`/`Nat.mul` recurrences inside their course-of-values records, without
+`Nat.add`/`Nat.mul`/`Nat.pow` recurrences inside their course-of-values records, without
 recognizing those names as privileged operations. The
 [standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-replays five actual targets and independently rechecks their ordinary native
+replays eleven actual targets and independently rechecks their ordinary native
 translations with empty logical-assumption inventories.
+Affine recursors track selected outer accumulators without confusing them
+with predecessors. Constant-affine iteration uses bounded decimal halving and
+squaring; unknown nontranslation counts and nonlinear products keep ordinary
+computation. No source operation is authorized by its spelling.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

@@ -1,8 +1,8 @@
 ; Checked native translation of a Lean export, not an admission.
 ; Lean: 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6)
 ; Exporter: 15f6055e299ad5b89345e533cc2192f4cc00f659
-; Input SHA-256: 623fb6094aebe870c79d3fe221eff3ec33bfb275e3b5b8cc607c6ffff716fef9
-; Native theorem: lean-33-ArithmeticSource-nested
+; Input SHA-256: 94c82e772f1a45f04965dba50c824127bd8032c988709b69226265330090e97a
+; Native theorem: lean-45-ArithmeticSource-affineGrowth
 ; Keep the upstream source/license provenance with this translation.
 ; Lean declaration: "Eq"
 ; Identity: "$lean:s2:Eq"
@@ -904,3 +904,446 @@
           (#pt-use lean-3-Nat ())
           (#pt-nat-literal lean-3-Nat "7")
           (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "7")))))))
+; Lean declaration: "Unit"
+; Identity: "$lean:s4:Unit"
+; Export line: 594
+; Prefix SHA-256: 3543cd0201dc6493c4c19c9e625c41887dcbe1268c5181806dc7cbd9d9af61a7
+(#math-definition lean-34-Unit ()
+  (#pt-sort 1)
+  (#pt-use lean-7-PUnit (1)))
+; Lean declaration: "Unit.unit"
+; Identity: "$lean:s4:Units4:unit"
+; Export line: 598
+; Prefix SHA-256: 8859a12da649e1e6c24ec9a4f25c2f52d302669350c565d1148b9cbd8cc0ebef
+(#math-definition lean-35-Unit-unit ()
+  (#pt-use lean-34-Unit ())
+  (#pt-use lean-8-PUnit-unit (1)))
+; Lean declaration: "Nat.pow.match_1"
+; Identity: "$lean:s3:Nats3:pows7:match_1"
+; Export line: 632
+; Prefix SHA-256: 2387f67e4e6b74b8d674bb9d84965d07a42dc13e9a1e16660c014ddb317c0f24
+(#math-definition lean-36-Nat-pow-match_1 (u0)
+  (#pt-pi
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-Nat ()))) (#pt-sort u0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-use lean-34-Unit ())))
+          (#pt-app
+            v0
+            (#pt-app
+              (#pt-use lean-23-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))))
+      (v3
+        (#pt-pi
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+    (#pt-app v0 v1))
+  (#pt-lambda
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-Nat ()))) (#pt-sort u0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-use lean-34-Unit ())))
+          (#pt-app
+            v0
+            (#pt-app
+              (#pt-use lean-23-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))))
+      (v3
+        (#pt-pi
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+    (#pt-app
+      (#pt-use lean-16-Nat-casesOn (u0))
+      (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-app v0 v4))
+      v1
+      (#pt-app v2 (#pt-use lean-35-Unit-unit ()))
+      (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-app v3 v4)))))
+; Lean declaration: "Nat.pow._f"
+; Identity: "$lean:s3:Nats3:pows2:_f"
+; Export line: 666
+; Prefix SHA-256: 01066869652b351a792b0e9ed773d3cffa4422bf62f4301a2e6aa9b793ca0951
+(#math-definition lean-37-Nat-pow-_f ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-app
+          (#pt-use lean-13-Nat-below (1))
+          (#pt-lambda ((v2 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+          v1)))
+    (#pt-use lean-3-Nat ()))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-app
+          (#pt-use lean-13-Nat-below (1))
+          (#pt-lambda ((v2 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+          v1)))
+    (#pt-app
+      (#pt-use lean-36-Nat-pow-match_1 (1))
+      (#pt-lambda
+        ((v3 (#pt-use lean-3-Nat ())))
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-13-Nat-below (1))
+                (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+                v3)))
+          (#pt-use lean-3-Nat ())))
+      v1
+      (#pt-lambda
+        (
+          (v3 (#pt-use lean-34-Unit ()))
+          (v4
+            (#pt-app
+              (#pt-use lean-13-Nat-below (1))
+              (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+              (#pt-app
+                (#pt-use lean-23-OfNat-ofNat (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-nat-literal lean-3-Nat "0")
+                (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1"))))
+      (#pt-lambda
+        (
+          (v3 (#pt-use lean-3-Nat ()))
+          (v4
+            (#pt-app
+              (#pt-use lean-13-Nat-below (1))
+              (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+        (#pt-app (#pt-use lean-29-Nat-mul ()) (#pt-project lean-10-PProd 0 v4) v0))
+      v2)))
+; Lean declaration: "Nat.pow"
+; Identity: "$lean:s3:Nats3:pow"
+; Export line: 674
+; Prefix SHA-256: 76296121e3ba79119c926b9f27778d9ad38d292fd48af28c55b5f28369f83911
+(#math-definition lean-38-Nat-pow ()
+  (#pt-pi ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ())))
+    (#pt-app
+      (#pt-use lean-15-Nat-brecOn (1))
+      (#pt-lambda ((v2 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+      v1
+      (#pt-app (#pt-use lean-37-Nat-pow-_f ()) v0))))
+; Lean declaration: "ArithmeticSource.power"
+; Identity: "$lean:s16:ArithmeticSources5:power"
+; Export line: 690
+; Prefix SHA-256: a3e886067847a549018e1d56092b2a3b014210f876958f29a1428bffceedab6c
+(#theorem lean-39-ArithmeticSource-power
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "2")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")
+        (#pt-app
+          (#pt-use lean-24-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-25-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "2")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128")))))))
+; Lean declaration: "ArithmeticSource.zeroBase"
+; Identity: "$lean:s16:ArithmeticSources8:zeroBase"
+; Export line: 697
+; Prefix SHA-256: ca45ba1a6609c9a044c1b7fb03f5322260dbc4645426114eb3fddd20620cb6c3
+(#theorem lean-40-ArithmeticSource-zeroBase
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-25-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128")))))))
+; Lean declaration: "ArithmeticSource.zeroExponent"
+; Identity: "$lean:s16:ArithmeticSources12:zeroExponent"
+; Export line: 706
+; Prefix SHA-256: e9b6a48e433d000a67800ccd7a56d53ad22957a6862a20ad147ea5ee29038718
+(#theorem lean-41-ArithmeticSource-zeroExponent
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-0-Eq (1))
+        (#pt-use lean-3-Nat ())
+        (#pt-app
+          (#pt-use lean-38-Nat-pow ())
+          v0
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1"))))))
+  (#proof
+    (#pt-lambda
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-25-rfl (1))
+        (#pt-use lean-3-Nat ())
+        (#pt-app
+          (#pt-use lean-38-Nat-pow ())
+          v0
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))))))
+; Lean declaration: "ArithmeticSource.oneBase"
+; Identity: "$lean:s16:ArithmeticSources7:oneBase"
+; Export line: 717
+; Prefix SHA-256: 6b708a4ed6ee6c6db7bc4c3b43565f53d881acd037cc5419469538ae923697f1
+(#theorem lean-42-ArithmeticSource-oneBase
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1000000")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1000000"))))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "1")
+        (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-25-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-38-Nat-pow ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1")))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "1000000")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1000000")))))))
+; Lean declaration: "ArithmeticSource.nestedPower"
+; Identity: "$lean:s16:ArithmeticSources11:nestedPower"
+; Export line: 728
+; Prefix SHA-256: b99e59f5ee0de47d89d1ee8159af7cc3eb609af8404d8ec49848911be2774511
+(#theorem lean-43-ArithmeticSource-nestedPower
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-19-Nat-add ())
+        (#pt-app
+          (#pt-use lean-38-Nat-pow ())
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "2")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "128")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "7")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "7"))))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211463")
+        (#pt-app
+          (#pt-use lean-24-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211463")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-25-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-19-Nat-add ())
+        (#pt-app
+          (#pt-use lean-38-Nat-pow ())
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "2")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "128")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "7")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "7")))))))
+; Lean declaration: "ArithmeticSource.affine"
+; Identity: "$lean:s16:ArithmeticSources6:affine"
+; Export line: 748
+; Prefix SHA-256: ba233dcc533d01a7c1c136e719e7b5ed6d9c3d32e7aced54537e00b7d83303db
+(#math-definition lean-44-ArithmeticSource-affine ()
+  (#pt-pi ((v0 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-Nat ())))
+    (#pt-app
+      (#pt-use lean-6-Nat-rec (1))
+      (#pt-lambda ((v1 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+      (#pt-lambda
+        ((v1 (#pt-use lean-3-Nat ())) (v2 (#pt-use lean-3-Nat ())))
+        (#pt-app
+          (#pt-use lean-19-Nat-add ())
+          (#pt-app
+            (#pt-use lean-29-Nat-mul ())
+            (#pt-app
+              (#pt-use lean-23-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "2")
+              (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+            v2)
+          (#pt-app
+            (#pt-use lean-23-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "1")
+            (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1")))))
+      v0)))
+; Lean declaration: "ArithmeticSource.affineGrowth"
+; Identity: "$lean:s16:ArithmeticSources12:affineGrowth"
+; Export line: 759
+; Prefix SHA-256: 94c82e772f1a45f04965dba50c824127bd8032c988709b69226265330090e97a
+(#theorem lean-45-ArithmeticSource-affineGrowth
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-44-ArithmeticSource-affine ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+      (#pt-app
+        (#pt-use lean-23-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211455")
+        (#pt-app
+          (#pt-use lean-24-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211455")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-25-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-44-ArithmeticSource-affine ())
+        (#pt-app
+          (#pt-use lean-23-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-24-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128")))))))
