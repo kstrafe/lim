@@ -148,6 +148,35 @@ mod tests {
         "pin-write",
         "platform",
         "println",
+        "proof",
+        "proof-allocation",
+        "proof-and",
+        "proof-asm",
+        "proof-calls-before",
+        "proof-calls-directly",
+        "proof-calls-transitively",
+        "proof-calls-when",
+        "proof-contract",
+        "proof-eq",
+        "proof-external",
+        "proof-for-all",
+        "proof-global-write",
+        "proof-implies",
+        "proof-io",
+        "proof-loop-limit",
+        "proof-mutation",
+        "proof-no-effects",
+        "proof-no-overflow",
+        "proof-not",
+        "proof-old",
+        "proof-only-unsafe",
+        "proof-or",
+        "proof-permutation",
+        "proof-result",
+        "proof-sorted",
+        "proof-stack-at-most",
+        "proof-unsafe",
+        "proof-with-invariants",
         "ptr",
         "ptr-address",
         "ptr-borrow",
@@ -217,6 +246,46 @@ mod tests {
         "word-view",
         "word-write",
     ];
+
+    #[test]
+    fn canonical_proof_keywords_have_navigation_review() {
+        for name in [
+            "proof",
+            "proof-and",
+            "proof-or",
+            "proof-not",
+            "proof-implies",
+            "proof-calls-directly",
+            "proof-calls-transitively",
+            "proof-calls-before",
+            "proof-calls-when",
+            "proof-no-effects",
+            "proof-only-unsafe",
+            "proof-stack-at-most",
+            "proof-for-all",
+            "proof-eq",
+            "proof-contract",
+            "proof-result",
+            "proof-old",
+            "proof-no-overflow",
+            "proof-with-invariants",
+            "proof-loop-limit",
+            "proof-sorted",
+            "proof-permutation",
+            "proof-allocation",
+            "proof-io",
+            "proof-global-write",
+            "proof-unsafe",
+            "proof-external",
+            "proof-asm",
+            "proof-mutation",
+        ] {
+            assert!(
+                REVIEWED.contains(&name),
+                "proof form #{name} needs navigation review"
+            );
+        }
+    }
 
     #[test]
     fn every_parser_keyword_requires_a_navigation_review() {

@@ -45,6 +45,7 @@ mod native_linker;
 mod output;
 mod pin_access;
 mod pin_ownership;
+mod proof;
 mod reachability;
 mod semantic_cache;
 mod source_error;
@@ -172,6 +173,7 @@ pub enum DiagnosticCode {
     Borrow = 4100,
     Linear = 4200,
     Unsafe = 4300,
+    Proof = 4400,
     Codegen = 5000,
     Link = 6000,
     Cli = 7000,
@@ -299,6 +301,8 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
             source,
             filename,
         );
+    } else if error.starts_with("proof '") {
+        (DiagnosticCode::Proof, error.to_owned())
     } else if error.starts_with("linear value ")
         || error.starts_with("assignment would destroy live linear")
     {
@@ -346,6 +350,7 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
         4100 => DiagnosticCode::Borrow,
         4200 => DiagnosticCode::Linear,
         4300 => DiagnosticCode::Unsafe,
+        4400 => DiagnosticCode::Proof,
         5000 => DiagnosticCode::Codegen,
         6000 => DiagnosticCode::Link,
         _ => DiagnosticCode::Type,
@@ -354,7 +359,9 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
 
 fn diagnostic_code_for_positioned_message(message: &str) -> DiagnosticCode {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("generator") {
+    if message.starts_with("proof '") {
+        DiagnosticCode::Proof
+    } else if lower.contains("generator") {
         DiagnosticCode::Generator
     } else if lower.contains("string")
         || lower.contains("escape")
@@ -1784,6 +1791,10 @@ pub enum ThreadProperty {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
+    Proof {
+        name: String,
+        proposition: Expr,
+    },
     TypeAlias {
         name: String,
         type_parameters: Vec<String>,
@@ -2651,7 +2662,8 @@ fn item_declared_names(item: &Item) -> Vec<String> {
         | Item::TypeAlias { name, .. }
         | Item::ThreadTask { name, .. }
         | Item::Static { name, .. }
-        | Item::Let { name, .. } => vec![name.clone()],
+        | Item::Let { name, .. }
+        | Item::Proof { name, .. } => vec![name.clone()],
         Item::UnsafeThreadAnnotation {
             type_name,
             property,
@@ -4496,7 +4508,9 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     };
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
-        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
+        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#proof" => {
+            name(items.get(1))?
+        }
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
         | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
@@ -4958,7 +4972,36 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
 fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
-        "type"
+        "proof"
+            | "proof-and"
+            | "proof-or"
+            | "proof-not"
+            | "proof-implies"
+            | "proof-calls-directly"
+            | "proof-calls-transitively"
+            | "proof-calls-before"
+            | "proof-calls-when"
+            | "proof-no-effects"
+            | "proof-only-unsafe"
+            | "proof-stack-at-most"
+            | "proof-for-all"
+            | "proof-eq"
+            | "proof-contract"
+            | "proof-result"
+            | "proof-old"
+            | "proof-no-overflow"
+            | "proof-with-invariants"
+            | "proof-loop-limit"
+            | "proof-sorted"
+            | "proof-permutation"
+            | "proof-allocation"
+            | "proof-io"
+            | "proof-global-write"
+            | "proof-unsafe"
+            | "proof-external"
+            | "proof-asm"
+            | "proof-mutation"
+            | "type"
             | "fn"
             | "unsafe-fn"
             | "call"
@@ -5248,6 +5291,25 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
                                 item
                             } else {
                                 normalize_keywords(item)
+                            }
+                        })
+                        .collect(),
+                );
+            }
+            // Proof terms retain their written keyword markers. Unlike
+            // runtime bodies they are checked by the proof evaluator, which
+            // must distinguish keywords from ordinary identifiers and reject
+            // legacy operator spellings rather than accepting internal IR.
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#proof") {
+                return Expr::List(
+                    items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            if index < 2 {
+                                normalize_keywords(item)
+                            } else {
+                                item
                             }
                         })
                         .collect(),
@@ -6853,7 +6915,9 @@ fn specialize_generic_types(
                         &mut generated,
                     )?;
                 }
-                Item::UnsafeThreadAnnotation { .. } | Item::OpaqueAnnotation { .. } => {}
+                Item::UnsafeThreadAnnotation { .. }
+                | Item::OpaqueAnnotation { .. }
+                | Item::Proof { .. } => {}
                 Item::ThreadTask { .. } => {}
             }
             Ok(())
@@ -6892,6 +6956,17 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     }
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
+        "proof" => {
+            if items.len() != 3 {
+                return Err("#proof requires a name and proposition".into());
+            }
+            let name = expect_symbol(items.get(1), "proof name")?;
+            names::require(name, "value")?;
+            Ok(Item::Proof {
+                name: name.to_owned(),
+                proposition: items[2].clone(),
+            })
+        }
         "type" => {
             let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
             if items.len() != target_index + 1 {

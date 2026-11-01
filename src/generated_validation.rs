@@ -117,24 +117,27 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
                     .collect(),
             )
         }));
-    let mut declarations = resolve_program_for_analysis(&analysis, true).map_err(|mut error| {
-        if let Some(span) = error.2 {
-            if span.source_id as usize >= program.source_files.len() {
-                error.2 = analysis
-                    .generated_source_invocations
-                    .get(&span.source_id)
-                    .copied();
-            }
-        }
-        for (span, _) in &mut error.3 {
-            if span.source_id as usize >= program.source_files.len() {
-                if let Some(origin) = analysis.generated_source_invocations.get(&span.source_id) {
-                    *span = *origin;
+    let mut declarations = resolve_program_for_analysis(&analysis, true)
+        .and_then(|declarations| crate::typecheck::check_resolved_proofs(&analysis, declarations))
+        .map_err(|mut error| {
+            if let Some(span) = error.2 {
+                if span.source_id as usize >= program.source_files.len() {
+                    error.2 = analysis
+                        .generated_source_invocations
+                        .get(&span.source_id)
+                        .copied();
                 }
             }
-        }
-        error
-    })?;
+            for (span, _) in &mut error.3 {
+                if span.source_id as usize >= program.source_files.len() {
+                    if let Some(origin) = analysis.generated_source_invocations.get(&span.source_id)
+                    {
+                        *span = *origin;
+                    }
+                }
+            }
+            error
+        })?;
     let names = program
         .items
         .iter()

@@ -41,7 +41,8 @@ pub(crate) fn declared_names(expr: &Expr) -> Vec<&str> {
     let mut names = Vec::new();
     if matches!(
         head.as_str(),
-        "#fn"
+        "#proof"
+            | "#fn"
             | "#unsafe-fn"
             | "#extern-fn"
             | "#struct"

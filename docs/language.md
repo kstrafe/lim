@@ -1739,6 +1739,200 @@ and [the runnable printing example](../examples/heap_string.lim).
 
 ## Top-level declarations
 
+### Compile-time proofs
+
+`(#proof name proposition)` declares a compile-time obligation over the checked,
+expanded program. The name follows value-identifier rules. Validation rejects a
+false or unproved obligation; a proof emits no runtime assertion and supplies no
+assumptions to other proofs. Ordinary type, ownership, and unsafe checks still
+apply to the program.
+
+```lisp library
+(#fn identity ((value #u8)) #u8
+  (#return value))
+
+(#proof identity-law
+  (#proof-for-all ((x #u8))
+    (#proof-eq (#call identity (: value x)) x)))
+
+(#proof identity-effects
+  (#proof-no-effects identity (#proof-allocation #proof-io #proof-mutation)))
+```
+
+This is bounded symbolic universal bitvector solving, not testing selected
+inputs. `#proof-for-all` creates symbolic values for every supported value of
+each declared type. The engine symbolically evaluates modeled branches and
+asks its SAT solver whether a guarded counterexample exists. An unsatisfiable
+counterexample formula establishes the claim within the implemented model;
+a satisfying assignment makes the claim false and supplies counterexample inputs
+if the enclosing proof fails.
+Unsupported semantics, missing implementations, and exhausted resources produce
+an error, usually marked `unproved`. They never establish a theorem. A false
+precondition can make an implication or contract vacuous; these forms do not
+separately prove that their precondition is satisfiable.
+
+`#proof-for-all`, `#proof-contract`, and execution-trace claims discharge their
+own symbolic inputs and return a closed Boolean result to an enclosing logical
+combination. Their local bindings and path guards do not escape into sibling
+claims. Negating a closed universal claim negates the whole quantified result,
+not its predicate separately for each input. Nested `#proof-for-all` and
+`#proof-contract` claims are unsupported, including combinations of the two;
+combine universal bindings in a single `#proof-for-all` list instead. Trace
+claims quantify their own entry-function inputs and must also be outside these
+quantifiers. Independent closed claims can be combined with `#proof-and`,
+`#proof-or`, and the other logical forms.
+
+`#proof-and` and `#proof-or` combine one or more propositions; `#proof-not`
+negates one, and `#proof-implies` checks a consequence under its antecedent.
+These logical combinations do not suppress unsupported-operation errors in
+other operands. `#proof-eq` compares modeled scalar or aggregate values
+structurally. Reference identity equality is unsupported: compare explicit
+referent values with `#deref`. Integer operations use finite-width bitvectors,
+including signedness and the operation's wrap or saturate mode. Modeled traps,
+failed assertions, and invalid array indices must be unreachable under the
+current guard. `#proof-no-overflow` checks whether integer add, subtract, or
+multiply fits its type, even when the named operation wraps or saturates.
+Its operation identifier must name an existing native integer builtin with a
+valid mode, such as `#u8::add-wrap`, `#u8::sub-wrap`, or `#u8::mul-wrap` (or
+the corresponding supported `-saturate` form). Mode-free identifiers such as
+`#u8::add` are not native builtins and are rejected. Floating-point arithmetic
+is unsupported.
+
+`(#proof-contract function precondition postcondition)` universally quantifies
+the function's declared parameters using their parameter names, restricts the
+execution to the precondition, executes the checked implementation, and checks
+the postcondition, then returns the closed result. A contract creates its own
+parameter bindings; nested contracts and nesting with `#proof-for-all` are
+unsupported. `(#proof-result)` denotes the returned value in a
+postcondition. `(#proof-old expression)` evaluates against the saved contract
+entry state, including entry referent contents, rather than the post-call state.
+It is available only within a contract.
+
+```lisp library
+(#fn identity ((value #u8)) #u8
+  (#return value))
+(#proof identity-contract
+  (#proof-contract identity true
+    (#proof-eq (#proof-result) (#proof-old value))))
+```
+
+Calls in specifications evaluate actual checked function bodies, including
+nested calls and applicable clone hooks; function names resolve to actual
+declarations. A specification call's transitive checked graph must have no
+`global-write`, `io`, `allocation`, `external`, or `asm` effects. The engine also
+checks that the call preserves observable storage that existed before it;
+the graph restriction and the storage check both apply. Specification syntax
+accepts modeled expressions and qualifying function calls, but rejects statement
+blocks. This restriction does not forbid statements inside a qualifying checked
+function body. Calls executed as the subject of a contract or trace claim may
+mutate modeled storage. This is not a general IO, FFI, pointer-validity, or concurrency
+model. External functions have no executable symbolic implementation; assembly,
+syscalls, and other unmodeled operations fail when symbolic evaluation reaches
+them. Proof-side representation inspection respects opaque and library-private
+boundaries. Fresh reference inputs have separately allocated symbolic referents;
+this does not quantify every possible alias relationship between inputs.
+
+`#proof-sorted` takes a fixed array and a named two-argument Boolean comparator.
+It checks that the comparator is false for each adjacent pair in reverse order
+`(later, earlier)`. It does not prove comparator transitivity, totality, or sort
+stability. `#proof-permutation` compares equal-length fixed arrays by element
+multiplicities using modeled equality. Neither form implicitly runs a sorting
+algorithm. Both properties reject arrays longer than 64 elements, including
+directly constructed literal arrays, not just quantified inputs. This keeps
+permutation multiplicities within the implementation's eight-bit counters.
+Permutation operands must have matching element types. Sortedness requires
+both comparator parameter types to match the array element type and its return
+type to be Boolean. These type checks apply even to empty arrays; emptiness
+does not excuse an incompatible element type or comparator signature.
+
+Modeled guarded matches accept only supported pure builtin guard expressions.
+Guard expressions cannot call functions, contain blocks, or access globals
+(including global constants). A guard that produces multiple symbolic branches
+is unsupported, even if its operations are otherwise pure. Guard-expression
+nesting is limited to 64. These are symbolic-engine restrictions on proofs and
+on code evaluated by proofs, not additional runtime language rules.
+
+Structural graph claims use the checked call graph, including clone-hook edges
+and conservative generated thread spawn/join-to-worker edges.
+`#proof-calls-directly` requires one call edge;
+`#proof-calls-transitively` requires a nonempty path of one or more edges.
+Naming the same function at both ends does not establish a call by itself; it
+would require recursion, which checked runtime calls disallow. These are structural reachability claims: a positive path
+need not be a feasible execution. Unknown function names are errors. A missing
+path cannot establish call absence if reachable assembly, external code, or
+other opaque execution could hide additional calls; that query is unproved.
+`#proof-no-effects` requires an explicit nonempty list of effect tags and checks
+transitive absence of each effect. Tags are `#proof-allocation`, `#proof-io`,
+`#proof-global-write`, `#proof-unsafe`, `#proof-external`, `#proof-asm`, and
+`#proof-mutation`. Mutation includes externally observable reference, field,
+array, and global writes conservatively; local scalar reassignment is ignored.
+External calls, assembly, and hidden thread runtime execution carry conservative
+unknown effects, so a negative effect claim cannot silently treat them as safe.
+Effect predicates describe this conservative structural summary. Negating an
+absence claim establishes that the summary contains a classified effect; it
+never proves that a runtime effect actually occurs on a feasible execution.
+
+`(#proof-only-unsafe entry (allowed...))` inspects transitive unsafe primitives
+outside the listed function boundaries or allowed builtin spellings. Listing a
+function trusts that boundary and stops inspection beneath it. A known
+function's unsafe-call flag alone is not an unsafe primitive: its internals are
+inspected unless it is allowed. External functions and assembly require explicit
+allowance; they are not silently safe. This form does not discharge ordinary
+`#unsafe` requirements or establish memory safety.
+
+Execution-trace claims differ from graph claims. In
+`(#proof-calls-before entry required action)`, every modeled entry into `action`
+must follow a completed call to `required` on that execution. It does not require
+that either function be called, or a fresh required call before every action.
+In `(#proof-calls-when entry observed expected action)`, `observed` must return
+`#bool` and `expected` must be `true` or `false`. The claim forbids an `action`
+call and an observed result equal to `expected` from occurring in the same
+execution, in either order. It is not an obligation to call the action.
+The engine executes the observed function's checked body, including modeled
+nested calls and storage changes, and records its actual symbolic Boolean
+return value when it completes. It does not replace that body with an arbitrary
+result or an abstract validation boundary. Unmodeled operations still fail
+closed. Nested trace claims are unsupported, and trace claims require complete
+bounded loop exploration.
+
+`(#proof-stack-at-most function "x86_64-sysv" bytes)` checks a literal byte bound
+against generated assembly for that explicit target. The current certificate
+supports only `x86_64-sysv`. It includes reachable generated callees and their
+call-stack costs, measured from the entry's incoming stack pointer. Unknown
+external or indirect callees, recursion, and unsupported stack behavior prevent
+a certificate. This is a generated-code stack bound, not a bound on process
+memory, kernel use, or a thread worker's separate stack merely because its spawn
+helper is called.
+
+Loops default to 32 symbolic iterations. `(#proof-loop-limit limit proposition)`
+scopes a literal limit in `1..=1024`; reaching a feasible continuation beyond it
+is unproved, rather than an assumption that the loop terminates. Alternatively,
+`(#proof-with-invariants ((function loop-label predicate unsigned-rank)...) proposition)`
+attaches induction obligations to labeled loops. Each function/label pair must
+identify exactly one checked loop; misspelled or ambiguous labels are errors. The engine checks entry and
+preservation of the predicate, and strict decrease of a same-width unsigned
+rank on continuing iterations. Invariants are checked obligations, not axioms.
+The implementation restricts induction to modeled direct owned-variable
+updates: global mutation, aliased writes, reference-bearing modified state, and
+trace claims are unsupported. A valid invariant/rank can avoid fully unrolling
+a supported loop; it does not enable arbitrary hidden execution.
+
+Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
+path-budget checks, 4,096 symbolic storage slots, call depth 128, combined
+expression/proposition evaluation nesting 32, and symbolic
+type nesting depth 32. Fresh fixed-array inputs are limited to 64 elements; `#proof-sorted` and
+`#proof-permutation` also enforce that limit on directly constructed arrays.
+The solver also has a 100,000-node circuit limit and a 2,000,000-work SAT budget;
+solver errors and exhaustion remain errors on later queries. These are resource
+limits, not a statement that every program below them is modeled. Supported
+inputs include unit, Boolean and integer values, characters restricted to
+Unicode scalar values, tuples, small fixed arrays, modeled records and enums,
+and ordinary or pinned references. Raw pointers can be represented as address
+bitvectors, but raw memory operations are not thereby supported. Use explicitly
+typed literals and `#array-of`; context-dependent `#array-repeat`, slices,
+arbitrary ownership/runtime facilities, and unsupported operations are not
+made provable by increasing the loop limit.
+
 ### Functions
 
 Functions are always free-standing; Lim has no methods or `impl` blocks.
@@ -2599,6 +2793,35 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
+| `#proof` | `(#proof name proposition)` | `(#proof reflexive (#proof-eq 1u8 1u8))` (top level) | Checks a compile-time proposition over the validated expanded program; false, unsupported, or exhausted obligations fail validation. |
+| `#proof-allocation` | `#proof-allocation in an effect list` | `(#proof-no-effects helper (#proof-allocation))` (proof proposition) | Conservative allocation effect; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-and` | `(#proof-and proposition...)` | `(#proof-and true (#proof-eq 1u8 1u8))` (proof proposition) | Conjunction of one or more propositions; unsupported operands still fail. |
+| `#proof-asm` | `#proof-asm in an effect list` | `(#proof-no-effects helper (#proof-asm))` (proof proposition) | Inline assembly or conservatively unknown assembly effects; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-calls-before` | `(#proof-calls-before entry required action)` | `(#proof-calls-before main validate commit)` (proof proposition) | Every modeled action entry must follow a completed required call on the same execution; does not require a call to occur. |
+| `#proof-calls-directly` | `(#proof-calls-directly caller callee)` | `(#proof-calls-directly main helper)` (proof proposition) | Checks one structural edge between actual function identities, independent of execution feasibility. |
+| `#proof-calls-transitively` | `(#proof-calls-transitively caller callee)` | `(#proof-calls-transitively main helper)` (proof proposition) | Checks a nonempty structural path of one or more call edges; equal endpoints require an actual cycle, and reachability does not establish execution feasibility. |
+| `#proof-calls-when` | `(#proof-calls-when entry observed expected action)` | `(#proof-calls-when main validate false commit)` (proof proposition) | Forbids an action call and the selected Boolean observation from co-occurring in either order; executes the observed function's checked body and uses its actual symbolic result. |
+| `#proof-contract` | `(#proof-contract function precondition postcondition)` | `(#proof-contract identity true (#proof-eq (#proof-result) value))` (proof proposition) | Quantifies declared parameters, runs the checked implementation under the precondition, checks the postcondition, and returns a closed Boolean; nested contracts or universal claims are unsupported. |
+| `#proof-eq` | `(#proof-eq left right)` | `(#proof-eq 1u8 1u8)` (proof proposition) | Modeled structural value equality; reference identity comparison is unsupported. |
+| `#proof-external` | `#proof-external in an effect list` | `(#proof-no-effects helper (#proof-external))` (proof proposition) | External or conservatively unknown execution effects; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-for-all` | `(#proof-for-all ((name Type)...) proposition)` | `(#proof-for-all ((x #u8)) (#proof-eq x x))` (proof proposition) | Universally quantifies supported symbolic values without sampling and discharges them to a closed Boolean; nested universal or contract claims are unsupported. |
+| `#proof-global-write` | `#proof-global-write in an effect list` | `(#proof-no-effects helper (#proof-global-write))` (proof proposition) | Direct or possible indirect writes to global storage; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-implies` | `(#proof-implies antecedent consequence)` | `(#proof-implies (#u8::lt x 255u8) (#proof-no-overflow #u8::add-wrap x 1u8))` (quantified proof proposition) | Checks the consequence under the antecedent; does not separately establish satisfiability of the antecedent. |
+| `#proof-io` | `#proof-io in an effect list` | `(#proof-no-effects helper (#proof-io))` (proof proposition) | IO or conservatively unknown IO effects; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-loop-limit` | `(#proof-loop-limit literal-limit proposition)` | `(#proof-loop-limit 64 (#proof-contract count true true))` (proof proposition) | Scopes the symbolic loop bound to 1 through 1024; feasible execution beyond the limit fails closed. |
+| `#proof-mutation` | `#proof-mutation in an effect list` | `(#proof-no-effects helper (#proof-mutation))` (proof proposition) | Observable reference, aggregate, array, or global writes; local scalar reassignment is ignored; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-no-effects` | `(#proof-no-effects function (effect-tag...))` | `(#proof-no-effects helper (#proof-io #proof-mutation))` (proof proposition) | Requires a nonempty effect-tag list and transitive conservative absence of each effect. |
+| `#proof-no-overflow` | `(#proof-no-overflow integer-builtin left right)` | `(#proof-no-overflow #u8::add-wrap 1u8 2u8)` (proof proposition) | Requires an existing native integer add/subtract/multiply builtin with a valid wrap or saturate mode; checks representability independently of that mode. |
+| `#proof-not` | `(#proof-not proposition)` | `(#proof-not false)` (proof proposition) | Logical negation; an unsupported or unproved operand remains an error. |
+| `#proof-old` | `(#proof-old expression)` | `(#proof-old (#deref value))` (contract expression) | Evaluates using the saved contract entry state, including entry referent contents; requires a contract. |
+| `#proof-only-unsafe` | `(#proof-only-unsafe entry (allowed...))` | `(#proof-only-unsafe main (trusted-helper #ptr-read))` (proof proposition) | Inspects unsafe primitives outside explicitly allowed function boundaries or builtin spellings; does not establish memory safety. |
+| `#proof-or` | `(#proof-or proposition...)` | `(#proof-or false true)` (proof proposition) | Disjunction of one or more propositions; unsupported operands still fail. |
+| `#proof-permutation` | `(#proof-permutation left-array right-array)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and element multiplicities of fixed arrays of at most 64 elements, including direct literals; matching element types are required even for empty arrays, and equality must be modeled. |
+| `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
+| `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
+| `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
+| `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |

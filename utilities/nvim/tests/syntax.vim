@@ -58,6 +58,44 @@ for [s:token, s:group] in [
   endif
 endfor
 
+" Canonical proof forms use exact tokens; similar names remain generic keywords.
+call s:check('#proof', 'limDeclaration')
+for s:proof in [
+      \ 'proof-and',
+      \ 'proof-or',
+      \ 'proof-not',
+      \ 'proof-implies',
+      \ 'proof-calls-directly',
+      \ 'proof-calls-transitively',
+      \ 'proof-calls-before',
+      \ 'proof-calls-when',
+      \ 'proof-no-effects',
+      \ 'proof-only-unsafe',
+      \ 'proof-stack-at-most',
+      \ 'proof-for-all',
+      \ 'proof-eq',
+      \ 'proof-contract',
+      \ 'proof-result',
+      \ 'proof-old',
+      \ 'proof-no-overflow',
+      \ 'proof-with-invariants',
+      \ 'proof-loop-limit',
+      \ 'proof-sorted',
+      \ 'proof-permutation',
+      \ 'proof-allocation',
+      \ 'proof-io',
+      \ 'proof-global-write',
+      \ 'proof-unsafe',
+      \ 'proof-external',
+      \ 'proof-asm',
+      \ 'proof-mutation']
+  call s:check('#' . s:proof, 'limProof')
+  call s:check(s:proof, '')
+  call s:check('#' . s:proof . '-custom', 'limKeyword')
+endfor
+call s:check('#proof-custom', 'limKeyword')
+call s:check('proof', '')
+
 call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64::add-wrap value 1)))')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
       \ ['#return', 'limControl'], ['#u64::add-wrap', 'limOperator']]

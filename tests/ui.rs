@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "proof-disproved",
+            diagnostic_code: "E4400",
+            offending_line: "  (#proof-eq 1u64 2u64))",
+            line_number: 2,
+        },
+        Case {
             name: "call-graph-arity",
             diagnostic_code: "E4000",
             offending_line: "  (#let trace (#slice #char) (#call-graph 42u64))",
@@ -1280,6 +1286,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),
             "reserved-generator-name" => Some("#future-generator"),
             "reserved-local-name" => Some("#local"),
             "println-missing-std" | "println-arity" => Some("#println"),

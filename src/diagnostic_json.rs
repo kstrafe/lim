@@ -37,6 +37,7 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         DiagnosticCode::Borrow => "borrow",
         DiagnosticCode::Linear => "linear",
         DiagnosticCode::Unsafe => "unsafe",
+        DiagnosticCode::Proof => "proof",
         DiagnosticCode::Codegen => "codegen",
         DiagnosticCode::Link => "link",
         DiagnosticCode::Cli => "cli",

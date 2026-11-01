@@ -1741,7 +1741,9 @@ fn generate_checked_assembly_with_roots(
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
-            Item::UnsafeThreadAnnotation { .. } | Item::OpaqueAnnotation { .. } => {}
+            Item::UnsafeThreadAnnotation { .. }
+            | Item::OpaqueAnnotation { .. }
+            | Item::Proof { .. } => {}
             Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,

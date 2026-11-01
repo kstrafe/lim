@@ -140,3 +140,67 @@ covered. New forms and changed forms still require semantic regression tests.
 on its keyword has no target. Its caller-context parameters and stack buffers
 are compiler-owned implementation details and do not introduce source bindings
 or change navigation of the surrounding user function's declarations.
+
+
+## Proof source roles
+
+`(#proof name proposition)` declares its theorem name at the name token. The
+proposition starts a fresh lexical scope. Only the canonical `#proof` and
+`#proof-*` grammar forms are registered; spelling prefixes do not grant builtin
+or navigation behavior. Every proof keyword is metadata with no definition.
+This includes the boolean connectives (`#proof-and`, `#proof-or`, `#proof-not`,
+`#proof-implies`) and effect tags (`#proof-allocation`, `#proof-io`,
+`#proof-global-write`, `#proof-unsafe`, `#proof-external`, `#proof-asm`,
+`#proof-mutation`). Neovim highlights the theorem declaration and the exact
+proof keyword inventory, including effect tags, at every nesting depth.
+
+Function operands of `#proof-calls-directly`, `#proof-calls-transitively`,
+`#proof-calls-before`, `#proof-calls-when`, `#proof-no-effects`,
+`#proof-only-unsafe`, `#proof-stack-at-most`, and `#proof-contract` resolve through
+the canonical function declaration table. `#proof-sorted` uses that same role
+for its comparator. Local values and non-function declarations cannot substitute
+for these operands. Aliases and file references retain their original function
+identity, and generated names use the final file scope through `scoped_name`.
+Targets are the actual source declarations, including generated snapshots.
+Unprefixed entries in the `#proof-only-unsafe` allowlist are trusted function
+boundaries and use the same canonical function role, including aliases and
+generated declarations; they never resolve to lexical values. Hash-prefixed
+builtin entries in that list have no definition. The boolean observation in
+`#proof-calls-when`, effect tags in `#proof-no-effects`, and stack ABI string and
+limit remain metadata; their contents do not undergo global spelling lookup.
+
+`(#proof-for-all (: x Type : y Type) proposition)` gives each name its own binder
+span and explicit type. Its bindings are visible only in its proposition;
+nested quantifiers retain outer bindings and sibling propositions cannot see
+inner bindings. Navigation retains these nested scopes while editing even though
+the semantic checker rejects nested quantified claims and requires combined
+`#proof-for-all` binders. Type operands use ordinary type navigation.
+`#proof-contract` predicates instead bind the selected function's declared
+parameter names to their actual parameter tokens and types. Contract result
+projections retain the function's declared return type.
+
+Each `(Function label invariant rank)` entry of `#proof-with-invariants`
+selects that function and reconstructs its lexical scope at the label. The
+label resolves within that function, never by global spelling. Invariant and
+rank expressions use the actual parameter/local binding spans and declared
+types at that point, including enclosing block and loop bindings. Later locals,
+locals from completed blocks, and bindings in unrelated functions are excluded.
+Missing or ambiguous labels fail closed. Entry scopes do not escape into the
+wrapped proposition or other entries. Scope reconstruction uses declaration
+order rather than the proof cursor offset, so imported functions work too.
+
+Operands of `#proof-eq`, `#proof-old`, `#proof-result`, `#proof-permutation`, and
+the array operand of `#proof-sorted` use the ordinary runtime expression walker.
+`#proof-no-overflow` treats its typed operation token as metadata and walks its
+value operands; `#proof-loop-limit` treats its bound as metadata and walks its
+proposition. Runtime roles continue through all these wrappers: fields resolve
+through receiver types, named call arguments resolve to the selected function's
+parameters, labels stay lexical, and neither fields nor argument labels fall
+back to same-spelled globals. `#proof-old` preserves its operand's type for
+member navigation.
+
+`tests/proof_navigation.rs` covers exact declaration ranges, all canonical
+keywords, positive function/value/type references, scope isolation, runtime
+member/argument roles, metadata collisions, aliases, generated declarations,
+and unsaved proof buffers. `src/lsp_syntax_policy.rs` independently inventories
+all proof forms; the Neovim syntax tests also reject partial keyword matches.

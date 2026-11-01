@@ -30,7 +30,8 @@ syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:]();"'`,@#]\++
-syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limDeclaration +#\%(alias\|proof\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limProof +#\%(proof-and\|proof-or\|proof-not\|proof-implies\|proof-calls-directly\|proof-calls-transitively\|proof-calls-before\|proof-calls-when\|proof-no-effects\|proof-only-unsafe\|proof-stack-at-most\|proof-for-all\|proof-eq\|proof-contract\|proof-result\|proof-old\|proof-no-overflow\|proof-with-invariants\|proof-loop-limit\|proof-sorted\|proof-permutation\|proof-allocation\|proof-io\|proof-global-write\|proof-unsafe\|proof-external\|proof-asm\|proof-mutation\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
@@ -49,7 +50,7 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn cluster limForms contains=limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limProof,limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
@@ -70,6 +71,7 @@ hi def link limType Type
 hi def link limTypeForm Type
 hi def link limOperator Operator
 hi def link limDeclaration StorageClass
+hi def link limProof Keyword
 hi def link limConditional Conditional
 hi def link limRepeat Repeat
 hi def link limControl Statement

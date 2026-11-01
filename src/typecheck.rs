@@ -902,7 +902,22 @@ pub(crate) fn check_types_with_span(
 }
 
 fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
-    crate::generated_validation::resolve(program)
+    let declarations = crate::generated_validation::resolve(program)?;
+    check_resolved_proofs(program, declarations)
+}
+
+/// Check proof declarations only after ordinary semantic validation succeeds.
+/// Assembly emission borrows this checked state and never re-enters validation.
+pub(crate) fn check_resolved_proofs(
+    program: &Program,
+    declarations: Declarations,
+) -> Result<Declarations, AnalysisError> {
+    let checked = CheckedProgram {
+        program,
+        declarations,
+    };
+    crate::proof::check(&checked)?;
+    Ok(checked.declarations)
 }
 
 /// Build checked typed bodies and CFG liveness before ownership enforcement.
@@ -2085,6 +2100,7 @@ fn check_types_inner(
             | Item::Enum { .. }
             | Item::UnsafeThreadAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
+            | Item::Proof { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 if planning.is_some() {
@@ -2979,6 +2995,7 @@ fn check_thread_task_ownership(
             }
             Item::UnsafeThreadAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
+            | Item::Proof { .. }
             | Item::ThreadTask { .. } => {}
         }
     }
