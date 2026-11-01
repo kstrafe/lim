@@ -54,6 +54,7 @@ pub fn check_theorem_from_path_with_config(
     if matches!(proposition, Expr::List(parts)
         if matches!(parts.first(), Some(Expr::Symbol(head))
             if matches!(head.as_str(), "#proof-definition" | "proof-definition"
+                | "#proof-opaque" | "proof-opaque"
                 | "#proof-inductive" | "proof-inductive")))
     {
         return Err(selection_error(

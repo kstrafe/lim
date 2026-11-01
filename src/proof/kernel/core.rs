@@ -287,6 +287,22 @@ impl Kernel {
         );
         Ok(())
     }
+    /// Check a concrete initializer before making the declaration opaque.
+    /// Unlike a theorem, its type need not be a proposition.
+    pub(super) fn opaque_definition(
+        &mut self,
+        name: &str,
+        universes: Vec<String>,
+        ty: T,
+        value: T,
+    ) -> Result<()> {
+        self.definition(name, universes, ty, value, false)?;
+        self.declarations
+            .get_mut(name)
+            .ok_or("missing checked opaque definition")?
+            .value = None;
+        Ok(())
+    }
     pub fn inductive(
         &mut self,
         name: &str,

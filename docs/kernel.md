@@ -5,7 +5,7 @@ validated native program using structural analysis, bounded symbolic execution,
 and target-specific certificates. The mathematical kernel checks explicit terms
 in a constructive dependent type theory. Both expose named `#theorem`
 declarations, but their terms, types, and evidence are distinct. Mathematical
-data and datatype declarations use `#math-definition` and `#math-inductive`.
+data and datatype declarations use `#math-definition`, `#math-opaque`, and `#math-inductive`.
 
 The kernel is inspired by Lean 4's use of dependent types, universes, inductive
 types, and a small proof checker. It is not full Lean 4, does not provide mathlib,
@@ -53,7 +53,7 @@ The theorem's proof term is checked and then remains opaque to conversion.
 it does not unfold the theorem body. A declaration with a data type such as
 `#pt-nat` as its statement is rejected: use a definition for data.
 
-The public declaration shapes are:
+The public declaration shapes follow. `#math-opaque` checks TYPE and VALUE just like `#math-definition`, then makes VALUE unavailable to definitional conversion. It provides no axiom or admission.
 
 ```text
 (#theorem NAME
@@ -65,6 +65,7 @@ The public declaration shapes are:
 (#theorem NAME PROCEDURAL-CLAIM)
 
 (#math-definition NAME (universe...) TYPE VALUE)
+(#math-opaque NAME (universe...) TYPE VALUE)
 
 (#math-inductive NAME (universe...)
   ((parameter Type)...)

@@ -37,7 +37,7 @@ pub(crate) fn parse(items: &[Expr]) -> Result<Item, String> {
     crate::names::require(name, "value")?;
     let proposition = match head {
         "theorem" if items.len() == 3 => {
-            if matches!(&items[2], Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-theorem"|"#proof-definition"|"#proof-inductive")))
+            if matches!(&items[2], Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-theorem"|"#proof-definition"|"proof-definition"|"#proof-opaque"|"proof-opaque"|"#proof-inductive"|"proof-inductive")))
             {
                 return Err("invalid theorem proposition".into());
             }
@@ -80,13 +80,18 @@ pub(crate) fn parse(items: &[Expr]) -> Result<Item, String> {
                 [Expr::List(universes.to_vec()), ty, value],
             )
         }
-        "math-definition" => {
+        "math-definition" | "math-opaque" => {
             if items.len() != 5 {
-                return Err(
-                    "#math-definition requires a name, universe list, type, and value".into(),
-                );
+                return Err(format!(
+                    "#{head} requires a name, universe list, type, and value"
+                ));
             }
-            form("#proof-definition", items[2..].iter().cloned())
+            let internal = if head == "math-opaque" {
+                "#proof-opaque"
+            } else {
+                "#proof-definition"
+            };
+            form(internal, items[2..].iter().cloned())
         }
         "math-inductive" => {
             let mut at = 4;

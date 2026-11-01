@@ -12,13 +12,14 @@ use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;
 
 pub(super) fn is_declaration(expr: &Expr) -> bool {
-    matches!(expr,Expr::List(parts) if matches!(parts.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-theorem"|"#proof-inductive")))
+    matches!(expr,Expr::List(parts) if matches!(parts.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-opaque"|"#proof-theorem"|"#proof-inductive")))
 }
 enum Body {
     Definition {
         ty: T,
         value: T,
         theorem: bool,
+        opaque: bool,
     },
     Inductive {
         members: Vec<String>,
@@ -172,8 +173,17 @@ pub(super) fn check(
         } else {
             let p = pending.remove(index);
             let result = match p.body {
-                Body::Definition { ty, value, theorem } => {
-                    kernel.definition(&p.name, p.universes, ty, value, theorem)
+                Body::Definition {
+                    ty,
+                    value,
+                    theorem,
+                    opaque,
+                } => {
+                    if opaque {
+                        kernel.opaque_definition(&p.name, p.universes, ty, value)
+                    } else {
+                        kernel.definition(&p.name, p.universes, ty, value, theorem)
+                    }
                 }
                 Body::Inductive {
                     parameters,
@@ -354,6 +364,7 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
             ty,
             value,
             theorem: head == "#proof-theorem",
+            opaque: head == "#proof-opaque",
         }
     };
     if let Body::Inductive { members, .. } = &body {

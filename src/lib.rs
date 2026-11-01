@@ -1498,7 +1498,7 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
     match head.as_str() {
         "#fn" | "#unsafe-fn" => Some(4),
         "#theorem" => Some(2),
-        "#math-definition" | "#math-inductive" => Some(3),
+        "#math-definition" | "#math-opaque" | "#math-inductive" => Some(3),
         "#parameters" => Some(1),
         "#parameter" => Some(3),
         "#gn" | "#gn-fn" => Some(3),
@@ -4517,7 +4517,7 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
         | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#theorem"
-        | "#math-definition" | "#math-inductive" => name(items.get(1))?,
+        | "#math-definition" | "#math-opaque" | "#math-inductive" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
         | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
@@ -4593,7 +4593,7 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     // Mathematical terms have their own context-sensitive grammar. Keep them
     // intact for the kernel adapter, which checks every keyword, binder, level,
     // and metadata list without treating a binder called `index` as #index.
-    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#math-definition"|"#math-inductive") || head=="#theorem" && items.len()!=3)
+    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#math-definition"|"#math-opaque"|"#math-inductive") || head=="#theorem" && items.len()!=3)
     {
         return Ok(());
     }
@@ -4994,6 +4994,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "statement"
             | "proof"
             | "math-definition"
+            | "math-opaque"
             | "math-inductive"
             | "mutual"
             | "indices"
@@ -5360,7 +5361,7 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
             // runtime bodies they are checked by the proof evaluator, which
             // must distinguish keywords from ordinary identifiers and reject
             // legacy operator spellings rather than accepting internal IR.
-            if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#theorem"|"#math-definition"|"#math-inductive"))
+            if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#theorem"|"#math-definition"|"#math-opaque"|"#math-inductive"))
             {
                 return Expr::List(
                     items
@@ -7017,7 +7018,9 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     }
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
-        "theorem" | "math-definition" | "math-inductive" => theorem_surface::parse(items),
+        "theorem" | "math-definition" | "math-opaque" | "math-inductive" => {
+            theorem_surface::parse(items)
+        }
         "type" => {
             let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
             if items.len() != target_index + 1 {

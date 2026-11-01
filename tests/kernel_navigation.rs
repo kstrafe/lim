@@ -1044,6 +1044,50 @@ fn imported_generators_expose_kernel_names_through_the_final_file_scope() {
     );
 }
 
+#[test]
+fn opaque_kernel_names_universes_and_body_binders_navigate() {
+    run(
+        r#"
+      (#math-opaque [[opaque-name|opaque-value]] (u) #pt-nat #pt-zero)
+      (#math-opaque [[function-declaration|opaque-function]] ([[function-universe|w]])
+        (#pt-pi ((A (#pt-type [[signature-level|w]]))) (#pt-type w))
+        (#pt-lambda (([[binder|A]] (#pt-type w))) [[body-use|A]]))
+      (#math-definition use ([[use-level|v]]) #pt-nat
+        (#pt-use [[explicit-use|opaque-value]] ([[level-argument|v]])))
+    "#,
+        &[
+            ("explicit-use", &["opaque-name"]),
+            ("signature-level", &["function-universe"]),
+            ("body-use", &["binder"]),
+            ("function-declaration", &["function-declaration"]),
+            ("level-argument", &["use-level"]),
+        ],
+    );
+}
+
+#[test]
+fn imported_and_generated_opaque_names_navigate_to_their_declarations() {
+    run_files(
+        r#"
+      (#alias selected = ./lib.lim::imported-opaque)
+      (#math-definition imported-use () #pt-nat
+        (#pt-use [[imported-reference|selected]] ()))
+      (#alias emit = ./generator.lim::emit)
+      (#generate emit)
+      (#math-definition generated-use () (#pt-type 0)
+        (#pt-use [[generated-reference|generated-opaque]] ()))
+    "#,
+        &[
+            ("lib.lim", "(#export imported-opaque) (#math-opaque [[imported-name|imported-opaque]] () #pt-nat #pt-zero)"),
+            ("generator.lim", "(#gn emit () `((#math-opaque generated-opaque () (#pt-type 0) #pt-nat)))"),
+        ],
+        &[
+            ("imported-reference", &["imported-name"]),
+            ("generated-reference", &["generated:generated-opaque"]),
+        ],
+    );
+}
+
 fn annotated(input: &str) -> (String, HashMap<String, (usize, usize)>) {
     let mut source = String::new();
     let mut marks = HashMap::new();
@@ -1158,15 +1202,20 @@ fn run_files(input: &str, files: &[(&str, &str)], expected: &[(&str, &[&str])]) 
                         .unwrap()
                         .starts_with("editor-"));
                     let text = std::fs::read_to_string(path).unwrap();
-                    let start = ["math-definition", "math-inductive", "theorem"]
-                        .iter()
-                        .find_map(|head| {
-                            let prefix = format!("(#{head} ");
-                            text.find(&format!("{prefix}{token} "))
-                                .map(|start| start + prefix.len())
-                        })
-                        .or_else(|| text.find(&format!("({token} ")).map(|start| start + 1))
-                        .unwrap();
+                    let start = [
+                        "math-definition",
+                        "math-opaque",
+                        "math-inductive",
+                        "theorem",
+                    ]
+                    .iter()
+                    .find_map(|head| {
+                        let prefix = format!("(#{head} ");
+                        text.find(&format!("{prefix}{token} "))
+                            .map(|start| start + prefix.len())
+                    })
+                    .or_else(|| text.find(&format!("({token} ")).map(|start| start + 1))
+                    .unwrap();
                     generated = (uri, text, start, start + token.len());
                     &generated
                 } else {

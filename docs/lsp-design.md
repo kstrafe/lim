@@ -148,7 +148,7 @@ or change navigation of the surrounding user function's declarations.
 
 `(#theorem name proposition)` declares a procedural theorem name at the name
 token. The proposition starts a fresh lexical scope. `#theorem`,
-`#math-definition`, and `#math-inductive` are the declaration forms; `#proof`
+`#math-definition`, `#math-opaque`, and `#math-inductive` are the declaration forms; `#proof`
 is solely an evidence clause in a structured theorem. Spelling prefixes do not
 grant builtin or navigation behavior. Proof-operation and clause keywords are
 metadata with no definition.
@@ -249,7 +249,8 @@ all proof forms; the Neovim syntax tests also reject partial keyword matches.
 ## Kernel proof source roles
 
 Mathematical definitions and datatypes are direct declarations:
-`(#math-definition name (universes...) TYPE VALUE)` and
+`(#math-definition name (universes...) TYPE VALUE)`,
+`(#math-opaque name (universes...) TYPE VALUE)`, and
 `(#math-inductive name (universes...) ((parameter Type)...) SORT
 ((constructor ((field Type)...))...))`, with an indexed form that inserts
 `(#indices (#parameter name Type)...)` before `SORT` and gives each constructor
@@ -344,7 +345,7 @@ in imported proofs and generated definition/invocation contexts; it does not
 change explicit global proof-reference roles.
 
 `(#pt-use declaration (levels...))` explicitly selects any mathematical
-`#math-definition`, `#math-inductive`, or structured `#theorem` declaration.
+`#math-definition`, `#math-opaque`, `#math-inductive`, or structured `#theorem` declaration.
 `#pt-program` and `#pt-certificate` select procedural shorthand theorems.
 These roles ignore same-spelled lexical bindings and reject runtime functions
 and types. They preserve canonical declaration identity through aliases,

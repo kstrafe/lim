@@ -61,6 +61,7 @@ endfor
 " Canonical proof forms use exact tokens; similar names remain generic keywords.
 call s:check('#theorem', 'limDeclaration')
 call s:check('#math-definition', 'limDeclaration')
+call s:check('#math-opaque', 'limDeclaration')
 call s:check('#math-inductive', 'limDeclaration')
 for s:proof in [
       \ 'universes', 'parameters', 'parameter', 'parameter-of', 'indices', 'mutual', 'statement', 'proof',
@@ -107,7 +108,7 @@ call s:check('proof', '')
 for s:legacy in ['proof-definition', 'proof-theorem', 'proof-inductive']
   call s:check('#' . s:legacy, 'limKeyword')
 endfor
-for s:declaration in ['theorem', 'math-definition', 'math-inductive']
+for s:declaration in ['theorem', 'math-definition', 'math-opaque', 'math-inductive']
   call s:check(s:declaration, '')
   call s:check('#' . s:declaration . '-custom', 'limKeyword')
 endfor

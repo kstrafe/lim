@@ -75,6 +75,7 @@ impl<'a> Index<'a> {
                             head(node),
                             "theorem"
                                 | "math-definition"
+                                | "math-opaque"
                                 | "math-inductive"
                                 | "fn"
                                 | "unsafe-fn"
@@ -863,17 +864,24 @@ impl<'a> Index<'a> {
             return None;
         }
         self.declaration(name.strip_prefix('@').unwrap_or(name))
-            .filter(|node| matches!(head(node), "theorem" | "math-definition" | "math-inductive"))
+            .filter(|node| {
+                matches!(
+                    head(node),
+                    "theorem" | "math-definition" | "math-opaque" | "math-inductive"
+                )
+            })
     }
     fn is_kernel_declaration(node: &Node) -> bool {
-        matches!(head(node), "math-definition" | "math-inductive")
-            || (head(node) == "theorem"
-                && node.children.iter().skip(2).any(|clause| {
-                    matches!(
-                        head(clause),
-                        "universes" | "parameters" | "statement" | "proof"
-                    )
-                }))
+        matches!(
+            head(node),
+            "math-definition" | "math-opaque" | "math-inductive"
+        ) || (head(node) == "theorem"
+            && node.children.iter().skip(2).any(|clause| {
+                matches!(
+                    head(clause),
+                    "universes" | "parameters" | "statement" | "proof"
+                )
+            }))
     }
     fn kernel_reference(&self, node: &Node, procedural: bool) -> Vec<Span> {
         self.kernel_proof(node)
@@ -1696,7 +1704,9 @@ impl<'a> Index<'a> {
         let xs = &node.children;
         match head(node) {
             "theorem" => return self.theorem(node),
-            "math-definition" | "math-inductive" => return self.kernel_declaration(node),
+            "math-definition" | "math-opaque" | "math-inductive" => {
+                return self.kernel_declaration(node)
+            }
             "universes" | "parameters" | "parameter" | "statement" | "proof" => return vec![],
             "proof-and"
             | "proof-or"

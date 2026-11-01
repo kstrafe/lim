@@ -43,6 +43,7 @@ pub(crate) fn declared_names(expr: &Expr) -> Vec<&str> {
         head.as_str(),
         "#theorem"
             | "#math-definition"
+            | "#math-opaque"
             | "#math-inductive"
             | "#fn"
             | "#unsafe-fn"

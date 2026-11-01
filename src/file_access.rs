@@ -929,7 +929,7 @@ impl Resolver<'_> {
         if kind == "#theorem" {
             return self.theorem_source(node, file, locals);
         }
-        if kind == "#math-definition" {
+        if matches!(kind.as_str(), "#math-definition" | "#math-opaque") {
             return self.math_definition_source(node, file, locals);
         }
         if kind == "#math-inductive" {

@@ -385,16 +385,14 @@ impl Replay {
         self.dependencies_known(&dependencies, &[])?;
         self.room(1)?;
         self.reset_budget()?;
-        self.kernel
-            .definition(&name.key, universes, ty, value, tag == "thm")
-            .map_err(|why| format!("declaration '{}': {why}", name.display))?;
-        if tag == "opaque" {
+        let checked = if tag == "opaque" {
             self.kernel
-                .declarations
-                .get_mut(&name.key)
-                .ok_or("missing checked opaque")?
-                .value = None;
-        }
+                .opaque_definition(&name.key, universes, ty, value)
+        } else {
+            self.kernel
+                .definition(&name.key, universes, ty, value, tag == "thm")
+        };
+        checked.map_err(|why| format!("declaration '{}': {why}", name.display))?;
         self.remember(
             &name,
             if tag == "thm" {

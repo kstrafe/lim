@@ -151,6 +151,7 @@ mod tests {
         "proof",
         "theorem",
         "math-definition",
+        "math-opaque",
         "math-inductive",
         "mutual",
         "indices",
@@ -298,6 +299,7 @@ mod tests {
         for name in [
             "theorem",
             "math-definition",
+            "math-opaque",
             "math-inductive",
             "pt-sort",
             "pt-let",

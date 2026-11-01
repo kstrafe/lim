@@ -2033,6 +2033,7 @@ natural induction, and the procedural-certificate bridge.
   (#proof EVIDENCE))
 (#theorem NAME PROCEDURAL-CLAIM)
 (#math-definition NAME (u...) TYPE VALUE)
+(#math-opaque NAME (u...) TYPE VALUE)
 (#math-inductive NAME (u...) ((parameter Type)...) SORT
   ((constructor ((field Type)...))...))
 (#math-inductive NAME (u...) ((parameter Type)...)
@@ -3187,6 +3188,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
 | `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
 | `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field TYPE)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Recursive markers may be terminal codomains under zero or more `#pt-pi` binders, but the family cannot occur in function domains. Indexed constructors give exact result indices. Both forms may insert an explicit #mutual group clause after parameters. Nested occurrences use explicit family applications through checked nominal containers; primitive #pt-sigma nesting and arbitrary type functions remain unsupported. |
+| `#math-opaque` | `(#math-opaque NAME (u...) TYPE VALUE)` | `(#math-opaque checked-zero () #pt-nat #pt-zero)` (top level) | Checks the explicit type and value normally, then hides the value from conversion. Use for already checked opaque data definitions; it adds no axiom or admission. Proposition-valued declarations are not theorem targets. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |

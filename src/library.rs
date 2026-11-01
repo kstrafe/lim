@@ -487,7 +487,7 @@ pub(crate) fn qualify(
         }
         let selects_global = matches!(&tree.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),
-                "#math-definition" | "#math-inductive" | "#theorem" | "#pt-use"
+                "#math-definition" | "#math-opaque" | "#math-inductive" | "#theorem" | "#pt-use"
                 | "#pt-program" | "#pt-certificate" | "#pt-construct" | "#pt-induct")));
         let selects_project_family = matches!(&tree.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-project"))
@@ -646,7 +646,7 @@ pub(crate) fn qualify(
     for form in forms {
         let mathematical = matches!(&form.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#math-definition" | "#math-inductive")
+                if matches!(head.as_str(), "#math-definition" | "#math-opaque" | "#math-inductive")
                 || head == "#theorem" && items.len() != 3));
         // Mathematical names are global only in explicit global-reference
         // operands. Preserve @ on binders, levels and labels so their grammar
