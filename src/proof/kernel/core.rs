@@ -742,7 +742,7 @@ impl Kernel {
                     subject,
                 } => {
                     let subject = self.whnf(ctx, subject, depth + 1)?;
-                    let (desc, map) = self.family(family, levels, depth + 1)?;
+                    let (desc, _) = self.family(family, levels, depth + 1)?;
                     let Term::Ctor {
                         family: actual,
                         constructor,
@@ -750,13 +750,10 @@ impl Kernel {
                         ..
                     } = subject.as_ref()
                     else {
-                        // A proof of a fieldless singleton proposition is
-                        // equal to its sole constructor, even when opaque.
-                        if desc.large
-                            && desc.sort.substitute(&map)?.zero()
-                            && desc.constructors.len() == 1
-                            && desc.constructors[0].fields.is_empty()
-                        {
+                        // A fieldless singleton's subject equals its sole
+                        // constructor, for both data and propositions. Its
+                        // recursor must respect that constructor computation.
+                        if desc.constructors.len() == 1 && desc.constructors[0].fields.is_empty() {
                             value = branches
                                 .first()
                                 .cloned()
@@ -933,13 +930,17 @@ impl Kernel {
             let b_type = self.infer(ctx, &b, depth + 1)?;
             return self.convertible(ctx, &a_type, &b_type, depth + 1);
         }
+        let shape = self.whnf(ctx, &a_type, depth + 1)?;
+        if self.unit_type(&shape, depth + 1)? {
+            let b_type = self.infer(ctx, &b, depth + 1)?;
+            return self.convertible(ctx, &a_type, &b_type, depth + 1);
+        }
         if !eta {
             return Ok(false);
         }
         // Compare at a shared Pi/Sigma type, including two neutral values.
         // Restricting this to explicit lambdas/pairs loses transitivity when
         // proof-irrelevant components compare equal through a reconstruction.
-        let shape = self.whnf(ctx, &a_type, depth + 1)?;
         if !matches!(shape.as_ref(), Term::Pi(..) | Term::Sigma(..)) {
             return Ok(false);
         }
@@ -952,6 +953,30 @@ impl Kernel {
             Term::Sigma(..) => self.pair_eta(ctx, &a, &b, depth + 1),
             _ => Ok(false),
         }
+    }
+    /// Recognize a fully applied, already weak-head-normalized datatype type.
+    /// A zero-field constructor cannot carry a recursive field. Parameters
+    /// and universe arguments are preserved by the subsequent type comparison.
+    fn unit_type(&mut self, shape: &T, depth: usize) -> Result<bool> {
+        let mut head = shape.clone();
+        let mut supplied = 0;
+        while let Term::App(function, _) = head.as_ref() {
+            self.tick(depth)?;
+            supplied += 1;
+            head = function.clone();
+        }
+        let Term::Global(name, _) = head.as_ref() else {
+            return Ok(false);
+        };
+        Ok(self
+            .declarations
+            .get(name)
+            .and_then(|declaration| declaration.family.as_ref())
+            .is_some_and(|family| {
+                family.parameters.len() == supplied
+                    && family.constructors.len() == 1
+                    && family.constructors[0].fields.is_empty()
+            }))
     }
     fn function_eta(&mut self, ctx: &[T], domain: &T, a: &T, b: &T, depth: usize) -> Result<bool> {
         let mut inner = ctx.to_vec();

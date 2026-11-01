@@ -562,7 +562,7 @@ equality evidence is an opaque proof. Its motive must still pass the genuine
 fresh-endpoint check; agreement only at the supplied endpoint is insufficient.
 A recursor for a fieldless singleton proposition also reduces to its single
 branch when its proof subject is opaque. These proof-aware reductions do not
-unfold opaque theorem bodies, add data-unit eta, or provide full Lean eta.
+unfold opaque theorem bodies or provide full Lean eta.
 Theorems remain opaque. There is no zeta reduction for term lets, since term
 `let` is unsupported, and no cumulativity. Typed conversion also identifies
 well-typed proofs of the same proposition, carrying the local context through
@@ -596,9 +596,8 @@ Function eta is definitional conversion, not arbitrary equality-proof-driven
 function extensionality. Proofs that two functions agree pointwise do not by
 themselves make the functions definitionally equal: their fresh applications
 must definitionally compare. Pair eta applies to the primitive dependent
-Sigma type, not general user-inductive records. Data-unit eta is unsupported,
-and opaque theorem bodies stay opaque. These rules do not imply full Lean eta
-or conversion parity.
+Sigma type, not general user-inductive records. Opaque theorem bodies stay
+opaque. These rules do not imply full Lean eta or conversion parity.
 
 The [eta regression suite](../tests/kernel_eta.rs) and
 [kernel context tests](../src/proof/kernel/core_tests.rs) cover both orientations,
@@ -606,6 +605,33 @@ dependent result indices, capture-free context shifts, and rejection of
 mismatched or ill-typed components. Neutral proof-field Sigma comparisons must
 retain the same proof-irrelevance behavior under type-directed comparison,
 without recursive re-expansion or collapse of distinct data components.
+
+A separate unit-like data conversion rule identifies any two well-typed values
+of the same fully applied user datatype when that datatype has exactly one
+constructor with zero fields. The rule covers neutral variables, neutral
+function results, and the constructor value in either comparison orientation.
+It is universe-polymorphic, but both values must have the same checked nominal
+family, universe instantiation, and datatype parameters.
+
+This is value conversion at an already checked type, not a rule identifying
+datatype types themselves. Different nominal datatypes, universe instantiations,
+or parameter applications are not equated by it. A constructor with a data
+field or recursive field does not qualify. Neither Nat nor the empty proposition
+False qualifies. Such cases must still be checked by the other conversion
+rules; this rule supplies no shortcut for their distinct values.
+
+A recursor over qualifying fieldless data reduces to its sole branch even when
+the subject is neutral, just as for the existing fieldless singleton-Prop
+recursor. This preserves computation congruence with the value conversion;
+it does not require unfolding an opaque theorem body or inventing an inhabitant.
+Source evidence and the shared fully applied type must be checked before the
+rule is used.
+
+Type-directed Pi and primitive Sigma eta compose with proof irrelevance and
+this unit-like data rule: applications or projections can compare through their
+proof or qualifying fieldless components. This does not add eta for arbitrary
+user-inductive records with fields, arbitrary equality-proof-driven function
+extensionality, or full Lean conversion parity. No public syntax is added.
 
 The kernel has no term `let`, cumulativity, quotients,
 classical axioms, `admit`, general recursion,

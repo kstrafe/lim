@@ -491,7 +491,7 @@ fn neutral_data_eta_comparisons_terminate_with_false() {
 }
 
 #[test]
-fn opaque_fieldless_singleton_proofs_have_the_constructor_computation_rule() {
+fn opaque_fieldless_singletons_have_the_constructor_computation_rule() {
     let mut k = Kernel::new();
     k.inductive(
         "ProofUnit",
@@ -530,9 +530,104 @@ fn opaque_fieldless_singleton_proofs_have_the_constructor_computation_rule() {
         subject: var(0),
     });
     k.check(&data_context, &data_value, &nat(), 0).unwrap();
-    assert!(!k
+    assert!(k
         .convertible(&data_context, &data_value, &zero(), 0)
         .unwrap());
+}
+
+#[test]
+fn fieldless_data_conversion_preserves_nominal_types_and_parameters() {
+    let mut k = Kernel::new();
+    for name in ["UnitA", "UnitB"] {
+        k.inductive(
+            name,
+            vec![],
+            vec![],
+            level(1),
+            vec![("only".into(), vec![])],
+        )
+        .unwrap();
+    }
+    let unit = global("UnitA");
+    let value = ctor("UnitA", vec![], "only", vec![]);
+    let ctx = vec![unit.clone(), unit.clone()];
+    k.check(&ctx, &value, &unit, 0).unwrap();
+    assert!(k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+    assert!(k.convertible(&ctx, &var(0), &value, 0).unwrap());
+    assert!(k.convertible(&ctx, &value, &var(0), 0).unwrap());
+    assert!(!k.convertible(&[], &unit, &global("UnitB"), 0).unwrap());
+    let other = ctor("UnitB", vec![], "only", vec![]);
+    assert!(!k.convertible(&[], &value, &other, 0).unwrap());
+
+    k.inductive(
+        "Tag",
+        vec![],
+        vec![nat()],
+        level(1),
+        vec![("only".into(), vec![])],
+    )
+    .unwrap();
+    assert!(!k.unit_type(&global("Tag"), 0).unwrap());
+    let left = app(global("Tag"), zero());
+    let right = app(global("Tag"), succ(zero()));
+    assert!(k.unit_type(&left, 0).unwrap());
+    let ctx = vec![left, right];
+    k.infer(&ctx, &var(0), 0).unwrap();
+    k.infer(&ctx, &var(1), 0).unwrap();
+    assert!(!k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+}
+
+#[test]
+fn fieldless_unit_conversion_composes_with_pi_and_sigma_eta() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "Unit",
+        vec![],
+        vec![],
+        level(1),
+        vec![("only".into(), vec![])],
+    )
+    .unwrap();
+    let unit = global("Unit");
+    for ty in [
+        pi(nat(), unit.clone()),
+        term(Term::Sigma(unit.clone(), unit)),
+    ] {
+        let ctx = vec![ty.clone(), ty.clone()];
+        k.check(&ctx, &var(0), &ty, 0).unwrap();
+        k.check(&ctx, &var(1), &ty, 0).unwrap();
+        k.reset_budget();
+        assert!(k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+        assert!(k.convertible(&ctx, &var(1), &var(0), 0).unwrap());
+    }
+}
+
+#[test]
+fn unit_conversion_compares_universe_arguments_in_both_directions() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "UnitAt",
+        vec!["u".into()],
+        vec![],
+        Level::variable("u".into()),
+        vec![("only".into(), vec![])],
+    )
+    .unwrap();
+    let mut values = vec![];
+    for universe in [0, 1] {
+        let ty = term(Term::Global("UnitAt".into(), vec![level(universe)]));
+        let value = term(Term::Ctor {
+            family: "UnitAt".into(),
+            levels: vec![level(universe)],
+            parameters: vec![],
+            constructor: "only".into(),
+            fields: vec![],
+        });
+        k.check(&[], &value, &ty, 0).unwrap();
+        values.push(value);
+    }
+    assert!(!k.convertible(&[], &values[0], &values[1], 0).unwrap());
+    assert!(!k.convertible(&[], &values[1], &values[0], 0).unwrap());
 }
 
 #[test]

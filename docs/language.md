@@ -2117,8 +2117,22 @@ hide ill-typed components or unfold opaque theorem bodies. Arbitrary pointwise
 equality proofs are insufficient for function conversion: the fresh applications
 must definitionally compare. The eta and context regression suites cover
 symmetry, dependent indices, capture avoidance, and ill-typed negative cases.
-General user-inductive record eta and data-unit eta remain unsupported;
-full Lean eta is not claimed.
+General user-inductive record eta with fields remains unsupported; full Lean
+eta is not claimed.
+
+A unit-like data rule also identifies well-typed values of the same fully
+applied user datatype when it has exactly one zero-field constructor. Neutral
+variables, function results, and constructor values are included, with checked
+matching nominal family, parameters, and universe levels. The rule is
+universe-polymorphic and concerns values, not equality of datatype types.
+It does not identify different nominal types or parameter/level instantiations,
+and does not apply to constructors with data or recursive fields, Nat, or False.
+A recursor over such fieldless data reduces to its sole branch for a neutral
+subject, consistently with the existing fieldless singleton-Prop computation.
+Pi/Sigma eta can compose with this rule and proof irrelevance through proof or
+qualifying unit-like fields. Source evidence and the shared type remain fully
+checked, and opaque theorem bodies stay opaque. This adds no syntax or general
+user-inductive record eta, and does not establish full Lean parity.
 
 Definitional proof irrelevance identifies any two well-typed proofs of the same
 proposition. Typed conversion carries the local context through Pi, lambda, and
