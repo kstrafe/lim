@@ -17,8 +17,9 @@ adapters and distinct declared/target assumption inventories. Default replay
 continues to reject that corpus.
 
 The [standard arithmetic corpus](../lean_export_arithmetic/README.md) adds a
-thirteenth genuine export, with eleven targets over the actual pinned `Nat.add`,
-`Nat.mul` and `Nat.pow` definitions plus an explicit affine recurrence. It retains their course-of-values bodies in source,
+thirteenth genuine export, with seventeen targets over the actual pinned `Nat.add`,
+`Nat.mul`, `Nat.pow` and `Nat.sub` definitions plus an explicit affine recurrence.
+It retains their course-of-values bodies in source,
 checks them through structural observation fusion, and independently audits
 the native targets with empty assumption inventories.
 

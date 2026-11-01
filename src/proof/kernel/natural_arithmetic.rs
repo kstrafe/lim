@@ -1,6 +1,49 @@
 use super::{Natural, Result, MAX_DIGITS};
 
 impl Natural {
+    /// Subtracts with saturation at zero.
+    ///
+    /// Callers must budget operand digit work and result allocation before calling,
+    /// matching the budgeting required by `add` and `multiply`.
+    pub(super) fn truncated_subtract(&self, other: &Self) -> Self {
+        let left = self.0.as_bytes();
+        let right = other.0.as_bytes();
+        if left.len() < right.len() || (left.len() == right.len() && left < right) {
+            return Self("0".into());
+        }
+
+        let mut result = vec![b'0'; left.len()];
+        let (mut i, mut j, mut borrow) = (left.len(), right.len(), 0i16);
+        while i > 0 {
+            i -= 1;
+            let a = i16::from(left[i] - b'0');
+            let b = if j > 0 {
+                j -= 1;
+                i16::from(right[j] - b'0')
+            } else {
+                0
+            };
+            let mut digit = a - b - borrow;
+            if digit < 0 {
+                digit += 10;
+                borrow = 1;
+            } else {
+                borrow = 0;
+            }
+            result[i] = b'0' + digit as u8;
+        }
+
+        let first = result
+            .iter()
+            .position(|&digit| digit != b'0')
+            .unwrap_or(result.len() - 1);
+        if first > 0 {
+            result.copy_within(first.., 0);
+            result.truncate(result.len() - first);
+        }
+        Self(String::from_utf8(result).expect("decimal subtraction"))
+    }
+
     pub(super) fn halve(&self) -> (Self, bool) {
         let bytes = self.0.as_bytes();
         let odd = (bytes[bytes.len() - 1] - b'0') % 2 != 0;
@@ -113,6 +156,10 @@ mod tests {
                 let right = natural(&b.to_string());
                 assert_eq!(left.add(&right).unwrap().decimal(), (a + b).to_string());
                 assert_eq!(
+                    left.truncated_subtract(&right).decimal(),
+                    a.saturating_sub(b).to_string()
+                );
+                assert_eq!(
                     left.multiply(&right).unwrap().decimal(),
                     (a * b).to_string()
                 );
@@ -136,11 +183,39 @@ mod tests {
             a.multiply(&a).unwrap().decimal(),
             "115792089237316195423570985008687907853269984665640564039457584007913129639936"
         );
+        assert_eq!(
+            natural("1000000000000000000000000000000000000000")
+                .truncated_subtract(&a)
+                .decimal(),
+            "659717633079061536536625392568231788544"
+        );
+        assert_eq!(a.truncated_subtract(&a).decimal(), "0");
         let nines = natural(&"9".repeat(1000));
         assert_eq!(
             nines.multiply(&nines).unwrap().decimal(),
             format!("{}8{}1", "9".repeat(999), "0".repeat(999))
         );
+    }
+
+    #[test]
+    fn subtraction_handles_zero_ordering_and_maximum_length_borrow() {
+        let huge = natural(&format!("1{}", "0".repeat(MAX_DIGITS - 1)));
+        assert_eq!(natural("0").truncated_subtract(&huge).decimal(), "0");
+        assert_eq!(
+            huge.truncated_subtract(&natural("0")).decimal(),
+            huge.decimal()
+        );
+        assert_eq!(
+            huge.truncated_subtract(&natural("1")).decimal(),
+            "9".repeat(MAX_DIGITS - 1)
+        );
+
+        let nines = natural(&"9".repeat(MAX_DIGITS));
+        assert_eq!(
+            nines.truncated_subtract(&natural("1")).decimal(),
+            format!("{}8", "9".repeat(MAX_DIGITS - 1))
+        );
+        assert_eq!(nines.truncated_subtract(&nines).decimal(), "0");
     }
 
     #[test]

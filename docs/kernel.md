@@ -359,13 +359,24 @@ operands larger than machine integers. Definition names do not
 authorize arithmetic. Nominal family identities and opaque bodies remain
 distinct, and every source body and erased let still undergoes ordinary typing.
 
-Digit addition and grade-school multiplication use exact decimal arithmetic.
+There is also a guarded decreasing rule. The constant-natural-motive recursor
+whose zero branch is zero and whose successor branch returns its predecessor
+computes `max(n-1,0)`. A fold whose step applies that exact predecessor recursor
+to its accumulator computes `max(base-count,0)` for closed natural operands.
+The recognizer checks both recursor shapes, nominal families, motives, branch
+domains and binder indices. A predecessor of another local, a changed zero or
+successor branch, or an opaque predecessor cannot authorize this rule. Unknown
+operands stay symbolic; truncated subtraction is not generally affine in them.
+[`proof_natural_subtraction.lim`](../examples/proof_natural_subtraction.lim)
+shows large subtraction and saturation at zero through ordinary definitions.
+
+Digit addition, truncated subtraction and grade-school multiplication use exact decimal arithmetic.
 They charge digit work and temporary allocation before computation against the
 existing kernel budgets; results exceeding 4,096 digits fail. A zero count
 returns the checked base without executing arithmetic in the unused step,
 which still undergoes ordinary typing. A reset can discard its checked base,
 and a zero fixed point avoids constructing an unused huge power. Dependent motives,
-predecessor-dependent or nonlinear steps, and other recursion shapes retain
+other predecessor-dependent or nonlinear steps, and other recursion shapes retain
 ordinary bounded iota computation. This optimization adds no source keyword,
 axiom or unchecked arithmetic declaration.
 
@@ -387,12 +398,13 @@ base without inspecting the unused step. Other inductive families retain
 their normal evaluator. Source typing, including unused fields and local
 bindings, is always checked before conversion.
 
-These rules expose the pinned Lean standard `Nat.add`, `Nat.mul` and `Nat.pow`
+These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow` and `Nat.sub`
 recurrences without constructing their `Nat.brecOn` history tables. The
 [genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-checks eleven targets over 46 declarations, including large powers, zero/one
+checks seventeen targets over 55 declarations, including large powers, zero/one
 bases, generic right-zero and zero-exponent identities, nested arithmetic and
-an affine recurrence with a nonzero offset. The [native observation example](../examples/proof_observed_arithmetic.lim)
+an affine recurrence with a nonzero offset, large truncated subtraction and its
+zero/equal-operand cases. The [native observation example](../examples/proof_observed_arithmetic.lim)
 shows both rules directly. No declaration spelling, hash, source comment or
 exporter claim authorizes a computation. Fusion and decimal arithmetic use
 the existing work, transformation and result-size bounds. Other arithmetic

@@ -35,11 +35,11 @@ and document opt-in replay and independent ordinary native theorem checks.
 
 The thirteenth file, [`arithmetic.lim`](arithmetic.lim), translates the
 [standard arithmetic corpus](../../tests/fixtures/lean_export_arithmetic/README.md).
-It keeps the actual pinned `Nat.add`/`Nat.mul`/`Nat.pow` definitions and their
+It keeps the actual pinned `Nat.add`/`Nat.mul`/`Nat.pow`/`Nat.sub` definitions and their
 `Nat.brecOn` helpers. Guarded observation fusion exposes their recurrences
-without trusting their names or replacing their bodies. Its eleven targets
-across 46 declarations check large sums, products, powers, zeros, generic
-identities, nested operations and a nonzero-offset affine recurrence;
+without trusting their names or replacing their bodies. Its seventeen targets
+across 55 declarations check large sums, products, powers, truncated subtraction,
+zeros, equal operands, generic identities, nested operations and a nonzero-offset affine recurrence;
 all have empty logical-assumption inventories and retained source/module/
 license provenance. Its fixture guide gives the fresh reproduction command.
 

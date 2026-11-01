@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 const FIXTURE: &str = include_str!("fixtures/lean_export_arithmetic/arithmetic.ndjson");
 const NATIVE: &str = include_str!("../theorems/lean_replay/arithmetic.lim");
-const TARGET: &str = "ArithmeticSource.affineGrowth";
+const TARGET: &str = "ArithmeticSource.nestedSubtraction";
 const TARGETS: &[(&str, &str)] = &[
     (
         "ArithmeticSource.addition",
@@ -41,7 +41,31 @@ const TARGETS: &[(&str, &str)] = &[
         "ArithmeticSource.nestedPower",
         "lean-43-ArithmeticSource-nestedPower",
     ),
-    (TARGET, "lean-45-ArithmeticSource-affineGrowth"),
+    (
+        "ArithmeticSource.affineGrowth",
+        "lean-45-ArithmeticSource-affineGrowth",
+    ),
+    (
+        "ArithmeticSource.subtraction",
+        "lean-49-ArithmeticSource-subtraction",
+    ),
+    (
+        "ArithmeticSource.subtractToZero",
+        "lean-50-ArithmeticSource-subtractToZero",
+    ),
+    (
+        "ArithmeticSource.subtractSelf",
+        "lean-51-ArithmeticSource-subtractSelf",
+    ),
+    (
+        "ArithmeticSource.zeroMinus",
+        "lean-52-ArithmeticSource-zeroMinus",
+    ),
+    (
+        "ArithmeticSource.subtractZero",
+        "lean-53-ArithmeticSource-subtractZero",
+    ),
+    (TARGET, "lean-54-ArithmeticSource-nestedSubtraction"),
 ];
 fn rows() -> Vec<Json> {
     FIXTURE
@@ -65,10 +89,10 @@ fn rejected_source(source: &str) {
 }
 
 #[test]
-fn actual_standard_add_mul_and_pow_replay_with_empty_axiom_inventories() {
+fn actual_standard_arithmetic_replays_with_empty_axiom_inventories() {
     for (original, _) in TARGETS {
         let report = check_lean_export(FIXTURE.as_bytes(), original).unwrap();
-        assert_eq!(report.declarations.len(), 46);
+        assert_eq!(report.declarations.len(), 55);
         assert_eq!(&report.target, original);
         assert!(report.axioms.is_empty());
         assert!(report.target_axioms.is_empty());
@@ -82,7 +106,7 @@ fn exact_native_translation_independently_checks_every_target() {
     assert_eq!(translated.source, NATIVE);
     assert_eq!(translated.target, TARGETS.last().unwrap().1);
     assert!(NATIVE.contains("Nat-brecOn-go"));
-    assert!(NATIVE.len() < 64 * 1024);
+    assert!(NATIVE.len() < 96 * 1024);
     lim::check_types(&lim::parse_program(NATIVE).unwrap()).unwrap();
     for (_, name) in TARGETS {
         let checked = lim::check_theorem_details_from_path_with_config(
@@ -209,7 +233,7 @@ fn with_expected_endpoint(target: &str, decimal: &str) -> (Vec<Json>, usize) {
 }
 
 #[test]
-fn false_power_endpoints_are_rejected_at_the_actual_power_obligation() {
+fn false_endpoints_are_rejected_at_the_actual_arithmetic_obligation() {
     // Positive control validates every shifted ID and the direct Nat endpoint.
     let (data, _) = with_expected_endpoint("power", "340282366920938463463374607431768211456");
     check_lean_export(render(&data).as_bytes(), TARGET).unwrap();
@@ -218,6 +242,14 @@ fn false_power_endpoints_are_rejected_at_the_actual_power_obligation() {
         ("zeroBase", "1"),
         ("oneBase", "0"),
         ("affineGrowth", "340282366920938463463374607431768211454"),
+        ("subtraction", "340282366920938463444927863358058659841"),
+        ("subtractToZero", "1"),
+        ("subtractSelf", "1"),
+        ("zeroMinus", "1"),
+        (
+            "nestedSubtraction",
+            "340282366920938463444927863358058659848",
+        ),
     ] {
         let (data, at) = with_expected_endpoint(target, wrong);
         check_lean_export(render(&data[..at]).as_bytes(), "ArithmeticSource.nested").unwrap();
@@ -241,6 +273,8 @@ fn names_and_provenance_comments_do_not_authorize_arithmetic() {
         .replace("Nat-add", "unrelated-operation")
         .replace("Nat-mul", "other-operation")
         .replace("Nat-pow", "different-operation")
+        .replace("Nat-pred", "a-preceding-operation")
+        .replace("Nat-sub", "a-decreasing-operation")
         .replace("PProd", "Another-record")
         .replace("Nat", "Tally");
     lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
@@ -278,10 +312,32 @@ fn a_well_typed_changed_power_step_does_not_authorize_the_original_result() {
 }
 
 #[test]
+fn a_well_typed_changed_subtraction_step_is_not_the_original_operation() {
+    let original =
+        "(#pt-app (#pt-use lean-46-Nat-pred ()) (#pt-app (#pt-project lean-10-PProd 0 v5) v3))";
+    assert!(NATIVE.contains(original));
+    let changed = "(#pt-app (#pt-project lean-10-PProd 0 v5) v3)";
+    let source = NATIVE.replacen(original, changed, 1);
+    let prefix = source
+        .split("(#theorem lean-49-ArithmeticSource-subtraction")
+        .next()
+        .unwrap();
+    lim::check_types(&lim::parse_program(prefix).unwrap()).unwrap();
+    let why = lim::check_types(&lim::parse_program(&source).unwrap()).unwrap_err();
+    assert!(
+        why.contains("lean-49-ArithmeticSource-subtraction"),
+        "{why}"
+    );
+    assert!(why.contains("type mismatch"), "{why}");
+    assert!(!why.contains("resource limit"), "{why}");
+}
+
+#[test]
 fn opaque_standard_names_do_not_expose_their_initializers() {
     for (function, theorem) in [
         ("lean-19-Nat-add", "lean-26-ArithmeticSource-addition"),
         ("lean-38-Nat-pow", "lean-39-ArithmeticSource-power"),
+        ("lean-48-Nat-sub", "lean-49-ArithmeticSource-subtraction"),
     ] {
         let original = format!("(#math-definition {function}");
         assert!(NATIVE.contains(&original));
@@ -297,7 +353,7 @@ fn opaque_standard_names_do_not_expose_their_initializers() {
 
 #[test]
 fn a_standard_name_does_not_bypass_the_provided_signature() {
-    for operation in ["add", "pow"] {
+    for operation in ["add", "pow", "pred", "sub"] {
         let mut rows = rows();
         let prop = rows
             .iter()

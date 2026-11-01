@@ -1,5 +1,5 @@
 /- Genuine standard natural arithmetic computations using Nat.add, Nat.mul,
-   and Nat.pow. No axioms, admissions, or native-decision shortcuts. -/
+   Nat.pow and Nat.sub. No axioms, admissions, or native-decision shortcuts. -/
 namespace ArithmeticSource
 
 theorem addition : Nat.add 184467440737095516160 340282366920938463463374607431768211456 =
@@ -33,5 +33,21 @@ def affine (count : Nat) : Nat :=
 
 set_option maxRecDepth 2048 in
 theorem affineGrowth : affine 128 = 340282366920938463463374607431768211455 := rfl
+
+theorem subtraction : Nat.sub 340282366920938463463374607431768211456 18446744073709551616 =
+    340282366920938463444927863358058659840 := rfl
+
+theorem subtractToZero : Nat.sub 7 340282366920938463463374607431768211456 = 0 := rfl
+
+theorem subtractSelf : Nat.sub 340282366920938463463374607431768211456
+    340282366920938463463374607431768211456 = 0 := rfl
+
+theorem zeroMinus : Nat.sub 0 340282366920938463463374607431768211456 = 0 := rfl
+
+theorem subtractZero (value : Nat) : Nat.sub value 0 = value := rfl
+
+theorem nestedSubtraction : Nat.add
+    (Nat.sub 340282366920938463463374607431768211456 18446744073709551616) 7 =
+    340282366920938463444927863358058659847 := rfl
 
 end ArithmeticSource

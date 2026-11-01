@@ -247,10 +247,10 @@ fn genuine_standard_arithmetic_retains_checked_mapping_hashes_and_attribution() 
         include_str!("../../../tests/fixtures/lean_export_arithmetic/provenance.json"),
         include_bytes!("../../../tests/fixtures/lean_export_arithmetic/arithmetic.ndjson"),
         include_str!("../../../theorems/lean_replay/arithmetic.lim"),
-        "ArithmeticSource.affineGrowth",
+        "ArithmeticSource.nestedSubtraction",
         "lim-lean-arithmetic-fixture-v1",
         &[],
-        (11, &[]),
+        (17, &[]),
     );
 }
 

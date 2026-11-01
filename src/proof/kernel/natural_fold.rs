@@ -3,12 +3,15 @@
 //! A fold with a constant natural motive and affine step a*ih+b can be
 //! evaluated with bounded exact arithmetic. Recognize nested affine folds after
 //! beta/delta/zeta and constructor projections. Other motives,
-//! predecessor-dependent steps, opaque functions and nonlinear steps keep the
-//! ordinary bounded iota evaluator.
+//! unrecognized predecessor-dependent steps, opaque functions and nonlinear
+//! steps keep the ordinary bounded iota evaluator. Exact predecessor folds
+//! are handled separately, since truncated subtraction is not affine.
 use super::*;
 
 #[path = "natural_iteration.rs"]
 mod iteration;
+#[path = "natural_subtraction.rs"]
+mod subtraction;
 
 #[derive(Debug)]
 struct Affine {
@@ -371,7 +374,15 @@ impl Kernel {
         let mut inner = vec![0];
         inner.extend(variables.iter().map(|index| index + 2));
         let Some(mut step) = self.natural_affine(desc, family, body, &inner, depth + 1)? else {
-            return Ok(None);
+            return self.natural_decreasing_fold(
+                desc,
+                family,
+                body,
+                &branches[0],
+                &count,
+                variables,
+                depth + 1,
+            );
         };
         let coefficient = step.coefficients.remove(0);
         // A positive reset fold discards its base. Its source still undergoes

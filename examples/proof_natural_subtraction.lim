@@ -1,0 +1,34 @@
+; Both operations are definitions, not named arithmetic axioms.
+(#math-definition predecessor ()
+  (#pt-pi ((value #pt-nat)) #pt-nat)
+  (#pt-lambda ((value #pt-nat))
+    (#pt-nat-induct (#pt-lambda ((index #pt-nat)) #pt-nat) #pt-zero
+      (#pt-lambda ((previous #pt-nat) (ignored #pt-nat)) previous) value)))
+
+(#math-definition subtract ()
+  (#pt-pi ((left #pt-nat) (right #pt-nat)) #pt-nat)
+  (#pt-lambda ((left #pt-nat) (right #pt-nat))
+    (#pt-nat-induct (#pt-lambda ((index #pt-nat)) #pt-nat) left
+      (#pt-lambda ((previous #pt-nat) (value #pt-nat))
+        (#pt-app (#pt-use predecessor ()) value)) right)))
+
+(#theorem large-subtraction
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-app (#pt-use subtract ())
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211456")
+      (#pt-nat-literal #pt-nat "18446744073709551616"))
+    (#pt-nat-literal #pt-nat "340282366920938463444927863358058659840")))
+  (#proof (#pt-refl #pt-nat (#pt-nat-literal #pt-nat "340282366920938463444927863358058659840"))))
+
+(#theorem truncated-at-zero
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-app (#pt-use subtract ()) (#pt-numeral 7)
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211456")) #pt-zero))
+  (#proof (#pt-refl #pt-nat #pt-zero)))
+
+(#fn main () #u64
+  (#return 42u64))
