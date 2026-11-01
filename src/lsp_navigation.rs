@@ -889,18 +889,10 @@ impl<'a> Index<'a> {
         if head(declaration) != "math-inductive" {
             return vec![];
         }
-        let indexed = declaration
-            .children
-            .get(4)
-            .is_some_and(|node| head(node) == "indices");
-        if indexed && !Self::kernel_indexed_shape_valid(declaration) {
+        let Some((_, _, _, constructors_at)) = Self::kernel_inductive_layout(declaration) else {
             return vec![];
-        }
-        let constructors = if indexed {
-            declaration.children.get(6)
-        } else {
-            declaration.children.get(5)
         };
+        let constructors = declaration.children.get(constructors_at);
         let Some(constructors) = constructors else {
             return vec![];
         };
@@ -931,14 +923,50 @@ impl<'a> Index<'a> {
                 .is_some_and(|c| c.is_alphabetic() || c == '_'))
         .then_some(name)
     }
-    fn kernel_indexed_shape_valid(declaration: &Node) -> bool {
+    fn kernel_inductive_layout(
+        declaration: &Node,
+    ) -> Option<(Option<usize>, Option<usize>, usize, usize)> {
         let xs = &declaration.children;
-        let Some(indices) = xs.get(4).filter(|n| head(n) == "indices") else {
+        let mutual = xs.get(4).is_some_and(|node| head(node) == "mutual");
+        let mut at = 4;
+        if mutual {
+            let members = &xs[at].children;
+            if !(3..=17).contains(&members.len()) {
+                return None;
+            }
+            let mut names = HashSet::new();
+            for member in members.iter().skip(1) {
+                let name = symbol(member).filter(|name| !name.starts_with('#'))?;
+                if !names.insert(name) {
+                    return None;
+                }
+            }
+            at += 1;
+        }
+        let indexed = xs.get(at).is_some_and(|node| head(node) == "indices");
+        let index_at = indexed.then_some(at);
+        if indexed {
+            at += 1;
+        }
+        if xs.len() != at + 2 {
+            return None;
+        }
+        if let Some(index_at) = index_at {
+            if !Self::kernel_indexed_shape_valid(declaration, index_at, at + 1) {
+                return None;
+            }
+        }
+        Some((mutual.then_some(4), index_at, at, at + 1))
+    }
+    fn kernel_indexed_shape_valid(
+        declaration: &Node,
+        index_at: usize,
+        constructors_at: usize,
+    ) -> bool {
+        let xs = &declaration.children;
+        let Some(indices) = xs.get(index_at).filter(|n| head(n) == "indices") else {
             return false;
         };
-        if xs.len() != 7 {
-            return false;
-        }
         let index_count = indices.children.len().saturating_sub(1);
         if !(1..=64).contains(&index_count) {
             return false;
@@ -970,7 +998,7 @@ impl<'a> Index<'a> {
                 return false;
             }
         }
-        let Some(constructors) = xs.get(6) else {
+        let Some(constructors) = xs.get(constructors_at) else {
             return false;
         };
         for ctor in &constructors.children {
@@ -1168,6 +1196,66 @@ impl<'a> Index<'a> {
                     return self.kernel_term(subject, scope, levels);
                 }
             }
+            "pt-recur" => {
+                if xs.len() != 3 || !matches!(xs[2].expr, Expr::List(_)) {
+                    return vec![];
+                }
+                if let Some(family) = xs.get(1).filter(|family| self.contains(family)) {
+                    return self
+                        .kernel_proof(family)
+                        .filter(|decl| head(decl) == "math-inductive")
+                        .and_then(|decl| decl.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
+                return self.kernel_terms(&xs[2], scope, levels);
+            }
+            "pt-mutual-induct" => {
+                if xs.len() != 7
+                    || head(&xs[4]) != "indices"
+                    || xs[4].children.len() > 65
+                    || !(2..=16).contains(&xs[5].children.len())
+                    || xs[5].children.iter().any(|case| {
+                        case.children.len() != 3
+                            || symbol(&case.children[0]).is_none()
+                            || !matches!(case.children[2].expr, Expr::List(_))
+                    })
+                {
+                    return vec![];
+                }
+                if let Some(family) = xs.get(1).filter(|family| self.contains(family)) {
+                    return self
+                        .kernel_proof(family)
+                        .filter(|decl| head(decl) == "math-inductive")
+                        .and_then(|decl| decl.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
+                if self.contains(&xs[2]) {
+                    return self.kernel_levels(&xs[2], levels);
+                }
+                if self.contains(&xs[3]) {
+                    return self.kernel_terms(&xs[3], scope, levels);
+                }
+                if self.contains(&xs[4]) {
+                    return self.kernel_terms(&xs[4], scope, levels);
+                }
+                for case in xs[5].children.iter().filter(|case| self.contains(case)) {
+                    if self.contains(&case.children[0]) {
+                        return self
+                            .kernel_proof(&case.children[0])
+                            .filter(|decl| head(decl) == "math-inductive")
+                            .and_then(|decl| decl.children.get(1))
+                            .map(|name| vec![name.span])
+                            .unwrap_or_default();
+                    }
+                    if self.contains(&case.children[1]) {
+                        return self.kernel_term(&case.children[1], scope, levels);
+                    }
+                    return self.kernel_terms(&case.children[2], scope, levels);
+                }
+                return self.kernel_term(&xs[6], scope, levels);
+            }
             "pt-self-at" => {
                 if xs.len() == 2 && symbol(&xs[1]).is_none() {
                     return self.kernel_terms(&xs[1], scope, levels);
@@ -1201,8 +1289,29 @@ impl<'a> Index<'a> {
         }
         let mut scope = Scope::new();
         if head(node) == "math-inductive" {
-            let indexed = xs.get(4).is_some_and(|node| head(node) == "indices");
-            if indexed && !Self::kernel_indexed_shape_valid(node) {
+            let Some((mutual_at, index_at, sort_at, constructors_at)) =
+                Self::kernel_inductive_layout(node)
+            else {
+                return vec![];
+            };
+            let indexed = index_at.is_some();
+            if let Some(members) = mutual_at
+                .and_then(|at| xs.get(at))
+                .filter(|members| self.contains(members))
+            {
+                for member in members
+                    .children
+                    .iter()
+                    .skip(1)
+                    .filter(|member| self.contains(member))
+                {
+                    return self
+                        .kernel_proof(member)
+                        .filter(|decl| head(decl) == "math-inductive")
+                        .and_then(|decl| decl.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
                 return vec![];
             }
             if let Some(parameters) = xs.get(3) {
@@ -1212,7 +1321,7 @@ impl<'a> Index<'a> {
             }
             if indexed {
                 let mut indices = scope.clone();
-                if let Some(declared) = xs.get(4) {
+                if let Some(declared) = index_at.and_then(|at| xs.get(at)) {
                     for binder in declared.children.iter().skip(1) {
                         if head(binder) != "parameter" || binder.children.len() != 3 {
                             continue;
@@ -1229,11 +1338,9 @@ impl<'a> Index<'a> {
                     }
                 }
             }
-            let sort_at = if indexed { 5 } else { 4 };
-            let constructors_at = if indexed { 6 } else { 5 };
             let mut indices = scope.clone();
             if indexed {
-                if let Some(declared) = xs.get(4) {
+                if let Some(declared) = index_at.and_then(|at| xs.get(at)) {
                     for binder in declared.children.iter().skip(1) {
                         if head(binder) == "parameter" && binder.children.len() == 3 {
                             if let Some(name) = binder.children.get(1) {

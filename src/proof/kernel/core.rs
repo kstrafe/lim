@@ -7,6 +7,10 @@ pub(super) use super::level::Level;
 use super::level::LEVEL;
 use std::collections::HashMap;
 use std::sync::Arc;
+#[path = "elimination.rs"]
+mod elimination;
+#[path = "inductive.rs"]
+mod inductive;
 
 pub(super) type Result<T> = std::result::Result<T, String>;
 pub(super) type T = Arc<Term>;
@@ -59,18 +63,42 @@ pub(super) enum Term {
         branches: Vec<T>,
         subject: T,
     },
+    MutualInduct {
+        family: String,
+        levels: Vec<Level>,
+        parameters: Vec<T>,
+        indices: Vec<T>,
+        cases: Vec<RecursionCase>,
+        subject: T,
+    },
     SelfType,
     SelfAt(Vec<T>),
+    Recur(String, Vec<T>),
+}
+#[derive(Clone, Debug)]
+pub(super) struct RecursionCase {
+    pub family: String,
+    pub motive: T,
+    pub branches: Vec<T>,
+}
+pub(super) struct InductiveInput {
+    pub name: String,
+    pub universes: Vec<String>,
+    pub parameters: Vec<T>,
+    pub indices: Vec<T>,
+    pub sort: Level,
+    pub constructors: Vec<(String, Vec<T>, Vec<T>)>,
 }
 #[derive(Clone)]
 pub(super) struct Constructor {
     pub name: String,
     pub fields: Vec<T>,
-    pub recursive: Vec<bool>,
+    pub recursive: Vec<Option<String>>,
     pub result_indices: Vec<T>,
 }
 #[derive(Clone)]
 pub(super) struct Family {
+    pub group: Vec<String>,
     pub parameters: Vec<T>,
     pub indices: Vec<T>,
     pub sort: Level,
@@ -96,6 +124,7 @@ impl Kernel {
         };
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
+            group: vec!["#pt-nat".into()],
             parameters: vec![],
             indices: vec![],
             sort: Level::number(1).unwrap(),
@@ -109,7 +138,7 @@ impl Kernel {
                 Constructor {
                     name: "succ".into(),
                     fields: vec![nat],
-                    recursive: vec![true],
+                    recursive: vec![Some("#pt-nat".into())],
                     result_indices: vec![],
                 },
             ],
@@ -131,6 +160,7 @@ impl Kernel {
                 ty: term(Term::Sort(Level::number(0).unwrap())),
                 value: None,
                 family: Some(Family {
+                    group: vec!["#pt-false".into()],
                     parameters: vec![],
                     indices: vec![],
                     sort: Level::number(0).unwrap(),
@@ -261,182 +291,14 @@ impl Kernel {
         sort: Level,
         constructors: Vec<(String, Vec<T>, Vec<T>)>,
     ) -> Result<()> {
-        if self.declarations.contains_key(name) {
-            return Err("duplicate kernel declaration".into());
-        }
-        let mut scoped = parameters.clone();
-        scoped.extend(indices.iter().cloned());
-        scoped.push(term(Term::Sort(sort.clone())));
-        for (_, fields, results) in &constructors {
-            scoped.extend(fields.iter().cloned());
-            scoped.extend(results.iter().cloned());
-        }
-        self.scope(&universes, &scoped)?;
-        let mut context = vec![];
-        for parameter in &parameters {
-            self.sort(&context, parameter, 0)?;
-            context.push(parameter.clone());
-        }
-        let mut index_context = context.clone();
-        for index in &indices {
-            self.sort(&index_context, index, 0)?;
-            index_context.push(index.clone());
-        }
-        let family_type = pis(&parameters, pis(&indices, term(Term::Sort(sort.clone()))));
-        let mut family = Family {
-            parameters: parameters.clone(),
-            indices: indices.clone(),
-            sort: sort.clone(),
-            constructors: vec![],
-            large: constructors.len() <= 1,
-        };
-        self.declarations.insert(
-            name.into(),
-            Declaration {
-                universes: universes.clone(),
-                ty: family_type.clone(),
-                value: None,
-                family: Some(family.clone()),
-            },
-        );
-        let levels = universes
-            .iter()
-            .map(|u| Level::variable(u.clone()))
-            .collect::<Vec<_>>();
-        let outcome = (|| {
-            let mut labels = std::collections::HashSet::new();
-            for (constructor, fields, result_indices) in constructors {
-                if !labels.insert(constructor.clone()) {
-                    return Err("duplicate inductive constructor".into());
-                }
-                let mut ctx = context.clone();
-                let mut checked = vec![];
-                let mut recursive = vec![];
-                let mut field_sorts = vec![];
-                for field in fields {
-                    let params = (0..parameters.len())
-                        .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
-                        .collect::<Vec<_>>();
-                    let (field, is_recursive) = self.prepare_recursive_field(
-                        &ctx,
-                        name,
-                        &levels,
-                        &params,
-                        indices.len(),
-                        &field,
-                        0,
-                    )?;
-                    let field_sort = self.sort(&ctx, &field, 0)?;
-                    if !field_sort.imax(&sort)?.at_most(&sort)? {
-                        return Err("inductive field exceeds the datatype's universe".into());
-                    }
-                    field_sorts.push(field_sort);
-                    ctx.push(field.clone());
-                    checked.push(field);
-                    recursive.push(is_recursive);
-                }
-                if result_indices.len() != indices.len() {
-                    return Err("constructor result index count does not match the family".into());
-                }
-                if result_indices
-                    .iter()
-                    .any(|value| contains_recursive(value, name))
-                {
-                    return Err("recursive occurrences in constructor result indices violate strict positivity".into());
-                }
-                let params = (0..parameters.len())
-                    .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
-                    .collect::<Vec<_>>();
-                let result = apps(
-                    apps(term(Term::Global(name.into(), levels.clone())), &params),
-                    &result_indices,
-                );
-                self.sort(&ctx, &result, 0)?;
-                // A data field exposed verbatim by an index contains no
-                // information hidden in the proof. Every other field must
-                // be propositional whenever the family itself is Prop.
-                for (position, field_sort) in field_sorts.iter().enumerate() {
-                    let field_index = checked.len() - 1 - position;
-                    let exposed = result_indices.iter().any(
-                        |index| matches!(index.as_ref(), Term::Var(found) if *found == field_index),
-                    );
-                    family.large &= exposed || sort.zero_implies_zero(field_sort)?;
-                }
-                family.constructors.push(Constructor {
-                    name: constructor,
-                    fields: checked,
-                    recursive,
-                    result_indices,
-                });
-            }
-            self.declarations.insert(
-                name.into(),
-                Declaration {
-                    universes,
-                    ty: family_type,
-                    value: None,
-                    family: Some(family),
-                },
-            );
-            Ok(())
-        })();
-        if outcome.is_err() {
-            self.declarations.remove(name);
-        }
-        outcome
-    }
-    #[expect(clippy::too_many_arguments)]
-    fn prepare_recursive_field(
-        &mut self,
-        ctx: &[T],
-        name: &str,
-        levels: &[Level],
-        parameters: &[T],
-        index_count: usize,
-        field: &T,
-        depth: usize,
-    ) -> Result<(T, bool)> {
-        self.tick(depth)?;
-        if !contains_recursive(field, name) {
-            return Ok((field.clone(), false));
-        }
-        match field.as_ref() {
-            Term::Pi(domain, body) => {
-                if contains_recursive(domain, name) {
-                    return Err("recursive occurrences in function domains violate strict positivity".into());
-                }
-                self.sort(ctx, domain, depth + 1)?;
-                let mut inner = ctx.to_vec();
-                inner.push(domain.clone());
-                let parameters = self.shift_many(parameters, 1, depth + 1)?;
-                let (body, recursive) = self.prepare_recursive_field(
-                    &inner, name, levels, &parameters, index_count, body, depth + 1,
-                )?;
-                Ok((term(Term::Pi(domain.clone(), body)), recursive))
-            }
-            Term::Let(ty, value, body) => {
-                if contains_recursive(ty, name) || contains_recursive(value, name) {
-                    return Err("recursive occurrences in let definitions violate strict positivity".into());
-                }
-                // Do not let zeta reduction erase invalid unused definitions.
-                self.sort(ctx, ty, depth + 1)?;
-                self.check(ctx, value, ty, depth + 1)?;
-                let body = self.instantiate(body, value, depth + 1)?;
-                self.prepare_recursive_field(ctx, name, levels, parameters, index_count, &body, depth + 1)
-            }
-            Term::SelfType if index_count == 0 => Ok((apps(term(Term::Global(name.into(), levels.to_vec())), parameters), true)),
-            Term::SelfType => Err("indexed recursive fields require #pt-self-at with explicit indices".into()),
-            Term::SelfAt(indices) => {
-                if index_count == 0 || indices.len() != index_count {
-                    return Err("#pt-self-at index count does not match the indexed family".into());
-                }
-                if indices.iter().any(|index| contains_recursive(index, name)) {
-                    return Err("recursive occurrences in an index violate strict positivity".into());
-                }
-                Ok((apps(apps(term(Term::Global(name.into(), levels.to_vec())), parameters), indices), true))
-            }
-            _ => Err("recursive fields must end in #pt-self or #pt-self-at through strictly positive Pi codomains (strict positivity)".into()),
-        }
+        self.declare_group(vec![InductiveInput {
+            name: name.into(),
+            universes,
+            parameters,
+            indices,
+            sort,
+            constructors,
+        }])
     }
     fn specialization(
         &mut self,
@@ -479,7 +341,7 @@ impl Kernel {
         levels: &[Level],
         constructor: &str,
         depth: usize,
-    ) -> Result<(T, Vec<bool>)> {
+    ) -> Result<(T, Vec<Option<String>>)> {
         let (family, map) = self.family(name, levels, depth)?;
         let ctor = family
             .constructors
@@ -671,7 +533,24 @@ impl Kernel {
                 subject,
                 depth + 1,
             ),
-            Term::SelfType | Term::SelfAt(_) => Err(
+            Term::MutualInduct {
+                family,
+                levels,
+                parameters,
+                indices,
+                cases,
+                subject,
+            } => self.mutual_induction(
+                ctx,
+                family,
+                levels,
+                parameters,
+                indices,
+                cases,
+                subject,
+                depth + 1,
+            ),
+            Term::SelfType | Term::SelfAt(_) | Term::Recur(..) => Err(
                 "recursive markers are only valid in strictly positive inductive field codomains"
                     .into(),
             ),
@@ -738,246 +617,6 @@ impl Kernel {
         self.sort(ctx, &result, depth + 1)?;
         Ok(result)
     }
-    #[expect(clippy::too_many_arguments)]
-    fn induction(
-        &mut self,
-        ctx: &[T],
-        name: &str,
-        levels: &[Level],
-        parameters: &[T],
-        indices: &[T],
-        motive: &T,
-        branches: &[T],
-        subject: &T,
-        depth: usize,
-    ) -> Result<T> {
-        let (desc, map) = self.family(name, levels, depth + 1)?;
-        if parameters.len() != desc.parameters.len()
-            || indices.len() != desc.indices.len()
-            || branches.len() != desc.constructors.len()
-        {
-            return Err("induction parameter, index, or branch count mismatch".into());
-        }
-        let (decl, _) = self.specialization(name, levels, depth + 1)?;
-        let ty = self.universes(&decl.ty, &map, depth + 1)?;
-        let index_telescope = self.arguments(ctx, ty, parameters, depth + 1)?;
-        self.arguments(ctx, index_telescope.clone(), indices, depth + 1)?;
-        let family = apps(term(Term::Global(name.into(), levels.to_vec())), parameters);
-        let family_type = apps(family.clone(), indices);
-        self.check(ctx, subject, &family_type, depth + 1)?;
-        // Validate the motive at fresh generic indices. Checking it only at
-        // this subject's concrete indices would accept a frozen-index motive.
-        let mut mt = self.infer(ctx, motive, depth + 1)?;
-        let mut telescope = index_telescope;
-        let mut motive_context = ctx.to_vec();
-        let mut generic_family = family;
-        for _ in &desc.indices {
-            let expected = self.whnf(&motive_context, &telescope, depth + 1)?;
-            let actual = self.whnf(&motive_context, &mt, depth + 1)?;
-            let (Term::Pi(domain, rest), Term::Pi(actual_domain, actual_rest)) =
-                (expected.as_ref(), actual.as_ref())
-            else {
-                return Err("induction motive must bind every index".into());
-            };
-            if !self.convertible(&motive_context, domain, actual_domain, depth + 1)? {
-                return Err("induction motive has the wrong index type".into());
-            }
-            motive_context.push(domain.clone());
-            telescope = rest.clone();
-            mt = actual_rest.clone();
-            generic_family = term(Term::App(
-                self.shift(&generic_family, 1, 0, depth + 1)?,
-                term(Term::Var(0)),
-            ));
-        }
-        let mt = self.whnf(&motive_context, &mt, depth + 1)?;
-        let Term::Pi(domain, range) = mt.as_ref() else {
-            return Err("induction motive must bind its subject".into());
-        };
-        if !self.convertible(&motive_context, domain, &generic_family, depth + 1)? {
-            return Err("induction motive has the wrong generic subject type".into());
-        }
-        motive_context.push(domain.clone());
-        if !matches!(
-            self.whnf(&motive_context, range, depth + 1)?.as_ref(),
-            Term::Sort(_)
-        ) {
-            return Err("induction motive must return a fixed universe sort".into());
-        }
-        let result = apps(apps(motive.clone(), indices), std::slice::from_ref(subject));
-        let target_sort = self.sort(ctx, &result, depth + 1)?;
-        if !desc.large
-            && !desc
-                .sort
-                .substitute(&map)?
-                .zero_implies_zero(&target_sort)?
-        {
-            return Err("large elimination from this proposition is forbidden".into());
-        }
-        for (ctor, branch) in desc.constructors.iter().zip(branches) {
-            let expected =
-                self.branch_type(ctx, name, levels, parameters, motive, ctor, depth + 1)?;
-            self.check(ctx, branch, &expected, depth + 1)?;
-        }
-        Ok(result)
-    }
-    #[expect(clippy::too_many_arguments)]
-    fn branch_type(
-        &mut self,
-        ctx: &[T],
-        name: &str,
-        levels: &[Level],
-        parameters: &[T],
-        motive: &T,
-        ctor: &Constructor,
-        depth: usize,
-    ) -> Result<T> {
-        let (mut ty, recursive) = self.constructor_type(name, levels, &ctor.name, depth + 1)?;
-        // The parameter application was already checked by induction.
-        for parameter in parameters {
-            let reduced = self.whnf(ctx, &ty, depth + 1)?;
-            let Term::Pi(_, body) = reduced.as_ref() else {
-                return Err("invalid constructor telescope".into());
-            };
-            ty = self.instantiate(body, parameter, depth + 1)?;
-        }
-        let mut domains = vec![];
-        let mut inner = ctx.to_vec();
-        let mut args: Vec<T> = vec![];
-        let mut params = parameters.to_vec();
-        let mut motive = motive.clone();
-        for is_recursive in recursive {
-            let reduced = self.whnf(&inner, &ty, depth + 1)?;
-            let Term::Pi(domain, body) = reduced.as_ref() else {
-                return Err("invalid constructor field telescope".into());
-            };
-            domains.push(domain.clone());
-            inner.push(domain.clone());
-            ty = body.clone();
-            args = self.shift_many(&args, 1, depth + 1)?;
-            args.push(term(Term::Var(0)));
-            params = self.shift_many(&params, 1, depth + 1)?;
-            motive = self.shift(&motive, 1, 0, depth + 1)?;
-            if is_recursive {
-                let field_type = self.shift(domain, 1, 0, depth + 1)?;
-                let ih = self.recursive_hypothesis_type(
-                    &inner,
-                    name,
-                    levels,
-                    &params,
-                    &motive,
-                    &field_type,
-                    &term(Term::Var(0)),
-                    depth + 1,
-                )?;
-                domains.push(ih.clone());
-                inner.push(ih);
-                ty = self.shift(&ty, 1, 0, depth + 1)?;
-                args = self.shift_many(&args, 1, depth + 1)?;
-                params = self.shift_many(&params, 1, depth + 1)?;
-                motive = self.shift(&motive, 1, 0, depth + 1)?;
-            }
-        }
-        let result_indices = self.family_indices(&inner, name, levels, &params, &ty, depth + 1)?;
-        let value = term(Term::Ctor {
-            family: name.into(),
-            levels: levels.to_vec(),
-            parameters: params,
-            constructor: ctor.name.clone(),
-            fields: args,
-        });
-        Ok(pis(
-            &domains,
-            term(Term::App(apps(motive, &result_indices), value)),
-        ))
-    }
-    #[expect(clippy::too_many_arguments)]
-    fn recursive_hypothesis_type(
-        &mut self,
-        ctx: &[T],
-        name: &str,
-        levels: &[Level],
-        parameters: &[T],
-        motive: &T,
-        field_type: &T,
-        field: &T,
-        depth: usize,
-    ) -> Result<T> {
-        self.tick(depth)?;
-        let shape = self.whnf(ctx, field_type, depth + 1)?;
-        if let Term::Pi(domain, range) = shape.as_ref() {
-            let mut inner = ctx.to_vec();
-            inner.push(domain.clone());
-            let parameters = self.shift_many(parameters, 1, depth + 1)?;
-            let motive = self.shift(motive, 1, 0, depth + 1)?;
-            let applied = term(Term::App(
-                self.shift(field, 1, 0, depth + 1)?,
-                term(Term::Var(0)),
-            ));
-            let result = self.recursive_hypothesis_type(
-                &inner,
-                name,
-                levels,
-                &parameters,
-                &motive,
-                range,
-                &applied,
-                depth + 1,
-            )?;
-            return Ok(term(Term::Pi(domain.clone(), result)));
-        }
-        let indices = self.family_indices(ctx, name, levels, parameters, &shape, depth + 1)?;
-        Ok(apps(apps(motive.clone(), &indices), &[field.clone()]))
-    }
-    #[expect(clippy::too_many_arguments)]
-    fn recursive_hypothesis_value(
-        &mut self,
-        ctx: &[T],
-        name: &str,
-        levels: &[Level],
-        parameters: &[T],
-        motive: &T,
-        branches: &[T],
-        field_type: &T,
-        field: &T,
-        depth: usize,
-    ) -> Result<T> {
-        self.tick(depth)?;
-        let shape = self.whnf(ctx, field_type, depth + 1)?;
-        if let Term::Pi(domain, range) = shape.as_ref() {
-            let mut inner = ctx.to_vec();
-            inner.push(domain.clone());
-            let parameters = self.shift_many(parameters, 1, depth + 1)?;
-            let motive = self.shift(motive, 1, 0, depth + 1)?;
-            let branches = self.shift_many(branches, 1, depth + 1)?;
-            let applied = term(Term::App(
-                self.shift(field, 1, 0, depth + 1)?,
-                term(Term::Var(0)),
-            ));
-            let result = self.recursive_hypothesis_value(
-                &inner,
-                name,
-                levels,
-                &parameters,
-                &motive,
-                &branches,
-                range,
-                &applied,
-                depth + 1,
-            )?;
-            return Ok(term(Term::Lam(domain.clone(), result)));
-        }
-        let indices = self.family_indices(ctx, name, levels, parameters, &shape, depth + 1)?;
-        Ok(term(Term::Induct {
-            family: name.into(),
-            levels: levels.to_vec(),
-            parameters: parameters.to_vec(),
-            indices,
-            motive: motive.clone(),
-            branches: branches.to_vec(),
-            subject: field.clone(),
-        }))
-    }
     fn family_indices(
         &mut self,
         ctx: &[T],
@@ -1035,13 +674,11 @@ impl Kernel {
         let Some(family) = self.declarations.get(name).and_then(|d| d.family.clone()) else {
             return Ok(None);
         };
-        if !family.indices.is_empty()
+        if family.group.len() != 1
+            || !family.indices.is_empty()
             || family.parameters.len() != parameters.len()
             || family.constructors.len() != 1
-            || family.constructors[0]
-                .recursive
-                .iter()
-                .any(|recursive| *recursive)
+            || family.constructors[0].recursive.iter().any(Option::is_some)
         {
             return Ok(None);
         }
@@ -1198,128 +835,48 @@ impl Kernel {
                     branches,
                     subject,
                 } => {
-                    let subject = self.whnf(ctx, subject, depth + 1)?;
-                    let (desc, map) = self.family(family, levels, depth + 1)?;
-                    let Term::Ctor {
-                        family: actual,
-                        constructor,
-                        fields,
-                        ..
-                    } = subject.as_ref()
-                    else {
-                        // Unindexed fieldless singletons have unit conversion.
-                        // Indexed propositions instead require a matching fibre:
-                        // proof irrelevance cannot identify different indices.
-                        if desc.constructors.len() == 1 && desc.constructors[0].fields.is_empty() {
-                            let mut reduces = desc.indices.is_empty();
-                            if !reduces && desc.sort.substitute(&map)?.zero() {
-                                let (ty, _) = self.constructor_type(
-                                    family,
-                                    levels,
-                                    &desc.constructors[0].name,
-                                    depth + 1,
-                                )?;
-                                let ty = self.arguments(ctx, ty, parameters, depth + 1)?;
-                                let result_indices = self.family_indices(
-                                    ctx,
-                                    family,
-                                    levels,
-                                    parameters,
-                                    &ty,
-                                    depth + 1,
-                                )?;
-                                reduces =
-                                    self.same_many(ctx, indices, &result_indices, depth + 1)?;
-                            }
-                            if reduces {
-                                value = branches
-                                    .first()
-                                    .cloned()
-                                    .ok_or("missing induction branch")?;
-                                continue;
-                            }
-                        }
-                        // Record eta must also respect recursor computation:
-                        // eliminate the reconstruction from its projections.
-                        // Do not synthesize forbidden data projections out of
-                        // Prop, even for a proof-valued elimination.
-                        if desc.indices.is_empty()
-                            && desc.constructors.len() == 1
-                            && !desc.constructors[0].recursive.iter().any(|r| *r)
-                            && (desc.large
-                                || desc
-                                    .sort
-                                    .substitute(&map)?
-                                    .zero_implies_zero(&Level::number(1)?)?)
-                        {
-                            let mut result = branches
-                                .first()
-                                .cloned()
-                                .ok_or("missing induction branch")?;
-                            for index in 0..desc.constructors[0].fields.len() {
-                                result = term(Term::App(
-                                    result,
-                                    term(Term::Project {
-                                        family: family.clone(),
-                                        index,
-                                        subject: subject.clone(),
-                                    }),
-                                ));
-                            }
-                            value = result;
-                            continue;
-                        }
+                    let cases = [RecursionCase {
+                        family: family.clone(),
+                        motive: motive.clone(),
+                        branches: branches.clone(),
+                    }];
+                    if let Some(reduced) = self.reduce_induction(
+                        ctx,
+                        family,
+                        levels,
+                        parameters,
+                        indices,
+                        &cases,
+                        subject,
+                        depth + 1,
+                    )? {
+                        value = reduced;
+                    } else {
                         return Ok(value);
-                    };
-                    if actual != family {
-                        return Err("induction subject belongs to a different family".into());
                     }
-                    let index = desc
-                        .constructors
-                        .iter()
-                        .position(|c| &c.name == constructor)
-                        .ok_or("invalid induction constructor")?;
-                    let mut result = branches
-                        .get(index)
-                        .cloned()
-                        .ok_or("missing induction branch")?;
-                    let (mut telescope, _) =
-                        self.constructor_type(family, levels, constructor, depth + 1)?;
-                    for parameter in parameters {
-                        let reduced = self.whnf(ctx, &telescope, depth + 1)?;
-                        let Term::Pi(_, body) = reduced.as_ref() else {
-                            return Err("invalid constructor parameter telescope".into());
-                        };
-                        telescope = self.instantiate(body, parameter, depth + 1)?;
+                }
+                Term::MutualInduct {
+                    family,
+                    levels,
+                    parameters,
+                    indices,
+                    cases,
+                    subject,
+                } => {
+                    if let Some(reduced) = self.reduce_induction(
+                        ctx,
+                        family,
+                        levels,
+                        parameters,
+                        indices,
+                        cases,
+                        subject,
+                        depth + 1,
+                    )? {
+                        value = reduced;
+                    } else {
+                        return Ok(value);
                     }
-                    for (field, recursive) in fields.iter().zip(&desc.constructors[index].recursive)
-                    {
-                        let reduced = self.whnf(ctx, &telescope, depth + 1)?;
-                        let Term::Pi(domain, body) = reduced.as_ref() else {
-                            return Err("invalid constructor field telescope".into());
-                        };
-                        let ih = if *recursive {
-                            Some(self.recursive_hypothesis_value(
-                                ctx,
-                                family,
-                                levels,
-                                parameters,
-                                motive,
-                                branches,
-                                domain,
-                                field,
-                                depth + 1,
-                            )?)
-                        } else {
-                            None
-                        };
-                        telescope = self.instantiate(body, field, depth + 1)?;
-                        result = term(Term::App(result, field.clone()));
-                        if let Some(ih) = ih {
-                            result = term(Term::App(result, ih));
-                        }
-                    }
-                    value = result;
                 }
                 _ => return Ok(value),
             }
@@ -1424,6 +981,41 @@ impl Kernel {
                 && self.convertible(ctx, m, n, depth + 1)?
                 && self.same_many(ctx, r, t, depth + 1)?
                 && self.convertible(ctx, s, w, depth + 1)?),
+            (
+                Term::MutualInduct {
+                    family: a,
+                    levels: u,
+                    parameters: p,
+                    indices: i,
+                    cases: c,
+                    subject: s,
+                },
+                Term::MutualInduct {
+                    family: b,
+                    levels: v,
+                    parameters: q,
+                    indices: j,
+                    cases: d,
+                    subject: t,
+                },
+            ) => {
+                let mut equal = a == b
+                    && same_levels(u, v)?
+                    && self.same_many(ctx, p, q, depth + 1)?
+                    && self.same_many(ctx, i, j, depth + 1)?
+                    && c.len() == d.len();
+                if equal {
+                    for (c, d) in c.iter().zip(d) {
+                        equal = c.family == d.family
+                            && self.convertible(ctx, &c.motive, &d.motive, depth + 1)?
+                            && self.same_many(ctx, &c.branches, &d.branches, depth + 1)?;
+                        if !equal {
+                            break;
+                        }
+                    }
+                }
+                Ok(equal && self.convertible(ctx, s, t, depth + 1)?)
+            }
             (
                 Term::EqElim {
                     ty: a,
@@ -1537,7 +1129,8 @@ impl Kernel {
             .get(name)
             .and_then(|declaration| declaration.family.as_ref())
             .is_some_and(|family| {
-                family.parameters.len() == supplied
+                family.group.len() == 1
+                    && family.parameters.len() == supplied
                     && family.indices.is_empty()
                     && family.constructors.len() == 1
                     && family.constructors[0].fields.is_empty()
@@ -1728,6 +1321,37 @@ impl Kernel {
             },
             Term::SelfType => Term::SelfType,
             Term::SelfAt(indices) => Term::SelfAt(many!(indices)),
+            Term::Recur(name, indices) => Term::Recur(name.clone(), many!(indices)),
+            Term::MutualInduct {
+                family,
+                levels,
+                parameters,
+                indices,
+                cases,
+                subject,
+            } => Term::MutualInduct {
+                family: family.clone(),
+                levels: levels.iter().map(&mut *level).collect::<Result<_>>()?,
+                parameters: many!(parameters),
+                indices: many!(indices),
+                cases: cases
+                    .iter()
+                    .map(|case| {
+                        Ok(RecursionCase {
+                            family: case.family.clone(),
+                            motive: self.transform(&case.motive, binders, depth + 1, var, level)?,
+                            branches: case
+                                .branches
+                                .iter()
+                                .map(|branch| {
+                                    self.transform(branch, binders, depth + 1, var, level)
+                                })
+                                .collect::<Result<_>>()?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+                subject: walk!(subject),
+            },
         }))
     }
 }
@@ -1745,9 +1369,12 @@ fn pis(domains: &[T], mut body: T) -> T {
 }
 fn contains_recursive(t: &T, name: &str) -> bool {
     match t.as_ref() {
-        Term::SelfType | Term::SelfAt(_) => true,
+        Term::SelfType | Term::SelfAt(_) | Term::Recur(..) => true,
         Term::Global(global, _) if global == name => true,
-        Term::Ctor { family, .. } | Term::Induct { family, .. } | Term::Project { family, .. }
+        Term::Ctor { family, .. }
+        | Term::Induct { family, .. }
+        | Term::MutualInduct { family, .. }
+        | Term::Project { family, .. }
             if family == name =>
         {
             true
@@ -1794,6 +1421,24 @@ fn contains_recursive(t: &T, name: &str) -> bool {
             .chain(branches)
             .chain([motive, subject])
             .any(|t| contains_recursive(t, name)),
+        Term::MutualInduct {
+            parameters,
+            indices,
+            cases,
+            subject,
+            ..
+        } => {
+            parameters
+                .iter()
+                .chain(indices)
+                .chain(std::iter::once(subject))
+                .any(|t| contains_recursive(t, name))
+                || cases.iter().any(|case| {
+                    case.family == name
+                        || contains_recursive(&case.motive, name)
+                        || case.branches.iter().any(|t| contains_recursive(t, name))
+                })
+        }
         _ => false,
     }
 }

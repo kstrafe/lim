@@ -263,6 +263,14 @@ Constructor output indices see all constructor fields. Each constructor gets a
 separate sequential field scope; fields never escape into another constructor.
 Constructor names navigate to their declaration tokens in either form.
 
+A mutual family places `(#mutual FAMILY...)` after its parameter list and
+before the optional `#indices` clause. Every member remains a top-level
+`#math-inductive`; the ordered family list is shared by all members. In
+mutual induction, `#pt-recur FAMILY (indices...)` resolves its family as a
+declaration role and its indices as terms. `#pt-mutual-induct` uses explicit
+indices and ordered `(FAMILY MOTIVE (BRANCHES...))` bundles; family keys are
+metadata and motives, branches, and subject use ordinary term scopes.
+
 A mathematical theorem uses shared explicit binders:
 
 ```lim
@@ -329,7 +337,10 @@ and types. They preserve canonical declaration identity through aliases,
 imports and the final file scope for generated names. Explicit level arguments
 always occupy a list, including the empty list.
 
-`#pt-construct` and `#pt-induct` select a `#math-inductive` declaration. Explicit
+`#pt-construct` and `#pt-induct` select a `#math-inductive` declaration. Mutual
+declarations also support `#pt-recur` and bundled `#pt-mutual-induct`; their
+family names resolve to declaration tokens while indices and bundle terms
+retain term roles. Explicit
 levels use the universe scope; parameter values use the current term scope.
 Indexed `#pt-induct` adds an index expression list after the parameter list;
 those expressions, the shifted motive, branches and subject use the current term
@@ -352,6 +363,21 @@ remain local to that recursive field: they do not enter constructor result
 indices or later field types. Constructor-label navigation continues to select
 the constructor declaration. Tests cover these roles and the negative scope
 boundaries in `tests/kernel_navigation.rs`.
+
+An optional `#mutual` clause precedes any `#indices` clause. Every member in
+that header is a global inductive reference, never a term binder. Header
+layout validation shifts index, sort and constructor positions together, so
+constructor label lookups still select the correct family and source range.
+`#pt-recur` treats its first operand as a global family and its second as a
+container of index terms. `#pt-mutual-induct` separates universe metadata,
+parameter values, the explicit index clause, a list of family/motive/branch
+bundles and the subject. Bundle keys are global references; motives and branch
+lists use the current lexical term scope without leaking their binders into
+siblings. Missing clauses, malformed containers and invalid group metadata
+have no runtime or global-spelling fallback. Generated member lookups use
+the checked expanded declarations. Exact ranges, aliases and malformed roles
+are covered in `tests/kernel_navigation.rs` and
+`tests/kernel_mutual_resolution.rs`.
 
 `(#pt-project FAMILY INDEX SUBJECT)` selects a `#math-inductive` family and a
 zero-based field ordinal. The ordinal is an explicit untyped nonnegative

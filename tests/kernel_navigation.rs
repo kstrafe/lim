@@ -11,6 +11,105 @@ fn quoted(s: &str) -> String {
 }
 
 #[test]
+fn mutual_headers_recursive_targets_and_constructor_offsets_have_explicit_roles() {
+    run(
+        r#"
+      (#math-inductive [[left|left]] (u) ((A (#pt-type u)))
+        (#mutual [[header-left|left]] [[header-right|right]])
+        (#indices (#parameter generic-index #pt-nat)) (#pt-type u)
+        ((wrap (([[field|k]] #pt-nat)
+                 (child (#pt-recur [[target|right]] ([[child-index|k]]))))
+          ([[result-index|k]]))))
+      (#math-inductive [[right|right]] (u) ((A (#pt-type u)))
+        (#mutual left right) (#indices (#parameter generic-index #pt-nat)) (#pt-type u)
+        (([[label|leaf]] () (#pt-zero))))
+      (#math-definition use (u) (#pt-type u)
+        (#pt-construct right (u) (#pt-nat) [[label-use|leaf]] ()))
+      (#math-definition outside () #pt-nat (#pt-recur right ([[outside|k]])))
+    "#,
+        &[
+            ("header-left", &["left"]),
+            ("header-right", &["right"]),
+            ("target", &["right"]),
+            ("child-index", &["field"]),
+            ("result-index", &["field"]),
+            ("label-use", &["label"]),
+            ("outside", &[]),
+        ],
+    );
+}
+
+#[test]
+fn mutual_eliminator_uses_global_case_keys_and_lexical_term_scopes() {
+    run(
+        r#"
+      (#math-inductive [[left|left]] () () (#mutual left right) (#pt-type 0) ((make ())))
+      (#math-inductive [[right|right]] () () (#mutual left right) (#pt-type 0) ((end ())))
+      (#math-definition fold () (#pt-pi ((value (#pt-use left ()))) #pt-nat)
+        (#pt-lambda (([[outer|value]] (#pt-use left ())))
+          (#pt-mutual-induct [[selected|left]] () () (#indices)
+            (([[case-left|left]] (#pt-lambda (([[binder|right]] (#pt-use left ())))
+                (#pt-pi ((unused (#pt-eq (#pt-use left ()) [[body|right]] right))) #pt-nat))
+               ((#pt-lambda ((proof (#pt-eq (#pt-use left ()) (#pt-construct left () () make ()) (#pt-construct left () () make ())))) #pt-zero)))
+             ([[case-right|right]] (#pt-lambda ((subject (#pt-use right ()))) #pt-nat) (#pt-zero)))
+            [[subject|value]])))
+      (#math-definition after () #pt-nat (#pt-recur right ([[leak|value]])))
+    "#,
+        &[
+            ("selected", &["left"]),
+            ("case-left", &["left"]),
+            ("case-right", &["right"]),
+            ("body", &["binder"]),
+            ("subject", &["outer"]),
+            ("leak", &[]),
+        ],
+    );
+}
+
+#[test]
+fn generated_mutual_members_resolve_through_checked_expansion() {
+    run(
+        r#"
+      (#gn emit () `(
+        (#math-inductive first () () (#mutual first second) (#pt-type 0) ((make ())))
+        (#math-inductive second () () (#mutual first second) (#pt-type 0) ((end ())))))
+      (#generate emit)
+      (#math-definition use () #pt-nat
+        (#pt-mutual-induct [[selected|first]] () () (#indices)
+          (([[case|first]] (#pt-lambda ((x (#pt-use first ()))) #pt-nat) (#pt-zero))
+           (second (#pt-lambda ((x (#pt-use second ()))) #pt-nat) (#pt-zero)))
+          (#pt-construct first () () make ())))
+    "#,
+        &[
+            ("selected", &["generated:first"]),
+            ("case", &["generated:first"]),
+        ],
+    );
+}
+
+#[test]
+fn malformed_mutual_roles_have_no_global_spelling_fallback() {
+    for value in [
+        "(#pt-recur [[query|left]] #pt-zero)",
+        "(#pt-recur [[query|left]] () extra)",
+        "(#pt-mutual-induct [[query|left]] () () (#indices) ((left #pt-zero ())) #pt-zero)",
+        "(#pt-mutual-induct left () () (#indices) (([[query|left]] #pt-zero #pt-zero) (right #pt-zero ())) #pt-zero)",
+    ] {
+        let source=format!(r#"
+          (#math-inductive left () () (#mutual left right) (#pt-type 0) ((make ())))
+          (#math-inductive right () () (#mutual left right) (#pt-type 0) ((end ())))
+          (#math-definition bad () #pt-nat {value})"#);
+        run(&source,&[("query",&[])]);
+    }
+    run(
+        r#"
+      (#math-inductive left () () (#mutual left [[query|left]]) (#pt-type 0) ((make ())))
+    "#,
+        &[("query", &[])],
+    );
+}
+
+#[test]
 fn sort_and_imax_operands_navigate_only_their_universe_binders() {
     run(
         r#"

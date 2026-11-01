@@ -4,7 +4,7 @@
 mod core;
 mod level;
 use crate::{Expr, Item};
-use core::{apps, term, Kernel, Level, Term, T};
+use core::{apps, term, InductiveInput, Kernel, Level, RecursionCase, Term, T};
 use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;
 
@@ -18,6 +18,7 @@ enum Body {
         theorem: bool,
     },
     Inductive {
+        members: Vec<String>,
         parameters: Vec<T>,
         indices: Vec<T>,
         sort: Level,
@@ -69,45 +70,133 @@ pub(super) fn check(
             }
         }
     }
+    let by_name = pending
+        .iter()
+        .map(|p| (p.name.as_str(), p))
+        .collect::<std::collections::HashMap<_, _>>();
+    // Membership is explicit and reciprocal; ordinary declaration cycles
+    // never authorize a mutual group implicitly.
+    for p in &pending {
+        if let Body::Inductive { members, .. } = &p.body {
+            for name in members {
+                let Some(other) = by_name.get(name.as_str()) else {
+                    return Err((
+                        p.name.clone(),
+                        format!("unknown mutual group family '{name}'"),
+                    ));
+                };
+                if !matches!(&other.body, Body::Inductive { members: other_members, .. } if other_members == members)
+                {
+                    return Err((
+                        p.name.clone(),
+                        "mutual group membership must be identical on every inductive member"
+                            .into(),
+                    ));
+                }
+            }
+        }
+    }
     while !pending.is_empty() {
-        let Some(index) = pending
+        let positions = pending
             .iter()
-            .position(|p| p.dependencies.iter().all(|d| kernel.contains(d)))
-        else {
+            .enumerate()
+            .map(|(index, p)| (p.name.as_str(), index))
+            .collect::<std::collections::HashMap<_, _>>();
+        let Some(index) = pending.iter().position(|p| {
+            let members = match &p.body {
+                Body::Inductive { members, .. } => members.as_slice(),
+                _ => std::slice::from_ref(&p.name),
+            };
+            members.iter().all(|member| {
+                positions.get(member.as_str()).is_some_and(|position| {
+                    pending[*position].dependencies.iter().all(|dependency| {
+                        kernel.contains(dependency)
+                            || matches!(&p.body, Body::Inductive { .. })
+                                && members.contains(dependency)
+                    })
+                })
+            })
+        }) else {
             return Err((
                 pending[0].name.clone(),
                 "cyclic kernel declaration dependencies are forbidden; use structural induction"
                     .into(),
             ));
         };
-        let p = pending.remove(index);
-        kernel.reset_budget();
-        let result = match p.body {
-            Body::Definition { ty, value, theorem } => {
-                kernel.definition(&p.name, p.universes, ty, value, theorem)
-            }
-            Body::Inductive {
-                parameters,
-                indices,
-                sort,
-                constructors,
-                indexed_constructors,
-            } => {
-                if indices.is_empty() {
-                    kernel.inductive(&p.name, p.universes, parameters, sort, constructors)
-                } else {
-                    kernel.indexed_inductive(
-                        &p.name,
-                        p.universes,
-                        parameters,
-                        indices,
-                        sort,
-                        indexed_constructors,
-                    )
-                }
-            }
+        let members = match &pending[index].body {
+            Body::Inductive { members, .. } => members.clone(),
+            _ => vec![pending[index].name.clone()],
         };
-        result.map_err(|why| (p.name, why))?;
+        let diagnostic = pending[index].name.clone();
+        kernel.reset_budget();
+        let result = if members.len() > 1 {
+            let mut inputs = vec![];
+            for member in members {
+                let at = pending
+                    .iter()
+                    .position(|p| p.name == member)
+                    .ok_or_else(|| (diagnostic.clone(), "missing mutual group member".into()))?;
+                let p = pending.remove(at);
+                let Body::Inductive {
+                    parameters,
+                    indices,
+                    sort,
+                    constructors,
+                    indexed_constructors,
+                    ..
+                } = p.body
+                else {
+                    unreachable!()
+                };
+                let constructors = if indices.is_empty() {
+                    constructors
+                        .into_iter()
+                        .map(|(name, fields)| (name, fields, vec![]))
+                        .collect()
+                } else {
+                    indexed_constructors
+                };
+                inputs.push(InductiveInput {
+                    name: p.name,
+                    universes: p.universes,
+                    parameters,
+                    indices,
+                    sort,
+                    constructors,
+                });
+            }
+            kernel.mutual_inductive(inputs)
+        } else {
+            let p = pending.remove(index);
+            let result = match p.body {
+                Body::Definition { ty, value, theorem } => {
+                    kernel.definition(&p.name, p.universes, ty, value, theorem)
+                }
+                Body::Inductive {
+                    parameters,
+                    indices,
+                    sort,
+                    constructors,
+                    indexed_constructors,
+                    ..
+                } => {
+                    if indices.is_empty() {
+                        kernel.inductive(&p.name, p.universes, parameters, sort, constructors)
+                    } else {
+                        kernel.indexed_inductive(
+                            &p.name,
+                            p.universes,
+                            parameters,
+                            indices,
+                            sort,
+                            indexed_constructors,
+                        )
+                    }
+                }
+            };
+            result.map_err(|why| (diagnostic.clone(), why))
+        };
+        result?;
     }
     Ok(())
 }
@@ -115,11 +204,8 @@ pub(super) fn check(
 fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result<Pending> {
     let (head, args) = form(expr)?;
     if head == "#proof-inductive" {
-        if !matches!(args.len(), 4 | 5) {
-            return Err(
-                "#proof-inductive requires four regular operands or five operands with #indices"
-                    .into(),
-            );
+        if !(4..=6).contains(&args.len()) {
+            return Err("#proof-inductive requires parameters, optional #mutual then #indices clauses, sort, and constructors".into());
         }
     } else {
         arity(head, args, 3)?;
@@ -145,9 +231,35 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
     };
     let body = if head == "#proof-inductive" {
         let parameters = parser.bindings(&args[1], 0)?;
-        let indexed = args.len() == 5;
+        let mut offset = 2;
+        let members = if matches!(args.get(offset), Some(Expr::List(parts)) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#mutual"))
+        {
+            let clause = list(&args[offset])?;
+            if !(3..=17).contains(&clause.len()) {
+                return Err("#mutual requires between 2 and 16 explicit family names".into());
+            }
+            let members = clause[1..]
+                .iter()
+                .map(|member| parser.global(member))
+                .collect::<Result<Vec<_>>>()?;
+            if members.iter().collect::<HashSet<_>>().len() != members.len()
+                || !members.iter().any(|member| member == name)
+            {
+                return Err(
+                    "#mutual must list distinct families including this declaration".into(),
+                );
+            }
+            offset += 1;
+            members
+        } else {
+            vec![name.into()]
+        };
+        let indexed = matches!(args.get(offset), Some(Expr::List(parts)) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#indices"));
+        if args.len() != offset + usize::from(indexed) + 2 {
+            return Err("invalid inductive header clauses or operand count".into());
+        }
         let (indices, sort_arg, constructors_arg) = if indexed {
-            let clause = list(&args[2])?;
+            let clause = list(&args[offset])?;
             if clause.first().map(|e| symbol(e)).transpose()? != Some("#indices") {
                 return Err("indexed inductives require an explicit #indices clause".into());
             }
@@ -173,9 +285,9 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
                 parser.locals.push(name.into());
                 indices.push(ty);
             }
-            (indices, &args[3], &args[4])
+            (indices, &args[offset + 1], &args[offset + 2])
         } else {
-            (vec![], &args[2], &args[3])
+            (vec![], &args[offset], &args[offset + 1])
         };
         let sort = parser.expression(sort_arg, 0)?;
         let Term::Sort(sort) = sort.as_ref() else {
@@ -225,6 +337,7 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
             return Err("kernel constructor limit exceeded".into());
         }
         Body::Inductive {
+            members,
             parameters,
             indices: indices.to_vec(),
             sort: sort.clone(),
@@ -240,6 +353,11 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
             theorem: head == "#proof-theorem",
         }
     };
+    if let Body::Inductive { members, .. } = &body {
+        for member in members {
+            parser.dependencies.remove(member);
+        }
+    }
     Ok(Pending {
         name: name.into(),
         universes,
@@ -406,6 +524,26 @@ impl Parser<'_> {
             "#pt-nat-induct"=>{arity(head,args,4)?;Ok(term(Term::Induct{family:"#pt-nat".into(),levels:vec![],parameters:vec![],indices:vec![],motive:self.expression(&args[0],depth+1)?,branches:vec![self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?],subject:self.expression(&args[3],depth+1)?}))},
             "#pt-construct"=>{arity(head,args,5)?;let family=self.global(&args[0])?;Ok(term(Term::Ctor{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,constructor:symbol(&args[3])?.into(),fields:self.terms(&args[4],depth+1)?}))},
             "#pt-self-at"=>{arity(head,args,1)?;Ok(term(Term::SelfAt(self.terms(&args[0],depth+1)?)))},
+            "#pt-recur"=>{arity(head,args,2)?;Ok(term(Term::Recur(self.global(&args[0])?,self.terms(&args[1],depth+1)?)))},
+            "#pt-mutual-induct" => {
+                arity(head, args, 6)?;
+                let family = self.global(&args[0])?;
+                let levels = self.levels(&args[1], depth + 1)?;
+                let parameters = self.terms(&args[2], depth + 1)?;
+                let clause = list(&args[3])?;
+                if clause.first().map(symbol).transpose()? != Some("#indices") || clause.len() > 65 {
+                    return Err("#pt-mutual-induct requires an explicit #indices clause with at most 64 values".into());
+                }
+                let indices = clause[1..].iter().map(|index| self.expression(index, depth + 1)).collect::<Result<Vec<_>>>()?;
+                let bundles = list(&args[4])?;
+                if !(2..=16).contains(&bundles.len()) { return Err("#pt-mutual-induct requires between 2 and 16 family cases".into()); }
+                let cases = bundles.iter().map(|bundle| {
+                    let parts = list(bundle)?;
+                    if parts.len() != 3 { return Err("mutual cases require (Family Motive (Branches...))".into()); }
+                    Ok(RecursionCase { family: self.global(&parts[0])?, motive: self.expression(&parts[1], depth + 1)?, branches: self.terms(&parts[2], depth + 1)? })
+                }).collect::<Result<Vec<_>>>()?;
+                Ok(term(Term::MutualInduct { family, levels, parameters, indices, cases, subject: self.expression(&args[5], depth + 1)? }))
+            },
             "#pt-induct"=>{if args.len()==6{let family=self.global(&args[0])?;Ok(term(Term::Induct{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,indices:vec![],motive:self.expression(&args[3],depth+1)?,branches:self.terms(&args[4],depth+1)?,subject:self.expression(&args[5],depth+1)?}))}else if args.len()==7{let clause=list(&args[3])?;if clause.first().map(|e|symbol(e)).transpose()?!=Some("#indices"){return Err("indexed #pt-induct requires an explicit #indices clause".into());}if clause.len()<2||clause.len()>65{return Err("#pt-induct #indices requires between 1 and 64 index values".into());}let indices=clause[1..].iter().map(|e|self.expression(e,depth+1)).collect::<Result<Vec<_>>>()?;let family=self.global(&args[0])?;Ok(term(Term::Induct{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,indices,motive:self.expression(&args[4],depth+1)?,branches:self.terms(&args[5],depth+1)?,subject:self.expression(&args[6],depth+1)?}))}else{Err("#pt-induct requires six operands, or seven with an explicit #indices clause".into())}},
             _=>Err(format!("unknown proof-term form '{head}'; no axioms, holes, or unchecked tactics are accepted")),
         }

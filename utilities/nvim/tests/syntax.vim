@@ -63,10 +63,10 @@ call s:check('#theorem', 'limDeclaration')
 call s:check('#math-definition', 'limDeclaration')
 call s:check('#math-inductive', 'limDeclaration')
 for s:proof in [
-      \ 'universes', 'parameters', 'parameter', 'parameter-of', 'indices', 'statement', 'proof',
+      \ 'universes', 'parameters', 'parameter', 'parameter-of', 'indices', 'mutual', 'statement', 'proof',
       \ 'pt-prop', 'pt-sort', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-let', 'pt-sigma', 'pt-app', 'pt-use', 'pt-self-at',
       \ 'pt-level-succ', 'pt-level-max', 'pt-level-imax', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
-      \ 'pt-succ', 'pt-numeral', 'pt-construct', 'pt-project', 'pt-induct', 'pt-nat-induct',
+      \ 'pt-succ', 'pt-numeral', 'pt-construct', 'pt-project', 'pt-induct', 'pt-recur', 'pt-mutual-induct', 'pt-nat-induct',
       \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second',
       \ 'pt-program', 'pt-certificate',
       \ 'proof-and',

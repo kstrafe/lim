@@ -380,8 +380,8 @@ may also occur as terminal codomains under zero or more `#pt-pi` binders. This
 supports strictly positive function fields, including dependent function
 telescopes; the current family may not occur anywhere in a function domain,
 including double-negative positions. No self occurrence is allowed in the
-current family's indices. Mutual recursion and recursion nested in containers
-or Sigma types remain unsupported.
+current family's indices. Explicit mutual groups are described below;
+recursion nested in containers or Sigma types remains unsupported.
 
 A checked `#pt-let` wrapper is permitted along a Pi codomain only when its
 annotation and value contain no occurrence of the current family. The kernel
@@ -572,7 +572,8 @@ data values. The restriction is a kernel rule, not a runtime representation
 or erasure promise. Indexed data families have no unit conversion or neutral
 recursor shortcut, since indexed families have distinct fibres. A restricted
 proof computation rule for matching fibres is described below.
-Mutual and nested inductives remain unsupported.
+Nested inductives remain unsupported. Mutual predicates follow the stricter
+group elimination rule described below.
 
 This recoverable-field condition follows Lean 4.33.1's
 [`elim_only_at_universe_zero`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536)
@@ -836,8 +837,75 @@ fields that would otherwise be erased. Opaque theorem bodies stay opaque.
 See the [record example](../examples/proof_records.lim),
 [source regressions](../tests/kernel_records.rs), and
 [navigation tests](../tests/kernel_projection_navigation.rs). This restricted
-record rule does not supply mutual/nested inductives, quotients, a Lean
+record rule does not supply nested inductives, quotients, a Lean
 importer, or the full FLT dependency replay.
+
+### Mutual inductive groups
+
+Each family remains a separate `#math-inductive` declaration. Put the same
+ordered `(#mutual FAMILY...)` clause directly after its parameter list,
+before any `#indices` clause, on every member. A group has 2 through 16
+distinct families, includes each declaration itself, and shares universe
+parameter names, a uniform parameter telescope, and result sort. Each member
+may have its own dependent index telescope and constructor set.
+
+```lisp
+(#math-inductive tree () () (#mutual tree forest) (#pt-type 0)
+  ((node ((children (#pt-recur forest ()))))))
+(#math-inductive forest () () (#mutual tree forest) (#pt-type 0)
+  ((empty ())
+   (cons ((first (#pt-recur tree ())) (rest (#pt-recur forest ()))))))
+```
+
+`(#pt-recur FAMILY (index-terms...))` selects a group member for a recursive
+field, inheriting the group's parameters and universe instantiation. It may
+be the terminal codomain of a strictly positive dependent function field.
+Bare `#pt-self` and `#pt-self-at` still select the current family. Explicit,
+fully applied group-family types are also checked for the same uniform
+parameters, universes and index arity; using an arbitrary type expression
+does not waive positivity.
+
+No group member may occur in a function domain, group parameter/index type,
+recursive argument's indices, constructor result indices, or a let's
+annotation/value. Unknown containers and recursive aliases remain rejected.
+Headers are checked before provisional installation; the complete group is
+installed only if every constructor checks. Failure removes every provisional
+member, preserving preexisting declarations. Ordinary dependency cycles do
+not implicitly declare a mutual group.
+
+```text
+(#pt-mutual-induct SELECTED (levels...) (parameters...)
+  (#indices selected-index-terms...)
+  ((FAMILY motive (branches...))...)
+  subject)
+```
+
+The case list covers every member exactly once in declaration order. The
+`#indices` clause is always present and is empty for an unindexed selected
+family. Each motive binds its family's fresh generic indices and then a
+subject of that family. All motives and branch sets are checked, including
+siblings unused by the concrete subject. `#pt-induct` cannot eliminate a
+mutually declared family.
+
+A recursive field is immediately followed by the induction hypothesis for
+the **child's family and actual indices**. A function field gets a pointwise
+hypothesis with the same dependent argument telescope. Later field types,
+all motives, and captured branch terms retain their binder meanings when IHs
+are inserted. Computation applies the branch to fields and these child
+recursors; it does not call an external prover or assume an axiom.
+
+Mutually declared propositions eliminate only to Prop, even when one member
+alone has a singleton constructor. Every motive must satisfy this guarded
+restriction for Sort-polymorphic groups. Unit, indexed-singleton K and record
+projection/eta shortcuts do not apply to components of a mutual group.
+Native functions still cannot recurse; these are compile-time mathematical
+inductive terms.
+
+The [tree/forest example](../examples/proof_mutual.lim) defines both count
+functions, checks their general defining equations, and computes a concrete
+count. The [functional example](../examples/proof_mutual_function.lim) checks
+pointwise sibling recursion at each child's index. Neither completes the
+remaining nested-inductive, quotient, importer or FLT replay work.
 
 The kernel has no cumulativity, quotients,
 classical axioms, `admit`, general recursion,
@@ -853,11 +921,12 @@ mathematical meaning of a type:
 
 | Resource | Limit |
 | --- | --- |
-| Core checking and conversion work | 200,000 core steps per declaration. |
+| Core checking and conversion work | 200,000 core steps per declaration or complete mutual group. |
 | Recursive kernel depth | 96. |
 | Parsed mathematical nodes | 50,000 per declaration. |
 | Mathematical parser nesting depth | 64. |
 | Universe parameters and explicit universe arguments | At most 32 per list. |
+| Mutual inductive families and eliminator cases | 2 through 16, checked as one group. |
 | Pi/lambda binders, term application arguments, and recursor branches | At most 64 per list. |
 | Source universe constants and normalized affine offsets | At most 65,535; not a bound on level-variable values. |
 | Normalized level monomials | At most 256 per term. |

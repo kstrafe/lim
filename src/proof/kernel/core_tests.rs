@@ -6,6 +6,466 @@ use super::*;
 fn level(n: u32) -> Level {
     Level::number(n).unwrap()
 }
+
+fn mutual_input(
+    name: &str,
+    indices: Vec<T>,
+    sort: Level,
+    constructors: Vec<(String, Vec<T>, Vec<T>)>,
+) -> InductiveInput {
+    InductiveInput {
+        name: name.into(),
+        universes: vec![],
+        parameters: vec![],
+        indices,
+        sort,
+        constructors,
+    }
+}
+fn recur(name: &str, indices: Vec<T>) -> T {
+    term(Term::Recur(name.into(), indices))
+}
+fn mutual_fold(family: &str, indices: Vec<T>, cases: Vec<RecursionCase>, subject: T) -> T {
+    term(Term::MutualInduct {
+        family: family.into(),
+        levels: vec![],
+        parameters: vec![],
+        indices,
+        cases,
+        subject,
+    })
+}
+
+#[test]
+fn mutual_groups_roll_back_every_member_on_cross_family_negative_occurrences() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "Kept",
+        vec![],
+        vec![],
+        level(1),
+        vec![("make".into(), vec![])],
+    )
+    .unwrap();
+    let error = k
+        .mutual_inductive(vec![
+            mutual_input(
+                "Left",
+                vec![],
+                level(1),
+                vec![("make".into(), vec![recur("Right", vec![])], vec![])],
+            ),
+            mutual_input(
+                "Right",
+                vec![],
+                level(1),
+                vec![("bad".into(), vec![pi(global("Left"), falsity())], vec![])],
+            ),
+        ])
+        .unwrap_err();
+    assert_eq!(error.0, "Right");
+    assert!(error.1.contains("strict positivity"), "{error:?}");
+    assert!(!k.contains("Left") && !k.contains("Right"));
+    assert!(k.contains("Kept"));
+    // The failed provisional names can be reused, with no leftover metadata.
+    k.reset_budget();
+    k.mutual_inductive(vec![
+        mutual_input(
+            "Left",
+            vec![],
+            level(1),
+            vec![("make".into(), vec![], vec![])],
+        ),
+        mutual_input(
+            "Right",
+            vec![],
+            level(1),
+            vec![("make".into(), vec![], vec![])],
+        ),
+    ])
+    .unwrap();
+}
+
+#[test]
+fn mutual_function_children_compute_with_the_sibling_index_and_motive() {
+    let mut k = Kernel::new();
+    k.mutual_inductive(vec![
+        mutual_input(
+            "Parent",
+            vec![nat()],
+            level(1),
+            vec![(
+                "make".into(),
+                vec![pi(nat(), recur("Child", vec![var(0)]))],
+                vec![zero()],
+            )],
+        ),
+        mutual_input(
+            "Child",
+            vec![nat()],
+            level(1),
+            vec![("leaf".into(), vec![nat()], vec![var(0)])],
+        ),
+    ])
+    .unwrap();
+    let parent_motive = lam(nat(), lam(app(global("Parent"), var(0)), nat()));
+    let child_motive = lam(nat(), lam(app(global("Child"), var(0)), nat()));
+    let children_type = pi(nat(), app(global("Child"), var(0)));
+    let cases = vec![
+        RecursionCase {
+            family: "Parent".into(),
+            motive: parent_motive,
+            branches: vec![lam(
+                children_type,
+                lam(pi(nat(), nat()), app(var(0), succ(zero()))),
+            )],
+        },
+        RecursionCase {
+            family: "Child".into(),
+            motive: child_motive,
+            branches: vec![lam(nat(), var(0))],
+        },
+    ];
+    let children = lam(nat(), ctor("Child", vec![], "leaf", vec![var(0)]));
+    let fold = mutual_fold(
+        "Parent",
+        vec![zero()],
+        cases.clone(),
+        ctor("Parent", vec![], "make", vec![children]),
+    );
+    k.check(&[], &fold, &nat(), 0).unwrap();
+    assert!(k.convertible(&[], &fold, &succ(zero()), 0).unwrap());
+    // A branch using the parent's motive for Child would accept the wrong
+    // generic subject type. The independently checked sibling motive rejects it.
+    let mut forged = cases;
+    forged[1].motive = forged[0].motive.clone();
+    let invalid = mutual_fold(
+        "Parent",
+        vec![zero()],
+        forged,
+        ctor(
+            "Parent",
+            vec![],
+            "make",
+            vec![lam(nat(), ctor("Child", vec![], "leaf", vec![var(0)]))],
+        ),
+    );
+    k.reset_budget();
+    assert!(k
+        .infer(&[], &invalid, 0)
+        .unwrap_err()
+        .contains("generic subject"));
+}
+
+#[test]
+fn mutual_elimination_validates_unused_sibling_motives_and_prop_guards() {
+    let mut k = Kernel::new();
+    k.mutual_inductive(vec![
+        mutual_input("P", vec![], level(0), vec![("make".into(), vec![], vec![])]),
+        mutual_input("Q", vec![], level(0), vec![("make".into(), vec![], vec![])]),
+    ])
+    .unwrap();
+    let equality = eq(nat(), zero(), zero());
+    let cases = vec![
+        RecursionCase {
+            family: "P".into(),
+            motive: lam(global("P"), equality),
+            branches: vec![refl(nat(), zero())],
+        },
+        RecursionCase {
+            family: "Q".into(),
+            motive: lam(global("Q"), nat()),
+            branches: vec![zero()],
+        },
+    ];
+    let invalid = mutual_fold("P", vec![], cases, ctor("P", vec![], "make", vec![]));
+    let error = k.infer(&[], &invalid, 0).unwrap_err();
+    assert!(error.contains("large elimination"), "{error}");
+    // An impossible mutual group with no constructors cannot silently prove
+    // False: elimination still needs a well-typed major premise.
+    k.reset_budget();
+    k.mutual_inductive(vec![
+        mutual_input("EmptyA", vec![], level(0), vec![]),
+        mutual_input("EmptyB", vec![], level(0), vec![]),
+    ])
+    .unwrap();
+    let cases = vec![
+        RecursionCase {
+            family: "EmptyA".into(),
+            motive: lam(global("EmptyA"), falsity()),
+            branches: vec![],
+        },
+        RecursionCase {
+            family: "EmptyB".into(),
+            motive: lam(global("EmptyB"), falsity()),
+            branches: vec![],
+        },
+    ];
+    let attack = mutual_fold("EmptyA", vec![], cases, zero());
+    assert!(k
+        .definition("absurd-mutual", vec![], falsity(), attack, true)
+        .is_err());
+}
+
+#[test]
+fn mutual_dependent_indices_specialize_shared_parameters_and_swapped_universes_once() {
+    let mut k = Kernel::new();
+    let u = Level::variable("u".into());
+    let v = Level::variable("v".into());
+    let source = u.successor().unwrap();
+    let input = |name: &str, indices, constructors| InductiveInput {
+        name: name.into(),
+        universes: vec!["u".into(), "v".into()],
+        parameters: vec![term(Term::Sort(u.clone()))],
+        indices,
+        sort: source.clone(),
+        constructors,
+    };
+    k.mutual_inductive(vec![
+        input(
+            "IndexedA",
+            vec![nat()],
+            vec![(
+                "make".into(),
+                vec![var(0), recur("IndexedB", vec![var(0)])],
+                vec![zero()],
+            )],
+        ),
+        input(
+            "IndexedB",
+            vec![var(0)],
+            vec![("leaf".into(), vec![var(0)], vec![var(0)])],
+        ),
+    ])
+    .unwrap();
+    let levels = vec![v.clone(), u.clone()];
+    let family = |name: &str, params: &[T], indices: &[T]| {
+        apps(
+            apps(term(Term::Global(name.into(), levels.clone())), params),
+            indices,
+        )
+    };
+    let cases = vec![
+        RecursionCase {
+            family: "IndexedA".into(),
+            motive: lam(nat(), lam(family("IndexedA", &[var(2)], &[var(0)]), nat())),
+            branches: vec![lam(
+                var(1),
+                lam(family("IndexedB", &[var(2)], &[var(0)]), lam(nat(), var(0))),
+            )],
+        },
+        RecursionCase {
+            family: "IndexedB".into(),
+            motive: lam(var(1), lam(family("IndexedB", &[var(2)], &[var(0)]), nat())),
+            branches: vec![lam(var(1), zero())],
+        },
+    ];
+    let child = term(Term::Ctor {
+        family: "IndexedB".into(),
+        levels: levels.clone(),
+        parameters: vec![var(1)],
+        constructor: "leaf".into(),
+        fields: vec![var(0)],
+    });
+    let subject = term(Term::Ctor {
+        family: "IndexedA".into(),
+        levels: levels.clone(),
+        parameters: vec![var(1)],
+        constructor: "make".into(),
+        fields: vec![var(0), child],
+    });
+    let fold = term(Term::MutualInduct {
+        family: "IndexedA".into(),
+        levels,
+        parameters: vec![var(1)],
+        indices: vec![zero()],
+        cases,
+        subject,
+    });
+    let ctx = vec![term(Term::Sort(v.clone())), var(0)];
+    k.check(&ctx, &fold, &nat(), 0).unwrap();
+    assert!(k.convertible(&ctx, &fold, &zero(), 0).unwrap());
+    k.reset_budget();
+    k.definition(
+        "swapped-mutual",
+        vec!["u".into(), "v".into()],
+        pi(term(Term::Sort(v.clone())), pi(var(0), nat())),
+        lam(term(Term::Sort(v)), lam(var(0), fold)),
+        false,
+    )
+    .unwrap();
+}
+
+#[test]
+fn mutual_groups_reject_changed_uniform_parameters_without_leaving_stubs() {
+    let mut k = Kernel::new();
+    let input = |name: &str, fields| InductiveInput {
+        name: name.into(),
+        universes: vec![],
+        parameters: vec![sort(1)],
+        indices: vec![],
+        sort: level(1),
+        constructors: vec![("make".into(), fields, vec![])],
+    };
+    let changed = app(global("UniformB"), nat());
+    let error = k
+        .mutual_inductive(vec![
+            input("UniformA", vec![changed]),
+            input("UniformB", vec![]),
+        ])
+        .unwrap_err();
+    assert!(error.1.contains("uniform"), "{error:?}");
+    assert!(!k.contains("UniformA") && !k.contains("UniformB"));
+    k.reset_budget();
+    // An unequal header cannot leave even the first family installed.
+    let a = input("UniformA", vec![]);
+    let mut b = input("UniformB", vec![]);
+    b.parameters = vec![sort(2)];
+    let error = k.mutual_inductive(vec![a, b]).unwrap_err();
+    assert_eq!(error.0, "UniformB");
+    assert!(error.1.contains("uniform parameter"), "{error:?}");
+    assert!(!k.contains("UniformA") && !k.contains("UniformB"));
+}
+
+#[test]
+fn mutual_sort_polymorphic_predicates_keep_correlated_elimination_guards() {
+    let mut k = Kernel::new();
+    let u = Level::variable("u".into());
+    let input = |name: &str| InductiveInput {
+        name: name.into(),
+        universes: vec!["u".into()],
+        parameters: vec![term(Term::Sort(u.clone()))],
+        indices: vec![],
+        sort: u.clone(),
+        constructors: vec![("make".into(), vec![], vec![])],
+    };
+    k.mutual_inductive(vec![input("CorrelatedA"), input("CorrelatedB")])
+        .unwrap();
+    let family =
+        |name: &str, parameter| app(term(Term::Global(name.into(), vec![u.clone()])), parameter);
+    let cases = vec![
+        RecursionCase {
+            family: "CorrelatedA".into(),
+            motive: lam(family("CorrelatedA", var(1)), var(2)),
+            branches: vec![var(0)],
+        },
+        RecursionCase {
+            family: "CorrelatedB".into(),
+            motive: lam(family("CorrelatedB", var(1)), var(2)),
+            branches: vec![var(0)],
+        },
+    ];
+    let subject = term(Term::Ctor {
+        family: "CorrelatedA".into(),
+        levels: vec![u.clone()],
+        parameters: vec![var(1)],
+        constructor: "make".into(),
+        fields: vec![],
+    });
+    let fold = term(Term::MutualInduct {
+        family: "CorrelatedA".into(),
+        levels: vec![u.clone()],
+        parameters: vec![var(1)],
+        indices: vec![],
+        cases,
+        subject,
+    });
+    let ctx = vec![term(Term::Sort(u)), var(0)];
+    k.check(&ctx, &fold, &var(1), 0).unwrap();
+    assert!(k.convertible(&ctx, &fold, &var(0), 0).unwrap());
+}
+#[test]
+fn mutual_ih_insertion_preserves_later_index_dependent_fields() {
+    let mut k = Kernel::new();
+    k.mutual_inductive(vec![
+        mutual_input(
+            "LaterA",
+            vec![],
+            level(1),
+            vec![(
+                "make".into(),
+                vec![
+                    nat(),
+                    recur("LaterB", vec![var(0)]),
+                    eq(nat(), var(1), var(1)),
+                ],
+                vec![],
+            )],
+        ),
+        mutual_input(
+            "LaterB",
+            vec![nat()],
+            level(1),
+            vec![("leaf".into(), vec![nat()], vec![var(0)])],
+        ),
+    ])
+    .unwrap();
+    let cases = vec![
+        RecursionCase {
+            family: "LaterA".into(),
+            motive: lam(global("LaterA"), nat()),
+            branches: vec![lam(
+                nat(),
+                lam(
+                    app(global("LaterB"), var(0)),
+                    lam(nat(), lam(eq(nat(), var(2), var(2)), var(1))),
+                ),
+            )],
+        },
+        RecursionCase {
+            family: "LaterB".into(),
+            motive: lam(nat(), lam(app(global("LaterB"), var(0)), nat())),
+            branches: vec![lam(nat(), var(0))],
+        },
+    ];
+    let ctx = vec![
+        nat(),
+        app(global("LaterB"), var(0)),
+        eq(nat(), var(1), var(1)),
+    ];
+    let fold = mutual_fold(
+        "LaterA",
+        vec![],
+        cases.clone(),
+        ctor("LaterA", vec![], "make", vec![var(2), var(1), var(0)]),
+    );
+    k.check(&ctx, &fold, &nat(), 0).unwrap();
+    let reduced = k.whnf(&ctx, &fold, 0).unwrap();
+    k.check(&ctx, &reduced, &nat(), 0).unwrap();
+    let expected = mutual_fold("LaterB", vec![var(2)], cases, var(1));
+    assert!(k.convertible(&ctx, &reduced, &expected, 0).unwrap());
+}
+
+#[test]
+fn mutual_families_do_not_bypass_the_remaining_nested_occurrence_restriction() {
+    let mut k = Kernel::new();
+    let error = k
+        .mutual_inductive(vec![
+            mutual_input(
+                "NestedA",
+                vec![],
+                level(1),
+                vec![(
+                    "make".into(),
+                    vec![
+                        recur("NestedB", vec![]),
+                        eq(global("NestedB"), var(0), var(0)),
+                    ],
+                    vec![],
+                )],
+            ),
+            mutual_input(
+                "NestedB",
+                vec![],
+                level(1),
+                vec![("leaf".into(), vec![], vec![])],
+            ),
+        ])
+        .unwrap_err();
+    assert!(error.1.contains("strict positivity"), "{error:?}");
+    assert!(!k.contains("NestedA") && !k.contains("NestedB"));
+}
+
 fn sort(n: u32) -> T {
     term(Term::Sort(level(n)))
 }

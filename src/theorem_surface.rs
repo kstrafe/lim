@@ -89,16 +89,15 @@ pub(crate) fn parse(items: &[Expr]) -> Result<Item, String> {
             form("#proof-definition", items[2..].iter().cloned())
         }
         "math-inductive" => {
-            if !matches!(items.len(), 6 | 7) {
-                return Err("#math-inductive requires a name, universe list, parameters, optional #indices, sort, and constructors".into());
+            let mut at = 4;
+            for keyword in ["#mutual", "#indices"] {
+                if matches!(items.get(at), Some(Expr::List(parts)) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == keyword))
+                {
+                    at += 1;
+                }
             }
-            if items.len() == 7
-                && !matches!(&items[4], Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#indices"))
-            {
-                return Err(
-                    "indexed #math-inductive requires an explicit #indices clause after parameters"
-                        .into(),
-                );
+            if items.len() != at + 2 {
+                return Err("#math-inductive requires a name, universe list, parameters, optional #mutual then #indices clauses, sort, and constructors".into());
             }
             form("#proof-inductive", items[2..].iter().cloned())
         }

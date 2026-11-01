@@ -466,6 +466,48 @@ impl Resolver<'_> {
             }
         } else if kind == "#pt-self-at" {
             self.proof_term_list(node, 1, file, locals)?;
+        } else if kind == "#pt-recur" {
+            if node.children.len() == 3
+                && matches!(&node.children[1].expr, Expr::Symbol(_))
+                && matches!(&node.children[2].expr, Expr::List(_))
+            {
+                self.rewrite(&mut node.children[1], file, &HashSet::new())?;
+                self.proof_term_list(node, 2, file, locals)?;
+            }
+        } else if kind == "#pt-mutual-induct" {
+            let valid = node.children.len() == 7
+                && matches!(&node.children[1].expr, Expr::Symbol(_))
+                && matches!(&node.children[2].expr, Expr::List(_))
+                && head(&node.children[4]) == "#indices"
+                && matches!(&node.children[3].expr, Expr::List(_))
+                && matches!(&node.children[4].expr, Expr::List(_))
+                && matches!(&node.children[5].expr, Expr::List(_))
+                && (2..=16).contains(&node.children[5].children.len())
+                && node.children[5].children.iter().all(|bundle| {
+                    bundle.children.len() == 3
+                        && matches!(&bundle.children[0].expr, Expr::Symbol(_))
+                        && matches!(&bundle.children[2].expr, Expr::List(_))
+                });
+            if valid {
+                self.rewrite(&mut node.children[1], file, &HashSet::new())?;
+                self.proof_term_list(node, 3, file, locals)?;
+                if let Some(indices) = node.children.get_mut(4) {
+                    for term in indices.children.iter_mut().skip(1) {
+                        self.proof_term(term, file, locals)?;
+                    }
+                    rebuild(indices)?;
+                }
+                if let Some(bundles) = node.children.get_mut(5) {
+                    for bundle in &mut bundles.children {
+                        self.rewrite(&mut bundle.children[0], file, &HashSet::new())?;
+                        self.proof_term(&mut bundle.children[1], file, locals)?;
+                        self.proof_term_list(bundle, 2, file, locals)?;
+                        rebuild(bundle)?;
+                    }
+                    rebuild(bundles)?;
+                }
+                self.proof_term_child(node, 6, file, locals)?;
+            }
         } else if kind == "#pt-induct" {
             if let Some(name) = node.children.get_mut(1) {
                 self.rewrite(name, file, &HashSet::new())?;
@@ -582,9 +624,31 @@ impl Resolver<'_> {
             }
             rebuild(parameters)?;
         }
-        let indexed = node.children.len() == 7;
+        // Mutual members are global declaration names, never term binders.
+        let has_mutual = node
+            .children
+            .get(4)
+            .is_some_and(|clause| head(clause) == "#mutual");
+        if has_mutual {
+            let family = &mut node.children[4];
+            let members: Vec<_> = family.children.iter().skip(1).filter_map(symbol).collect();
+            let valid = (2..=16).contains(&members.len())
+                && members.len() + 1 == family.children.len()
+                && members.iter().collect::<HashSet<_>>().len() == members.len();
+            if valid {
+                for member in family.children.iter_mut().skip(1) {
+                    self.rewrite(member, file, &HashSet::new())?;
+                }
+            }
+            rebuild(family)?;
+        }
+        let indices_at = 4 + usize::from(has_mutual);
+        let indexed = node
+            .children
+            .get(indices_at)
+            .is_some_and(|clause| head(clause) == "#indices");
         if indexed {
-            if let Some(indices) = node.children.get_mut(4) {
+            if let Some(indices) = node.children.get_mut(indices_at) {
                 let mut index_scope = inner.clone();
                 for index in &mut indices.children {
                     if head(index) != "#parameter" || index.children.len() != 3 {
@@ -601,8 +665,8 @@ impl Resolver<'_> {
                 rebuild(indices)?;
             }
         }
-        let sort_index = if indexed { 5 } else { 4 };
-        let constructors_index = if indexed { 6 } else { 5 };
+        let sort_index = indices_at + usize::from(indexed);
+        let constructors_index = sort_index + 1;
         if let Some(sort) = node.children.get_mut(sort_index) {
             self.proof_term(sort, file, &inner)?;
         }

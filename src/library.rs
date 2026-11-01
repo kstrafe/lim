@@ -497,13 +497,107 @@ pub(crate) fn qualify(
                 Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
                 _ => false,
             });
+        let mutual_header = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#mutual"))
+            && (3..=17).contains(&tree.children.len())
+            && tree
+                .children
+                .iter()
+                .skip(1)
+                .all(|member| matches!(&member.expr, Expr::Symbol(_)))
+            && tree
+                .children
+                .iter()
+                .skip(1)
+                .filter_map(|member| match &member.expr {
+                    Expr::Symbol(name) => Some(name),
+                    _ => None,
+                })
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                + 1
+                == tree.children.len();
+        let mutual_recur = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-recur"))
+            && tree.children.len() == 3
+            && matches!(
+                tree.children.get(1).map(|node| &node.expr),
+                Some(Expr::Symbol(_))
+            )
+            && matches!(
+                tree.children.get(2).map(|node| &node.expr),
+                Some(Expr::List(_))
+            );
+        let mutual_induct = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-mutual-induct"))
+            && tree.children.len() == 7
+            && matches!(
+                tree.children.get(1).map(|node| &node.expr),
+                Some(Expr::Symbol(_))
+            )
+            && matches!(
+                tree.children.get(2).map(|node| &node.expr),
+                Some(Expr::List(_))
+            )
+            && matches!(tree.children.get(4).and_then(|node| match &node.expr {
+                Expr::List(items) => items.first(), _ => None
+            }), Some(Expr::Symbol(head)) if head == "#indices")
+            && tree.children.get(5).is_some_and(|bundles| {
+                matches!(&bundles.expr, Expr::List(_))
+                    && (2..=16).contains(&bundles.children.len())
+                    && bundles.children.iter().all(|bundle| {
+                        bundle.children.len() == 3
+                            && matches!(&bundle.children[0].expr, Expr::Symbol(_))
+                            && matches!(&bundle.children[2].expr, Expr::List(_))
+                    })
+            });
         for (index, child) in tree.children.iter_mut().enumerate() {
+            if mutual_induct && index == 5 {
+                for bundle in &mut child.children {
+                    changed |= walk(
+                        &mut bundle.children[0],
+                        visibility,
+                        qualified,
+                        mathematical,
+                        true,
+                    )?;
+                    changed |= walk(
+                        &mut bundle.children[1],
+                        visibility,
+                        qualified,
+                        mathematical,
+                        false,
+                    )?;
+                    for branch in &mut bundle.children[2].children {
+                        changed |= walk(branch, visibility, qualified, mathematical, false)?;
+                    }
+                    let branches = &mut bundle.children[2];
+                    if let Expr::List(items) = &mut branches.expr {
+                        for (item, branch) in items.iter_mut().zip(&branches.children) {
+                            *item = branch.expr.clone();
+                        }
+                    }
+                    if let Expr::List(items) = &mut bundle.expr {
+                        for (item, part) in items.iter_mut().zip(&bundle.children) {
+                            *item = part.expr.clone();
+                        }
+                    }
+                }
+                if let Expr::List(items) = &mut child.expr {
+                    for (item, bundle) in items.iter_mut().zip(&child.children) {
+                        *item = bundle.expr.clone();
+                    }
+                }
+                continue;
+            }
             changed |= walk(
                 child,
                 visibility,
                 qualified,
                 mathematical,
-                (selects_global || selects_project_family) && index == 1,
+                (selects_global || selects_project_family || mutual_recur || mutual_induct)
+                    && index == 1
+                    || mutual_header && index > 0,
             )?;
         }
         if changed {

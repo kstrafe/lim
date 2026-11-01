@@ -93,7 +93,7 @@ fn invalid_function_recursive_fields_are_rejected_semantically() {
             "changed-parameter",
             r#"(#math-inductive bad (u) ((A (#pt-type u))) (#pt-type u)
           ((node ((f (#pt-pi ((x #pt-nat)) (#pt-app (#pt-use bad (u)) #pt-nat)))))))"#,
-            Some("cyclic kernel declaration dependencies"),
+            Some("uniform"),
         ),
         (
             "negative-occurrence",
