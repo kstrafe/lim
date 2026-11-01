@@ -149,9 +149,13 @@ mod tests {
         "platform",
         "println",
         "proof",
-        "proof-definition",
-        "proof-theorem",
-        "proof-inductive",
+        "theorem",
+        "math-definition",
+        "math-inductive",
+        "universes",
+        "parameters",
+        "parameter",
+        "statement",
         "pt-prop",
         "pt-type",
         "pt-pi",
@@ -279,6 +283,13 @@ mod tests {
     #[test]
     fn canonical_proof_keywords_have_navigation_review() {
         for name in [
+            "theorem",
+            "math-definition",
+            "math-inductive",
+            "universes",
+            "parameters",
+            "parameter",
+            "statement",
             "proof",
             "proof-and",
             "proof-or",
@@ -312,6 +323,16 @@ mod tests {
             assert!(
                 REVIEWED.contains(&name),
                 "proof form #{name} needs navigation review"
+            );
+        }
+    }
+
+    #[test]
+    fn private_kernel_wrappers_are_not_public_syntax() {
+        for name in ["proof-definition", "proof-theorem", "proof-inductive"] {
+            assert!(
+                !REVIEWED.contains(&name),
+                "private wrapper #{name} is not public syntax"
             );
         }
     }

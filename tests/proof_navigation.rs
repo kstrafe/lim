@@ -165,7 +165,7 @@ fn proof_names_and_function_operands_have_distinct_declaration_roles() {
       (#fn [[f|first]] () #u64 (#return 0u64))
       (#fn [[g|second]] () #u64 (#return 0u64))
       (#fn [[h|third]] () #u64 (#return 0u64))
-      (#[[keyword|proof]] [[theorem|order]]
+      (#[[keyword|theorem]] [[theorem|order]]
         (#proof-and
           (#proof-calls-directly [[direct-f|first]] [[direct-g|second]])
           (#proof-calls-transitively [[trans-f|first]] [[trans-g|third]])
@@ -206,7 +206,7 @@ fn quantifiers_bind_types_and_values_without_leaking_between_propositions() {
         r#"
       (#type [[number|Number]] #u64)
       (#fn [[comparator|compare]] (: a #u64 : b #u64) #bool (#return true))
-      (#proof quantified
+      (#theorem quantified
         (#proof-and
           (#proof-for-all (: [[binder|x]] [[type|Number]] : [[other|y]] #u64)
             (#proof-and
@@ -216,7 +216,7 @@ fn quantifiers_bind_types_and_values_without_leaking_between_propositions() {
               (#proof-loop-limit [[bound|8]] (#proof-eq [[bounded|x]] y))
               (#proof-for-all (: [[inner|z]] #u64) (#proof-eq [[inner-use|z]] [[outer-use|x]]))))
           (#proof-eq [[leaked|x]] [[nested-leak|z]])))
-      (#proof arrays (#proof-for-all (: [[array|items]] (#array #u64 2))
+      (#theorem arrays (#proof-for-all (: [[array|items]] (#array #u64 2))
         (#proof-and (#proof-sorted [[sorted|items]] [[compare-use|compare]])
           (#proof-permutation [[left|items]] [[right|items]]))))
     "#,
@@ -253,12 +253,12 @@ fn contract_predicates_reuse_runtime_fields_and_named_argument_roles() {
       (#fn [[helper|helper]] (: [[arg|value]] #u64) #u64 (#return value))
       (#fn value () #u64 (#return 0u64))
       (#fn missing () #u64 (#return 0u64))
-      (#proof contract
+      (#theorem contract
         (#proof-contract [[function|subject]]
           (#proof-eq (#get [[receiver|input]] [[member|value]])
             (#call [[callee|helper]] (: [[named|value]] (#get input [[missing-field|missing]]))))
           (#proof-eq (#proof-result) (#proof-old (#get [[post-param|input]] value)))))
-      (#proof outside (#proof-eq [[leak|input]] 0u64))
+      (#theorem outside (#proof-eq [[leak|input]] 0u64))
     "#,
         &[
             ("function", &["f"]),
@@ -286,16 +286,16 @@ fn invariants_use_only_the_selected_functions_scope_at_its_label() {
       (#fn other (: input #u64) #u64
         (#let count #u64 input) (#label again (#loop (#break ()))) (#return input))
       (#fn ghost () #u64 (#return 0u64))
-      (#proof invariant
+      (#theorem invariant
         (#proof-with-invariants
           (([[selected|work]] [[loop-use|again]]
             (#proof-eq [[invariant-param|input]] [[invariant-local|count]])
             (#u64::sub-wrap [[rank|count]] 0u64)))
           (#proof-eq [[local-leak|count]] [[param-leak|input]])))
-      (#proof hidden-check (#proof-with-invariants
+      (#theorem hidden-check (#proof-with-invariants
         ((work again (#proof-eq [[hidden-use|hidden]] [[later-use|later]]) 0u64))
         (#proof-eq 0u64 0u64)))
-      (#proof label-check (#proof-with-invariants
+      (#theorem label-check (#proof-with-invariants
         ((work [[unknown-label|ghost]] (#proof-eq 0u64 0u64) 0u64))
         (#proof-eq 0u64 0u64)))
     "#,
@@ -348,7 +348,7 @@ fn proof_metadata_never_becomes_a_global_reference() {
     ];
     for form in forms {
         run(
-            &format!("(#fn {form} () #u64 (#return 0u64)) (#proof test (#[[keyword|{form}]]))"),
+            &format!("(#fn {form} () #u64 (#return 0u64)) (#theorem test (#[[keyword|{form}]]))"),
             &[("keyword", &[])],
         );
     }
@@ -356,8 +356,8 @@ fn proof_metadata_never_becomes_a_global_reference() {
         r#"
       (#fn [[operation-function|ptr-read]] () #u64 (#return 0u64))
       (#fn [[f|work]] () #u64 (#return 0u64))
-      (#proof metadata (#proof-only-unsafe work ([[unprefixed|ptr-read]] #[[builtin|ptr-read]])))
-      (#proof invalid-function (#proof-calls-directly [[wrong|metadata]] [[right|work]]))
+      (#theorem metadata (#proof-only-unsafe work ([[unprefixed|ptr-read]] #[[builtin|ptr-read]])))
+      (#theorem invalid-function (#proof-calls-directly [[wrong|metadata]] [[right|work]]))
     "#,
         &[
             ("unprefixed", &["operation-function"]),
@@ -375,7 +375,7 @@ fn unsafe_allowlist_function_entries_ignore_lexical_values_and_nonfunctions() {
       (#fn [[function|trusted]] () #u64 (#return 0u64))
       (#fn work () #u64 (#return 0u64))
       (#struct Record () (: value #u64))
-      (#proof editing (#proof-for-all (: trusted #u64 : only-local #u64)
+      (#theorem editing (#proof-for-all (: trusted #u64 : only-local #u64)
         (#proof-only-unsafe work
           ([[boundary|trusted]] [[local|only-local]] [[record|Record]]
            [[unknown|missing]] #[[builtin|ptr-read]]))))
@@ -397,7 +397,7 @@ fn unsafe_allowlist_aliases_and_file_references_reach_original_functions() {
       (#alias boundary = ./facade.lim::forward)
       (#fn trusted () #u64 (#return 0u64))
       (#fn work () #u64 (#return 0u64))
-      (#proof allowed (#proof-only-unsafe work
+      (#theorem allowed (#proof-only-unsafe work
         ([[alias|boundary]] [[path|./library.lim::trusted]] #[[builtin|ptr-read]])))
     "#,
         &[
@@ -421,8 +421,8 @@ fn proof_function_aliases_and_contract_parameters_reach_the_original_file() {
         r#"
       (#alias facade = ./facade.lim::forward)
       (#fn subject (: input #u64) #u64 (#return input))
-      (#proof direct (#proof-calls-directly [[alias-use|facade]] [[path-use|./library.lim::subject]]))
-      (#proof contract (#proof-contract [[contract-function|facade]]
+      (#theorem direct (#proof-calls-directly [[alias-use|facade]] [[path-use|./library.lim::subject]]))
+      (#theorem contract (#proof-contract [[contract-function|facade]]
         (#proof-eq [[pre|input]] input) (#proof-eq (#proof-result) [[post|input]])))
     "#,
         &[
@@ -448,10 +448,10 @@ fn generated_function_operands_reach_the_emitted_declaration() {
         r#"
       (#gn emit () `((#fn leaf () #u64 (#return 0u64))
                     (#fn emitted () #u64 (#return (#call leaf ())))
-                    (#proof generated (#proof-calls-directly emitted leaf))))
+                    (#theorem generated (#proof-calls-directly emitted leaf))))
       (#generate emit)
-      (#proof source (#proof-calls-transitively [[generated-use|emitted]] leaf))
-      (#proof boundary (#proof-only-unsafe emitted ([[generated-allowed|leaf]])))
+      (#theorem source (#proof-calls-transitively [[generated-use|emitted]] leaf))
+      (#theorem boundary (#proof-only-unsafe emitted ([[generated-allowed|leaf]])))
     "#,
         &[
             ("generated-use", &["generated:emitted"]),
@@ -465,8 +465,8 @@ fn generated_fresh_names_use_the_final_file_scope() {
     run_files(r#"
       (#alias emit = ./generator.lim::emit)
       (#generate emit)
-      (#proof imported (#proof-calls-directly [[use|provided]] provided-leaf))
-    "#, &[("generator.lim", "(#gn emit () `((#fn provided-leaf () #u64 (#return 0u64)) (#fn provided () #u64 (#return (#call provided-leaf ()))) (#proof generated (#proof-calls-directly provided provided-leaf))))")],
+      (#theorem imported (#proof-calls-directly [[use|provided]] provided-leaf))
+    "#, &[("generator.lim", "(#gn emit () `((#fn provided-leaf () #u64 (#return 0u64)) (#fn provided () #u64 (#return (#call provided-leaf ()))) (#theorem generated (#proof-calls-directly provided provided-leaf))))")],
     &[("use", &["generated:provided"])]);
 }
 
@@ -476,7 +476,7 @@ fn contract_result_and_old_wrappers_preserve_member_types() {
         r#"
       (#struct Row () (: [[field|value]] #u64))
       (#fn [[function|identity]] (: [[param|input]] Row) Row (#return input))
-      (#proof preserves (#proof-contract [[subject|identity]]
+      (#theorem preserves (#proof-contract [[subject|identity]]
         (#proof-eq (#get (#proof-old [[old-input|input]]) [[old-field|value]]) 0u64)
         (#proof-eq (#get (#proof-result) [[result-field|value]]) (#get input value))))
     "#,
@@ -499,10 +499,10 @@ fn invariants_preserve_loop_body_and_branch_binding_lifetimes() {
           (#label [[label|inside]] (#loop (#break ()))))
         (#label [[outer|outside]] (#loop (#break ())))
         (#return input))
-      (#proof inner (#proof-with-invariants
+      (#theorem inner (#proof-with-invariants
         ((work [[inside-use|inside]] (#proof-eq [[counter-use|counter]] [[input-use|input]]) 0u64))
         (#proof-eq 0u64 0u64)))
-      (#proof outer (#proof-with-invariants
+      (#theorem outer (#proof-with-invariants
         ((work [[outside-use|outside]] (#proof-eq [[counter-leak|counter]] input) 0u64))
         (#proof-eq 0u64 0u64)))
     "#,
@@ -522,7 +522,7 @@ fn imported_invariant_bindings_reach_actual_function_locals() {
         r#"
       (#alias selected = ./library.lim::work)
       (#fn work (: input #u64) #u64 (#return input))
-      (#proof imported (#proof-with-invariants
+      (#theorem imported (#proof-with-invariants
         (([[function-use|selected]] [[label-use|again]]
           (#proof-eq [[param-use|input]] [[local-use|remaining]]) [[rank-use|remaining]]))
         (#proof-eq 0u64 0u64)))
@@ -555,10 +555,10 @@ fn ambiguous_invariant_labels_and_unknown_argument_labels_fail_closed() {
         (#block (#label duplicate (#loop (#break ()))))
         (#return input))
       (#fn ghost () #u64 (#return 0u64))
-      (#proof ambiguous (#proof-with-invariants
+      (#theorem ambiguous (#proof-with-invariants
         ((work [[ambiguous|duplicate]] (#proof-eq [[unresolved|input]] 0u64) 0u64))
         (#proof-eq 0u64 0u64)))
-      (#proof arguments (#proof-eq (#call work (: [[missing|ghost]] 0u64)) 0u64))
+      (#theorem arguments (#proof-eq (#call work (: [[missing|ghost]] 0u64)) 0u64))
     "#,
         &[("ambiguous", &[]), ("unresolved", &[]), ("missing", &[])],
     );

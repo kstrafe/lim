@@ -1741,7 +1741,7 @@ and [the runnable printing example](../examples/heap_string.lim).
 
 ### Compile-time proofs
 
-`(#proof name proposition)` declares a compile-time obligation over the checked,
+`(#theorem name proposition)` declares a procedural compile-time obligation over the checked,
 expanded program. The name follows value-identifier rules. Validation rejects a
 false or unproved obligation; a procedural proof emits no runtime assertion and
 supplies no unchecked assumptions to other proofs. The mathematical kernel can
@@ -1750,14 +1750,12 @@ reuse an accepted procedural obligation through the explicit `#pt-program` and
 checks still apply to the program.
 
 ```lisp library
-(#fn identity ((value #u8)) #u8
-  (#return value))
+(#fn identity ((value #u8)) #u8 (#return value))
 
-(#proof identity-law
-  (#proof-for-all ((x #u8))
-    (#proof-eq (#call identity (: value x)) x)))
+(#theorem identity-law
+  (#proof-for-all ((x #u8)) (#proof-eq (#call identity (: value x)) x)))
 
-(#proof identity-effects
+(#theorem identity-effects
   (#proof-no-effects identity (#proof-allocation #proof-io #proof-mutation)))
 ```
 
@@ -1811,11 +1809,10 @@ entry state, including entry referent contents, rather than the post-call state.
 It is available only within a contract.
 
 ```lisp library
-(#fn identity ((value #u8)) #u8
-  (#return value))
-(#proof identity-contract
-  (#proof-contract identity true
-    (#proof-eq (#proof-result) (#proof-old value))))
+(#fn identity ((value #u8)) #u8 (#return value))
+
+(#theorem identity-contract
+  (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))
 ```
 
 Calls in specifications evaluate actual checked function bodies, including
@@ -1937,19 +1934,30 @@ made provable by increasing the loop limit.
 
 ### Constructive mathematical proofs
 
-The outer `#proof` form also declares checked mathematical definitions,
-theorems, and regular inductive datatypes. These use a constructive dependent
-kernel distinct from the procedural bitvector checker. See the detailed
+Mathematical theorems use `#theorem` with explicit clauses; transparent
+definitions use `#math-definition`, and regular inductive datatypes use
+`#math-inductive`. These use a constructive dependent kernel distinct from the procedural bitvector checker. See the detailed
 [kernel user guide](kernel.md) for examples, binder rules, equality transport,
 natural induction, and the procedural-certificate bridge.
 
 ```text
-(#proof NAME (#proof-definition (u...) TYPE VALUE))
-(#proof NAME (#proof-theorem (u...) PROPOSITION PROOF))
-(#proof NAME
-  (#proof-inductive (u...) ((parameter Type)...) SORT
-    ((constructor ((field Type)...))...)))
+(#theorem NAME
+  (#universes u...)
+  (#parameters (#parameter name TYPE)...)
+  (#statement CLAIM)
+  (#proof EVIDENCE))
+(#theorem NAME PROCEDURAL-CLAIM)
+(#math-definition NAME (u...) TYPE VALUE)
+(#math-inductive NAME (u...) ((parameter Type)...) SORT
+  ((constructor ((field Type)...))...))
 ```
+
+`#universes` and `#parameters` are explicit clauses, including empty clauses.
+The mathematical parameter list uses `#parameter` entries. `#proof` is only the
+evidence clause within a mathematical `#theorem`, not a top-level declaration.
+Private kernel wrappers are not public source syntax. The procedural shorthand
+retains the existing procedural claim forms. Parameter clauses lower to closed
+Pi/lambda terms that the kernel checks independently.
 
 The theorem's type must inhabit `#pt-prop`. Definitions are transparent to
 conversion; checked theorem bodies are opaque. `#pt-prop` is `Sort 0` and
@@ -2002,7 +2010,21 @@ the implementation of parsing, scoping, universes, checking, and conversion.
 Native certificates additionally trust the existing procedural checker and its
 program model; the adapter is not a proof of compiler correctness or a native
 executable's entire behavior. The user guide links to primary Lean references for the background concepts; Lim's rules govern the
-accepted subset.
+accepted subset. See also the [Lean compatibility and FLT roadmap](lean-compatibility.md)
+for the pinned upstream source and missing features.
+[theorems/fermat_statement.lim](../theorems/fermat_statement.lim) defines Nat
+arithmetic and the closed, unbounded positive-natural FLT proposition
+`fermats-last-theorem-statement` with exponent `n + 3`. It is a
+proposition-valued `#math-definition`, not a proof, certificate, or theorem
+target. The full FLT proof remains unimplemented.
+
+`lim --check-theorem INPUT NAME` resolves imports and cfg, performs normal
+validation of all obligations, and requires the target to be a theorem
+declaration. A mathematical definition is not a theorem target, even when it
+defines a proposition. Missing or cfg-excluded targets, false or unproved
+obligations, and other validation failures cause failure. The command emits no
+native outputs. See the [kernel guide](kernel.md#check-a-named-theorem-from-the-cli)
+for usage and the distinction between a statement and evidence.
 
 ### Functions
 
@@ -2827,6 +2849,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#literal` | `(#literal NumericType literal)` | `(#let n #u16 (#literal #u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
+| `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
+| `#math-inductive` | `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...))` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (top level) | Regular mathematical inductive with explicit universe parameters, datatype parameters, sort, constructors, and direct recursive fields; no indices, nested self, or mutual recursion. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
@@ -2838,6 +2862,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
+| `#parameter` | `(#parameter name TYPE)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | One explicitly typed term parameter in the #parameters clause; bound in both the statement and evidence. |
+| `#parameters` | `(#parameters (#parameter name TYPE)...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit theorem parameter clause; use (#parameters) for no term parameters. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
@@ -2864,7 +2890,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
-| `#proof` | `(#proof name proposition)` | `(#proof reflexive (#proof-eq 1u8 1u8))` (top level) | Declares a procedural obligation or a mathematical definition, theorem, or inductive; failed checking prevents validation, and all forms have zero native emission. |
+| `#proof` | `(#proof EVIDENCE) inside a mathematical #theorem` | `(#theorem zero-refl (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))` (mathematical theorem declaration) | Evidence clause checked against the theorem statement; not a top-level declaration or unchecked assumption. |
 | `#proof-allocation` | `#proof-allocation in an effect list` | `(#proof-no-effects helper (#proof-allocation))` (proof proposition) | Conservative allocation effect; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-and` | `(#proof-and proposition...)` | `(#proof-and true (#proof-eq 1u8 1u8))` (proof proposition) | Conjunction of one or more propositions; unsupported operands still fail. |
 | `#proof-asm` | `#proof-asm in an effect list` | `(#proof-no-effects helper (#proof-asm))` (proof proposition) | Inline assembly or conservatively unknown assembly effects; a tag for #proof-no-effects, not a standalone proposition. |
@@ -2873,13 +2899,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-calls-transitively` | `(#proof-calls-transitively caller callee)` | `(#proof-calls-transitively main helper)` (proof proposition) | Checks a nonempty structural path of one or more call edges; equal endpoints require an actual cycle, and reachability does not establish execution feasibility. |
 | `#proof-calls-when` | `(#proof-calls-when entry observed expected action)` | `(#proof-calls-when main validate false commit)` (proof proposition) | Forbids an action call and the selected Boolean observation from co-occurring in either order; executes the observed function's checked body and uses its actual symbolic result. |
 | `#proof-contract` | `(#proof-contract function precondition postcondition)` | `(#proof-contract identity true (#proof-eq (#proof-result) value))` (proof proposition) | Quantifies declared parameters, runs the checked implementation under the precondition, checks the postcondition, and returns a closed Boolean; nested contracts or universal claims are unsupported. |
-| `#proof-definition` | `(#proof NAME (#proof-definition (u...) TYPE VALUE))` | `(#proof identity-nat (#proof-definition () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n)))` (top level) | Declares an explicitly typed, universe-parameterized mathematical definition; its checked value is transparent to conversion and emits no native code. |
 | `#proof-eq` | `(#proof-eq left right)` | `(#proof-eq 1u8 1u8)` (proof proposition) | Modeled structural value equality; reference identity comparison is unsupported. |
 | `#proof-external` | `#proof-external in an effect list` | `(#proof-no-effects helper (#proof-external))` (proof proposition) | External or conservatively unknown execution effects; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-for-all` | `(#proof-for-all ((name Type)...) proposition)` | `(#proof-for-all ((x #u8)) (#proof-eq x x))` (proof proposition) | Universally quantifies supported symbolic values without sampling and discharges them to a closed Boolean; nested universal or contract claims are unsupported. |
 | `#proof-global-write` | `#proof-global-write in an effect list` | `(#proof-no-effects helper (#proof-global-write))` (proof proposition) | Direct or possible indirect writes to global storage; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-implies` | `(#proof-implies antecedent consequence)` | `(#proof-implies (#u8::lt x 255u8) (#proof-no-overflow #u8::add-wrap x 1u8))` (quantified proof proposition) | Checks the consequence under the antecedent; does not separately establish satisfiability of the antecedent. |
-| `#proof-inductive` | `(#proof NAME (#proof-inductive (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...)))` | `(#proof ticks (#proof-inductive () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self))))))` (top level) | Declares a regular mathematical inductive with explicit parameters, sort, constructors, and direct recursive fields; no indices, nested self, or mutual recursion. |
 | `#proof-io` | `#proof-io in an effect list` | `(#proof-no-effects helper (#proof-io))` (proof proposition) | IO or conservatively unknown IO effects; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-loop-limit` | `(#proof-loop-limit literal-limit proposition)` | `(#proof-loop-limit 64 (#proof-contract count true true))` (proof proposition) | Scopes the symbolic loop bound to 1 through 1024; feasible execution beyond the limit fails closed. |
 | `#proof-mutation` | `#proof-mutation in an effect list` | `(#proof-no-effects helper (#proof-mutation))` (proof proposition) | Observable reference, aggregate, array, or global writes; local scalar reassignment is ignored; a tag for #proof-no-effects, not a standalone proposition. |
@@ -2893,7 +2917,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
 | `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
-| `#proof-theorem` | `(#proof NAME (#proof-theorem (u...) PROPOSITION PROOF))` | `(#proof zero-refl (#proof-theorem () (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-refl #pt-nat #pt-zero)))` (top level) | Checks a proof whose declared type inhabits Prop; checked theorem bodies are opaque to conversion. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
 | `#pt-app` | `(#pt-app function argument...)` | `(#pt-app (#pt-use identity (0)) #pt-nat #pt-zero)` (mathematical term) | Explicit term application after universe instantiation, substituting arguments into dependent result types. |
@@ -2916,7 +2939,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using definitional conversion. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
-| `#pt-self` | `#pt-self as a direct recursive field type` | `(#proof ticks (#proof-inductive () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self))))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
+| `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
 | `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |
 | `#pt-type` | `(#pt-type LEVEL)` | `(#pt-type 0)` (mathematical sort) | Sort (LEVEL + 1), with an explicit nonnegative universe expression; no cumulativity or native generic instantiation. |
@@ -2956,6 +2979,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-mut-split` | `(#slice-mut-split slice usize-index)` | `(#let pair (#tuple (#slice-mut #u8) (#slice-mut #u8)) (#slice-mut-split view 2usize))` (expression) | Consumes a mutable slice and returns two disjoint mutable slices. |
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
+| `#statement` | `(#statement CLAIM)` | `(#theorem zero-refl (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))` (mathematical theorem declaration) | Explicit proposition of a mathematical theorem; the claim must inhabit Prop and requires separately checked evidence. |
 | `#static` | `(#static name Type value)` | `(#static answer #u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
 | `#std` | `(#std)` | `(#std)` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
 | `#struct` | `(#struct Name (properties...) ((field Type)...))` | `(#struct Point () ((x #u64) (y #u64)))` (top level) | Declares a concrete struct; properties may include `#linear` and `#repr-c`. |
@@ -2964,6 +2988,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
+| `#theorem` | `(#theorem NAME (#universes u...) (#parameters (#parameter name TYPE)...) (#statement CLAIM) (#proof EVIDENCE)); or (#theorem NAME PROCEDURAL-CLAIM)` | `(#theorem reflexive (#proof-eq 1u8 1u8))` (top level) | Declares a checked mathematical theorem with opaque evidence or a procedural obligation using shorthand. Normal validation checks obligations; --check-theorem requires an actual theorem declaration and produces no native outputs. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
 | `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask::join ((task ReadTask)) ReadTask::JoinResult)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |
 | `#thread-task-spawn` | `(#thread-task-spawn FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-spawn ReadTask::spawn ((input #u64)) ReadTask::SpawnResult)` (generated signature) | Internal generated function signature for creating a worker task. |
@@ -2974,6 +2999,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#u32` | `#u32` | `(#fn identity ((value #u32)) #u32 (#return value))` (function signature) | Unsigned 32-bit integer scalar type. |
 | `#u64` | `#u64` | `(#fn identity ((value #u64)) #u64 (#return value))` (function signature) | Unsigned 64-bit integer scalar type. |
 | `#u8` | `#u8` | `(#fn identity ((value #u8)) #u8 (#return value))` (function signature) | Unsigned 8-bit integer scalar type. |
+| `#universes` | `(#universes u...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit universe-parameter clause; use (#universes) for a monomorphic theorem. Universe instantiation remains explicit through #pt-use. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
 | `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, raw syscalls, and `#unsafe-call`; does not permit unsafe callees through `#call`. |
 | `#unsafe-call` | `(#unsafe-call function (: name value : ...))` | `(#unsafe (#unsafe-call read-byte (: pointer p)))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |

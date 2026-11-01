@@ -55,6 +55,9 @@ mod syntax_bundle;
 #[cfg(test)]
 #[path = "../tests/support/process.rs"]
 mod test_process;
+mod theorem;
+mod theorem_surface;
+pub use theorem::check_theorem_from_path_with_config;
 mod thread_contract;
 mod timing;
 mod typecheck;
@@ -301,7 +304,7 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
             source,
             filename,
         );
-    } else if error.starts_with("proof '") {
+    } else if error.starts_with("theorem '") {
         (DiagnosticCode::Proof, error.to_owned())
     } else if error.starts_with("linear value ")
         || error.starts_with("assignment would destroy live linear")
@@ -359,7 +362,7 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
 
 fn diagnostic_code_for_positioned_message(message: &str) -> DiagnosticCode {
     let lower = message.to_ascii_lowercase();
-    if message.starts_with("proof '") {
+    if message.starts_with("theorem '") {
         DiagnosticCode::Proof
     } else if lower.contains("generator") {
         DiagnosticCode::Generator
@@ -1493,6 +1496,10 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
     };
     match head.as_str() {
         "#fn" | "#unsafe-fn" => Some(4),
+        "#theorem" => Some(2),
+        "#math-definition" | "#math-inductive" => Some(3),
+        "#parameters" => Some(1),
+        "#parameter" => Some(3),
         "#gn" | "#gn-fn" => Some(3),
         "#for" | "#for-range" => Some(4),
         "#while" | "#if" | "#match" | "#gn-if" => Some(2),
@@ -4508,9 +4515,8 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     };
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
-        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#proof" => {
-            name(items.get(1))?
-        }
+        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#theorem"
+        | "#math-definition" | "#math-inductive" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
         | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
@@ -4586,7 +4592,7 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     // Mathematical terms have their own context-sensitive grammar. Keep them
     // intact for the kernel adapter, which checks every keyword, binder, level,
     // and metadata list without treating a binder called `index` as #index.
-    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-theorem"|"#proof-inductive"))
+    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#math-definition"|"#math-inductive") || head=="#theorem" && items.len()!=3)
     {
         return Ok(());
     }
@@ -4979,10 +4985,14 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
 fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
-        "proof"
-            | "proof-definition"
-            | "proof-theorem"
-            | "proof-inductive"
+        "theorem"
+            | "universes"
+            | "parameters"
+            | "parameter"
+            | "statement"
+            | "proof"
+            | "math-definition"
+            | "math-inductive"
             | "pt-prop"
             | "pt-type"
             | "pt-pi"
@@ -5336,7 +5346,8 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
             // runtime bodies they are checked by the proof evaluator, which
             // must distinguish keywords from ordinary identifiers and reject
             // legacy operator spellings rather than accepting internal IR.
-            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#proof") {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#theorem"|"#math-definition"|"#math-inductive"))
+            {
                 return Expr::List(
                     items
                         .into_iter()
@@ -6992,17 +7003,7 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     }
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
-        "proof" => {
-            if items.len() != 3 {
-                return Err("#proof requires a name and proposition".into());
-            }
-            let name = expect_symbol(items.get(1), "proof name")?;
-            names::require(name, "value")?;
-            Ok(Item::Proof {
-                name: name.to_owned(),
-                proposition: items[2].clone(),
-            })
-        }
+        "theorem" | "math-definition" | "math-inductive" => theorem_surface::parse(items),
         "type" => {
             let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
             if items.len() != target_index + 1 {

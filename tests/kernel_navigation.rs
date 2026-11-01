@@ -11,15 +11,123 @@ fn quoted(s: &str) -> String {
 }
 
 #[test]
+fn theorem_parameters_share_their_source_binders_across_statement_and_evidence() {
+    run(
+        r#"
+      (#[[declaration|theorem]] [[name|reflexive]]
+        (#[[universes-keyword|universes]] [[universe|u]])
+        (#[[parameters-keyword|parameters]]
+          (#[[parameter-keyword|parameter]] [[type-parameter|A]] (#pt-type [[parameter-level|u]]))
+          (#parameter [[value-parameter|x]] [[parameter-type|A]]))
+        (#[[statement-keyword|statement]]
+          (#pt-eq [[statement-type|A]] [[statement-left|x]] [[statement-right|x]]))
+        (#[[proof-keyword|proof]] (#pt-refl [[evidence-type|A]] [[evidence-value|x]])))
+      (#math-definition outside () #pt-nat [[leak|x]])
+    "#,
+        &[
+            ("declaration", &[]),
+            ("name", &["name"]),
+            ("universes-keyword", &[]),
+            ("parameters-keyword", &[]),
+            ("parameter-keyword", &[]),
+            ("statement-keyword", &[]),
+            ("proof-keyword", &[]),
+            ("universe", &["universe"]),
+            ("parameter-level", &["universe"]),
+            ("type-parameter", &["type-parameter"]),
+            ("value-parameter", &["value-parameter"]),
+            ("parameter-type", &["type-parameter"]),
+            ("statement-type", &["type-parameter"]),
+            ("statement-left", &["value-parameter"]),
+            ("statement-right", &["value-parameter"]),
+            ("evidence-type", &["type-parameter"]),
+            ("evidence-value", &["value-parameter"]),
+            ("leak", &[]),
+        ],
+    );
+}
+
+#[test]
+fn theorem_parameter_types_are_sequential_and_use_the_kernel_namespaces() {
+    run(
+        r#"
+      (#type Runtime #u64)
+      (#theorem editing
+        (#universes [[universe|u]])
+        (#parameters
+          (#parameter [[type-parameter|A]] (#pt-type [[level|u]]))
+          (#parameter [[value-parameter|x]] [[value-type|A]])
+          (#parameter [[path-parameter|p]] (#pt-eq [[path-type|A]] [[path-left|x]] x))
+          (#parameter future [[future-type|later]])
+          (#parameter later [[runtime-type|Runtime]]))
+        (#statement (#pt-eq A [[statement|x]] x))
+        (#proof (#pt-lambda (([[inner|x]] [[inner-type|A]])) [[inner-use|x]])))
+    "#,
+        &[
+            ("level", &["universe"]),
+            ("value-type", &["type-parameter"]),
+            ("path-type", &["type-parameter"]),
+            ("path-left", &["value-parameter"]),
+            ("future-type", &[]),
+            ("runtime-type", &[]),
+            ("statement", &["value-parameter"]),
+            ("inner-type", &["type-parameter"]),
+            ("inner-use", &["inner"]),
+        ],
+    );
+}
+
+#[test]
+fn math_theorems_and_direct_definitions_have_global_proof_reference_roles() {
+    run_files(
+        r#"
+      (#alias imported = ./library.lim::reflexive)
+      (#theorem [[procedural|procedural]] (#proof-eq 0u64 0u64))
+      (#math-definition refs () #pt-nat
+        (#pt-app (#pt-use [[theorem-use|imported]] ())
+          (#pt-program [[procedural-use|procedural]])
+          (#pt-certificate [[wrong-certificate|imported]])))
+    "#,
+        &[(
+            "library.lim",
+            r#"
+          (#theorem [[original|reflexive]]
+            (#universes) (#parameters (#parameter A (#pt-type 0)) (#parameter x A))
+            (#statement (#pt-eq A x x)) (#proof (#pt-refl A x)))
+        "#,
+        )],
+        &[
+            ("theorem-use", &["original"]),
+            ("procedural-use", &["procedural"]),
+            ("wrong-certificate", &[]),
+        ],
+    );
+}
+
+#[test]
+fn generated_shared_parameter_theorems_keep_the_authored_declaration_target() {
+    run(
+        r#"
+      (#gn emit () `((#theorem reflexive
+        (#universes) (#parameters (#parameter n #pt-nat))
+        (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))))
+      (#generate emit)
+      (#theorem instance (#universes) (#parameters (#parameter m #pt-nat))
+        (#statement (#pt-eq #pt-nat m m))
+        (#proof (#pt-app (#pt-use [[reference|reflexive]] ()) m)))
+    "#,
+        &[("reference", &["generated:reflexive"])],
+    );
+}
+
+#[test]
 fn kernel_universes_and_dependent_binders_have_sequential_lexical_scopes() {
     run(
         r#"
-      (#proof [[name|identity]] (#[[declaration|proof-definition]] ([[universe|u]])
-        (#[[pi|pt-pi]] (([[type-binder|A]] (#pt-type [[signature-level|u]]))
-                      ([[argument|x]] [[argument-type|A]])) [[codomain|A]])
-        (#[[lambda|pt-lambda]] (([[value-type|A]] (#pt-type [[value-level|u]]))
-                              ([[value-binder|x]] [[value-argument-type|A]])) [[body|x]])))
-      (#proof separate (#proof-definition () #pt-nat [[no-leak|x]]))
+      (#[[declaration|math-definition]] [[name|identity]] ([[universe|u]]) (#[[pi|pt-pi]] (([[type-binder|A]] (#pt-type [[signature-level|u]]))
+                      ([[argument|x]] [[argument-type|A]])) [[codomain|A]]) (#[[lambda|pt-lambda]] (([[value-type|A]] (#pt-type [[value-level|u]]))
+                              ([[value-binder|x]] [[value-argument-type|A]])) [[body|x]]))
+      (#math-definition separate () #pt-nat [[no-leak|x]])
     "#,
         &[
             ("name", &["name"]),
@@ -44,11 +152,9 @@ fn kernel_universes_and_dependent_binders_have_sequential_lexical_scopes() {
 fn kernel_binder_types_precede_their_binding_and_nested_binders_shadow() {
     run(
         r#"
-      (#proof scopes (#proof-definition () #pt-nat
-        (#pt-lambda (([[outer|x]] #pt-nat))
-          (#pt-app (#pt-lambda (([[inner|x]] [[own-type|x]])) [[inner-use|x]]) [[outer-use|x]]))))
-      (#proof bad-scope (#proof-definition () #pt-nat
-        (#pt-pi ((first [[later-type|later]]) (later #pt-nat)) [[first-use|first]])))
+      (#math-definition scopes () #pt-nat (#pt-lambda (([[outer|x]] #pt-nat))
+          (#pt-app (#pt-lambda (([[inner|x]] [[own-type|x]])) [[inner-use|x]]) [[outer-use|x]])))
+      (#math-definition bad-scope () #pt-nat (#pt-pi ((first [[later-type|later]]) (later #pt-nat)) [[first-use|first]]))
     "#,
         &[
             ("own-type", &["outer"]),
@@ -64,11 +170,9 @@ fn universe_levels_have_a_separate_namespace_and_never_resolve_globals() {
     run(
         r#"
       (#fn missing () #u64 (#return 0u64))
-      (#proof levels (#proof-definition ([[universe|u]] [[other|v]])
-        (#pt-type (#[[max|pt-level-max]] [[level|u]] (#[[succ|pt-level-succ]] [[successor|v]]) [[number|0]]))
-        (#pt-lambda (([[local|u]] #pt-nat))
-          (#pt-pair (#pt-type [[level-under-local|u]]) [[local-use|u]] [[universe-as-term|v]]))))
-      (#proof missing-level (#proof-definition () (#pt-type [[unknown|missing]]) #pt-zero))
+      (#math-definition levels ([[universe|u]] [[other|v]]) (#pt-type (#[[max|pt-level-max]] [[level|u]] (#[[succ|pt-level-succ]] [[successor|v]]) [[number|0]])) (#pt-lambda (([[local|u]] #pt-nat))
+          (#pt-pair (#pt-type [[level-under-local|u]]) [[local-use|u]] [[universe-as-term|v]])))
+      (#math-definition missing-level () (#pt-type [[unknown|missing]]) #pt-zero)
     "#,
         &[
             ("level", &["universe"]),
@@ -88,17 +192,16 @@ fn universe_levels_have_a_separate_namespace_and_never_resolve_globals() {
 fn explicit_kernel_references_use_proof_declarations_instead_of_local_values() {
     run(
         r#"
-      (#proof [[target|NatAlias]] (#proof-definition ([[target-level|u]]) (#pt-type 0) #pt-nat))
-      (#proof [[procedural|runtime-proof]] (#proof-eq 0u64 0u64))
+      (#math-definition [[target|NatAlias]] ([[target-level|u]]) (#pt-type 0) #pt-nat)
+      (#theorem [[procedural|runtime-proof]] (#proof-eq 0u64 0u64))
       (#fn function () #u64 (#return 0u64))
-      (#proof refs (#proof-definition ([[universe|v]]) #pt-nat
-        (#pt-lambda ((NatAlias #pt-nat) (runtime-proof #pt-nat))
+      (#math-definition refs ([[universe|v]]) #pt-nat (#pt-lambda ((NatAlias #pt-nat) (runtime-proof #pt-nat))
           (#pt-app (#[[use-keyword|pt-use]] [[reference|NatAlias]] ([[explicit-level|v]]))
             (#[[program-keyword|pt-program]] [[program|runtime-proof]])
             (#[[certificate-keyword|pt-certificate]] [[certificate|runtime-proof]])
             (#pt-use [[wrong-kind|function]] ())
             (#pt-program [[wrong-program|NatAlias]])
-            (#pt-use [[wrong-use|runtime-proof]] ())))))
+            (#pt-use [[wrong-use|runtime-proof]] ()))))
     "#,
         &[
             ("reference", &["target"]),
@@ -134,7 +237,7 @@ fn sigma_and_term_operands_reuse_kernel_scopes_without_runtime_lookup() {
             expression.replace_range(start..start + 5, &format!("[[use-{counter}|value]]"));
             counter += 1;
         }
-        let source = format!("(#proof operands (#proof-definition () #pt-nat (#pt-lambda (([[binder|value]] #pt-nat)) {expression})))");
+        let source = format!("(#math-definition operands () #pt-nat (#pt-lambda (([[binder|value]] #pt-nat)) {expression}))");
         let queries = (0..counter)
             .map(|index| format!("use-{index}"))
             .collect::<Vec<_>>();
@@ -146,9 +249,7 @@ fn sigma_and_term_operands_reuse_kernel_scopes_without_runtime_lookup() {
     }
     run(
         r#"
-      (#proof dependent-pair (#proof-definition ()
-        (#[[sigma-keyword|pt-sigma]] (([[binder|first]] #pt-nat)) (#pt-eq #pt-nat [[left|first]] [[right|first]]))
-        [[outside|first]]))
+      (#math-definition dependent-pair () (#[[sigma-keyword|pt-sigma]] (([[binder|first]] #pt-nat)) (#pt-eq #pt-nat [[left|first]] [[right|first]])) [[outside|first]])
     "#,
         &[
             ("sigma-keyword", &[]),
@@ -163,18 +264,14 @@ fn sigma_and_term_operands_reuse_kernel_scopes_without_runtime_lookup() {
 fn inductive_constructor_labels_and_dependent_fields_are_scoped_to_the_datatype() {
     run(
         r#"
-      (#proof [[datatype|Box]] (#proof-inductive ([[level|u]])
-        (([[parameter|A]] (#pt-type [[parameter-level|u]]))) (#pt-type [[sort-level|u]])
-        (([[constructor|pack]] (([[field|value]] [[field-type|A]])
+      (#math-inductive [[datatype|Box]] ([[level|u]]) (([[parameter|A]] (#pt-type [[parameter-level|u]]))) (#pt-type [[sort-level|u]]) (([[constructor|pack]] (([[field|value]] [[field-type|A]])
                                ([[evidence|same]] (#pt-eq [[equality-type|A]] [[field-left|value]] [[field-right|value]]))))
-         (other (([[isolated|value]] [[other-type|A]]) (leak [[field-leak|same]]))))))
-      (#proof Another (#proof-inductive () () (#pt-type 0) ((pack ()))))
-      (#proof make (#proof-definition ([[use-level|v]]) #pt-nat
-        (#pt-lambda (([[element|T]] (#pt-type v)) ([[argument|x]] T))
-          (#pt-construct [[datatype-use|Box]] ([[level-use|v]]) ([[parameter-use|T]]) [[constructor-use|pack]] ([[field-use|x]] x)))))
-      (#proof eliminate (#proof-definition () #pt-nat
-        (#pt-lambda (([[term|x]] #pt-nat))
-          (#pt-induct [[induct-type|Box]] (0) ([[induct-param|x]]) [[motive|x]] ([[branch-one|x]] [[branch-two|x]]) [[subject|x]]))))
+         (other (([[isolated|value]] [[other-type|A]]) (leak [[field-leak|same]])))))
+      (#math-inductive Another () () (#pt-type 0) ((pack ())))
+      (#math-definition make ([[use-level|v]]) #pt-nat (#pt-lambda (([[element|T]] (#pt-type v)) ([[argument|x]] T))
+          (#pt-construct [[datatype-use|Box]] ([[level-use|v]]) ([[parameter-use|T]]) [[constructor-use|pack]] ([[field-use|x]] x))))
+      (#math-definition eliminate () #pt-nat (#pt-lambda (([[term|x]] #pt-nat))
+          (#pt-induct [[induct-type|Box]] (0) ([[induct-param|x]]) [[motive|x]] ([[branch-one|x]] [[branch-two|x]]) [[subject|x]])))
     "#,
         &[
             ("datatype", &["datatype"]),
@@ -227,14 +324,13 @@ fn kernel_keywords_are_metadata_including_theorem_declarations() {
         "pt-certificate",
     ] {
         run(
-            &format!("(#fn {keyword} () #u64 (#return 0u64)) (#proof test (#proof-definition () #pt-nat (#[[keyword|{keyword}]])))"),
+            &format!("(#fn {keyword} () #u64 (#return 0u64)) (#math-definition test () #pt-nat (#[[keyword|{keyword}]]))"),
             &[("keyword", &[])],
         );
     }
     run(
         r#"
-      (#proof [[theorem|reflexive]] (#[[keyword|proof-theorem]] ()
-        (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-refl #pt-nat #pt-zero)))
+      (#[[keyword|theorem]] [[theorem|reflexive]] (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))
     "#,
         &[("theorem", &["theorem"]), ("keyword", &[])],
     );
@@ -255,7 +351,7 @@ fn kernel_metadata_and_bare_names_never_fall_back_to_global_spellings() {
         "(#pt-custom [[query|value]])",
         "(#get value [[query|value]])",
     ] {
-        let source = format!("(#proof value (#proof-definition () #pt-nat #pt-zero)) (#proof test (#proof-definition () #pt-nat {expression}))");
+        let source = format!("(#math-definition value () #pt-nat #pt-zero) (#math-definition test () #pt-nat {expression})");
         run(&source, &[("query", &[])]);
     }
 }
@@ -265,15 +361,12 @@ fn constructor_lookup_fails_closed_for_missing_ambiguous_or_noninductive_targets
     run(
         r#"
       (#fn label () #u64 (#return 0u64))
-      (#proof Duplicate (#proof-inductive () () (#pt-type 0) ((same ()) (same ()))))
-      (#proof Ordinary (#proof-definition () (#pt-type 0) #pt-nat))
-      (#proof Empty (#proof-inductive () () (#pt-type 0) ()))
-      (#proof duplicate-use (#proof-definition () #pt-nat
-        (#pt-construct Duplicate () () [[ambiguous|same]] ())))
-      (#proof missing-use (#proof-definition () #pt-nat
-        (#pt-construct Empty () () [[missing|label]] ())))
-      (#proof wrong-use (#proof-definition () #pt-nat
-        (#pt-construct [[noninductive|Ordinary]] () () [[wrong-label|label]] ())))
+      (#math-inductive Duplicate () () (#pt-type 0) ((same ()) (same ())))
+      (#math-definition Ordinary () (#pt-type 0) #pt-nat)
+      (#math-inductive Empty () () (#pt-type 0) ())
+      (#math-definition duplicate-use () #pt-nat (#pt-construct Duplicate () () [[ambiguous|same]] ()))
+      (#math-definition missing-use () #pt-nat (#pt-construct Empty () () [[missing|label]] ()))
+      (#math-definition wrong-use () #pt-nat (#pt-construct [[noninductive|Ordinary]] () () [[wrong-label|label]] ()))
     "#,
         &[
             ("ambiguous", &[]),
@@ -290,22 +383,20 @@ fn imported_proofs_aliases_levels_and_constructor_labels_keep_source_identity() 
         r#"
       (#alias Imported = ./facade.lim::Forward)
       (#alias ImportedBox = ./library.lim::Box)
-      (#proof NatAlias (#proof-definition () (#pt-type 0) #pt-nat))
-      (#proof refs (#proof-definition ([[level|v]]) (#pt-type 0)
-        (#pt-app (#pt-use [[alias|Imported]] ([[level-use|v]]))
-                 (#pt-use [[path|./library.lim::NatAlias]] ()))))
-      (#proof constructed (#proof-definition () #pt-nat
-        (#pt-construct [[datatype|ImportedBox]] () () [[constructor|pack]] ())))
+      (#math-definition NatAlias () (#pt-type 0) #pt-nat)
+      (#math-definition refs ([[level|v]]) (#pt-type 0) (#pt-app (#pt-use [[alias|Imported]] ([[level-use|v]]))
+                 (#pt-use [[path|./library.lim::NatAlias]] ())))
+      (#math-definition constructed () #pt-nat (#pt-construct [[datatype|ImportedBox]] () () [[constructor|pack]] ()))
       (#alias certificate = ./library.lim::checked)
-      (#proof bridge (#proof-theorem () #pt-prop (#pt-certificate [[procedural|certificate]])))
+      (#theorem bridge (#universes) (#parameters) (#statement #pt-prop) (#proof (#pt-certificate [[procedural|certificate]])))
     "#,
         &[
             (
                 "library.lim",
                 r#"
-              (#proof [[original|NatAlias]] (#proof-definition (u) (#pt-type 0) #pt-nat))
-              (#proof [[box|Box]] (#proof-inductive () () (#pt-type 0) (([[pack|pack]] ()))))
-              (#proof [[checked|checked]] (#proof-eq 0u64 0u64))
+              (#math-definition [[original|NatAlias]] (u) (#pt-type 0) #pt-nat)
+              (#math-inductive [[box|Box]] () () (#pt-type 0) (([[pack|pack]] ())))
+              (#theorem [[checked|checked]] (#proof-eq 0u64 0u64))
             "#,
             ),
             ("facade.lim", "(#alias Forward = ./library.lim::NatAlias)"),
@@ -325,10 +416,10 @@ fn imported_proofs_aliases_levels_and_constructor_labels_keep_source_identity() 
 fn generated_kernel_proofs_resolve_to_their_emitted_declarations() {
     run(
         r#"
-      (#gn emit () `((#proof nat-alias (#proof-definition () (#pt-type 0) #pt-nat))
-                    (#proof zero (#proof-definition () (#pt-use nat-alias ()) #pt-zero))))
+      (#gn emit () `((#math-definition nat-alias () (#pt-type 0) #pt-nat)
+                    (#math-definition zero () (#pt-use nat-alias ()) #pt-zero)))
       (#generate emit)
-      (#proof use-generated (#proof-definition () (#pt-type 0) (#pt-use [[use|nat-alias]] ())))
+      (#math-definition use-generated () (#pt-type 0) (#pt-use [[use|nat-alias]] ()))
     "#,
         &[("use", &["generated:nat-alias"])],
     );
@@ -340,11 +431,11 @@ fn imported_generators_expose_kernel_names_through_the_final_file_scope() {
         r#"
       (#alias emit = ./generator.lim::emit)
       (#generate emit)
-      (#proof use-generated (#proof-definition () (#pt-type 0) (#pt-use [[use|generated-nat]] ())))
+      (#math-definition use-generated () (#pt-type 0) (#pt-use [[use|generated-nat]] ()))
     "#,
         &[(
             "generator.lim",
-            "(#gn emit () `((#proof generated-nat (#proof-definition () (#pt-type 0) #pt-nat))))",
+            "(#gn emit () `((#math-definition generated-nat () (#pt-type 0) #pt-nat)))",
         )],
         &[("use", &["generated:generated-nat"])],
     );
@@ -464,8 +555,14 @@ fn run_files(input: &str, files: &[(&str, &str)], expected: &[(&str, &[&str])]) 
                         .unwrap()
                         .starts_with("editor-"));
                     let text = std::fs::read_to_string(path).unwrap();
-                    let declaration = format!("(#proof {token} ");
-                    let start = text.find(&declaration).unwrap() + "(#proof ".len();
+                    let start = ["math-definition", "math-inductive", "theorem"]
+                        .iter()
+                        .find_map(|head| {
+                            let prefix = format!("(#{head} ");
+                            text.find(&format!("{prefix}{token} "))
+                                .map(|start| start + prefix.len())
+                        })
+                        .unwrap();
                     generated = (uri, text, start, start + token.len());
                     &generated
                 } else {

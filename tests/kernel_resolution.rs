@@ -14,18 +14,18 @@ fn proof_names_resolve_inside_constructor_and_induction_data_lists() {
     write(
         scratch.path(),
         "math.lim",
-        "(#proof natural (#proof-definition () (#pt-type 0) #pt-nat))\n\
-         (#proof box (#proof-inductive () () (#pt-type 0) ((pack ()))) )",
+        "(#math-definition natural () (#pt-type 0) #pt-nat)\n\
+         (#math-inductive box () () (#pt-type 0) ((pack ())))",
     );
 
     let source = r#"
       (#alias natural-alias = ./math.lim::natural)
       (#alias box-alias = ./math.lim::box)
-      (#proof claim (#proof-definition () (#pt-type 0)
+      (#math-definition claim () (#pt-type 0)
         (#pt-app
           (#pt-construct box-alias () ((#pt-use natural-alias ())) pack ((#pt-use natural-alias ())))
           (#pt-induct box-alias () ((#pt-use natural-alias ()))
-            (#pt-use natural-alias ()) ((#pt-use natural-alias ()) (#pt-use natural-alias ())) (#pt-use natural-alias ())))))
+            (#pt-use natural-alias ()) ((#pt-use natural-alias ()) (#pt-use natural-alias ())) (#pt-use natural-alias ()))))
     "#;
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let (proof_name, proof) = program
@@ -37,7 +37,7 @@ fn proof_names_resolve_inside_constructor_and_induction_data_lists() {
             }
             _ => None,
         })
-        .expect("top-level proof declaration keeps its qualified source identity");
+        .expect("top-level math declaration keeps its qualified source identity");
     assert!(proof_name.contains("main.lim::"), "{proof_name}");
     let resolved = format!("{proof:?}");
     assert_eq!(

@@ -1,4 +1,4 @@
-(#proof wrong
+(#theorem wrong
   (#proof-eq 1u64 2u64))
 
 (#fn main () #u64

@@ -56,12 +56,12 @@ fn run_command() -> ExitCode {
             .iter()
             .find(|arg| !arg.starts_with("--diagnostic-format="))
             .map(String::as_str);
-        let supported = matches!(command, Some("--check" | "--emit-asm"))
+        let supported = matches!(command, Some("--check" | "--check-theorem" | "--emit-asm"))
             || command.is_some_and(|command| {
                 !command.starts_with('-') && !matches!(command, "fmt" | "lsp")
             });
         if !supported {
-            eprintln!("lim: --timings is supported for compile, --check, and --emit-asm commands");
+            eprintln!("lim: --timings is supported for compile, --check, --check-theorem, and --emit-asm commands");
             return ExitCode::FAILURE;
         }
     }
@@ -202,7 +202,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -220,7 +220,10 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     ) {
         return stack_usage_command(&arguments);
     }
-    if arguments.first().map(String::as_str) == Some("--check") {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("--check" | "--check-theorem")
+    ) {
         return check_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("fmt") {
@@ -605,14 +608,33 @@ fn check_command(arguments: &[String]) -> ExitCode {
         eprintln!("usage: lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET]");
         return ExitCode::FAILURE;
     };
+    if input_path.starts_with('-') {
+        eprintln!(
+            "lim: an input file must immediately follow {}",
+            arguments[0]
+        );
+        return ExitCode::FAILURE;
+    }
+    let theorem = if arguments[0] == "--check-theorem" {
+        match arguments.get(2) {
+            Some(name) if !name.is_empty() && !name.starts_with('-') => Some(name.as_str()),
+            _ => {
+                eprintln!("usage: lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET]");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
     let mut config = lim::CompileConfig::default();
     let mut selected_target = None;
-    let mut index = 2;
+    let mut index = if theorem.is_some() { 3 } else { 2 };
     while index < arguments.len() {
         match arguments[index].as_str() {
             "--cfg" => {
                 index += 1;
-                let Some(value) = arguments.get(index) else {
+                let Some(value) = arguments.get(index).filter(|value| !value.starts_with('-'))
+                else {
                     eprintln!("lim: --cfg requires KEY=VALUE");
                     return ExitCode::FAILURE;
                 };
@@ -623,7 +645,8 @@ fn check_command(arguments: &[String]) -> ExitCode {
             }
             "--target" => {
                 index += 1;
-                let Some(value) = arguments.get(index) else {
+                let Some(value) = arguments.get(index).filter(|value| !value.starts_with('-'))
+                else {
                     eprintln!("lim: --target requires a target name");
                     return ExitCode::FAILURE;
                 };
@@ -637,14 +660,15 @@ fn check_command(arguments: &[String]) -> ExitCode {
             }
             "--module-path" => {
                 index += 1;
-                let Some(value) = arguments.get(index) else {
+                let Some(value) = arguments.get(index).filter(|value| !value.starts_with('-'))
+                else {
                     eprintln!("lim: --module-path requires a directory");
                     return ExitCode::FAILURE;
                 };
                 config.add_module_path(value);
             }
             other => {
-                eprintln!("lim: unexpected --check argument '{other}'");
+                eprintln!("lim: unexpected {} argument '{other}'", arguments[0]);
                 return ExitCode::FAILURE;
             }
         }
@@ -680,6 +704,18 @@ fn check_command(arguments: &[String]) -> ExitCode {
     };
     drop(_input_timing);
     let input_file = Path::new(input_path);
+    if let Some(name) = theorem {
+        return match lim::check_theorem_from_path_with_config(&source, input_file, &config, name) {
+            Ok(_) => {
+                println!("checked theorem {name}");
+                ExitCode::SUCCESS
+            }
+            Err(diagnostic) => {
+                emit_diagnostic(&diagnostic, &source, input_path);
+                ExitCode::FAILURE
+            }
+        };
+    }
     let generated_directory = input_file
         .parent()
         .unwrap_or_else(|| Path::new("."))

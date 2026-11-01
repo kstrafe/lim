@@ -3,13 +3,17 @@
 Lim has two compile-time proof layers. Procedural proofs check claims about the
 validated native program using structural analysis, bounded symbolic execution,
 and target-specific certificates. The mathematical kernel checks explicit terms
-in a constructive dependent type theory. Both use named `#proof` declarations,
-but their terms, types, and evidence are distinct.
+in a constructive dependent type theory. Both expose named `#theorem`
+declarations, but their terms, types, and evidence are distinct. Mathematical
+data and datatype declarations use `#math-definition` and `#math-inductive`.
 
 The kernel is inspired by Lean 4's use of dependent types, universes, inductive
 types, and a small proof checker. It is not full Lean 4, does not provide mathlib,
 and makes no compatibility, feature-parity, or formal-verification claim. The
-rules and syntax below describe Lim's supported subset.
+rules and syntax below describe Lim's supported subset. The
+[Lean compatibility and FLT roadmap](lean-compatibility.md) records the pinned
+upstream reference, missing features, trust differences, and remaining porting
+work; no full Lean or Fermat's Last Theorem proof port is complete.
 
 ## Declare a definition, theorem, or datatype
 
@@ -17,10 +21,10 @@ A mathematical definition has an explicit universe-parameter list, type, and
 value:
 
 ```lisp
-(#proof identity
-  (#proof-definition (u)
-    (#pt-pi ((A (#pt-type u)) (x A)) A)
-    (#pt-lambda ((A (#pt-type u)) (x A)) x)))
+(#math-definition identity
+  (u)
+  (#pt-pi ((A (#pt-type u)) (x A)) A)
+  (#pt-lambda ((A (#pt-type u)) (x A)) x))
 ```
 
 `u` is a universe parameter, not a runtime argument. `A` and `x` are term
@@ -32,32 +36,50 @@ For example, applying this identity to a natural number is:
 (#pt-app (#pt-use identity (0)) #pt-nat (#pt-numeral 3))
 ```
 
-A theorem has the same declaration shape, but its declared type must be a
-proposition, meaning a term whose type is `#pt-prop`:
+A mathematical theorem uses explicit universe, parameter, statement, and proof
+clauses. Its statement must be a proposition, meaning a term whose type is
+`#pt-prop`. Parameters are bound in both the statement and the evidence:
 
 ```lisp
-(#proof nat-reflexive
-  (#proof-theorem ()
-    (#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))
-    (#pt-lambda ((n #pt-nat)) (#pt-refl #pt-nat n))))
+(#theorem nat-reflexive
+  (#universes)
+  (#parameters (#parameter n #pt-nat))
+  (#statement (#pt-eq #pt-nat n n))
+  (#proof (#pt-refl #pt-nat n)))
 ```
 
 The theorem's proof term is checked and then remains opaque to conversion.
 `(#pt-app (#pt-use nat-reflexive ()) #pt-zero)` uses its type and evidence;
 it does not unfold the theorem body. A declaration with a data type such as
-`#pt-nat` in the theorem's TYPE position is rejected: use a definition for data.
+`#pt-nat` as its statement is rejected: use a definition for data.
 
-The full three declaration shapes are:
+The public declaration shapes are:
 
 ```text
-(#proof NAME (#proof-definition (universe...) TYPE VALUE))
-(#proof NAME (#proof-theorem (universe...) PROPOSITION PROOF))
-(#proof NAME
-  (#proof-inductive (universe...)
-    ((parameter Type)...)
-    SORT
-    ((constructor-label ((field Type)...))...)))
+(#theorem NAME
+  (#universes u...)
+  (#parameters (#parameter name TYPE)...)
+  (#statement CLAIM)
+  (#proof EVIDENCE))
+
+(#theorem NAME PROCEDURAL-CLAIM)
+
+(#math-definition NAME (universe...) TYPE VALUE)
+
+(#math-inductive NAME (universe...)
+  ((parameter Type)...)
+  SORT
+  ((constructor-label ((field Type)...))...))
 ```
+
+For a mathematical theorem, write `(#universes)` and `(#parameters)` when their
+lists are empty. `#parameter` introduces one explicitly typed term parameter;
+`#statement` contains the proposition and `#proof` contains its evidence.
+`#proof` is only a clause within this theorem form, never a top-level declaration.
+The parameter clauses lower to a closed Pi type and lambda evidence; the kernel
+independently checks the resulting terms. The procedural shorthand has one claim
+and no mathematical evidence clause. Private kernel wrappers are implementation
+details, not accepted public syntax.
 
 The outer names follow ordinary proof-name rules. Constructor labels identify
 constructors within their datatype; they are selected explicitly by
@@ -105,12 +127,15 @@ generation and monomorphization rules.
 and the result may mention earlier binders. When the result is a proposition,
 this expresses universal quantification or implication. A dependent function
 is introduced with `#pt-lambda` using the same explicit binder-list syntax:
+`(#pt-lambda ((P #pt-prop) (p P)) p)`. The equivalent theorem uses explicit
+parameter clauses, which bind `P` and `p` in its statement and evidence:
 
 ```lisp
-(#proof keep-proof
-  (#proof-theorem ()
-    (#pt-pi ((P #pt-prop) (p P)) P)
-    (#pt-lambda ((P #pt-prop) (p P)) p)))
+(#theorem keep-proof
+  (#universes)
+  (#parameters (#parameter P #pt-prop) (#parameter p P))
+  (#statement P)
+  (#proof p))
 ```
 
 Use `(#pt-app FUNCTION ARGUMENT...)` to apply a function or proof. Local
@@ -135,13 +160,13 @@ This describes a pair whose second component is a proof about the first.
 Construction includes the entire Sigma type, followed by the two components:
 
 ```lisp
-(#proof zero-with-evidence
-  (#proof-definition ()
+(#math-definition zero-with-evidence
+  ()
+  (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))
+  (#pt-pair
     (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))
-    (#pt-pair
-      (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))
-      #pt-zero
-      (#pt-refl #pt-nat #pt-zero))))
+    #pt-zero
+    (#pt-refl #pt-nat #pt-zero)))
 ```
 
 `(#pt-first PAIR)` returns the first component. `(#pt-second PAIR)` returns
@@ -171,16 +196,21 @@ endpoint is insufficient. For example, this transports reflexivity along an
 explicit equality proof:
 
 ```lisp
-(#proof transport-reflexivity
-  (#proof-theorem ()
-    (#pt-pi ((a #pt-nat) (b #pt-nat) (h (#pt-eq #pt-nat a b)))
-      (#pt-eq #pt-nat b b))
-    (#pt-lambda ((a #pt-nat) (b #pt-nat) (h (#pt-eq #pt-nat a b)))
-      (#pt-eq-elim #pt-nat a
-        (#pt-lambda ((x #pt-nat) (e (#pt-eq #pt-nat a x)))
-          (#pt-eq #pt-nat x x))
-        (#pt-refl #pt-nat a)
-        b h))))
+(#theorem transport-reflexivity
+  (#universes)
+  (#parameters
+    (#parameter a #pt-nat)
+    (#parameter b #pt-nat)
+    (#parameter h (#pt-eq #pt-nat a b)))
+  (#statement (#pt-eq #pt-nat b b))
+  (#proof
+    (#pt-eq-elim
+      #pt-nat
+      a
+      (#pt-lambda ((x #pt-nat) (e (#pt-eq #pt-nat a x))) (#pt-eq #pt-nat x x))
+      (#pt-refl #pt-nat a)
+      b
+      h)))
 ```
 
 Conversion and propositional equality are different. Conversion computes with
@@ -209,16 +239,16 @@ induction hypothesis at that number, and returns the motive at its successor.
 This defines doubling without general recursion:
 
 ```lisp
-(#proof double
-  (#proof-definition ()
-    (#pt-pi ((n #pt-nat)) #pt-nat)
-    (#pt-lambda ((n #pt-nat))
-      (#pt-nat-induct
-        (#pt-lambda ((k #pt-nat)) #pt-nat)
-        #pt-zero
-        (#pt-lambda ((k #pt-nat) (ih #pt-nat))
-          (#pt-succ (#pt-succ ih)))
-        n))))
+(#math-definition double
+  ()
+  (#pt-pi ((n #pt-nat)) #pt-nat)
+  (#pt-lambda
+    ((n #pt-nat))
+    (#pt-nat-induct
+      (#pt-lambda ((k #pt-nat)) #pt-nat)
+      #pt-zero
+      (#pt-lambda ((k #pt-nat) (ih #pt-nat)) (#pt-succ (#pt-succ ih)))
+      n)))
 ```
 
 Induction checks a zero case and a general successor case; it is not bounded
@@ -237,10 +267,11 @@ type former. It is not a general reference to the enclosing declaration.
 A small datatype with no parameters is:
 
 ```lisp
-(#proof ticks
-  (#proof-inductive () () (#pt-type 0)
-    ((tick-zero ())
-     (tick-next ((previous #pt-self))))))
+(#math-inductive ticks
+  ()
+  ()
+  (#pt-type 0)
+  ((tick-zero ()) (tick-next ((previous #pt-self)))))
 ```
 
 Its type is referenced as `(#pt-use ticks ())`. Construction supplies universe
@@ -259,15 +290,16 @@ instantiates universes; apply its datatype parameters with `#pt-app` when a
 parameterized datatype term is needed in a type. For example:
 
 ```lisp
-(#proof option
-  (#proof-inductive (u) ((A (#pt-type u))) (#pt-type u)
-    ((none ())
-     (some ((value A))))))
+(#math-inductive option
+  (u)
+  ((A (#pt-type u)))
+  (#pt-type u)
+  ((none ()) (some ((value A)))))
 
-(#proof some-natural
-  (#proof-definition ()
-    (#pt-app (#pt-use option (0)) #pt-nat)
-    (#pt-construct option (0) (#pt-nat) some ((#pt-numeral 2)))))
+(#math-definition some-natural
+  ()
+  (#pt-app (#pt-use option (0)) #pt-nat)
+  (#pt-construct option (0) (#pt-nat) some ((#pt-numeral 2))))
 ```
 
 Here `(0)` instantiates `u`, `(#pt-nat)` supplies the datatype parameter `A`,
@@ -291,16 +323,18 @@ A fieldless branch is just a term of the required result type.
 For `ticks`, counting constructors is:
 
 ```lisp
-(#proof count-ticks
-  (#proof-definition ()
-    (#pt-pi ((t (#pt-use ticks ()))) #pt-nat)
-    (#pt-lambda ((t (#pt-use ticks ())))
-      (#pt-induct ticks () ()
-        (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat)
-        (#pt-zero
-         (#pt-lambda ((previous (#pt-use ticks ())) (ih #pt-nat))
-           (#pt-succ ih)))
-        t))))
+(#math-definition count-ticks
+  ()
+  (#pt-pi ((t (#pt-use ticks ()))) #pt-nat)
+  (#pt-lambda
+    ((t (#pt-use ticks ())))
+    (#pt-induct
+      ticks
+      ()
+      ()
+      (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat)
+      (#pt-zero (#pt-lambda ((previous (#pt-use ticks ())) (ih #pt-nat)) (#pt-succ ih)))
+      t)))
 ```
 
 The kernel checks constructor types, recursive positions, branch types, and
@@ -324,17 +358,16 @@ is a kernel rule, not a runtime representation or erasure promise.
 A procedural proof can be exposed as a proposition atom and checked evidence:
 
 ```lisp
-(#fn identity-native ((value #u8)) #u8
-  (#return value))
+(#fn identity-native ((value #u8)) #u8 (#return value))
 
-(#proof identity-native-law
-  (#proof-for-all ((x #u8))
-    (#proof-eq (#call identity-native (: value x)) x)))
+(#theorem identity-native-law
+  (#proof-for-all ((x #u8)) (#proof-eq (#call identity-native (: value x)) x)))
 
-(#proof identity-native-evidence
-  (#proof-theorem ()
-    (#pt-program identity-native-law)
-    (#pt-certificate identity-native-law)))
+(#theorem identity-native-evidence
+  (#universes)
+  (#parameters)
+  (#statement (#pt-program identity-native-law))
+  (#proof (#pt-certificate identity-native-law)))
 ```
 
 `(#pt-program NAME)` is the proposition atom for the named procedural proof.
@@ -347,6 +380,35 @@ stronger claim than the original obligation.
 
 The bridge is directional. It does not execute a mathematical proof as native
 code or turn a theorem into an assumption that bypasses the procedural checker.
+
+## Check a named theorem from the CLI
+
+```sh
+lim --check-theorem INPUT NAME
+```
+
+For example, save the `nat-reflexive` declaration above in `identity.lim`, then
+run `lim --check-theorem identity.lim nat-reflexive`. The command resolves the
+input normally, including imports and cfg selection, and performs normal
+validation of all obligations. It also requires `NAME` to identify an actual
+theorem declaration. A mathematical definition whose value happens to be a
+proposition is not a theorem and cannot satisfy this request.
+
+A missing target, a target excluded by cfg, a false or unproved obligation, or
+another validation failure makes the command fail. Checking a name does not
+skip other obligations in the input's checked program. This mode produces no
+native outputs and does not compile or run a native executable.
+
+[theorems/fermat_statement.lim](../theorems/fermat_statement.lim) defines Nat
+addition, multiplication, and power with structural recursors, then the exact
+closed positive-natural FLT proposition `fermats-last-theorem-statement` with
+exponent `n + 3`. All four natural parameters are unbounded; successor bases
+express positivity. This is a `#math-definition` of a proposition only: it
+supplies no proof, no certificate, and no successful FLT theorem target.
+`lim --check-theorem theorems/fermat_statement.lim fermats-last-theorem-statement`
+must reject it as a definition. No upstream proof text or source code is copied.
+Expressing that proposition does not establish Fermat's Last Theorem. See the
+[compatibility roadmap](lean-compatibility.md) for the remaining full-port scope.
 
 ## Checking, conversion, and caching
 

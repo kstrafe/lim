@@ -80,12 +80,8 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         if kernel::is_declaration(proposition) {
             continue;
         }
-        let declaration = checked.program().declaration_expressions.get(name);
-        let span = declaration
-            .and_then(|node| node.children.get(2))
-            .map(|node| node.span)
-            .or_else(|| checked.program().declaration_spans.get(name).copied())
-            .unwrap_or_else(|| Span::new(0, 0, 1, 1));
+        let span =
+            declaration_span(checked.program(), name).unwrap_or_else(|| Span::new(0, 0, 1, 1));
         let mut engine = Engine::new(checked, &graph, span);
         let outcome = engine
             .proposition(State::new(), proposition)
@@ -93,7 +89,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         if let Err(message) = outcome {
             return Err((
                 format!(
-                    "proof '{}': {message}",
+                    "theorem '{}': {message}",
                     crate::file_access::local_name(name)
                 ),
                 crate::DiagnosticCode::Proof,
@@ -104,16 +100,10 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         verified_program_proofs.insert(name.clone());
     }
     kernel::check(checked.program(), &verified_program_proofs).map_err(|(name, message)| {
-        let span = checked
-            .program()
-            .declaration_expressions
-            .get(&name)
-            .and_then(|node| node.children.get(2))
-            .map(|node| node.span)
-            .or_else(|| checked.program().declaration_spans.get(&name).copied());
+        let span = declaration_span(checked.program(), &name);
         (
             format!(
-                "proof '{}': {message}",
+                "theorem '{}': {message}",
                 crate::file_access::local_name(&name)
             ),
             crate::DiagnosticCode::Proof,
@@ -884,4 +874,18 @@ fn proof_type(expr: &Expr, written: bool) -> Result<Type> {
         explicit(expr)?;
     }
     crate::parse_type(Some(&crate::normalize_keywords(expr.clone())))
+}
+
+pub(crate) fn declaration_span(program: &crate::Program, name: &str) -> Option<Span> {
+    program
+        .declaration_expressions
+        .get(name)
+        .map(|node| {
+            if node.children.len() == 3 {
+                node.children[2].span
+            } else {
+                node.span
+            }
+        })
+        .or_else(|| program.declaration_spans.get(name).copied())
 }

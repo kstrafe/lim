@@ -36,7 +36,8 @@ fn declarations(names: &[&str]) -> String {
         let Expr::List(items) = &node.expr else {
             continue;
         };
-        if !matches!(items.first(), Some(Expr::Symbol(head)) if head == "#proof") {
+        if !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#theorem" | "#math-definition" | "#math-inductive"))
+        {
             continue;
         }
         if matches!(items.get(1), Some(Expr::Symbol(name)) if names.contains(&name.as_str())) {
@@ -58,13 +59,17 @@ fn polymorphic_identity_reduces_at_multiple_universe_instances() {
     let source = declarations(&["identity"]);
     accepts(&format!(
         "{source}
-      (#proof identity-at-nat (#proof-theorem ()
-        (#pt-eq #pt-nat (#pt-app (#pt-use identity (0)) #pt-nat #pt-zero) #pt-zero)
-        (#pt-refl #pt-nat #pt-zero)))
-      (#proof identity-at-types (#proof-theorem ()
-        (#pt-eq (#pt-type 0)
-          (#pt-app (#pt-use identity (1)) (#pt-type 0) #pt-nat) #pt-nat)
-        (#pt-refl (#pt-type 0) #pt-nat)))"
+      (#theorem identity-at-nat
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat (#pt-app (#pt-use identity (0)) #pt-nat #pt-zero) #pt-zero))
+        (#proof (#pt-refl #pt-nat #pt-zero)))
+      (#theorem identity-at-types
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq (#pt-type 0)
+          (#pt-app (#pt-use identity (1)) (#pt-type 0) #pt-nat) #pt-nat))
+        (#proof (#pt-refl (#pt-type 0) #pt-nat)))"
     ));
 }
 
@@ -73,27 +78,33 @@ fn universe_max_type_operator_builds_a_mixed_universe_product() {
     let source = declarations(&["product"]);
     accepts(&format!(
         "{source}
-      (#proof mixed-pair (#proof-definition ()
+      (#math-definition mixed-pair ()
         (#pt-app (#pt-use product (0 1)) #pt-nat (#pt-type 0))
         (#pt-pair (#pt-app (#pt-use product (0 1)) #pt-nat (#pt-type 0))
-          #pt-zero #pt-nat)))
-      (#proof mixed-first (#proof-theorem ()
-        (#pt-eq #pt-nat (#pt-first (#pt-use mixed-pair ())) #pt-zero)
-        (#pt-refl #pt-nat #pt-zero)))
-      (#proof mixed-second (#proof-theorem ()
-        (#pt-eq (#pt-type 0) (#pt-second (#pt-use mixed-pair ())) #pt-nat)
-        (#pt-refl (#pt-type 0) #pt-nat)))"
+          #pt-zero #pt-nat))
+      (#theorem mixed-first
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat (#pt-first (#pt-use mixed-pair ())) #pt-zero))
+        (#proof (#pt-refl #pt-nat #pt-zero)))
+      (#theorem mixed-second
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq (#pt-type 0) (#pt-second (#pt-use mixed-pair ())) #pt-nat))
+        (#proof (#pt-refl (#pt-type 0) #pt-nat)))"
     ));
 }
 
 #[test]
 fn symbolic_successor_universe_parameters_substitute_correctly() {
     accepts(
-        "(#proof next-universe (#proof-definition (u)
-      (#pt-type (#pt-level-succ u)) (#pt-type u)))
-      (#proof concrete-universe (#proof-theorem ()
-        (#pt-eq (#pt-type 1) (#pt-use next-universe (0)) (#pt-type 0))
-        (#pt-refl (#pt-type 1) (#pt-type 0))))",
+        "(#math-definition next-universe (u)
+      (#pt-type (#pt-level-succ u)) (#pt-type u))
+      (#theorem concrete-universe
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq (#pt-type 1) (#pt-use next-universe (0)) (#pt-type 0)))
+        (#proof (#pt-refl (#pt-type 1) (#pt-type 0))))",
     );
 }
 
@@ -101,9 +112,14 @@ fn symbolic_successor_universe_parameters_substitute_correctly() {
 fn implication_composition_is_a_polymorphic_impredicative_proposition() {
     accepts(&declarations(&["compose-implications"]));
     rejects(
-        "(#proof fake-composition (#proof-theorem ()
-      (#pt-pi ((p #pt-prop) (q #pt-prop) (premise p)) q)
-      (#pt-lambda ((p #pt-prop) (q #pt-prop) (premise p)) premise)))",
+        "(#theorem fake-composition
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter premise p))
+  (#statement q)
+  (#proof premise))",
     );
 }
 
@@ -112,9 +128,11 @@ fn equality_symmetry_is_derived_with_j() {
     let source = declarations(&["symmetry"]);
     accepts(&format!(
         "{source}
-      (#proof reverse-reflexivity (#proof-theorem ()
-        (#pt-eq #pt-nat (#pt-numeral 3) (#pt-numeral 3))
-        (#pt-app (#pt-use symmetry (0)) #pt-nat
+      (#theorem reverse-reflexivity
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat (#pt-numeral 3) (#pt-numeral 3)))
+        (#proof (#pt-app (#pt-use symmetry (0)) #pt-nat
           (#pt-numeral 3) (#pt-numeral 3)
           (#pt-refl #pt-nat (#pt-numeral 3)))))"
     ));
@@ -125,13 +143,15 @@ fn dependent_transport_computes_on_reflexivity() {
     let source = declarations(&["transport"]);
     accepts(&format!(
         "{source}
-      (#proof transported-zero (#proof-theorem ()
-        (#pt-eq #pt-nat
+      (#theorem transported-zero
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat
           (#pt-app (#pt-use transport (0 0)) #pt-nat
             (#pt-lambda ((point #pt-nat)) #pt-nat)
             #pt-zero #pt-zero (#pt-refl #pt-nat #pt-zero) #pt-zero)
-          #pt-zero)
-        (#pt-refl #pt-nat #pt-zero)))"
+          #pt-zero))
+        (#proof (#pt-refl #pt-nat #pt-zero)))"
     ));
 }
 
@@ -146,9 +166,7 @@ fn j_rejects_wrong_motives_bases_and_equality_witnesses() {
           (#pt-lambda ((other #pt-nat) (path (#pt-eq #pt-nat #pt-zero other))) #pt-nat)
           #pt-zero (#pt-succ #pt-zero) (#pt-refl #pt-nat #pt-zero))",
     ] {
-        rejects(&format!(
-            "(#proof bad-j (#proof-definition () #pt-nat {term}))"
-        ));
+        rejects(&format!("(#math-definition bad-j () #pt-nat {term})"));
     }
 }
 
@@ -157,18 +175,22 @@ fn natural_addition_right_zero_requires_and_accepts_induction() {
     let source = declarations(&["congruence", "plus", "plus-right-zero"]);
     accepts(&format!(
         "{source}
-      (#proof seven-plus-zero (#proof-theorem ()
-        (#pt-eq #pt-nat
-          (#pt-app (#pt-use plus ()) (#pt-numeral 7) #pt-zero) (#pt-numeral 7))
-        (#pt-app (#pt-use plus-right-zero ()) (#pt-numeral 7))))"
+      (#theorem seven-plus-zero
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat
+          (#pt-app (#pt-use plus ()) (#pt-numeral 7) #pt-zero) (#pt-numeral 7)))
+        (#proof (#pt-app (#pt-use plus-right-zero ()) (#pt-numeral 7))))"
     ));
     let plus = declarations(&["plus"]);
     rejects(&format!(
         "{plus}
-      (#proof unproved-right-zero (#proof-theorem ()
-        (#pt-pi ((number #pt-nat))
-          (#pt-eq #pt-nat (#pt-app (#pt-use plus ()) number #pt-zero) number))
-        (#pt-lambda ((number #pt-nat)) (#pt-refl #pt-nat number))))"
+      (#theorem unproved-right-zero
+        (#universes)
+        (#parameters
+          (#parameter number #pt-nat))
+        (#statement (#pt-eq #pt-nat (#pt-app (#pt-use plus ()) number #pt-zero) number))
+        (#proof (#pt-refl #pt-nat number)))"
     ));
 }
 
@@ -191,9 +213,9 @@ fn natural_induction_checks_zero_and_successor_cases() {
           (#pt-refl #pt-nat previous))",
     ] {
         rejects(&format!(
-            "(#proof bad-induction (#proof-definition () #pt-nat
+            "(#math-definition bad-induction () #pt-nat
           (#pt-nat-induct (#pt-lambda ((number #pt-nat)) #pt-nat)
-            {branches} (#pt-numeral 2))))"
+            {branches} (#pt-numeral 2)))"
         ));
     }
 }
@@ -203,14 +225,16 @@ fn generic_list_length_uses_constructor_induction_and_its_recursive_hypothesis()
     let source = declarations(&["list", "length", "length-nil", "length-cons"]);
     accepts(&format!(
         "{source}
-      (#proof two-elements (#proof-theorem ()
-        (#pt-eq #pt-nat
+      (#theorem two-elements
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat
           (#pt-app (#pt-use length (0)) #pt-nat
             (#pt-construct list (0) (#pt-nat) cons
               (#pt-zero (#pt-construct list (0) (#pt-nat) cons
                 ((#pt-succ #pt-zero) (#pt-construct list (0) (#pt-nat) nil ()))))))
-          (#pt-numeral 2))
-        (#pt-refl #pt-nat (#pt-numeral 2))))"
+          (#pt-numeral 2)))
+        (#proof (#pt-refl #pt-nat (#pt-numeral 2))))"
     ));
 }
 
@@ -227,8 +251,8 @@ fn constructors_check_universe_parameter_name_and_field_arity() {
           ((#pt-type 0) (#pt-construct list (0) (#pt-nat) nil ())))",
     ] {
         rejects(&format!(
-            "{list} (#proof bad-constructor (#proof-definition ()
-          (#pt-app (#pt-use list (0)) #pt-nat) {term}))"
+            "{list} (#math-definition bad-constructor ()
+          (#pt-app (#pt-use list (0)) #pt-nat) {term})"
         ));
     }
 }
@@ -245,10 +269,10 @@ fn constructor_induction_rejects_missing_or_misordered_recursive_hypotheses() {
     ] {
         rejects(&format!(
             "{list}
-          (#proof bad-branches (#proof-definition () #pt-nat
+          (#math-definition bad-branches () #pt-nat
             (#pt-induct list (0) (#pt-nat)
               (#pt-lambda ((items (#pt-app (#pt-use list (0)) #pt-nat))) #pt-nat)
-              {branches} (#pt-construct list (0) (#pt-nat) nil ()))))"
+              {branches} (#pt-construct list (0) (#pt-nat) nil ())))"
         ));
     }
 }
@@ -261,10 +285,10 @@ fn dependent_pair_second_projection_retains_its_first_projection_index() {
         "pair-evidence",
     ]));
     rejects(
-        "(#proof bad-dependent-pair (#proof-definition ()
+        "(#math-definition bad-dependent-pair ()
       (#pt-sigma ((first #pt-nat)) (#pt-eq #pt-nat first first))
       (#pt-pair (#pt-sigma ((first #pt-nat)) (#pt-eq #pt-nat first first))
-        #pt-zero (#pt-refl #pt-nat (#pt-succ #pt-zero)))))",
+        #pt-zero (#pt-refl #pt-nat (#pt-succ #pt-zero))))",
     );
 }
 
@@ -279,9 +303,7 @@ fn sigma_requires_exactly_one_binder_and_both_projections_require_a_pair() {
         ("#pt-nat", "(#pt-first #pt-zero)"),
         ("#pt-nat", "(#pt-second #pt-zero)"),
     ] {
-        rejects(&format!(
-            "(#proof bad-sigma (#proof-definition () {ty} {term}))"
-        ));
+        rejects(&format!("(#math-definition bad-sigma () {ty} {term})"));
     }
 }
 
@@ -290,8 +312,11 @@ fn an_empty_user_proposition_eliminates_into_any_proposition() {
     accepts(&declarations(&["empty", "empty-elimination"]));
     let empty = declarations(&["empty"]);
     rejects(&format!(
-        "{empty} (#proof impossible (#proof-theorem ()
-      (#pt-use empty ()) (#pt-construct empty () () invented ())))"
+        "{empty} (#theorem impossible
+  (#universes)
+  (#parameters)
+  (#statement (#pt-use empty ()))
+  (#proof (#pt-construct empty () () invented ())))"
     ));
 }
 
@@ -305,66 +330,85 @@ fn builtin_false_has_no_zero_refl_certificate_or_admit_constructor() {
         "(#pt-unsafe)",
     ] {
         rejects(&format!(
-            "(#proof impossible (#proof-theorem () #pt-false {term}))"
+            "(#theorem impossible
+  (#universes)
+  (#parameters)
+  (#statement #pt-false)
+  (#proof {term}))"
         ));
     }
 }
 
 #[test]
 fn theorems_must_prove_propositions_and_cannot_be_axioms() {
+    rejects(
+        "(#theorem data-theorem
+      (#universes) (#parameters) (#statement #pt-nat) (#proof #pt-zero))",
+    );
     for declaration in [
-        "(#proof data-theorem (#proof-theorem () #pt-nat #pt-zero))",
-        "(#proof missing-proof (#proof-theorem () #pt-false))",
-        "(#proof fake-axiom (#proof-axiom () #pt-false))",
+        "(#theorem missing-proof (#universes) (#parameters) (#statement #pt-false))",
+        "(#theorem fake-axiom (#universes) (#parameters) (#statement #pt-false) (#axiom))",
+        "(#proof legacy true)",
+        "(#theorem legacy-wrapper (#proof-theorem () #pt-false #pt-zero))",
     ] {
-        rejects(declaration);
+        assert!(
+            lim::parse_program(declaration).is_err(),
+            "accepted malformed theorem: {declaration}"
+        );
     }
 }
 
 #[test]
 fn transparent_definitions_support_delta_beta_and_iota_conversion() {
     accepts(
-        "(#proof two (#proof-definition () #pt-nat (#pt-succ (#pt-succ #pt-zero))))
-      (#proof computed (#proof-theorem ()
-        (#pt-eq #pt-nat
+        "(#math-definition two () #pt-nat (#pt-succ (#pt-succ #pt-zero)))
+      (#theorem computed
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat
           (#pt-app (#pt-lambda ((value #pt-nat)) value) (#pt-use two ()))
-          (#pt-numeral 2))
-        (#pt-refl #pt-nat (#pt-numeral 2))))",
+          (#pt-numeral 2)))
+        (#proof (#pt-refl #pt-nat (#pt-numeral 2))))",
     );
 }
 
 #[test]
 fn theorem_bodies_remain_opaque_during_conversion() {
-    let witness = "(#proof witness (#proof-theorem ()
-      (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-refl #pt-nat #pt-zero)))";
+    let witness = "(#theorem witness
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof (#pt-refl #pt-nat #pt-zero)))";
     rejects(&format!(
         "{witness}
-      (#proof forbidden-unfolding (#proof-theorem ()
-        (#pt-eq (#pt-eq #pt-nat #pt-zero #pt-zero)
-          (#pt-use witness ()) (#pt-refl #pt-nat #pt-zero))
-        (#pt-refl (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-use witness ()))))"
+      (#theorem forbidden-unfolding
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq (#pt-eq #pt-nat #pt-zero #pt-zero)
+          (#pt-use witness ()) (#pt-refl #pt-nat #pt-zero)))
+        (#proof (#pt-refl (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-use witness ()))))"
     ));
 }
 
 #[test]
 fn universes_reject_type_in_type_unknown_levels_and_wrong_instantiation_arity() {
     for source in [
-        "(#proof type-in-type (#proof-definition () (#pt-type 0) (#pt-type 0)))",
-        "(#proof natural-is-not-prop (#proof-definition () #pt-prop #pt-nat))",
-        "(#proof missing-level (#proof-definition () (#pt-type u) #pt-nat))",
-        "(#proof negative-level (#proof-definition () (#pt-type -1) #pt-nat))",
-        "(#proof duplicate-level (#proof-definition (u u)
+        "(#math-definition type-in-type () (#pt-type 0) (#pt-type 0))",
+        "(#math-definition natural-is-not-prop () #pt-prop #pt-nat)",
+        "(#math-definition missing-level () (#pt-type u) #pt-nat)",
+        "(#math-definition negative-level () (#pt-type -1) #pt-nat)",
+        "(#math-definition duplicate-level (u u)
           (#pt-pi ((a (#pt-type u)) (value a)) a)
-          (#pt-lambda ((a (#pt-type u)) (value a)) value)))",
+          (#pt-lambda ((a (#pt-type u)) (value a)) value))",
     ] {
         rejects(source);
     }
     let identity = declarations(&["identity"]);
     for levels in ["()", "(0 1)", "(missing)"] {
         rejects(&format!(
-            "{identity} (#proof bad-instance (#proof-definition ()
+            "{identity} (#math-definition bad-instance ()
           (#pt-pi ((value #pt-nat)) #pt-nat)
-          (#pt-app (#pt-use identity {levels}) #pt-nat)))"
+          (#pt-app (#pt-use identity {levels}) #pt-nat))"
         ));
     }
 }
@@ -372,14 +416,17 @@ fn universes_reject_type_in_type_unknown_levels_and_wrong_instantiation_arity() 
 #[test]
 fn free_variables_shadowed_binders_and_malformed_applications_are_rejected() {
     for source in [
-        "(#proof free (#proof-definition () #pt-nat missing))",
-        "(#proof shadow (#proof-definition ()
+        "(#math-definition free () #pt-nat missing)",
+        "(#math-definition shadow ()
           (#pt-pi ((first #pt-nat) (second #pt-nat)) #pt-nat)
-          (#pt-lambda ((value #pt-nat) (value #pt-nat)) value)))",
-        "(#proof bad-binder (#proof-definition () (#pt-type 0) (#pt-pi ((value)) #pt-nat)))",
-        "(#proof apply-data (#proof-definition () #pt-nat (#pt-app #pt-zero #pt-zero)))",
-        "(#proof wrong-refl (#proof-theorem ()
-          (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero)) (#pt-refl #pt-nat #pt-zero)))",
+          (#pt-lambda ((value #pt-nat) (value #pt-nat)) value))",
+        "(#math-definition bad-binder () (#pt-type 0) (#pt-pi ((value)) #pt-nat))",
+        "(#math-definition apply-data () #pt-nat (#pt-app #pt-zero #pt-zero))",
+        "(#theorem wrong-refl
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero)))
+  (#proof (#pt-refl #pt-nat #pt-zero)))",
     ] {
         rejects(source);
     }
@@ -388,9 +435,9 @@ fn free_variables_shadowed_binders_and_malformed_applications_are_rejected() {
 #[test]
 fn self_and_mutual_cycles_are_not_recursive_definitions() {
     for source in [
-        "(#proof self-reference (#proof-definition () #pt-nat (#pt-use self-reference ())))",
-        "(#proof first (#proof-definition () #pt-nat (#pt-use second ())))
-          (#proof second (#proof-definition () #pt-nat (#pt-use first ())))",
+        "(#math-definition self-reference () #pt-nat (#pt-use self-reference ()))",
+        "(#math-definition first () #pt-nat (#pt-use second ()))
+          (#math-definition second () #pt-nat (#pt-use first ()))",
     ] {
         rejects(source);
     }
@@ -398,8 +445,8 @@ fn self_and_mutual_cycles_are_not_recursive_definitions() {
 
 #[test]
 fn acyclic_forward_references_do_not_reorder_source_declarations() {
-    let source = "(#proof before (#proof-definition () #pt-nat (#pt-use later ())))
-      (#proof later (#proof-definition () #pt-nat #pt-zero))";
+    let source = "(#math-definition before () #pt-nat (#pt-use later ()))
+      (#math-definition later () #pt-nat #pt-zero)";
     let program = lim::parse_program(source).unwrap();
     let names = || {
         program
@@ -421,15 +468,15 @@ fn acyclic_forward_references_do_not_reorder_source_declarations() {
 #[test]
 fn indexed_nested_and_negative_recursive_inductives_fail_closed() {
     for source in [
-        "(#proof vector (#proof-inductive (u) (: a (#pt-type u))
-          (#pt-pi ((size #pt-nat)) (#pt-type u)) ((nil ()))))",
-        "(#proof negative (#proof-inductive () () (#pt-type 0)
-          ((make (: callback (#pt-pi ((input #pt-self)) #pt-nat))))))",
-        "(#proof nested (#proof-inductive () () (#pt-type 0)
-          ((make (: wrapped (#pt-sigma ((tag #pt-nat)) #pt-self))))))",
-        "(#proof duplicated (#proof-inductive () () (#pt-type 0)
-          ((make ()) (make ()))))",
-        "(#proof outside-self (#proof-definition () (#pt-type 0) #pt-self))",
+        "(#math-inductive vector (u) (: a (#pt-type u))
+          (#pt-pi ((size #pt-nat)) (#pt-type u)) ((nil ())))",
+        "(#math-inductive negative () () (#pt-type 0)
+          ((make (: callback (#pt-pi ((input #pt-self)) #pt-nat)))))",
+        "(#math-inductive nested () () (#pt-type 0)
+          ((make (: wrapped (#pt-sigma ((tag #pt-nat)) #pt-self)))))",
+        "(#math-inductive duplicated () () (#pt-type 0)
+          ((make ()) (make ())))",
+        "(#math-definition outside-self () (#pt-type 0) #pt-self)",
     ] {
         rejects(source);
     }
@@ -439,9 +486,12 @@ fn indexed_nested_and_negative_recursive_inductives_fail_closed() {
 fn machine_certificates_work_before_or_after_their_procedural_declaration() {
     let runtime = "(#fn leaf () #u64 (#return 42u64))
       (#fn main () #u64 (#return (#call leaf (:))))";
-    let fact = "(#proof calls (#proof-calls-directly main leaf))";
-    let theorem = "(#proof certified (#proof-theorem ()
-      (#pt-program calls) (#pt-certificate calls)))";
+    let fact = "(#theorem calls (#proof-calls-directly main leaf))";
+    let theorem = "(#theorem certified
+  (#universes)
+  (#parameters)
+  (#statement (#pt-program calls))
+  (#proof (#pt-certificate calls)))";
     for source in [
         format!("{runtime} {fact} {theorem}"),
         format!("{runtime} {theorem} {fact}"),
@@ -455,38 +505,59 @@ fn program_certificates_cannot_forge_or_substitute_a_different_fact() {
     let runtime = "(#fn leaf () #u64 (#return 42u64))
       (#fn main () #u64 (#return (#call leaf (:))))";
     for declarations in [
-        "(#proof forged (#proof-theorem () (#pt-program missing) (#pt-certificate missing)))",
-        "(#proof left (#proof-calls-directly main leaf))
-          (#proof right (#proof-no-effects leaf (#proof-io)))
-          (#proof mismatched (#proof-theorem () (#pt-program left) (#pt-certificate right)))",
-        "(#proof failed false)
-          (#proof forged (#proof-theorem () (#pt-program failed) (#pt-certificate failed)))",
-        "(#proof math (#proof-theorem () (#pt-eq #pt-nat #pt-zero #pt-zero)
-            (#pt-refl #pt-nat #pt-zero)))
-          (#proof forged (#proof-theorem () (#pt-program math) (#pt-certificate math)))",
+        "(#theorem forged
+  (#universes)
+  (#parameters)
+  (#statement (#pt-program missing))
+  (#proof (#pt-certificate missing)))",
+        "(#theorem left (#proof-calls-directly main leaf))
+          (#theorem right (#proof-no-effects leaf (#proof-io)))
+          (#theorem mismatched
+            (#universes)
+            (#parameters)
+            (#statement (#pt-program left))
+            (#proof (#pt-certificate right)))",
+        "(#theorem failed false)
+          (#theorem forged
+            (#universes)
+            (#parameters)
+            (#statement (#pt-program failed))
+            (#proof (#pt-certificate failed)))",
+        "(#theorem math
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof (#pt-refl #pt-nat #pt-zero)))
+          (#theorem forged
+            (#universes)
+            (#parameters)
+            (#statement (#pt-program math))
+            (#proof (#pt-certificate math)))",
     ] {
         rejects(&format!("{runtime} {declarations}"));
     }
 }
 
 #[test]
-fn kernel_diagnostic_marks_the_whole_wrapper_proposition() {
-    let wrapper = "(#proof-theorem () (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero))
-      (#pt-refl #pt-nat #pt-zero))";
-    let source = format!("(#proof mistaken {wrapper})");
-    let error = rejects(&source);
+fn kernel_diagnostic_marks_the_whole_canonical_theorem() {
+    let source = "(#theorem mistaken
+      (#universes)
+      (#parameters)
+      (#statement (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero)))
+      (#proof (#pt-refl #pt-nat #pt-zero)))";
+    let error = rejects(source);
     let span = error.span.expect("kernel declaration diagnostic span");
-    assert_eq!(&source[span.start..span.end], wrapper);
+    assert_eq!(&source[span.start..span.end], source);
     assert!(lim::render_diagnostic_json(&error, "main.lim").contains("\"category\":\"proof\""));
 }
 
 #[test]
 fn mathematical_keywords_require_their_source_prefix() {
     for source in [
-        "(#proof bad (proof-definition () #pt-nat #pt-zero))",
-        "(#proof bad (#proof-definition () pt-nat #pt-zero))",
-        "(#proof bad (#proof-definition () #pt-nat (pt-succ #pt-zero)))",
-        "(#proof bad (#proof-definition () (#pt-type 2) (#pt-type (pt-level-succ 0))))",
+        "(math-definition bad () #pt-nat #pt-zero)",
+        "(#math-definition bad () pt-nat #pt-zero)",
+        "(#math-definition bad () #pt-nat (pt-succ #pt-zero))",
+        "(#math-definition bad () (#pt-type 2) (#pt-type (pt-level-succ 0)))",
     ] {
         // Missing prefixes may be diagnosed by the source parser or kernel
         // adapter. Each fixture would otherwise be well typed.
@@ -503,7 +574,7 @@ fn mathematical_keywords_require_their_source_prefix() {
 fn kernel_math_cannot_execute_runtime_operations() {
     rejects(
         "(#fn main () #u64 (#return 42u64))
-      (#proof not-a-kernel-value (#proof-definition () #pt-nat (#call main (:))))",
+      (#math-definition not-a-kernel-value () #pt-nat (#call main (:)))",
     );
 }
 
@@ -541,8 +612,11 @@ fn source_compilation_checks_kernel_declarations_on_cold_and_warm_cache_paths() 
     let config = lim::CompileConfig::default();
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
     let source = "(#fn main () #u64 (#return 42u64))
-      (#proof checked (#proof-theorem () (#pt-eq #pt-nat #pt-zero #pt-zero)
-        (#pt-refl #pt-nat #pt-zero)))";
+      (#theorem checked
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+        (#proof (#pt-refl #pt-nat #pt-zero)))";
     fs::write(&path, source).unwrap();
     let cold = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap();
     assert_eq!(
@@ -562,8 +636,11 @@ fn source_compilation_checks_kernel_declarations_on_cold_and_warm_cache_paths() 
 fn builtin_false_eliminates_only_from_a_hypothetical_proof() {
     accepts(&declarations(&["false-elimination"]));
     rejects(
-        "(#proof false-from-nat (#proof-theorem () #pt-false
-      (#pt-induct #pt-false () ()
+        "(#theorem false-from-nat
+  (#universes)
+  (#parameters)
+  (#statement #pt-false)
+  (#proof (#pt-induct #pt-false () ()
         (#pt-lambda ((impossible #pt-false)) #pt-false) () #pt-zero)))",
     );
 }
@@ -571,13 +648,13 @@ fn builtin_false_eliminates_only_from_a_hypothetical_proof() {
 #[test]
 fn nonpropositional_pi_sorts_use_the_maximum_universe() {
     accepts(
-        "(#proof function-space (#proof-definition (u v)
+        "(#math-definition function-space (u v)
       (#pt-pi ((a (#pt-type u)) (b (#pt-type v))) (#pt-type (#pt-level-max u v)))
-      (#pt-lambda ((a (#pt-type u)) (b (#pt-type v))) (#pt-pi ((input a)) b))))",
+      (#pt-lambda ((a (#pt-type u)) (b (#pt-type v))) (#pt-pi ((input a)) b)))",
     );
     rejects(
-        "(#proof lowered-universe (#proof-definition () (#pt-type 0)
-      (#pt-pi ((a (#pt-type 0))) #pt-nat)))",
+        "(#math-definition lowered-universe () (#pt-type 0)
+      (#pt-pi ((a (#pt-type 0))) #pt-nat))",
     );
 }
 
@@ -589,20 +666,20 @@ fn natural_terms_require_well_typed_nonnegative_kernel_constructors() {
         "(#pt-succ #pt-prop)",
         "0u64",
     ] {
-        rejects(&format!(
-            "(#proof bad-natural (#proof-definition () #pt-nat {term}))"
-        ));
+        rejects(&format!("(#math-definition bad-natural () #pt-nat {term})"));
     }
 }
 
 #[test]
 fn transparent_type_aliases_reduce_during_term_checking() {
     accepts(
-        "(#proof natural-type (#proof-definition () (#pt-type 0) #pt-nat))
-      (#proof zero-value (#proof-definition () (#pt-use natural-type ()) #pt-zero))
-      (#proof alias-value (#proof-theorem ()
-        (#pt-eq #pt-nat (#pt-use zero-value ()) #pt-zero)
-        (#pt-refl #pt-nat #pt-zero)))",
+        "(#math-definition natural-type () (#pt-type 0) #pt-nat)
+      (#math-definition zero-value () (#pt-use natural-type ()) #pt-zero)
+      (#theorem alias-value
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat (#pt-use zero-value ()) #pt-zero))
+        (#proof (#pt-refl #pt-nat #pt-zero)))",
     );
 }
 
@@ -619,11 +696,13 @@ fn natural_addition_commutativity_follows_from_induction_and_the_right_lemmas() 
     ]);
     accepts(&format!(
         "{source}
-      (#proof two-plus-three (#proof-theorem ()
-        (#pt-eq #pt-nat
+      (#theorem two-plus-three
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat
           (#pt-app (#pt-use plus ()) (#pt-numeral 2) (#pt-numeral 3))
-          (#pt-app (#pt-use plus ()) (#pt-numeral 3) (#pt-numeral 2)))
-        (#pt-app (#pt-use plus-commutative ()) (#pt-numeral 2) (#pt-numeral 3))))"
+          (#pt-app (#pt-use plus ()) (#pt-numeral 3) (#pt-numeral 2))))
+        (#proof (#pt-app (#pt-use plus-commutative ()) (#pt-numeral 2) (#pt-numeral 3))))"
     ));
 }
 
@@ -657,9 +736,11 @@ fn an_exported_mathematical_theorem_is_instantiated_through_a_library_alias() {
     )
     .unwrap();
     let source = "(#alias commutes = ./math/lib.lim::plus-commutative)
-      (#proof imported-arithmetic (#proof-theorem ()
-        (#pt-eq #pt-nat (#pt-numeral 5) (#pt-numeral 5))
-        (#pt-app (#pt-use commutes ()) (#pt-numeral 2) (#pt-numeral 3))))
+      (#theorem imported-arithmetic
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat (#pt-numeral 5) (#pt-numeral 5)))
+        (#proof (#pt-app (#pt-use commutes ()) (#pt-numeral 2) (#pt-numeral 3))))
       (#fn main () #u64 (#return 42u64))";
     fs::write(scratch.path().join("main.lim"), source).unwrap();
     let cold = compile_kernel_fixture(source, &scratch).unwrap();
@@ -679,13 +760,17 @@ fn private_mathematical_proofs_cannot_be_reached_by_alias_or_qualified_use() {
     .unwrap();
     for source in [
         "(#alias stolen = ./math/lib.lim::reflexivity)
-          (#proof stolen-evidence (#proof-theorem ()
-            (#pt-eq #pt-nat #pt-zero #pt-zero)
-            (#pt-app (#pt-use stolen (0)) #pt-nat #pt-zero)))
+          (#theorem stolen-evidence
+            (#universes)
+            (#parameters)
+            (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+            (#proof (#pt-app (#pt-use stolen (0)) #pt-nat #pt-zero)))
           (#fn main () #u64 (#return 42u64))",
-        "(#proof stolen-evidence (#proof-theorem ()
-            (#pt-eq #pt-nat #pt-zero #pt-zero)
-            (#pt-app (#pt-use ./math/lib.lim::reflexivity (0)) #pt-nat #pt-zero)))
+        "(#theorem stolen-evidence
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof (#pt-app (#pt-use ./math/lib.lim::reflexivity (0)) #pt-nat #pt-zero)))
           (#fn main () #u64 (#return 42u64))",
     ] {
         fs::write(scratch.path().join("main.lim"), source).unwrap();
@@ -703,12 +788,17 @@ fn generated_kernel_theorems_are_rechecked_after_cold_and_warm_cache_tampering()
     let scratch = support::Scratch::new("kernel-generated-cache");
     let path = scratch.path().join("main.lim");
     let source = "(#gn emit ()
-        `((#proof generated-equality (#proof-theorem ()
-            (#pt-eq #pt-nat #pt-zero #pt-zero)
-            (#pt-refl #pt-nat #pt-zero)))))
+        `((#theorem generated-equality
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+  (#proof (#pt-refl #pt-nat #pt-zero)))))
       (#generate emit)
-      (#proof use-generated (#proof-theorem ()
-        (#pt-eq #pt-nat #pt-zero #pt-zero) (#pt-use generated-equality ())))
+      (#theorem use-generated
+        (#universes)
+        (#parameters)
+        (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+        (#proof (#pt-use generated-equality ())))
       (#fn main () #u64 (#return 42u64))";
     fs::write(&path, source).unwrap();
     let cold = compile_kernel_fixture(source, &scratch).unwrap();
@@ -734,26 +824,26 @@ fn generated_kernel_theorems_are_rechecked_after_cold_and_warm_cache_tampering()
 fn numeral_universe_and_level_syntax_limits_fail_closed() {
     for (source, expected) in [
         (
-            "(#proof large-numeral (#proof-definition () #pt-nat (#pt-numeral 129)))",
+            "(#math-definition large-numeral () #pt-nat (#pt-numeral 129))",
             "numeral",
         ),
         (
-            "(#proof large-universe (#proof-definition () (#pt-type 65536) #pt-nat))",
+            "(#math-definition large-universe () (#pt-type 65536) #pt-nat)",
             "universe level",
         ),
         (
-            "(#proof overflowing-level (#proof-definition ()
-          (#pt-type (#pt-level-succ 65535)) #pt-nat))",
+            "(#math-definition overflowing-level ()
+          (#pt-type (#pt-level-succ 65535)) #pt-nat)",
             "universe level",
         ),
         (
-            "(#proof empty-maximum (#proof-definition ()
-          (#pt-type (#pt-level-max)) #pt-nat))",
+            "(#math-definition empty-maximum ()
+          (#pt-type (#pt-level-max)) #pt-nat)",
             "operands",
         ),
         (
-            "(#proof malformed-successor (#proof-definition ()
-          (#pt-type (#pt-level-succ 0 1)) #pt-nat))",
+            "(#math-definition malformed-successor ()
+          (#pt-type (#pt-level-succ 0 1)) #pt-nat)",
             "operand",
         ),
     ] {

@@ -8,7 +8,7 @@ fn validate(source: &str) -> std::result::Result<(), String> {
 fn rejected(source: &str, expected: &str) {
     let error = validate(source).expect_err("unsound or unsupported induction was accepted");
     assert!(
-        error.starts_with("proof '"),
+        error.starts_with("theorem '"),
         "ordinary validation failed: {error}"
     );
     assert!(error.contains(expected), "expected {expected:?}: {error}");
@@ -21,7 +21,7 @@ fn claim(body: &str, predicate: &str, rank: &str, condition: &str, post: &str) -
         (#let-mut changed #u8 0u8)
         (#label again (#while {condition} {body}))
         (#return {post}))
-      (#proof induction
+      (#theorem induction
         (#proof-with-invariants ((countdown again {predicate} {rank}))
           (#proof-loop-limit 1
             (#proof-for-all ((count #u8))
@@ -123,7 +123,7 @@ fn havocs_writes_in_array_index_expressions() {
           (#set-index storage (#block (#set changed 1u8) 0usize) 0u8)
           (#set remaining (#u8::sub-wrap remaining 1u8))))
         (#return changed))
-      (#proof induction
+      (#theorem induction
         (#proof-with-invariants ((countdown again true remaining))
           (#proof-contract countdown true (#proof-eq (#proof-result) 0u8))))
     "#,

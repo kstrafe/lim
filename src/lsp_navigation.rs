@@ -73,7 +73,9 @@ impl<'a> Index<'a> {
                     || (program.is_none()
                         && matches!(
                             head(node),
-                            "proof"
+                            "theorem"
+                                | "math-definition"
+                                | "math-inductive"
                                 | "fn"
                                 | "unsafe-fn"
                                 | "extern-fn"
@@ -839,19 +841,21 @@ impl<'a> Index<'a> {
             return None;
         }
         self.declaration(name.strip_prefix('@').unwrap_or(name))
-            .filter(|node| head(node) == "proof")
+            .filter(|node| matches!(head(node), "theorem" | "math-definition" | "math-inductive"))
+    }
+    fn is_kernel_declaration(node: &Node) -> bool {
+        matches!(head(node), "math-definition" | "math-inductive")
+            || (head(node) == "theorem"
+                && node.children.iter().skip(2).any(|clause| {
+                    matches!(
+                        head(clause),
+                        "universes" | "parameters" | "statement" | "proof"
+                    )
+                }))
     }
     fn kernel_reference(&self, node: &Node, procedural: bool) -> Vec<Span> {
         self.kernel_proof(node)
-            .filter(|node| {
-                let kernel = node.children.get(2).is_some_and(|body| {
-                    matches!(
-                        head(body),
-                        "proof-definition" | "proof-theorem" | "proof-inductive"
-                    )
-                });
-                kernel != procedural
-            })
+            .filter(|node| Self::is_kernel_declaration(node) != procedural)
             .and_then(|node| node.children.get(1))
             .map(|name| vec![name.span])
             .unwrap_or_default()
@@ -860,14 +864,10 @@ impl<'a> Index<'a> {
         let Some(declaration) = self.kernel_proof(datatype) else {
             return vec![];
         };
-        let Some(body) = declaration
-            .children
-            .get(2)
-            .filter(|body| head(body) == "proof-inductive")
-        else {
+        if head(declaration) != "math-inductive" {
             return vec![];
-        };
-        let Some(constructors) = body.children.get(4) else {
+        }
+        let Some(constructors) = declaration.children.get(5) else {
             return vec![];
         };
         let Some(label) = symbol(label).filter(|name| !name.starts_with('#')) else {
@@ -943,12 +943,7 @@ impl<'a> Index<'a> {
                 if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
                     return self
                         .kernel_proof(name)
-                        .filter(|declaration| {
-                            declaration
-                                .children
-                                .get(2)
-                                .is_some_and(|body| head(body) == "proof-inductive")
-                        })
+                        .filter(|declaration| head(declaration) == "math-inductive")
                         .and_then(|declaration| declaration.children.get(1))
                         .map(|name| vec![name.span])
                         .unwrap_or_default();
@@ -994,8 +989,11 @@ impl<'a> Index<'a> {
     }
     fn kernel_declaration(&self, node: &Node) -> Vec<Span> {
         let xs = &node.children;
+        if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
+            return vec![name.span];
+        }
         let mut levels = Scope::new();
-        if let Some(universes) = xs.get(1) {
+        if let Some(universes) = xs.get(2) {
             for universe in &universes.children {
                 let found = self.kernel_bind(universe, &mut levels);
                 if self.contains(universe) {
@@ -1004,16 +1002,16 @@ impl<'a> Index<'a> {
             }
         }
         let mut scope = Scope::new();
-        if head(node) == "proof-inductive" {
-            if let Some(parameters) = xs.get(2) {
+        if head(node) == "math-inductive" {
+            if let Some(parameters) = xs.get(3) {
                 if let Some(found) = self.kernel_binders(parameters, &mut scope, &levels) {
                     return found;
                 }
             }
-            if let Some(sort) = xs.get(3).filter(|node| self.contains(node)) {
+            if let Some(sort) = xs.get(4).filter(|node| self.contains(node)) {
                 return self.kernel_term(sort, &scope, &levels);
             }
-            if let Some(constructors) = xs.get(4) {
+            if let Some(constructors) = xs.get(5) {
                 for ctor in constructors
                     .children
                     .iter()
@@ -1031,8 +1029,60 @@ impl<'a> Index<'a> {
                 }
             }
         } else {
-            for term in xs.iter().skip(2).filter(|node| self.contains(node)) {
+            for term in xs.iter().skip(3).filter(|node| self.contains(node)) {
                 return self.kernel_term(term, &scope, &levels);
+            }
+        }
+        vec![]
+    }
+    fn theorem(&self, node: &Node) -> Vec<Span> {
+        let xs = &node.children;
+        if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
+            return vec![name.span];
+        }
+        if !Self::is_kernel_declaration(node) {
+            return xs
+                .get(2)
+                .map(|claim| self.walk(claim, &mut Scope::new(), &Scope::new()))
+                .unwrap_or_default();
+        }
+        let mut levels = Scope::new();
+        if let Some(universes) = xs.iter().skip(2).find(|clause| head(clause) == "universes") {
+            for universe in universes.children.iter().skip(1) {
+                let found = self.kernel_bind(universe, &mut levels);
+                if self.contains(universe) {
+                    return found;
+                }
+            }
+        }
+        let mut scope = Scope::new();
+        if let Some(parameters) = xs
+            .iter()
+            .skip(2)
+            .find(|clause| head(clause) == "parameters")
+        {
+            for parameter in parameters
+                .children
+                .iter()
+                .skip(1)
+                .filter(|node| head(node) == "parameter")
+            {
+                if let Some(kind) = parameter.children.get(2).filter(|node| self.contains(node)) {
+                    return self.kernel_term(kind, &scope, &levels);
+                }
+                if let Some(name) = parameter.children.get(1) {
+                    let found = self.kernel_bind(name, &mut scope);
+                    if self.contains(name) {
+                        return found;
+                    }
+                }
+            }
+        }
+        for clause in xs.iter().skip(2).filter(|node| self.contains(node)) {
+            if matches!(head(clause), "statement" | "proof") {
+                if let Some(term) = clause.children.get(1) {
+                    return self.kernel_term(term, &scope, &levels);
+                }
             }
         }
         vec![]
@@ -1040,24 +1090,6 @@ impl<'a> Index<'a> {
     fn proof(&self, node: &Node, scope: &Scope, labels: &Scope) -> Vec<Span> {
         let xs = &node.children;
         let form = head(node);
-        if form == "proof" {
-            if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
-                return vec![name.span];
-            }
-            return xs
-                .get(2)
-                .map(|body| {
-                    if matches!(
-                        head(body),
-                        "proof-definition" | "proof-theorem" | "proof-inductive"
-                    ) {
-                        self.kernel_declaration(body)
-                    } else {
-                        self.walk(body, &mut Scope::new(), &Scope::new())
-                    }
-                })
-                .unwrap_or_default();
-        }
         if form == "proof-for-all" {
             let mut inner = scope.clone();
             if let Some(bindings) = xs.get(1) {
@@ -1231,8 +1263,10 @@ impl<'a> Index<'a> {
         }
         let xs = &node.children;
         match head(node) {
-            "proof"
-            | "proof-and"
+            "theorem" => return self.theorem(node),
+            "math-definition" | "math-inductive" => return self.kernel_declaration(node),
+            "universes" | "parameters" | "parameter" | "statement" | "proof" => return vec![],
+            "proof-and"
             | "proof-or"
             | "proof-not"
             | "proof-implies"
@@ -1960,10 +1994,7 @@ impl<'a> Index<'a> {
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
         fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
-            if matches!(
-                head(node),
-                "proof-definition" | "proof-theorem" | "proof-inductive"
-            ) {
+            if Index::is_kernel_declaration(node) {
                 return None;
             }
             if !index.contains(node) {
