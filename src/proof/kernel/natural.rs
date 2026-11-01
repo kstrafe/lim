@@ -1,6 +1,11 @@
 //! Compact canonical naturals, with only checked zero/successor semantics.
 use super::*;
 
+#[path = "natural_arithmetic.rs"]
+mod arithmetic;
+#[path = "natural_fold.rs"]
+mod fold;
+
 pub(in crate::proof::kernel) const MAX_DIGITS: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

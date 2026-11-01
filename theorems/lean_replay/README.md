@@ -17,8 +17,9 @@ The fixture guide documents its own pinned-producer regeneration command.
 
 The eleventh file, [`naturals.lim`](naturals.lim), comes from the separate
 [compact natural-literal fixture](../../tests/fixtures/lean_export_naturals/README.md).
-It checks five large-value theorems across 29 declarations, including successor,
-predecessor and constructor discrimination beyond machine-integer widths.
+It checks seven theorems across 33 declarations, including successor,
+predecessor and constructor discrimination beyond machine-integer widths,
+plus explicit structural addition and multiplication.
 Its own manifest and regeneration script preserve source/module/license
 provenance and exact artifact bytes. Imported literals use the inspectable
 `#pt-nat-literal` form even for small values; this avoids unary-spine depth

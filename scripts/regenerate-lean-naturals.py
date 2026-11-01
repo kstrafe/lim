@@ -22,7 +22,8 @@ FIXTURES = ROOT / "tests/fixtures/lean_export_naturals"
 SOURCE = FIXTURES / "Source.lean"
 TARGETS = ["NaturalSource.reflexive", "NaturalSource.successor",
            "NaturalSource.predecessorComputes", "NaturalSource.constructorDiscriminates",
-           "NaturalSource.largerSuccessor"]
+           "NaturalSource.largerSuccessor", "NaturalSource.structuralAddition",
+           "NaturalSource.structuralMultiplication"]
 
 
 def digest(data):

@@ -332,8 +332,32 @@ are not accepted. Values stay compact; induction and conversion expose one
 constructor at a time. Values are arbitrary precision, subject to finite
 representation and work budgets. The [native example](../examples/proof_natural_literals.lim)
 checks large successors and predecessors. [Genuine pinned exports](../tests/fixtures/lean_export_naturals/README.md)
-also replay and translate through these same rules. General arithmetic still
-uses checked definitions and may exhaust the ordinary computation budget.
+also replay and translate through these same rules.
+
+Constant-increment structural folds can compute in decimal digits instead of
+one recursion step per numeric value. For a checked natural family, a constant
+natural-valued motive, base `b` and step `ih + k`, a closed literal count `n`
+reduces to `b + n*k`. The recognizer unfolds transparent definitions and
+beta/zeta redexes and constructor projections, then checks constructors and
+nested translation folds. It admits only the accumulator as a variable in the
+step: a predecessor or an unresolved outer local cannot become an increment.
+This supports the explicit
+addition and repeated-addition multiplication definitions in
+[`proof_natural_arithmetic.lim`](../examples/proof_natural_arithmetic.lim),
+including operands larger than machine integers. Definition names do not
+authorize arithmetic. Nominal family identities and opaque bodies remain
+distinct, and every source body and erased let still undergoes ordinary typing.
+
+Digit addition and grade-school multiplication use exact decimal arithmetic.
+They charge digit work and temporary allocation before computation against the
+existing kernel budgets; results exceeding 4,096 digits fail. A zero count
+returns the checked base without executing arithmetic in the unused step,
+which still undergoes ordinary typing. Dependent motives,
+predecessor-dependent or nonlinear steps, and other recursion shapes retain
+ordinary bounded iota computation. In particular, the pinned Lean toolchain's
+standard `Nat.add`/`Nat.mul` use `Nat.brecOn`; their large-value acceleration
+remains open. This optimization adds no source keyword, axiom or unchecked
+arithmetic declaration.
 
 Natural induction is explicit:
 

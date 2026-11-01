@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 const FIXTURE: &str = include_str!("fixtures/lean_export_naturals/naturals.ndjson");
 const NATIVE: &str = include_str!("../theorems/lean_replay/naturals.lim");
-const TARGET: &str = "NaturalSource.largerSuccessor";
+const TARGET: &str = "NaturalSource.structuralMultiplication";
 const TARGETS: &[(&str, &str)] = &[
     ("NaturalSource.reflexive", "lean-14-NaturalSource-reflexive"),
     ("NaturalSource.successor", "lean-15-NaturalSource-successor"),
@@ -20,7 +20,15 @@ const TARGETS: &[(&str, &str)] = &[
         "NaturalSource.constructorDiscriminates",
         "lean-26-NaturalSource-constructorDiscriminates",
     ),
-    (TARGET, "lean-28-NaturalSource-largerSuccessor"),
+    (
+        "NaturalSource.largerSuccessor",
+        "lean-28-NaturalSource-largerSuccessor",
+    ),
+    (
+        "NaturalSource.structuralAddition",
+        "lean-30-NaturalSource-structuralAddition",
+    ),
+    (TARGET, "lean-32-NaturalSource-structuralMultiplication"),
 ];
 fn rows(source: &str) -> Vec<Json> {
     source
@@ -47,7 +55,7 @@ fn rejects(data: &[Json], message: &str) {
 fn genuine_large_literal_proofs_replay_without_truncation_or_axioms() {
     for (original, _) in TARGETS {
         let report = check_lean_export(FIXTURE.as_bytes(), original).unwrap();
-        assert_eq!(report.declarations.len(), 29);
+        assert_eq!(report.declarations.len(), 33);
         assert_eq!(&report.target, original);
         assert!(report.foundations.is_empty());
         let receipt = json::parse(&report.render_json()).unwrap();
@@ -56,12 +64,12 @@ fn genuine_large_literal_proofs_replay_without_truncation_or_axioms() {
 }
 
 #[test]
-fn translation_is_exact_compact_and_independently_checks_all_five_targets() {
+fn translation_is_exact_compact_and_independently_checks_all_seven_targets() {
     let translated = translate_lean_export(FIXTURE.as_bytes(), TARGET).unwrap();
     assert_eq!(translated.source, NATIVE);
     assert_eq!(translated.target, TARGETS.last().unwrap().1);
     assert!(NATIVE.contains("#pt-nat-literal lean-3-Nat \"184467440737095516160\""));
-    assert!(NATIVE.len() < 24 * 1024);
+    assert!(NATIVE.len() < 32 * 1024);
     lim::check_types(&lim::parse_program(NATIVE).unwrap()).unwrap();
     for (_, native) in TARGETS {
         lim::check_theorem_from_path_with_config(
@@ -87,6 +95,22 @@ fn corrupting_a_large_successor_result_is_rejected_by_the_kernel() {
         Json::String("184467440737095516162".into()),
     );
     rejects(&data, "type mismatch");
+}
+
+#[test]
+fn corrupting_either_structural_arithmetic_result_is_rejected() {
+    for (before, after) in [
+        ("184467440737095516288", "184467440737095516289"),
+        ("256", "257"),
+    ] {
+        let mut data = rows(FIXTURE);
+        let row = data
+            .iter_mut()
+            .find(|row| row.get("natVal").and_then(Json::string) == Some(before))
+            .unwrap();
+        object(row).insert("natVal".into(), Json::String(after.into()));
+        rejects(&data, "type mismatch");
+    }
 }
 
 #[test]

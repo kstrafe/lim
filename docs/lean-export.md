@@ -60,8 +60,11 @@ constructor when needed. No magnitude-sized unary graph is allocated, and
 values never wrap or truncate to machine integers. They cannot rebind Lim's
 internal natural-number type by sharing its printed name. The
 [genuine natural-literal corpus](../tests/fixtures/lean_export_naturals/README.md)
-checks five large-value theorems and their native translations. General
-arithmetic still uses ordinary checked definitions and finite work budgets.
+checks seven theorems and their native translations. Checked
+constant-increment structural recursors can batch closed counts using exact
+decimal addition/multiplication, independently of declaration names, through
+the [ordinary native rule](kernel.md#natural-numbers-and-induction). Other
+recursion shapes still use ordinary computation and finite work budgets.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown
@@ -254,7 +257,7 @@ kernel replay establishes the accepted theorem's typing judgment.
 | Universe table | 20,000 entries; 64 KiB accounted payload per level |
 | Universe parameter identity | 512 bytes |
 | Expression table | 200,000 entries; graph depth 256 |
-| Primitive payload accounting | 64 MiB, including all expanded natural-literal constructors |
+| Primitive payload accounting | 64 MiB, including owned compact decimals, identifiers and universe payloads |
 | Checked declarations | 4,096, including families, constructors and recursors |
 | Dependency receipts | 1,000,000 entries; 16 MiB accounted payload |
 | Universes per declaration/application | 32 |
@@ -263,6 +266,7 @@ kernel replay establishes the accepted theorem's typing judgment.
 | Parameters, indices, constructors, fields and per-family rules | 64 each |
 | Natural-literal representation | Canonical unsigned decimal string, at most 4,096 digits |
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
+| Structural arithmetic | Decimal digit work counts against the core budget before each addition/multiplication; at most 4,096 result digits |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
 | Native translation source | 8 MiB before and after formatting; 1,000,000 expanded term visits; recursive render depth 96 |
 | Source correspondence | 1,000,000 relocated nodes, depth 256, and 64 MiB accounted node/name/universe allocations across a translation |
@@ -277,9 +281,9 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, accelerated large-natural arithmetic, arbitrary axiom declarations,
-Lean surface syntax/tactics and full-environment storage/replay are not
-implemented. Bounded native proof-source translation is supported for the
+String literals, accelerated standard Lean `Nat.brecOn` arithmetic, arbitrary
+axiom declarations, Lean surface syntax/tactics and full-environment storage/
+replay are not implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe
 quantification remain unbounded; representation limits are not finite models.
 Native Lim also supports explicit type-selected nested cases through

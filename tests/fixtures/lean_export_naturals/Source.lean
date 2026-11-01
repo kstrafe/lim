@@ -25,4 +25,17 @@ def beyondU128 : Nat := 12345678901234567890123456789012345678901234567890123456
 theorem largerSuccessor : Nat.succ beyondU128 =
     123456789012345678901234567890123456789012345678901234567891 := rfl
 
+/- Explicit recursors test the logical fold model independently of the standard
+   library's Nat.brecOn implementation and the kernel's named overrides. -/
+def structuralAdd (left right : Nat) : Nat :=
+  Nat.rec (motive := fun _ => Nat) left (fun _ sum => Nat.succ sum) right
+
+def structuralMultiply (left right : Nat) : Nat :=
+  Nat.rec (motive := fun _ => Nat) 0 (fun _ product => structuralAdd product left) right
+
+theorem structuralAddition : structuralAdd huge 128 = 184467440737095516288 := rfl
+
+set_option maxRecDepth 2048 in
+theorem structuralMultiplication : structuralMultiply 16 16 = 256 := rfl
+
 end NaturalSource

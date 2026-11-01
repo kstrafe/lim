@@ -221,10 +221,10 @@ fn genuine_natural_fixture_retains_checked_mapping_hashes_and_attribution() {
         include_str!("../../../tests/fixtures/lean_export_naturals/provenance.json"),
         include_bytes!("../../../tests/fixtures/lean_export_naturals/naturals.ndjson"),
         include_str!("../../../theorems/lean_replay/naturals.lim"),
-        "NaturalSource.largerSuccessor",
+        "NaturalSource.structuralMultiplication",
         "lim-lean-natural-fixture-v1",
         &[],
-        (5, &[]),
+        (7, &[]),
     );
 }
 

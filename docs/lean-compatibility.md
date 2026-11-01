@@ -306,8 +306,18 @@ one constructor is exposed when elimination or conversion requires it. The
 [genuine large-literal fixture](../tests/fixtures/lean_export_naturals/README.md)
 checks successors, predecessors and constructor discrimination beyond native
 integer widths. Every literal is bounded to 4,096 decimal digits as a resource
-limit; arithmetic still uses checked definitions and may exhaust work budgets.
-This does not provide the full mathematical dependency closure or its proof.
+limit. Checked constant-increment structural folds now batch closed counts
+using exact decimal addition/multiplication under the existing work and
+allocation budgets. The [native arithmetic example](../examples/proof_natural_arithmetic.lim)
+uses explicit recursors and checks values beyond machine-integer widths.
+The optimization recognizes the checked syntax of the recurrence, including
+nested translation folds, independently of function names. It preserves nominal
+types, opacity and source typing, and leaves other shapes to ordinary iota
+computation. The pinned producer's standard `Nat.add` and `Nat.mul` lower through
+`Nat.brecOn`; accelerating that course-of-values encoding remains open. A fresh
+standard-arithmetic export still fails closed on its large addition theorem
+with a kernel resource-limit error. This does not provide the full mathematical
+dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:
 

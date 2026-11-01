@@ -1,8 +1,8 @@
 ; Checked native translation of a Lean export, not an admission.
 ; Lean: 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6)
 ; Exporter: 15f6055e299ad5b89345e533cc2192f4cc00f659
-; Input SHA-256: c06588b57e11c871006a683b7a891f36df602b14e37c6ef6d95625063ebb547f
-; Native theorem: lean-28-NaturalSource-largerSuccessor
+; Input SHA-256: fdbf0fd0121f6f49f9a9a0b50e27c920e886b559b429f7711c6a9319677a7677
+; Native theorem: lean-32-NaturalSource-structuralMultiplication
 ; Keep the upstream source/license provenance with this translation.
 ; Lean declaration: "Eq"
 ; Identity: "$lean:s2:Eq"
@@ -490,3 +490,121 @@
       (#pt-use lean-13-rfl (1))
       (#pt-use lean-3-Nat ())
       (#pt-app (#pt-use lean-5-Nat-succ ()) (#pt-use lean-27-NaturalSource-beyondU128 ())))))
+; Lean declaration: "NaturalSource.structuralAdd"
+; Identity: "$lean:s13:NaturalSources13:structuralAdd"
+; Export line: 380
+; Prefix SHA-256: 9260ff0e250778d5d96d805dfa9ec521298f0280c40aa101a85fbceac397ec89
+(#math-definition lean-29-NaturalSource-structuralAdd ()
+  (#pt-pi ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ())))
+    (#pt-app
+      (#pt-use lean-6-Nat-rec (1))
+      (#pt-lambda ((v2 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+      v0
+      (#pt-lambda
+        ((v2 (#pt-use lean-3-Nat ())) (v3 (#pt-use lean-3-Nat ())))
+        (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+      v1)))
+; Lean declaration: "NaturalSource.structuralAddition"
+; Identity: "$lean:s13:NaturalSources18:structuralAddition"
+; Export line: 396
+; Prefix SHA-256: cda9e6692e98e53859dd35c86e6c2293a703b1f1a2cd22ce79129920959f29c0
+(#theorem lean-30-NaturalSource-structuralAddition
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-29-NaturalSource-structuralAdd ())
+        (#pt-use lean-12-NaturalSource-huge ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128"))))
+      (#pt-app
+        (#pt-use lean-10-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "184467440737095516288")
+        (#pt-app
+          (#pt-use lean-11-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "184467440737095516288")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-13-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-29-NaturalSource-structuralAdd ())
+        (#pt-use lean-12-NaturalSource-huge ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "128")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "128")))))))
+; Lean declaration: "NaturalSource.structuralMultiply"
+; Identity: "$lean:s13:NaturalSources18:structuralMultiply"
+; Export line: 412
+; Prefix SHA-256: 3104d7f8cb99e019e14df174d25ad08f349273e124954e3b14100e49f2e7e5df
+(#math-definition lean-31-NaturalSource-structuralMultiply ()
+  (#pt-pi ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+  (#pt-lambda
+    ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ())))
+    (#pt-app
+      (#pt-use lean-6-Nat-rec (1))
+      (#pt-lambda ((v2 (#pt-use lean-3-Nat ()))) (#pt-use lean-3-Nat ()))
+      (#pt-app
+        (#pt-use lean-10-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+      (#pt-lambda
+        ((v2 (#pt-use lean-3-Nat ())) (v3 (#pt-use lean-3-Nat ())))
+        (#pt-app (#pt-use lean-29-NaturalSource-structuralAdd ()) v3 v0))
+      v1)))
+; Lean declaration: "NaturalSource.structuralMultiplication"
+; Identity: "$lean:s13:NaturalSources24:structuralMultiplication"
+; Export line: 428
+; Prefix SHA-256: fdbf0fd0121f6f49f9a9a0b50e27c920e886b559b429f7711c6a9319677a7677
+(#theorem lean-32-NaturalSource-structuralMultiplication
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-31-NaturalSource-structuralMultiply ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "16")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "16")))
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "16")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "16"))))
+      (#pt-app
+        (#pt-use lean-10-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "256")
+        (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "256")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-13-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-31-NaturalSource-structuralMultiply ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "16")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "16")))
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "16")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "16")))))))

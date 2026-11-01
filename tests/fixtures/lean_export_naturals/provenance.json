@@ -207,7 +207,7 @@
       "project": "lim-fixture",
       "sha256": "c982fbd3def6e675d7c231b347b0138515daea125ad6cf447ab4cfec5c1acf64",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -243,7 +243,7 @@
       "project": "lim-fixture",
       "sha256": "ba1cdfabdce4781f973b4478271d81c3beb46a12be6b4b79483e0714a80552d5",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -264,7 +264,7 @@
       "project": "lim-fixture",
       "sha256": "d7408c0bcfc80e226d9be541d4813477f74afde2d702f089ec5d97245feec5a9",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -380,7 +380,7 @@
       "project": "lim-fixture",
       "sha256": "5c9beb3dbd101669ba7a56881d0a2f99c8186aea978278b701030634a3fc7308",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -399,7 +399,7 @@
       "project": "lim-fixture",
       "sha256": "871ecc9f6ec0dbf7b591282dce59967dd476ccdfee0f174b99d42a84db2c9af3",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -420,7 +420,7 @@
       "project": "lim-fixture",
       "sha256": "f35eb65b1e9ad933899a48f94d0057624a2a6df1317ab12c626969d9ba58c4bb",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -439,7 +439,7 @@
       "project": "lim-fixture",
       "sha256": "63304edbec15e485cff5fdbc376ae3a61d155b62948c0e965c8adbf73afcba2e",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -460,7 +460,7 @@
       "project": "lim-fixture",
       "sha256": "6f20c5773a35c44e026603aefbfd22e3e412f8daefaadfa365041a399256d3a1",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -477,7 +477,7 @@
       "project": "lim-fixture",
       "sha256": "ec15ce4a7a8adbda973da5987db8802496dcfe3502e1f685fe7fce35efce2b1a",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     },
     {
       "dependencies": [
@@ -498,13 +498,90 @@
       "project": "lim-fixture",
       "sha256": "c06588b57e11c871006a683b7a891f36df602b14e37c6ef6d95625063ebb547f",
       "source": "tests/fixtures/lean_export_naturals/Source.lean",
-      "source_sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats4:succ"
+      ],
+      "identity": "$lean:s13:NaturalSources13:structuralAdd",
+      "kind": "definition",
+      "line": 380,
+      "module": "Source",
+      "name": "NaturalSource.structuralAdd",
+      "native_name": "lean-29-NaturalSource-structuralAdd",
+      "project": "lim-fixture",
+      "sha256": "9260ff0e250778d5d96d805dfa9ec521298f0280c40aa101a85fbceac397ec89",
+      "source": "tests/fixtures/lean_export_naturals/Source.lean",
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s13:NaturalSources13:structuralAdd",
+        "$lean:s13:NaturalSources4:huge",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s13:NaturalSources18:structuralAddition",
+      "kind": "theorem",
+      "line": 396,
+      "module": "Source",
+      "name": "NaturalSource.structuralAddition",
+      "native_name": "lean-30-NaturalSource-structuralAddition",
+      "project": "lim-fixture",
+      "sha256": "cda9e6692e98e53859dd35c86e6c2293a703b1f1a2cd22ce79129920959f29c0",
+      "source": "tests/fixtures/lean_export_naturals/Source.lean",
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s13:NaturalSources13:structuralAdd",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s13:NaturalSources18:structuralMultiply",
+      "kind": "definition",
+      "line": 412,
+      "module": "Source",
+      "name": "NaturalSource.structuralMultiply",
+      "native_name": "lean-31-NaturalSource-structuralMultiply",
+      "project": "lim-fixture",
+      "sha256": "3104d7f8cb99e019e14df174d25ad08f349273e124954e3b14100e49f2e7e5df",
+      "source": "tests/fixtures/lean_export_naturals/Source.lean",
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s13:NaturalSources18:structuralMultiply",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s13:NaturalSources24:structuralMultiplication",
+      "kind": "theorem",
+      "line": 428,
+      "module": "Source",
+      "name": "NaturalSource.structuralMultiplication",
+      "native_name": "lean-32-NaturalSource-structuralMultiplication",
+      "project": "lim-fixture",
+      "sha256": "fdbf0fd0121f6f49f9a9a0b50e27c920e886b559b429f7711c6a9319677a7677",
+      "source": "tests/fixtures/lean_export_naturals/Source.lean",
+      "source_sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
     }
   ],
   "export": {
-    "bytes": 20001,
+    "bytes": 23128,
     "file": "tests/fixtures/lean_export_naturals/naturals.ndjson",
-    "sha256": "c06588b57e11c871006a683b7a891f36df602b14e37c6ef6d95625063ebb547f"
+    "sha256": "fdbf0fd0121f6f49f9a9a0b50e27c920e886b559b429f7711c6a9319677a7677"
   },
   "exporter_revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
   "exporter_source_sha256": {
@@ -531,14 +608,16 @@
     }
   ],
   "native": {
-    "bytes": 19350,
+    "bytes": 24274,
     "file": "theorems/lean_replay/naturals.lim",
-    "sha256": "240da95f05cca70f9d2933c94aebd3d7c696398ff080bfc3f75cb93622dd5af9",
+    "sha256": "94be5bdbed2c039288fa3e2e413b50290fa4af7e03429e354cc9fc408e855911",
     "targets": {
       "NaturalSource.constructorDiscriminates": "lean-26-NaturalSource-constructorDiscriminates",
       "NaturalSource.largerSuccessor": "lean-28-NaturalSource-largerSuccessor",
       "NaturalSource.predecessorComputes": "lean-24-NaturalSource-predecessorComputes",
       "NaturalSource.reflexive": "lean-14-NaturalSource-reflexive",
+      "NaturalSource.structuralAddition": "lean-30-NaturalSource-structuralAddition",
+      "NaturalSource.structuralMultiplication": "lean-32-NaturalSource-structuralMultiplication",
       "NaturalSource.successor": "lean-15-NaturalSource-successor"
     }
   },
@@ -548,19 +627,21 @@
   },
   "producer": {
     "file": "scripts/regenerate-lean-naturals.py",
-    "sha256": "2a98727186f735cdb656f365fa318c25b70315693f7259b3a6407d0ac7170f9f"
+    "sha256": "2cb6e8ef6b96a4b32857955f8187583cf6dc9815433e464ab30b53a0a6e363f9"
   },
   "schema": "lim-lean-natural-fixture-v1",
   "source": {
     "file": "tests/fixtures/lean_export_naturals/Source.lean",
-    "sha256": "421d76f4db5ba16184161ba3443cf174f520bf24415c5479478601f1d77baea8"
+    "sha256": "0ab591678aedd5b739b8d6f25a157b309aea06f4850b19db428ff82d4db805b6"
   },
   "targets": [
     "NaturalSource.reflexive",
     "NaturalSource.successor",
     "NaturalSource.predecessorComputes",
     "NaturalSource.constructorDiscriminates",
-    "NaturalSource.largerSuccessor"
+    "NaturalSource.largerSuccessor",
+    "NaturalSource.structuralAddition",
+    "NaturalSource.structuralMultiplication"
   ],
   "upstream_sources": [
     {
