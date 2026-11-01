@@ -792,10 +792,12 @@ impl Resolver<'_> {
             }
             for descriptor in node.children.iter_mut().skip(2) {
                 proof_children(descriptor);
-                if let Some(function) = descriptor.children.first_mut() {
-                    self.rewrite(function, file, &HashSet::new())?;
+                if head(descriptor) == "#parameter-of" {
+                    if let Some(function) = descriptor.children.get_mut(1) {
+                        self.rewrite(function, file, &HashSet::new())?;
+                    }
                 }
-                // The other operand is a label from this function's signature,
+                // The final operand is a label from this function's signature,
                 // not a reference in the theorem's file or lexical scope.
                 rebuild(descriptor)?;
             }

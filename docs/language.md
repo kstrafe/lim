@@ -1894,10 +1894,15 @@ result or an abstract validation boundary. Unmodeled operations still fail
 closed. Nested trace claims are unsupported, and trace claims require complete
 bounded loop exploration.
 
-`(#proof-requires-validation entry (validate user) (perform user))` checks a
-storage-specific validation protocol. Each descriptor is a literal pair of a
-function identity and one of that function's declared parameter names, not a
-call expression or an argument expression. The two selected parameters must be
+The explicit selectors in
+`(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))`
+check a storage-specific validation protocol. Each descriptor must have the form
+`(#parameter-of FUNCTION PARAMETER-NAME)`: it references an existing parameter
+of that function, not a call expression or an argument expression. The selector
+introduces no theorem binding. It is accepted only in a validation descriptor
+position; old bare function/parameter pairs are rejected without compatibility.
+In contrast, `(#parameter name TYPE)` declares a new mathematical theorem
+parameter. The two selected validation parameters must be
 ordinary or pinned references with the same resolved referent type; the
 validator must return `#bool`. The descriptor names select parameter positions,
 so they need not have the same spelling in the two functions.
@@ -1944,7 +1949,7 @@ that the body implements the intended business criterion.
   (#return ()))
 
 (#theorem safe
-  (#proof-requires-validation process (validate user) (perform user)))
+  (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))
 
 (#fn main () ()
   (#let user User (#struct-literal User ((age 21u8))))
@@ -2943,6 +2948,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
 | `#parameter` | `(#parameter name TYPE)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | One explicitly typed term parameter in the #parameters clause; bound in both the statement and evidence. |
+| `#parameter-of` | `(#parameter-of FUNCTION PARAMETER-NAME)` inside #proof-requires-validation | `(#theorem safe (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))` (procedural theorem declaration) | Selects an existing parameter of the named function; introduces no theorem binding. Accepted only as a validation descriptor; old bare pairs are rejected. Unlike #parameter, this is a reference rather than a binder. |
 | `#parameters` | `(#parameters (#parameter name TYPE)...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit theorem parameter clause; use (#parameters) for no term parameters. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
@@ -2994,7 +3000,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-only-unsafe` | `(#proof-only-unsafe entry (allowed...))` | `(#proof-only-unsafe main (trusted-helper #ptr-read))` (proof proposition) | Inspects unsafe primitives outside explicitly allowed function boundaries or builtin spellings; does not establish memory safety. |
 | `#proof-or` | `(#proof-or proposition...)` | `(#proof-or false true)` (proof proposition) | Disjunction of one or more propositions; unsupported operands still fail. |
 | `#proof-permutation` | `(#proof-permutation left-array right-array)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and element multiplicities of fixed arrays of at most 64 elements, including direct literals; matching element types are required even for empty arrays, and equality must be modeled. |
-| `#proof-requires-validation` | `(#proof-requires-validation entry (validator parameter) (action parameter))` | `(#theorem safe (#proof-requires-validation process (validate user) (perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Descriptors are literal function/parameter pairs with matching resolved referent types; unsupported execution and exhausted budgets are unproved. |
+| `#proof-requires-validation` | `(#proof-requires-validation entry (#parameter-of validator parameter) (#parameter-of action parameter))` | `(#theorem safe (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Explicit #parameter-of selectors reference existing function parameters with matching resolved referent types and introduce no binding; unsupported execution and exhausted budgets are unproved. |
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
 | `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |

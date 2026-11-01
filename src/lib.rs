@@ -4989,6 +4989,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "universes"
             | "parameters"
             | "parameter"
+            | "parameter-of"
             | "statement"
             | "proof"
             | "math-definition"

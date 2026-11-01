@@ -168,15 +168,19 @@ fn validation_descriptors_resolve_function_and_parameter_roles() {
       (#fn [[entry|entry]] ((object (#ref #u64))) () (#return ()))
       (#theorem safe
         (#[[keyword|proof-requires-validation]] [[entry-use|entry]]
-          ([[validator-use|check-user]] [[validator-parameter|user]])
-          ([[action-use|action]] [[action-parameter|input]])))
+          (#[[validator-marker|parameter-of]] [[validator-use|check-user]] [[validator-parameter|user]])
+          (#[[action-marker|parameter-of]] [[action-use|action]] [[action-parameter|input]])))
       (#theorem editing
-        (#proof-requires-validation entry (check-user [[missing-parameter|missing]])
-          (action [[wrong-function-parameter|user]])))
+        (#proof-requires-validation entry (#parameter-of check-user [[missing-parameter|missing]])
+          (#parameter-of action [[wrong-function-parameter|user]])))
       (#theorem bad-function
-        (#proof-requires-validation entry ([[not-a-function|missing]] input) (action input)))
+        (#proof-requires-validation entry (#parameter-of [[not-a-function|missing]] input) (#parameter-of action input)))
       (#theorem malformed
-        (#proof-requires-validation entry ([[malformed-function|check-user]] [[malformed-parameter|user]] extra) (action input)))
+        (#proof-requires-validation entry (#parameter-of [[malformed-function|check-user]] [[malformed-parameter|user]] extra) (#parameter-of action input)))
+      (#theorem legacy
+        (#proof-requires-validation entry ([[legacy-function|check-user]] [[legacy-parameter|user]]) (#parameter-of action input)))
+      (#theorem missing-marker
+        (#proof-requires-validation entry ([[bare-marker|parameter-of]] [[bare-function|check-user]] [[bare-parameter|user]]) (#parameter-of action input)))
       "#,
         &[(
             "validation.lim",
@@ -187,6 +191,8 @@ fn validation_descriptors_resolve_function_and_parameter_roles() {
         )],
         &[
             ("keyword", &[]),
+            ("validator-marker", &[]),
+            ("action-marker", &[]),
             ("entry-use", &["entry"]),
             ("validator-use", &["validator"]),
             ("validator-parameter", &["validated"]),
@@ -197,6 +203,83 @@ fn validation_descriptors_resolve_function_and_parameter_roles() {
             ("not-a-function", &[]),
             ("malformed-function", &[]),
             ("malformed-parameter", &[]),
+            ("legacy-function", &[]),
+            ("legacy-parameter", &[]),
+            ("bare-marker", &[]),
+            ("bare-function", &[]),
+            ("bare-parameter", &[]),
+        ],
+    );
+}
+
+#[test]
+fn validation_selector_markers_are_contextual_and_do_not_bind_parameters() {
+    run(
+        r#"
+      (#fn [[named-function|parameter-of]] (([[named-parameter|parameter-of]] (#ref #u64))) #bool (#return true))
+      (#const not-function #u64 0u64)
+      (#fn [[action|perform]] (([[action-parameter|user]] (#ref #u64))) () (#return ()))
+      (#fn [[entry|entry]] ((input (#ref #u64))) () (#return ()))
+      (#fn ordinary (([[ordinary-parameter|parameter-of]] (#ref #u64))) #bool
+        (#return (#call [[ordinary-function|parameter-of]] (: [[ordinary-label|parameter-of]] [[ordinary-value|parameter-of]]))))
+      (#theorem selected
+        (#proof-and
+          (#proof-requires-validation [[entry-use|entry]]
+            (#[[marker|parameter-of]] [[function-use|parameter-of]] [[parameter-use|parameter-of]])
+            (#parameter-of [[action-use|perform]] [[action-parameter-use|user]]))
+          (#proof-eq [[no-binding|user]] 0u64)))
+      (#theorem qualified
+        (#proof-requires-validation entry
+          (#parameter-of [[qualified-function|@parameter-of]] parameter-of)
+          (#parameter-of perform user)))
+      (#theorem legacy
+        (#proof-requires-validation entry
+          ([[legacy-function|@parameter-of]] [[legacy-parameter|parameter-of]])
+          (#parameter-of perform user)))
+      (#theorem short
+        (#proof-requires-validation entry
+          (#[[short-marker|parameter-of]] [[short-function|@parameter-of]])
+          (#parameter-of perform user)))
+      (#theorem bare
+        (#proof-requires-validation entry
+          ([[bare-marker|parameter-of]] [[bare-function|@parameter-of]] [[bare-parameter|parameter-of]])
+          (#parameter-of perform user)))
+      (#theorem wrong-kind
+        (#proof-requires-validation entry
+          (#parameter-of [[qualified-nonfunction|@not-function]] user)
+          (#parameter-of perform user)))
+      (#theorem wrong-parameter
+        (#proof-requires-validation entry
+          (#parameter-of parameter-of [[qualified-parameter|@parameter-of]])
+          (#parameter-of perform user)))
+      (#theorem long
+        (#proof-requires-validation entry
+          (#parameter-of [[long-function|@parameter-of]] [[long-parameter|parameter-of]] extra)
+          (#parameter-of perform user)))
+    "#,
+        &[
+            ("ordinary-function", &["named-function"]),
+            ("ordinary-label", &["named-parameter"]),
+            ("ordinary-value", &["ordinary-parameter"]),
+            ("entry-use", &["entry"]),
+            ("marker", &[]),
+            ("function-use", &["named-function"]),
+            ("parameter-use", &["named-parameter"]),
+            ("action-use", &["action"]),
+            ("action-parameter-use", &["action-parameter"]),
+            ("no-binding", &[]),
+            ("qualified-function", &["named-function"]),
+            ("legacy-function", &[]),
+            ("legacy-parameter", &[]),
+            ("short-marker", &[]),
+            ("short-function", &[]),
+            ("bare-marker", &[]),
+            ("bare-function", &[]),
+            ("bare-parameter", &[]),
+            ("qualified-nonfunction", &[]),
+            ("qualified-parameter", &[]),
+            ("long-function", &[]),
+            ("long-parameter", &[]),
         ],
     );
 }

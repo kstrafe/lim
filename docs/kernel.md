@@ -388,12 +388,16 @@ shared theorem shorthand:
 
 ```lisp
 (#theorem safe
-  (#proof-requires-validation process (validate user) (perform user)))
+  (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))
 ```
 
-Each descriptor is exactly `(FUNCTION PARAMETER-NAME)`. The parameter is looked
-up in that function's declaration, not in the entry function or theorem scope.
-Both selected parameters must be ordinary or pinned references to the same
+Each descriptor is exactly `(#parameter-of FUNCTION PARAMETER-NAME)`.
+The selector references an existing parameter in that function's declaration,
+not in the entry function or theorem scope, and introduces no theorem binding.
+It is accepted only in a validation descriptor position; old bare pairs are
+rejected without compatibility. This differs from `(#parameter name TYPE)`,
+which declares a new mathematical theorem parameter. Both selected validation
+parameters must be ordinary or pinned references to the same
 resolved referent type, and `validate` must return `#bool`.
 
 For universally quantified entry inputs, every reachable action entry through

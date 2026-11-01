@@ -23,7 +23,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "validation-wrong-object",
             diagnostic_code: "E4400",
-            offending_line: "  (#proof-requires-validation main (validate user) (perform user)))",
+            offending_line: "  (#proof-requires-validation main",
             line_number: 12,
         },
         Case {
@@ -1293,7 +1293,7 @@ fn compilation_errors_render_the_offending_source_line() {
             }
             let precise_fragment = match case.name {
             "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),
-            "validation-wrong-object" => Some("(#proof-requires-validation main (validate user) (perform user))"),
+            "validation-wrong-object" => Some("(#proof-requires-validation main"),
             "reserved-generator-name" => Some("#future-generator"),
             "reserved-local-name" => Some("#local"),
             "println-missing-std" | "println-arity" => Some("#println"),

@@ -6,7 +6,8 @@ const USER: &str = r#"
     (#fn validate (: user (#ref User)) #bool (#return (#get user ready)))
     (#fn perform (: user (#ref User)) () (#return ()))
 "#;
-const CLAIM: &str = "(#proof-requires-validation entry (validate user) (perform user))";
+const CLAIM: &str =
+    "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))";
 const VALID_USER: &str = "(#struct-literal User (: ready true : data 0u8))";
 
 fn ordinary(program: &str) {
@@ -401,23 +402,70 @@ fn ordinary_and_pinned_references_can_designate_the_same_storage() {
 fn malformed_descriptors_and_unknown_labels_are_rejected() {
     let program = with_entry("()");
     for claim in [
-        "(#proof-requires-validation entry (validate user))",
-        "(#proof-requires-validation entry (validate user) (perform user) extra)",
-        "(#proof-requires-validation entry validate (perform user))",
-        "(#proof-requires-validation entry (validate) (perform user))",
-        "(#proof-requires-validation entry (validate user extra) (perform user))",
-        "(#proof-requires-validation entry (validate user) (perform))",
-        "(#proof-requires-validation entry (validate missing) (perform user))",
-        "(#proof-requires-validation entry (validate user) (perform missing))",
-        "(#proof-requires-validation missing (validate user) (perform user))",
-        "(#proof-requires-validation entry (missing user) (perform user))",
-        "(#proof-requires-validation entry (validate user) (missing user))",
+        "(#proof-requires-validation entry (validate user) (perform user))",
+        "(#proof-requires-validation entry (validate user) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (perform user))",
+        "(#proof-requires-validation entry (#parameter validate user) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (parameter-of validate user) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user) extra)",
+        "(#proof-requires-validation entry validate (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user extra) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform))",
+        "(#proof-requires-validation entry (#parameter-of validate missing) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform missing))",
+        "(#proof-requires-validation missing (#parameter-of validate user) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of missing user) (#parameter-of perform user))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of missing user))",
     ] {
         assert!(
             check_claim(&program, claim).is_err(),
             "accepted malformed claim: {claim}"
         );
     }
+}
+
+#[test]
+fn selecting_a_function_parameter_does_not_introduce_a_theorem_binding() {
+    let source = with_entry("(#if (#call validate (: user user)) (#call perform (: user user)))");
+    let claim = format!("(#proof-and {CLAIM} (#proof-eq user user))");
+    let error =
+        check_claim(&source, &claim).expect_err("a parameter selector invented a theorem variable");
+    assert!(error.contains("unknown proof value 'user'"), "{error}");
+}
+
+#[test]
+fn selector_keywords_do_not_reserve_unprefixed_function_or_parameter_names() {
+    let program = r#"
+      (#struct User () ((ready #bool)))
+      (#fn parameter-of (: parameter-of (#ref User)) #bool
+        (#return (#get parameter-of ready)))
+      (#fn perform (: user (#ref User)) () (#return ()))
+      (#fn entry (: subject (#ref User)) ()
+        (#if (#call parameter-of (: parameter-of subject))
+          (#call perform (: user subject)))
+        (#return ()))
+    "#;
+    check_claim(
+        program,
+        "(#proof-requires-validation entry
+          (#parameter-of parameter-of parameter-of)
+          (#parameter-of perform user))",
+    )
+    .unwrap();
+}
+
+#[test]
+fn formatting_preserves_explicit_parameter_selections() {
+    let source = include_str!("../examples/validated_user.lim");
+    let formatted = lim::format_source(source).unwrap();
+    assert_eq!(
+        lim::parse_program(source).unwrap().items,
+        lim::parse_program(&formatted).unwrap().items
+    );
+    assert!(formatted.contains("(#parameter-of validate user)"));
+    lim::check_types(&lim::parse_program(&formatted).unwrap()).unwrap();
 }
 
 #[test]

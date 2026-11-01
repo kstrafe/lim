@@ -171,31 +171,39 @@ builtin entries in that list have no definition. The boolean observation in
 `#proof-calls-when`, effect tags in `#proof-no-effects`, and stack ABI string and
 limit remain metadata; their contents do not undergo global spelling lookup.
 
-`(#proof-requires-validation entry (validate user) (perform user))` has distinct
-function and parameter-reference roles. The `entry` operand and each descriptor's
-function operand navigate through the canonical function declaration table to
-their actual definitions. Aliases, file references, and generated function names
-preserve the same identity rules as other proof function operands.
+`(#proof-requires-validation entry (#parameter-of validate user)
+(#parameter-of perform user))` has distinct function and parameter-reference
+roles. Each descriptor must be a three-item list headed by the exact
+`#parameter-of` marker. The `entry` operand and each descriptor's function
+operand at index 1 navigate through the canonical function declaration table
+to their actual definitions. Aliases, file references, and generated function
+names preserve the same identity rules as other proof function operands.
 
-The second descriptor token navigates only to the named parameter token of the
-function selected by that descriptor: `(validate user)` selects `validate`'s
-`user` parameter, while `(perform user)` selects `perform`'s parameter. These
+The parameter operand at index 2 navigates only to the existing parameter token
+of the selected function: `(#parameter-of validate user)` selects `validate`'s
+`user` parameter, while `(#parameter-of perform user)` selects `perform`'s. These
 need not be the same source span or have matching spellings. Neither token is
 a local binding or an expression in the theorem's or entry function's scope.
 An unknown parameter or unresolved descriptor function has no definition;
 there is no fallback to a same-spelled caller parameter, local, global, or an
 unrelated function's parameter. Descriptor lists introduce no lexical bindings.
 
-The builtin keyword and descriptor list structure are metadata, not runtime
-calls or values. Function and parameter leaves retain the explicit navigation
-roles above; clicking the builtin or delimiters has no definition. Semantic
+Both `#proof-requires-validation` and `#parameter-of`, along with descriptor
+list structure, are metadata, not runtime calls or values. Function and parameter
+leaves retain the explicit roles above; clicking a marker or delimiter has no
+definition. Bare legacy `(function parameter)` lists, unprefixed
+`(parameter-of function parameter)` lists, and malformed selectors have no
+navigation targets or spelling fallback, including through `@` qualification.
+An ordinary function or parameter named `parameter-of` retains its usual role;
+its unprefixed spelling is distinct from the descriptor marker. Semantic
 checking separately enforces reference or pinned-reference parameters, equal
 resolved referent types, and a Boolean validator. Navigation while editing
 must not substitute a different role when these requirements fail.
 
 Navigation regression coverage must distinguish the two parameter spans,
 include reused names in the caller and globals, and reject missing parameters,
-unresolved functions, and malformed descriptors without spelling fallback.
+unresolved functions, legacy lists, and malformed descriptors without spelling
+fallback. Selecting a parameter must not make it visible to sibling propositions.
 The exact `#proof-requires-validation` token is highlighted as `limProof` at
 all nesting depths; bare names are identifiers and unknown suffixed spellings
 remain generic keywords.

@@ -19,9 +19,9 @@
 ; User input. Replacing user with another object at dispatch fails the theorem.
 
 (#theorem process-validates-the-user
-  (#proof-requires-validation process (validate user) (perform user)))
+  (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))
 (#theorem main-validates-the-user
-  (#proof-requires-validation main (validate user) (perform user)))
+  (#proof-requires-validation main (#parameter-of validate user) (#parameter-of perform user)))
 
 (#fn main () #u64
   (#let user User (#struct-literal User (: id 42u64)))

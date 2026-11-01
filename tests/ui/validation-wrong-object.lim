@@ -9,4 +9,6 @@
   (#return ()))
 
 (#theorem wrong-object
-  (#proof-requires-validation main (validate user) (perform user)))
+  (#proof-requires-validation main
+    (#parameter-of validate user)
+    (#parameter-of perform user)))

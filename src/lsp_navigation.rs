@@ -622,7 +622,8 @@ impl<'a> Index<'a> {
     // Proof function operands use the canonical declaration table, never a
     // same-spelled lexical value or an arbitrary global declaration.
     fn proof_function(&self, node: &Node) -> Option<&'a Node> {
-        self.declaration(symbol(node)?)
+        let name = symbol(node)?;
+        self.declaration(name.strip_prefix('@').unwrap_or(name))
             .filter(|node| matches!(head(node), "fn" | "unsafe-fn" | "extern-fn"))
     }
     fn proof_parameters(&self, function: &Node) -> Scope {
@@ -1183,22 +1184,24 @@ impl<'a> Index<'a> {
                     .unwrap_or_default();
             }
             for descriptor in xs.iter().skip(2).filter(|node| self.contains(node)) {
-                if descriptor.children.len() != 2 {
+                if descriptor.children.len() != 3
+                    || descriptor.children.first().and_then(symbol) != Some("#parameter-of")
+                {
                     return vec![];
                 }
                 let Some(function) = descriptor
                     .children
-                    .first()
+                    .get(1)
                     .and_then(|name| self.proof_function(name))
                 else {
                     return vec![];
                 };
-                if self.contains(&descriptor.children[0]) {
+                if self.contains(&descriptor.children[1]) {
                     return vec![function.children[name_index(function)].span];
                 }
-                if self.contains(&descriptor.children[1]) {
+                if self.contains(&descriptor.children[2]) {
                     let parameters = self.proof_parameters(function);
-                    return symbol(&descriptor.children[1])
+                    return symbol(&descriptor.children[2])
                         .and_then(|name| parameters.get(name))
                         .map(|binding| binding.spans.clone())
                         .unwrap_or_default();
@@ -2027,7 +2030,9 @@ impl<'a> Index<'a> {
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
         fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
-            if Index::is_kernel_declaration(node) {
+            if Index::is_kernel_declaration(node) || head(node) == "proof-requires-validation" {
+                // Validation selectors have exact contextual roles too. An
+                // @name inside a malformed selector must not bypass them.
                 return None;
             }
             if !index.contains(node) {

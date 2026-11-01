@@ -21,7 +21,7 @@ const ENTRY: &str = r#"
     (#return (#call entry (: input (#borrow value)))))
 "#;
 const CLAIM: &str = "(#theorem validated
-  (#proof-requires-validation entry (check-value value) (do-action target)))";
+  (#proof-requires-validation entry (#parameter-of check-value value) (#parameter-of do-action target)))";
 
 fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diagnostic> {
     lim::compile_source_to_assembly(
@@ -96,8 +96,8 @@ fn validation_fact_limits_cannot_turn_resource_exhaustion_into_a_proof() {
     let ordinary = lim::parse_program(&source).unwrap();
     lim::check_types(&ordinary).unwrap();
     for claim in [
-        "(#proof-requires-validation entry (validate user) (perform user))",
-        "(#proof-not (#proof-requires-validation entry (validate user) (perform user)))",
+        "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))",
+        "(#proof-not (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))",
     ] {
         let parsed = lim::parse_program(&format!("{source}\n(#theorem bounded {claim})")).unwrap();
         let error = lim::check_types(&parsed).expect_err("exhausted trace was certified");
@@ -139,7 +139,7 @@ fn symbolic_indices_check_identity_and_write_overlap_under_path_conditions() {
         lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
         let proof = format!(
             "{source}\n(#theorem index-validation
-          (#proof-requires-validation entry (validate user) (perform user)))"
+          (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))"
         );
         let result = lim::check_types(&lim::parse_program(&proof).unwrap());
         if holds {
@@ -170,7 +170,7 @@ fn observing_a_referenced_child_does_not_invalidate_an_unchanged_parent() {
         (#return ()))
     "#;
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
-    let claim = "(#proof-requires-validation entry (validate user) (perform user))";
+    let claim = "(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))";
     let proved = lim::parse_program(&format!("{source}\n(#theorem preserved {claim})")).unwrap();
     lim::check_types(&proved).unwrap();
     let negated = lim::parse_program(&format!(

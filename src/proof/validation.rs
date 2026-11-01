@@ -117,11 +117,15 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn validation_descriptor(&self, expr: &Expr) -> Result<(&'p Function, usize, Type)> {
         let descriptor = list(expr)?;
-        if descriptor.len() != 2 {
-            return Err("a validation descriptor is (function parameter-name)".into());
+        if descriptor.len() != 3
+            || !matches!(&descriptor[0], Expr::Symbol(head) if head == "#parameter-of")
+        {
+            return Err(
+                "a validation descriptor is (#parameter-of function parameter-name)".into(),
+            );
         }
-        let function = self.function(symbol(&descriptor[0])?)?;
-        let name = symbol(&descriptor[1])?;
+        let function = self.function(symbol(&descriptor[1])?)?;
+        let name = symbol(&descriptor[2])?;
         let index = function
             .parameters
             .iter()
