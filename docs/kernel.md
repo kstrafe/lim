@@ -985,8 +985,8 @@ FLT translation and replay remain unfinished.
 The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete
 count. The [functional example](../examples/proof_mutual_function.lim) checks
-pointwise sibling recursion at each child's index. Neither completes foundation
-axiom replay or full-environment proof-source translation and FLT replay work.
+pointwise sibling recursion at each child's index. Neither completes the
+full-environment proof-source translation and FLT replay work.
 
 The kernel has no cumulativity, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
@@ -1005,6 +1005,9 @@ matching Lean's pinned FLT axiom basis; they are not an FLT proof or an
 axioms-free result. Raw Lean imports still reject axioms by default. The native
 theorem CLI reports the transitive foundation inventory, excluding unused
 foundations elsewhere in the environment. See the [language reference](language.md#compile-time-proofs).
+Explicit [pinned axiom replay](lean-export.md#explicit-logical-foundations)
+checks opaque adapters for only these three fixed assumptions and compares
+the imported target's inventory with the rechecked native theorem.
 
 ## Resource bounds
 
@@ -1102,7 +1105,7 @@ syntax or exact rules:
 - [Inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/)
   explains constructors, recursors, and elimination restrictions.
 
-Lean also has features absent here, including axiom-declaration replay and richer
+Lean also has features absent here, including full-environment replay and richer
 inductive families. Definitional proof irrelevance is supported, but does not establish
 full conversion parity. Use the rules in this guide for Lim, not an inference that a term
 accepted by Lean or a mathlib theorem is available in Lim. For the procedural

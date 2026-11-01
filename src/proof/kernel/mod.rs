@@ -5,8 +5,9 @@ mod core;
 mod level;
 use crate::{Expr, Item};
 pub use core::export::{
-    check_lean_export, translate_lean_export, LeanDeclarationReport, LeanExportError,
-    LeanExportReport, LeanExportTranslation,
+    check_lean_export, check_lean_export_with_policy, translate_lean_export,
+    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReport,
+    LeanExportTranslation, LeanFoundationPolicy,
 };
 use core::{
     apps, term, InductiveInput, Kernel, Level, Natural, NestedCase, RecursionCase, Term, T,

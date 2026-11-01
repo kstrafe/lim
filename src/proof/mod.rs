@@ -17,8 +17,9 @@ use symbolic::{State, Value};
 use validation::ValidationRule;
 
 pub use kernel::{
-    check_lean_export, translate_lean_export, LeanDeclarationReport, LeanExportError,
-    LeanExportReport, LeanExportTranslation,
+    check_lean_export, check_lean_export_with_policy, translate_lean_export,
+    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReport,
+    LeanExportTranslation, LeanFoundationPolicy,
 };
 
 pub(crate) fn checked_theorem_foundations(

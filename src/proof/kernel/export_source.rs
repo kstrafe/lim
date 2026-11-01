@@ -56,6 +56,20 @@ pub(super) fn render(
     writer.push("; Checked native translation of a Lean export, not an admission.\n")?;
     writer.push(&format!("; Lean: {LEAN_EXPORT_VERSION} ({LEAN_EXPORT_GITHASH})\n; Exporter: {EXPORTER_REVISION}\n; Input SHA-256: {}\n; Native theorem: {target}\n", report.input_sha256))?;
     writer.push("; Keep the upstream source/license provenance with this translation.\n\n")?;
+    if !report.axioms.is_empty() {
+        writer.push(&format!(
+            "; Declared logical axioms: {}\n; Target logical foundations: {}\n\n",
+            Json::Array(report.axioms.iter().map(|name| text_json(name)).collect()).render(),
+            Json::Array(
+                report
+                    .target_axioms
+                    .iter()
+                    .map(|name| text_json(name))
+                    .collect()
+            )
+            .render()
+        ))?;
+    }
     if !report.foundations.is_empty() {
         writer.push(&format!(
             "; Checked primitive foundations: {}\n\n",
@@ -129,11 +143,46 @@ pub(super) fn render(
     }
     correspondence::check(replay, &report, &names, &program)
         .map_err(|why| format!("translated source correspondence failed: {why}"))?;
+    check_target_foundations(&program, &target, &report.target_axioms)?;
     Ok(LeanExportTranslation {
         report,
         target,
         source,
     })
+}
+
+fn check_target_foundations(
+    program: &crate::Program,
+    target: &str,
+    expected: &[String],
+) -> Result<()> {
+    let actual = crate::proof::kernel::foundation_dependencies(program, target)?;
+    if actual != expected {
+        return Err(
+            "translated theorem's logical foundations differ from the checked export".into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod foundation_audit_tests {
+    use super::*;
+    #[test]
+    fn a_well_typed_proof_of_the_same_goal_cannot_silently_add_an_assumption() {
+        let prefix = include_str!("../../../examples/proof_foundations.lim");
+        for (body,expected) in [
+            ("(#pt-refl #pt-nat #pt-zero)",true),
+            ("(#pt-let (#parameter unused #pt-nat) (#pt-use selected-natural ()) (#pt-refl #pt-nat #pt-zero))",false),
+        ] {
+            let source=format!("{prefix}\n(#theorem audit-goal (#universes) (#parameters)
+              (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof {body}))");
+            let program=crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let result=check_target_foundations(&program,"audit-goal",&[]);
+            if expected {result.unwrap();} else {assert!(result.unwrap_err().contains("logical foundations differ"));}
+        }
+    }
 }
 
 struct Writer<'a> {
@@ -477,6 +526,7 @@ impl Writer<'_> {
     fn name(&self, original: &str) -> Result<String> {
         match original {
             "#pt-nat" | "#pt-false" => Ok(original.into()),
+            _ if foundation::label(original).is_some() => Ok(original.into()),
             _ => self.names.get(original).cloned().ok_or_else(|| {
                 format!("source translation encountered an unmapped declaration {original:?}")
             }),
@@ -595,7 +645,7 @@ impl Writer<'_> {
         } else {
             self.push(&format!(
                 "({} {} ",
-                if kind == "opaque" {
+                if matches!(kind, "opaque" | "axiom") {
                     "#math-opaque"
                 } else {
                     "#math-definition"

@@ -9,6 +9,12 @@ The [compact natural-literal corpus](../lean_export_naturals/README.md) adds
 an eleventh genuine export with five large-value theorems, native proof source,
 and its own source/module/license provenance and regeneration command.
 
+The [fixed-foundation corpus](../lean_export_foundations/README.md) adds a
+twelfth genuine export. It explicitly opts into only the pinned choice,
+propositional extensionality and quotient soundness axioms, with checked opaque
+adapters and distinct declared/target assumption inventories. Default replay
+continues to reject that corpus.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

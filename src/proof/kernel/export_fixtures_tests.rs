@@ -211,7 +211,7 @@ fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
         "QuotientSource.inductionReflexive",
         "lim-lean-quotient-fixture-v1",
         &["quotient-computation-v1"],
-        3,
+        (3, &[]),
     );
 }
 
@@ -224,7 +224,20 @@ fn genuine_natural_fixture_retains_checked_mapping_hashes_and_attribution() {
         "NaturalSource.largerSuccessor",
         "lim-lean-natural-fixture-v1",
         &[],
-        5,
+        (5, &[]),
+    );
+}
+
+#[test]
+fn genuine_foundation_fixture_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_foundations/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_foundations/foundations.ndjson"),
+        include_str!("../../../theorems/lean_replay/foundations.lim"),
+        "BasisProbe.quotientRelated",
+        "lim-lean-foundation-fixture-v1",
+        &["quotient-computation-v1"],
+        (3, &["Classical.choice", "Quot.sound", "propext"]),
     );
 }
 
@@ -235,13 +248,20 @@ fn assert_primitive_fixture(
     target: &str,
     schema: &str,
     foundations: &[&str],
-    expected_targets: usize,
+    expected: (usize, &[&str]),
 ) {
+    let (expected_targets, expected_axioms) = expected;
     let manifest = crate::lsp::json::parse(manifest).unwrap();
     assert_eq!(text(&manifest, "schema"), schema);
     assert_eq!(text(&manifest, "lean_revision"), LEAN_EXPORT_GITHASH);
     assert_eq!(text(&manifest, "exporter_revision"), EXPORTER_REVISION);
-    assert!(field(&manifest, "axioms").array().unwrap().is_empty());
+    assert_eq!(
+        field(&manifest, "axioms").array().unwrap(),
+        &expected_axioms
+            .iter()
+            .map(|name| text_json(name))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         field(&manifest, "foundations").array().unwrap(),
         &foundations
@@ -263,7 +283,23 @@ fn assert_primitive_fixture(
         assert_eq!(text(license, "license"), "Apache-2.0");
         assert_eq!(text(license, "sha256"), digest(&bytes));
     }
-    let report = check_lean_export(input, target).unwrap();
+    let policy = if expected_axioms.is_empty() {
+        LeanFoundationPolicy::Constructive
+    } else {
+        LeanFoundationPolicy::Lean4
+    };
+    let report = check_lean_export_with_policy(input, target, policy).unwrap();
+    assert_eq!(report.axioms, expected_axioms);
+    if let Some(expected) = manifest.get("target_axioms") {
+        assert_eq!(
+            expected.array().unwrap(),
+            &report
+                .target_axioms
+                .iter()
+                .map(|name| text_json(name))
+                .collect::<Vec<_>>()
+        );
+    }
     assert_eq!(
         text(field(&manifest, "export"), "sha256"),
         report.input_sha256
@@ -273,10 +309,12 @@ fn assert_primitive_fixture(
     let native = crate::parse_program(native).unwrap();
     assert_eq!(native.items.len(), mappings.len());
     let upstream = field(&manifest, "upstream_sources").array().unwrap();
-    assert_eq!(upstream.len(), 1);
-    assert_eq!(text(&upstream[0], "license"), "Apache-2.0");
-    assert!(text(&upstream[0], "notice").contains("Copyright"));
-    assert!(text(&upstream[0], "url").contains(LEAN_EXPORT_GITHASH));
+    assert!(!upstream.is_empty());
+    for source in upstream {
+        assert_eq!(text(source, "license"), "Apache-2.0");
+        assert!(text(source, "notice").contains("Copyright"));
+        assert!(text(source, "url").contains(LEAN_EXPORT_GITHASH));
+    }
     let mut target_count = 0;
     for ((mapping, declaration), item) in
         mappings.iter().zip(&report.declarations).zip(&native.items)
@@ -314,15 +352,36 @@ fn assert_primitive_fixture(
                 );
             }
             "lean4" => {
-                assert_eq!(text(mapping, "module"), "Init.Prelude");
-                assert_eq!(text(mapping, "source"), text(&upstream[0], "source"));
-                assert_eq!(text(mapping, "source_sha256"), text(&upstream[0], "sha256"));
+                let source = upstream
+                    .iter()
+                    .find(|source| text(source, "source") == text(mapping, "source"))
+                    .unwrap();
+                let module = text(source, "source")
+                    .strip_prefix("src/")
+                    .unwrap()
+                    .strip_suffix(".lean")
+                    .unwrap()
+                    .replace('/', ".");
+                assert_eq!(text(mapping, "module"), module);
+                assert_eq!(text(mapping, "source_sha256"), text(source, "sha256"));
             }
             other => panic!("unrecorded primitive fixture source project {other}"),
         }
         if let Some(target) = field(field(&manifest, "native"), "targets").get(&declaration.name) {
             assert_eq!(target.string(), Some(name.as_str()));
             assert_eq!(declaration.kind, "theorem");
+            if let Some(inventories) = manifest.get("target_inventories") {
+                let checked =
+                    check_lean_export_with_policy(input, &declaration.name, policy).unwrap();
+                assert_eq!(
+                    field(inventories, &declaration.name).array().unwrap(),
+                    &checked
+                        .target_axioms
+                        .iter()
+                        .map(|name| text_json(name))
+                        .collect::<Vec<_>>()
+                );
+            }
             target_count += 1;
         }
     }

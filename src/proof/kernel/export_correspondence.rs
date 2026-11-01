@@ -91,7 +91,8 @@ pub(super) fn check(
                         opaque,
                     },
                 ) => {
-                    if theorem != (record.kind == "theorem") || opaque != (record.kind == "opaque")
+                    if theorem != (record.kind == "theorem")
+                        || opaque != matches!(record.kind.as_str(), "opaque" | "axiom")
                     {
                         return Err(
                             "translated declaration kind or opacity differs from its source".into(),
@@ -262,7 +263,7 @@ struct Relocate<'a> {
 }
 impl Relocate<'_> {
     fn name(&self, name: &str) -> Result<String> {
-        if matches!(name, "#pt-nat" | "#pt-false") {
+        if matches!(name, "#pt-nat" | "#pt-false") || foundation::label(name).is_some() {
             return Ok(name.into());
         }
         self.names
@@ -545,6 +546,8 @@ mod tests {
             bytes: 0,
             records: 0,
             foundations: vec![],
+            axioms: vec![],
+            target_axioms: vec![],
             declarations: vec![LeanDeclarationReport {
                 name: name.into(),
                 identity: name.into(),

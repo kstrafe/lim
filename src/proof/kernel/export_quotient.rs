@@ -2,7 +2,7 @@
 //! No exported type, record kind or name can install an axiom or reduction rule.
 use super::*;
 
-fn standard(parts: &[&str]) -> String {
+pub(super) fn standard(parts: &[&str]) -> String {
     parts.iter().fold("$lean:".to_owned(), |mut result, part| {
         result.push_str(&format!("s{}:{part}", part.len()));
         result
@@ -66,7 +66,7 @@ impl Replay {
         source::correspondence::relocate_template(&parsed, &names, &levels)
     }
 
-    fn check_quotient_equality(&mut self) -> Result<()> {
+    pub(super) fn check_quotient_equality(&mut self) -> Result<()> {
         let name = standard(&["Eq"]);
         let refl = standard(&["Eq", "refl"]);
         let declaration = self

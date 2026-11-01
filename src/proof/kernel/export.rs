@@ -5,6 +5,8 @@ use crate::lsp::json::Json;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::BufRead;
 
+#[path = "export_foundations.rs"]
+mod axioms;
 #[cfg(test)]
 #[path = "export_fixtures_tests.rs"]
 mod fixtures_tests;
@@ -34,6 +36,15 @@ const MAX_EXPRESSION_DEPTH: usize = 256;
 const MAX_DECLARATIONS: usize = 4096;
 const MAX_DEPENDENCIES: usize = 1_000_000;
 
+/// Default replay is constructive. Lean4 enables only the three pinned,
+/// fixed-signature logical axioms, checked through ordinary native adapters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LeanFoundationPolicy {
+    #[default]
+    Constructive,
+    Lean4,
+}
+
 #[derive(Clone, Debug)]
 pub struct LeanDeclarationReport {
     pub name: String,
@@ -53,6 +64,10 @@ pub struct LeanExportReport {
     pub declarations: Vec<LeanDeclarationReport>,
     /// Additional checked primitive packages, separate from exported axioms.
     pub foundations: Vec<String>,
+    /// All accepted fixed axiom declarations in the input, sorted by name.
+    pub axioms: Vec<String>,
+    /// The selected theorem's transitive axiom closure, sorted by name.
+    pub target_axioms: Vec<String>,
 }
 impl LeanExportReport {
     /// A replay receipt, not a certificate that can bypass later checking.
@@ -71,7 +86,19 @@ impl LeanExportReport {
                 "declaration_hash_scope",
                 text_json("export-prefix-through-record"),
             ),
-            ("axioms", Json::Array(vec![])),
+            (
+                "axioms",
+                Json::Array(self.axioms.iter().map(|name| text_json(name)).collect()),
+            ),
+            (
+                "target_axioms",
+                Json::Array(
+                    self.target_axioms
+                        .iter()
+                        .map(|name| text_json(name))
+                        .collect(),
+                ),
+            ),
             (
                 "foundations",
                 Json::Array(
@@ -146,16 +173,27 @@ struct Replay {
     retain_bodies: bool,
     bodies: HashMap<String, T>,
     quotient_stage: usize,
+    foundation_policy: LeanFoundationPolicy,
 }
 
 /// Reads the actual pinned NDJSON protocol without executing Lean or trusting
-/// a claimed check result. There is no admission/axiom or cache input mode.
+/// a claimed check result. This entry point rejects all axiom records.
 pub fn check_lean_export<R: BufRead>(
     reader: R,
     target: &str,
 ) -> std::result::Result<LeanExportReport, LeanExportError> {
+    check_lean_export_with_policy(reader, target, LeanFoundationPolicy::Constructive)
+}
+
+/// Select a fixed foundation policy explicitly. Even Lean4 rejects arbitrary
+/// axioms and checks native initializers against every imported signature.
+pub fn check_lean_export_with_policy<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+) -> std::result::Result<LeanExportReport, LeanExportError> {
     let _stage = crate::timing::stage("lean_export_replay");
-    replay_export(reader, target, false).map(|(_, report, _)| report)
+    replay_export(reader, target, false, policy).map(|(_, report, _)| report)
 }
 
 /// Replays the full export, translates its checked environment to ordinary Lim
@@ -164,9 +202,19 @@ pub fn translate_lean_export<R: BufRead>(
     reader: R,
     target: &str,
 ) -> std::result::Result<LeanExportTranslation, LeanExportError> {
+    translate_lean_export_with_policy(reader, target, LeanFoundationPolicy::Constructive)
+}
+
+/// Replay with explicit fixed foundations, then check the emitted declarations,
+/// initializer correspondence, opacity and selected theorem's assumption closure.
+pub fn translate_lean_export_with_policy<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+) -> std::result::Result<LeanExportTranslation, LeanExportError> {
     let (mut replay, report, identity) = {
         let _stage = crate::timing::stage("lean_export_replay");
-        replay_export(reader, target, true)?
+        replay_export(reader, target, true, policy)?
     };
     let _stage = crate::timing::stage("lean_export_source");
     let line = replay.line.saturating_add(1);
@@ -180,8 +228,10 @@ fn replay_export<R: BufRead>(
     mut reader: R,
     target: &str,
     retain_bodies: bool,
+    policy: LeanFoundationPolicy,
 ) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
     let mut replay = Replay::new();
+    replay.foundation_policy = policy;
     replay.retain_bodies = retain_bodies;
     let mut input_hash = hash::Sha256::new();
     let mut total = 0u64;
@@ -255,11 +305,22 @@ fn replay_export<R: BufRead>(
         ));
     }
     let identity = matches[0].identity.clone();
+    let target_axioms = replay.target_axioms(&identity).map_err(failure)?;
+    let axioms = replay
+        .reports
+        .iter()
+        .filter(|decl| decl.kind == "axiom")
+        .map(|decl| decl.name.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let report = LeanExportReport {
         target: matches[0].name.clone(),
         input_sha256: hash::hex(&input_hash.finish()),
         bytes: total,
         records: replay.line as u64,
+        axioms,
+        target_axioms,
         declarations: std::mem::take(&mut replay.reports),
         foundations: if replay.quotient_stage == 4 {
             vec!["quotient-computation-v1".into()]
@@ -296,6 +357,7 @@ impl Replay {
             retain_bodies: false,
             bodies: HashMap::new(),
             quotient_stage: 0,
+            foundation_policy: LeanFoundationPolicy::Constructive,
         }
     }
     fn reset_budget(&mut self) -> Result<()> {
@@ -356,7 +418,7 @@ impl Replay {
         match tag.as_str() {
             "def" | "thm" | "opaque" => self.definition(tag, body),
             "inductive" => self.inductive(body),
-            "axiom" => Err("export axioms are not authorized; no theorem was established".into()),
+            "axiom" => self.axiom_record(body),
             "quot" => self.quotient_record(body),
             "meta" => Err("export metadata is permitted only as the first record".into()),
             _ => Err(format!("unsupported export record '{tag}'")),
@@ -477,7 +539,11 @@ impl Replay {
     }
     fn dependencies_known(&self, dependencies: &[String], local: &[String]) -> Result<()> {
         for dependency in dependencies {
-            if !self.checked.contains_key(dependency) && !local.contains(dependency) {
+            if !self.checked.contains_key(dependency)
+                && !local.contains(dependency)
+                && !(self.foundation_policy == LeanFoundationPolicy::Lean4
+                    && foundation::label(dependency).is_some())
+            {
                 return Err(format!(
                     "unknown or unchecked declaration dependency '{dependency}'"
                 ));

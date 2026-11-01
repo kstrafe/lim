@@ -24,6 +24,14 @@ provenance and exact artifact bytes. Imported literals use the inspectable
 `#pt-nat-literal` form even for small values; this avoids unary-spine depth
 limits while keeping the same checked zero/successor semantics.
 
+The twelfth file, [`foundations.lim`](foundations.lim), translates the separate
+[fixed-foundation corpus](../../tests/fixtures/lean_export_foundations/README.md).
+Its 34 declarations include checked opaque adapters for the three pinned
+logical axioms. The three user theorem targets each use one assumption; all
+declared axioms and each target's actual inventory are recorded separately.
+Its fixture guide and manifest preserve exact source/module/license provenance
+and document opt-in replay and independent ordinary native theorem checks.
+
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps every original declaration to its native

@@ -130,7 +130,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in primitive Sigma types or arbitrary type functions, and current-index occurrences remain unsupported. Native nested declarations use previously checked nominal container constructors and explicit physical type selectors in #pt-nested-induct. Explicit mutual groups have shared universes/parameters/sort, independent index telescopes, atomic positivity validation and family-specific motives/IHs/computation. Mutual predicates only eliminate into Prop; unit/K/record shortcuts exclude group components. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; audit scoped nested replay against the full dependency closure and the emitted nested-case source wrappers against that closure. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Under the zero-family-sort guard, empty inductives and single-constructor inductives whose every non-proof field occurs directly as a bare variable among the constructor result indices may eliminate into data universes; proof fields need no such exposure. Computed or partial exposure and multiple constructors do not qualify. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
 | Conversion | Beta, transparent delta, typed-local-let zeta, iota, primitive Sigma projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Unit-like data conversion and fieldless neutral data recursion require an unindexed, fully applied one-constructor zero-field family. Indexed zero-field singleton propositions also admit neutral computation when their supplied indices convert to the specialized constructor indices; indexed data and mismatching fibres do not. Checked projections and typed fieldwise eta apply to unindexed, nonrecursive single-constructor mathematical records; neutral recursors respect the reconstruction when its projections are legal. Guarded checks prevent extracting data from Prop. No indexed/recursive record eta or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
-| Quotients and axioms | Checked quotient computation and an explicit fixed native logical basis for propositional extensionality, Church-encoded choice and quotient soundness. Native theorem checking inventories reachable assumptions; there is no generic axiom-admission interface. Raw axiom records remain rejected. | Add explicit, fixed-schema opt-in replay of the three pinned axioms, recheck adapters for nominal equality/nonemptiness, and audit the complete dependency closure. |
+| Quotients and axioms | Checked quotient computation and an explicit fixed native logical basis. Opt-in replay accepts only the three pinned axiom signatures through checked opaque adapters for nominal equality and nonemptiness. Native inventories must match the imported target's transitive closure; default replay rejects axioms and there is no generic admission interface. | Audit the full dependency closure against this fixed basis, preserving exact statement correspondence and rejecting any additional foundation. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
 | Dependency and axiom audit | Local dependency ordering and checked procedural adapters. | Produce a complete source-to-target declaration map, dependency graph, axiom closure, and reproducible replay report for the actual FLT target. |
@@ -199,8 +199,8 @@ mathematical records now have checked projections and typed fieldwise eta,
 including neutral records and proof-field transitivity. Dependent field types
 substitute earlier projections, and guarded Prop checks forbid hidden witness
 extraction. Indexed/recursive projection targets remain unsupported.
-Cumulativity and quotient-soundness export replay remain unsupported; native
-soundness requires an explicit logical foundation reference, while quotient
+Cumulativity remains unsupported; quotient-soundness export replay requires
+the explicit fixed foundation policy, while quotient
 computation uses separate checked primitives. This is not full Lean eta or conversion parity. The implemented
 kernel is not formally verified, and these changes do not supply the missing
 FLT proof.
@@ -253,8 +253,12 @@ from that encoding. Native theorem checking reports transitive assumptions
 from types and bodies, including opaque initializers and erased evidence,
 while excluding unrelated declarations. These are logical axioms, not proved
 lemmas or a claim that the FLT proof was checked. Default Lean replay still
-rejects all axiom records; pinned-schema opt-in replay and its nominal adapters
-remain separate work.
+rejects all axiom records. Explicit opt-in now accepts only the three pinned
+signatures, checks ordinary opaque initializers using nominal adapters, and
+compares the native theorem inventory with the imported target's closure.
+The [foundation fixture](../tests/fixtures/lean_export_foundations/README.md)
+reproduces all three adapters and their Prelude/Core source and license
+attribution. These checks do not supply the full FLT proof or its dependencies.
 [Source: formalization metadata](https://github.com/anthropics/fermats-last-theorem/blob/6e837e75355538c7f80bab5b956861e86c4eacc2/formalization.yaml).
 
 A native procedural certificate cannot fill these mathematical gaps. It
@@ -284,14 +288,14 @@ two list specializations and dependent Sigma parameters. Their source/module/
 license provenance is committed. Scoped recursion cases are derived from checked
 container constructors; exported auxiliary recursors and rules are rechecked.
 See [nested replay](lean-nested-replay.md) for the checks and scope.
-The reader rejects all axioms, unsupported rules and resource exhaustion.
+The reader rejects unauthorized axioms, unsupported rules and resource exhaustion.
 The pinned four-record quotient computation package now replays as checked
 wrappers around native primitives, with an explicit foundation inventory and
 a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with eleven committed genuine
+for this accepted subset, with twelve committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 

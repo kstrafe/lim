@@ -203,7 +203,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -448,7 +448,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
 }
 
 fn check_lean_export_command(arguments: &[String]) -> ExitCode {
-    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH]";
+    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations]";
     if arguments.len() < 3 {
         eprintln!("{usage}");
         return ExitCode::FAILURE;
@@ -466,9 +466,20 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
 
     let mut report_path: Option<&Path> = None;
     let mut proof_path: Option<&Path> = None;
+    let mut lean_foundations = false;
     let mut index = 3;
     while index < arguments.len() {
         let option = arguments[index].as_str();
+        if option == "--lean-foundations" {
+            if lean_foundations {
+                eprintln!("lim: duplicate --lean-foundations option");
+                eprintln!("{usage}");
+                return ExitCode::FAILURE;
+            }
+            lean_foundations = true;
+            index += 1;
+            continue;
+        }
         let slot = match option {
             "--report" if report_path.is_none() => &mut report_path,
             "--emit-proof" if proof_path.is_none() => &mut proof_path,
@@ -527,7 +538,15 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         }
     };
     let (report, emitted) = if proof_path.is_some() {
-        match lim::translate_lean_export(std::io::BufReader::new(file), target) {
+        match lim::translate_lean_export_with_policy(
+            std::io::BufReader::new(file),
+            target,
+            if lean_foundations {
+                lim::LeanFoundationPolicy::Lean4
+            } else {
+                lim::LeanFoundationPolicy::Constructive
+            },
+        ) {
             Ok(translation) => (
                 translation.report,
                 Some((translation.target, translation.source)),
@@ -538,7 +557,15 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             }
         }
     } else {
-        match lim::check_lean_export(std::io::BufReader::new(file), target) {
+        match lim::check_lean_export_with_policy(
+            std::io::BufReader::new(file),
+            target,
+            if lean_foundations {
+                lim::LeanFoundationPolicy::Lean4
+            } else {
+                lim::LeanFoundationPolicy::Constructive
+            },
+        ) {
             Ok(report) => (report, None),
             Err(error) => {
                 eprintln!("lim: {}: {error}", input.display());
@@ -563,6 +590,17 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         target,
         report.declarations.len()
     );
+    if !report.axioms.is_empty() {
+        println!("declared Lean axioms: {}", report.axioms.join(", "));
+        println!(
+            "target logical foundations: {}",
+            if report.target_axioms.is_empty() {
+                "none".to_owned()
+            } else {
+                report.target_axioms.join(", ")
+            }
+        );
+    }
     if let (Some(path), Some((target, _))) = (proof_path, emitted) {
         println!("emitted native theorem {target} to {}", path.display());
     }

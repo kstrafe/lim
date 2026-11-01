@@ -21,10 +21,10 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Eleven real exports of original small Lean proofs replay and translate to
+Twelve real exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
 multiply nested, Sigma container, quotient computation and compact natural
-literal cases. They do not
+literal cases, plus explicitly authorized logical foundations. They do not
 check the upstream Fermat proof or the complete Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
 
@@ -99,7 +99,42 @@ can add a reduction rule or assert equality of related representatives.
 `Quot.ind` remains restricted to proposition-valued motives. The
 [genuine quotient fixture](../tests/fixtures/lean_export_quotient/README.md)
 records reproducible source/module/license provenance and all three native
-theorem targets. `Quot.sound` and all other axiom records remain unsupported.
+theorem targets. Axiom records require the separate explicit policy below.
+
+## Explicit logical foundations
+
+Default replay rejects all axiom records. `--lean-foundations` opts into only
+the pinned `Classical.choice`, `propext` and `Quot.sound` identities. It is a
+boolean option for `--check-lean-export`, accepted alongside the output flags;
+duplicates, values and unknown options fail. It permits these mathematical
+assumptions, not arbitrary admitted lemmas or unchecked proof bodies.
+
+```sh
+lim --check-lean-export tests/fixtures/lean_export_foundations/foundations.ndjson \
+  BasisProbe.quotientRelated --lean-foundations --report /tmp/basis.json \
+  --emit-proof /tmp/basis.lim
+```
+
+Every accepted axiom has the exact `name`, `levelParams`, `type`, `isUnsafe`
+schema. Unsafe flags, unknown identities, altered universe counts and changed
+signatures fail. The provided signature is typechecked before conversion can
+erase unused expressions. Lim validates standard `Eq`, `Nonempty` and `Iff`
+constructor shapes and requires the complete checked quotient package for
+`Quot.sound`. Ordinary checked adapters bridge nominal nonemptiness and
+equality to the fixed native logical basis. The accepted declaration becomes
+opaque only after its initializer checks at the original imported signature.
+The same initializer appears as standard `#math-opaque` source and is rechecked
+independently. No axiom record installs an arbitrary type or reduction rule.
+
+The receipt distinguishes all declared `axioms` from `target_axioms`, the
+selected theorem's transitive closure. The CLI and source header distinguish
+them too. Translation checks that the native theorem's inventory agrees;
+comments and receipts cannot authorize extra assumptions. The
+[genuine foundation corpus](../tests/fixtures/lean_export_foundations/README.md)
+checks all three adapters and default refusal, with original Prelude/Core
+module and license provenance. The library equivalents are
+`check_lean_export_with_policy` and `translate_lean_export_with_policy`, taking
+`LeanFoundationPolicy::Lean4`; the original APIs retain constructive checking.
 
 The selected target must be an actual theorem, not a proposition-valued
 definition. Success requires reaching EOF and checking all declarations,
@@ -166,7 +201,7 @@ comments as authority and does not formally verify the translator or kernel.
 
 
 The [committed native translations](../theorems/lean_replay/README.md) reproduce
-the eleven-file genuine producer corpus. Their manifests map every original declaration to its
+the twelve-file genuine producer corpus. Their manifests map every original declaration to its
 native name and hashes both input and output files, linking the original source,
 module and license provenance. The regeneration script checks byte-for-byte
 reproduction and independently runs ordinary `--check-theorem`. These small proofs
@@ -177,8 +212,10 @@ are not the full upstream Fermat development.
 `--report PATH` writes JSON with schema `lim-lean-replay-v1`. It records the
 target, exact input byte count and SHA-256, record count, protocol/toolchain
 pins, and every accepted declaration's display name, canonical identity, kind,
-record line, SHA-256 and direct dependencies. The axiom inventory is empty
-because all axiom records are rejected. A separate `foundations` list records
+record line, SHA-256 and direct dependencies. `axioms` inventories all accepted
+fixed axiom declarations; `target_axioms` records the selected theorem's exact
+transitive closure. Both are empty under the default constructive policy.
+A separate `foundations` list records
 `quotient-computation-v1` when the complete checked primitive package is used;
 otherwise it is empty. The same inventory is written in the native source
 header when nonempty. Dependencies within a
@@ -240,7 +277,7 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, accelerated large-natural arithmetic, axiom-declaration replay,
+String literals, accelerated large-natural arithmetic, arbitrary axiom declarations,
 Lean surface syntax/tactics and full-environment storage/replay are not
 implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe
