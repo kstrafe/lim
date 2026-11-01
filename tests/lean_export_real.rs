@@ -61,6 +61,12 @@ fn assert_checked_fixture(source: &str, filename: &str, target: &str, count: usi
     }
 
     let receipt = json(&report.render_json());
+    assert!(report.foundations.is_empty());
+    assert!(receipt
+        .get("foundations")
+        .and_then(Json::array)
+        .unwrap()
+        .is_empty());
     assert_eq!(
         receipt.get("axioms").and_then(Json::array).unwrap().len(),
         0

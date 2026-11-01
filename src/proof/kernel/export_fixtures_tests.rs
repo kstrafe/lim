@@ -201,3 +201,99 @@ fn every_fixture_declaration_keeps_its_original_source_hash_and_license_notice()
         }
     }
 }
+
+#[test]
+fn genuine_quotient_fixture_retains_checked_mapping_hashes_and_attribution() {
+    let manifest = crate::lsp::json::parse(include_str!(
+        "../../../tests/fixtures/lean_export_quotient/provenance.json"
+    ))
+    .unwrap();
+    assert_eq!(text(&manifest, "schema"), "lim-lean-quotient-fixture-v1");
+    assert_eq!(text(&manifest, "lean_revision"), LEAN_EXPORT_GITHASH);
+    assert_eq!(text(&manifest, "exporter_revision"), EXPORTER_REVISION);
+    assert!(field(&manifest, "axioms").array().unwrap().is_empty());
+    assert_eq!(
+        field(&manifest, "foundations").array().unwrap(),
+        &[text_json("quotient-computation-v1")]
+    );
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for key in ["source", "producer", "origin_reader", "export", "native"] {
+        let record = field(&manifest, key);
+        let bytes = std::fs::read(root.join(text(record, "file"))).unwrap();
+        assert_eq!(text(record, "sha256"), digest(&bytes), "{key}");
+        if let Some(size) = record.get("bytes") {
+            assert_eq!(size.integer(), Some(bytes.len() as i64));
+        }
+    }
+    for license in field(&manifest, "licenses").array().unwrap() {
+        let bytes = std::fs::read(root.join(text(license, "file"))).unwrap();
+        assert_eq!(text(license, "license"), "Apache-2.0");
+        assert_eq!(text(license, "sha256"), digest(&bytes));
+    }
+    let input = include_bytes!("../../../tests/fixtures/lean_export_quotient/quotient.ndjson");
+    let report = check_lean_export(input.as_slice(), "QuotientSource.inductionReflexive").unwrap();
+    assert_eq!(
+        text(field(&manifest, "export"), "sha256"),
+        report.input_sha256
+    );
+    let mappings = field(&manifest, "declarations").array().unwrap();
+    assert_eq!(mappings.len(), report.declarations.len());
+    let native =
+        crate::parse_program(include_str!("../../../theorems/lean_replay/quotient.lim")).unwrap();
+    assert_eq!(native.items.len(), mappings.len());
+    let upstream = field(&manifest, "upstream_sources").array().unwrap();
+    assert_eq!(upstream.len(), 1);
+    assert_eq!(text(&upstream[0], "license"), "Apache-2.0");
+    assert!(text(&upstream[0], "notice").contains("Copyright"));
+    assert!(text(&upstream[0], "url").contains(LEAN_EXPORT_GITHASH));
+    let mut target_count = 0;
+    for ((mapping, declaration), item) in
+        mappings.iter().zip(&report.declarations).zip(&native.items)
+    {
+        let crate::Item::Proof { name, .. } = item else {
+            panic!("nonproof native item")
+        };
+        assert_eq!(text(mapping, "native_name"), name);
+        assert_eq!(text(mapping, "identity"), declaration.identity);
+        assert_eq!(text(mapping, "name"), declaration.name);
+        assert_eq!(text(mapping, "kind"), declaration.kind);
+        assert_eq!(text(mapping, "sha256"), declaration.sha256);
+        assert_eq!(
+            field(mapping, "line").integer(),
+            Some(declaration.line as i64)
+        );
+        assert_eq!(
+            field(mapping, "dependencies").array().unwrap(),
+            &declaration
+                .dependencies
+                .iter()
+                .map(|name| text_json(name))
+                .collect::<Vec<_>>()
+        );
+        match text(mapping, "project") {
+            "lim-fixture" => {
+                assert_eq!(text(mapping, "module"), "Source");
+                assert_eq!(
+                    text(mapping, "source"),
+                    text(field(&manifest, "source"), "file")
+                );
+                assert_eq!(
+                    text(mapping, "source_sha256"),
+                    text(field(&manifest, "source"), "sha256")
+                );
+            }
+            "lean4" => {
+                assert_eq!(text(mapping, "module"), "Init.Prelude");
+                assert_eq!(text(mapping, "source"), text(&upstream[0], "source"));
+                assert_eq!(text(mapping, "source_sha256"), text(&upstream[0], "sha256"));
+            }
+            other => panic!("unrecorded quotient source project {other}"),
+        }
+        if let Some(target) = field(field(&manifest, "native"), "targets").get(&declaration.name) {
+            assert_eq!(target.string(), Some(name.as_str()));
+            assert_eq!(declaration.kind, "theorem");
+            target_count += 1;
+        }
+    }
+    assert_eq!(target_count, 3);
+}

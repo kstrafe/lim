@@ -3,6 +3,25 @@
 use super::*;
 use crate::proof::kernel::{parse_declaration, Body};
 
+/// Internal constant templates use the same bounded relocation as checked
+/// source correspondence. The source text and alias inventory are compiler-owned.
+pub(in crate::proof::kernel::core::export) fn relocate_template(
+    value: &T,
+    names: &HashMap<String, String>,
+    levels: &HashMap<String, Level>,
+) -> Result<T> {
+    let mut remaining = SOURCE_NODES;
+    let mut remaining_bytes = 64 * 1024 * 1024;
+    Relocate {
+        names,
+        levels,
+        remaining: &mut remaining,
+        remaining_bytes: &mut remaining_bytes,
+        memo: HashMap::new(),
+    }
+    .term(value, 0)
+}
+
 pub(super) fn check(
     replay: &mut Replay,
     report: &LeanExportReport,
@@ -518,6 +537,7 @@ mod tests {
             input_sha256: String::new(),
             bytes: 0,
             records: 0,
+            foundations: vec![],
             declarations: vec![LeanDeclarationReport {
                 name: name.into(),
                 identity: name.into(),

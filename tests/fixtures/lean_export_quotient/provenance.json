@@ -1,0 +1,482 @@
+{
+  "axioms": [],
+  "declarations": [
+    {
+      "dependencies": [
+        "$lean:s2:Eq"
+      ],
+      "identity": "$lean:s2:Eq",
+      "kind": "inductive",
+      "line": 60,
+      "module": "Init.Prelude",
+      "name": "Eq",
+      "native_name": "lean-0-Eq",
+      "project": "lean4",
+      "sha256": "3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq"
+      ],
+      "identity": "$lean:s2:Eqs4:refl",
+      "kind": "constructor",
+      "line": 60,
+      "module": "Init.Prelude",
+      "name": "Eq.refl",
+      "native_name": "lean-1-Eq-refl",
+      "project": "lean4",
+      "sha256": "3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs4:refl"
+      ],
+      "identity": "$lean:s2:Eqs3:rec",
+      "kind": "recursor",
+      "line": 60,
+      "module": "Init.Prelude",
+      "name": "Eq.rec",
+      "native_name": "lean-2-Eq-rec",
+      "project": "lean4",
+      "sha256": "3d37c5e14734475297663b075743714d744eaedc29907cf88f76d9c2b4c895e1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nat",
+      "kind": "inductive",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Nat",
+      "native_name": "lean-3-Nat",
+      "project": "lean4",
+      "sha256": "f416949524bfc92aa7409e67ac6ee1e34e4d79922e5eefc74e7c424b93c24086",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nats4:zero",
+      "kind": "constructor",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Nat.zero",
+      "native_name": "lean-4-Nat-zero",
+      "project": "lean4",
+      "sha256": "f416949524bfc92aa7409e67ac6ee1e34e4d79922e5eefc74e7c424b93c24086",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nats4:succ",
+      "kind": "constructor",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Nat.succ",
+      "native_name": "lean-5-Nat-succ",
+      "project": "lean4",
+      "sha256": "f416949524bfc92aa7409e67ac6ee1e34e4d79922e5eefc74e7c424b93c24086",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero"
+      ],
+      "identity": "$lean:s3:Nats3:rec",
+      "kind": "recursor",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Nat.rec",
+      "native_name": "lean-6-Nat-rec",
+      "project": "lean4",
+      "sha256": "f416949524bfc92aa7409e67ac6ee1e34e4d79922e5eefc74e7c424b93c24086",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [],
+      "identity": "$lean:s4:Quot",
+      "kind": "quotient-type",
+      "line": 106,
+      "module": "Init.Prelude",
+      "name": "Quot",
+      "native_name": "lean-7-Quot",
+      "project": "lean4",
+      "sha256": "fdfa40cc1dbad684a61370d75aaa3d183c6e767ad56852642bbcea98e73e9788",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:Quot"
+      ],
+      "identity": "$lean:s4:Quots2:mk",
+      "kind": "quotient-ctor",
+      "line": 114,
+      "module": "Init.Prelude",
+      "name": "Quot.mk",
+      "native_name": "lean-8-Quot-mk",
+      "project": "lean4",
+      "sha256": "7989880df79c09e14f81734e6d44a8085e38e461b2af391652fc4622a0281df4",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s4:Quot"
+      ],
+      "identity": "$lean:s4:Quots4:lift",
+      "kind": "quotient-lift",
+      "line": 141,
+      "module": "Init.Prelude",
+      "name": "Quot.lift",
+      "native_name": "lean-9-Quot-lift",
+      "project": "lean4",
+      "sha256": "3f199b42ac3802a688b9d3ee9846857cc134b147b7d7c9805a541f7c654704f8",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:Quot",
+        "$lean:s4:Quots2:mk"
+      ],
+      "identity": "$lean:s4:Quots3:ind",
+      "kind": "quotient-ind",
+      "line": 161,
+      "module": "Init.Prelude",
+      "name": "Quot.ind",
+      "native_name": "lean-10-Quot-ind",
+      "project": "lean4",
+      "sha256": "71a514abf7ba85ee52b21bd571bc7d27a43128b14208e6863270feb0048991a4",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s14:QuotientSources5:eqRel",
+      "kind": "definition",
+      "line": 172,
+      "module": "Source",
+      "name": "QuotientSource.eqRel",
+      "native_name": "lean-11-QuotientSource-eqRel",
+      "project": "lim-fixture",
+      "sha256": "2f4c94fbe68048bf637a9a740d583a2d09d9c7ff2157295f0d20a2830964af11",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s3:Nat",
+        "$lean:s4:Quot",
+        "$lean:s4:Quots4:lift"
+      ],
+      "identity": "$lean:s14:QuotientSources12:liftIdentity",
+      "kind": "definition",
+      "line": 200,
+      "module": "Source",
+      "name": "QuotientSource.liftIdentity",
+      "native_name": "lean-12-QuotientSource-liftIdentity",
+      "project": "lim-fixture",
+      "sha256": "521380c8d282efe2c0486ad1d278c45ee54554fac997c6237e34475cb0769a48",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNat",
+      "kind": "inductive",
+      "line": 242,
+      "module": "Init.Prelude",
+      "name": "OfNat",
+      "native_name": "lean-13-OfNat",
+      "project": "lean4",
+      "sha256": "aacf67906cd0243bb5de118a35d204f6c7b636b6f93614c06cdb0095e45a1e62",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNats2:mk",
+      "kind": "constructor",
+      "line": 242,
+      "module": "Init.Prelude",
+      "name": "OfNat.mk",
+      "native_name": "lean-14-OfNat-mk",
+      "project": "lean4",
+      "sha256": "aacf67906cd0243bb5de118a35d204f6c7b636b6f93614c06cdb0095e45a1e62",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat",
+        "$lean:s5:OfNats2:mk"
+      ],
+      "identity": "$lean:s5:OfNats3:rec",
+      "kind": "recursor",
+      "line": 242,
+      "module": "Init.Prelude",
+      "name": "OfNat.rec",
+      "native_name": "lean-15-OfNat-rec",
+      "project": "lean4",
+      "sha256": "aacf67906cd0243bb5de118a35d204f6c7b636b6f93614c06cdb0095e45a1e62",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNats5:ofNat",
+      "kind": "definition",
+      "line": 252,
+      "module": "Init.Prelude",
+      "name": "OfNat.ofNat",
+      "native_name": "lean-16-OfNat-ofNat",
+      "project": "lean4",
+      "sha256": "49f5f46c7c11a342c3e74651b175b52c3e70867b0e9eacf29eee8c84d67424df",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat",
+        "$lean:s5:OfNats2:mk"
+      ],
+      "identity": "$lean:s12:instOfNatNat",
+      "kind": "definition",
+      "line": 263,
+      "module": "Init.Prelude",
+      "name": "instOfNatNat",
+      "native_name": "lean-17-instOfNatNat",
+      "project": "lean4",
+      "sha256": "6ad193674bcc1817c076889e2412dce6cc445fd73db01e08bb586464bdccbf21",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs4:refl"
+      ],
+      "identity": "$lean:s3:rfl",
+      "kind": "definition",
+      "line": 276,
+      "module": "Init.Prelude",
+      "name": "rfl",
+      "native_name": "lean-18-rfl",
+      "project": "lean4",
+      "sha256": "57eb7367f2aafadfbc8ec5c796c4ff9f13a24f5b03a390afcf48806680ec9cb1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s14:QuotientSources12:liftIdentity",
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:rfl",
+        "$lean:s4:Quots2:mk",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s14:QuotientSources12:liftComputes",
+      "kind": "theorem",
+      "line": 296,
+      "module": "Source",
+      "name": "QuotientSource.liftComputes",
+      "native_name": "lean-19-QuotientSource-liftComputes",
+      "project": "lim-fixture",
+      "sha256": "3beb3ac2c155e4a5289f7ff28036b74ad4a5496f63f3e14cbe242ea657454f48",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:rfl"
+      ],
+      "identity": "$lean:s14:QuotientSources12:liftFunctions8:_proof_1",
+      "kind": "theorem",
+      "line": 316,
+      "module": "Source",
+      "name": "QuotientSource.liftFunction._proof_1",
+      "native_name": "lean-20-QuotientSource-liftFunction-_proof_1",
+      "project": "lim-fixture",
+      "sha256": "ca0ed2e80ea10a836cd1116ad2e51e9cc505730c664188440484b7c54f36a6ba",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s14:QuotientSources12:liftFunctions8:_proof_1",
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s3:Nat",
+        "$lean:s4:Quot",
+        "$lean:s4:Quots4:lift"
+      ],
+      "identity": "$lean:s14:QuotientSources12:liftFunction",
+      "kind": "definition",
+      "line": 324,
+      "module": "Source",
+      "name": "QuotientSource.liftFunction",
+      "native_name": "lean-21-QuotientSource-liftFunction",
+      "project": "lim-fixture",
+      "sha256": "e04c0c7123bd54e85459c160b681160818105a58b2b3a7c105209fd83dc4d443",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s14:QuotientSources12:liftFunction",
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:rfl",
+        "$lean:s4:Quots2:mk",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s14:QuotientSources21:extraArgumentComputes",
+      "kind": "theorem",
+      "line": 336,
+      "module": "Source",
+      "name": "QuotientSource.extraArgumentComputes",
+      "native_name": "lean-22-QuotientSource-extraArgumentComputes",
+      "project": "lim-fixture",
+      "sha256": "84947b34f9dab17da884c500e20b8f716337024d20724f97b4084f057c204aa7",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    },
+    {
+      "dependencies": [
+        "$lean:s14:QuotientSources12:liftIdentity",
+        "$lean:s14:QuotientSources5:eqRel",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:rfl",
+        "$lean:s4:Quot",
+        "$lean:s4:Quots2:mk",
+        "$lean:s4:Quots3:ind"
+      ],
+      "identity": "$lean:s14:QuotientSources18:inductionReflexive",
+      "kind": "theorem",
+      "line": 358,
+      "module": "Source",
+      "name": "QuotientSource.inductionReflexive",
+      "native_name": "lean-23-QuotientSource-inductionReflexive",
+      "project": "lim-fixture",
+      "sha256": "5f52a3fa0a00e5af3ef2b2cfd624ea0b0f74e1032f612a5410996af84fdb76ec",
+      "source": "tests/fixtures/lean_export_quotient/Source.lean",
+      "source_sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+    }
+  ],
+  "export": {
+    "bytes": 19311,
+    "file": "tests/fixtures/lean_export_quotient/quotient.ndjson",
+    "sha256": "5f52a3fa0a00e5af3ef2b2cfd624ea0b0f74e1032f612a5410996af84fdb76ec"
+  },
+  "exporter_revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+  "exporter_source_sha256": {
+    "Export.lean": "1c60d571dc24bfb99e7cbb218d8d489919bbc871238f6db9c76248521fbea998",
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a"
+  },
+  "format_version": "3.1.0",
+  "foundations": [
+    "quotient-computation-v1"
+  ],
+  "lean_revision": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "lean_version": "4.33.1",
+  "licenses": [
+    {
+      "file": "tests/fixtures/lean_export/LEAN-LICENSE.txt",
+      "license": "Apache-2.0",
+      "project": "lean4",
+      "sha256": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"
+    },
+    {
+      "file": "tests/fixtures/lean_export/EXPORTER-LICENSE.txt",
+      "license": "Apache-2.0",
+      "project": "lean4export",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+  ],
+  "native": {
+    "bytes": 28178,
+    "file": "theorems/lean_replay/quotient.lim",
+    "sha256": "ec8f5cd73c21daf34af415d26af5f9e93cf047853955f7e3195dd03928b48bb0",
+    "targets": {
+      "QuotientSource.extraArgumentComputes": "lean-22-QuotientSource-extraArgumentComputes",
+      "QuotientSource.inductionReflexive": "lean-23-QuotientSource-inductionReflexive",
+      "QuotientSource.liftComputes": "lean-19-QuotientSource-liftComputes"
+    }
+  },
+  "origin_reader": {
+    "file": "scripts/lean-export-origins.lean",
+    "sha256": "0bbf01e3f048c15bc449d7e2393c9fbcefee2dbfdd304da8ade612498e0272ad"
+  },
+  "producer": {
+    "file": "scripts/regenerate-lean-quotient.py",
+    "sha256": "fe7cdc09aa1de4b7254d79991fa403d826589efe1c6e0aa8078d1cd83b8cf86b"
+  },
+  "schema": "lim-lean-quotient-fixture-v1",
+  "source": {
+    "file": "tests/fixtures/lean_export_quotient/Source.lean",
+    "sha256": "57a92149a326459aee608700a32e562a38d9f67f74eaa6a188f515ff354b8d68"
+  },
+  "targets": [
+    "QuotientSource.liftComputes",
+    "QuotientSource.extraArgumentComputes",
+    "QuotientSource.inductionReflexive"
+  ],
+  "upstream_sources": [
+    {
+      "license": "Apache-2.0",
+      "notice": "Copyright (c) 2020 Microsoft Corporation. All rights reserved.\nReleased under Apache 2.0 license as described in the file LICENSE.\nAuthors: Leonardo de Moura, Mario Carneiro",
+      "project": "lean4",
+      "sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544",
+      "source": "src/Init/Prelude.lean",
+      "url": "https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Init/Prelude.lean"
+    }
+  ]
+}

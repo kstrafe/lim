@@ -12,6 +12,8 @@ mod fixtures_tests;
 mod hash;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_quotient.rs"]
+mod quotient;
 #[path = "export_source.rs"]
 mod source;
 #[path = "export_terms.rs"]
@@ -49,6 +51,8 @@ pub struct LeanExportReport {
     pub bytes: u64,
     pub records: u64,
     pub declarations: Vec<LeanDeclarationReport>,
+    /// Additional checked primitive packages, separate from exported axioms.
+    pub foundations: Vec<String>,
 }
 impl LeanExportReport {
     /// A replay receipt, not a certificate that can bypass later checking.
@@ -68,6 +72,15 @@ impl LeanExportReport {
                 text_json("export-prefix-through-record"),
             ),
             ("axioms", Json::Array(vec![])),
+            (
+                "foundations",
+                Json::Array(
+                    self.foundations
+                        .iter()
+                        .map(|name| text_json(name))
+                        .collect(),
+                ),
+            ),
             (
                 "declarations",
                 Json::Array(
@@ -132,6 +145,7 @@ struct Replay {
     digest: String,
     retain_bodies: bool,
     bodies: HashMap<String, T>,
+    quotient_stage: usize,
 }
 
 /// Reads the actual pinned NDJSON protocol without executing Lean or trusting
@@ -224,6 +238,9 @@ fn replay_export<R: BufRead>(
     if replay.natural_literals {
         replay.check_natural_signature().map_err(failure)?;
     }
+    if replay.quotient_stage != 0 && replay.quotient_stage != 4 {
+        return Err(failure("incomplete checked quotient package".into()));
+    }
     let matches = replay
         .reports
         .iter()
@@ -244,6 +261,11 @@ fn replay_export<R: BufRead>(
         bytes: total,
         records: replay.line as u64,
         declarations: std::mem::take(&mut replay.reports),
+        foundations: if replay.quotient_stage == 4 {
+            vec!["quotient-computation-v1".into()]
+        } else {
+            vec![]
+        },
     };
     Ok((replay, report, identity))
 }
@@ -273,6 +295,7 @@ impl Replay {
             digest: String::new(),
             retain_bodies: false,
             bodies: HashMap::new(),
+            quotient_stage: 0,
         }
     }
     fn reset_budget(&mut self) -> Result<()> {
@@ -327,13 +350,14 @@ impl Replay {
             );
         }
         let (tag, body) = record.iter().next().ok_or("empty export record")?;
+        if (1..4).contains(&self.quotient_stage) && tag != "quot" {
+            return Err("quotient package must finish before other declarations".into());
+        }
         match tag.as_str() {
             "def" | "thm" | "opaque" => self.definition(tag, body),
             "inductive" => self.inductive(body),
             "axiom" => Err("export axioms are not authorized; no theorem was established".into()),
-            "quot" => Err(
-                "quotient declarations require an implemented and audited foundation policy".into(),
-            ),
+            "quot" => self.quotient_record(body),
             "meta" => Err("export metadata is permitted only as the first record".into()),
             _ => Err(format!("unsupported export record '{tag}'")),
         }

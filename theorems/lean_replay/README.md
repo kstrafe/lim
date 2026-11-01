@@ -1,10 +1,19 @@
 # Native translations of checked Lean proofs
 
-These nine ordinary Lim files translate the small, genuine exports in
+Nine ordinary Lim files translate the small, genuine exports in
 [`tests/fixtures/lean_export`](../../tests/fixtures/lean_export/README.md).
 They include constructive identity, recursive arithmetic, record projection,
 mutual recursion, and nonempty, polymorphic, indexed and dependent nested
 containers. They are not the complete Fermat's Last Theorem proof.
+
+The tenth file, [`quotient.lim`](quotient.lim), comes from the separate
+[quotient computation fixture](../../tests/fixtures/lean_export_quotient/README.md).
+It includes checked quotient construction, lifts and propositional induction,
+plus a checked adapter from nominal equality to primitive equality. Its
+[provenance manifest](../../tests/fixtures/lean_export_quotient/provenance.json)
+records all 24 declarations and three theorem targets, and inventories the
+primitive computation foundation separately from its empty axiom inventory.
+The fixture guide documents its own pinned-producer regeneration command.
 
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
@@ -34,7 +43,7 @@ their values stay hidden from conversion. No replay directive, receipt, source
 comment or cached result can bypass the native proof checker. Nested wrappers
 use `#pt-nested-induct` with physical type selectors and case ordinals.
 
-Reproduce all files and the mapping manifest using a previously built compiler:
+Reproduce the original nine files and their mapping manifest using a previously built compiler:
 
 ```sh
 bash scripts/limited-run.sh python3 scripts/regenerate-lean-source.py --lim target/debug/lim --check

@@ -840,8 +840,9 @@ fields that would otherwise be erased. Opaque theorem bodies stay opaque.
 See the [record example](../examples/proof_records.lim),
 [source regressions](../tests/kernel_records.rs), and
 [navigation tests](../tests/kernel_projection_navigation.rs). This restricted
-record rule does not supply quotient soundness or external quotient replay,
-proof-source translation, or the full FLT dependency replay. Nested groups use the separate rule described below.
+record rule does not supply quotient soundness or the full FLT dependency
+replay. Bounded proof-source translation and quotient computation replay use
+the separate [export reader](lean-export.md). Nested groups use the rule below.
 
 ### Mutual inductive groups
 
@@ -976,9 +977,9 @@ The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete
 count. The [functional example](../examples/proof_mutual_function.lim) checks
 pointwise sibling recursion at each child's index. Neither completes quotient
-soundness or external quotient replay, proof-source import, or FLT replay work.
+soundness or full-environment proof-source translation and FLT replay work.
 
-The kernel has no cumulativity, quotient soundness or external quotient replay,
+The kernel has no cumulativity or quotient soundness,
 classical axioms, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
 normalization resources still apply; resource exhaustion must fail checking,
@@ -1071,8 +1072,8 @@ syntax or exact rules:
 - [Inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/)
   explains constructors, recursors, and elimination restrictions.
 
-Lean also has features absent here, including quotient soundness, external
-quotient replay, and richer inductive families. Definitional proof irrelevance is supported, but does not establish
+Lean also has features absent here, including quotient soundness, classical
+axioms, and richer inductive families. Definitional proof irrelevance is supported, but does not establish
 full conversion parity. Use the rules in this guide for Lim, not an inference that a term
 accepted by Lean or a mathlib theorem is available in Lim. For the procedural
 layer and the complete builtin reference, see [the language reference](language.md#compile-time-proofs).
@@ -1084,7 +1085,9 @@ The source forms `#pt-quot`, `#pt-quot-make`, `#pt-quot-lift`, and
 `TYPE → TYPE → Prop`; the relation need not be an equivalence. Their exact
 operand layouts and typing checks are listed in the [language reference](language.md).
 Universe levels are explicit. The lift checks its respect proof before computing
-on constructors, and induction is restricted to Prop. Quotient soundness and
-external quotient replay remain unsupported; no quotient soundness, equality,
-choice, or propext axiom is introduced. See the
+on constructors, and induction is restricted to Prop. The pinned four-record
+quotient computation package also [replays and translates](lean-export.md)
+through independently checked wrappers, with an explicit primitive foundation
+inventory. Quotient soundness remains unsupported; no quotient soundness,
+equality, choice, or propext axiom is introduced. See the
 [native quotient example](../examples/proof_quotient.lim).

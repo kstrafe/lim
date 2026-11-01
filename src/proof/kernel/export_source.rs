@@ -2,7 +2,7 @@
 //! directives or unchecked holes are emitted; the complete output is rechecked.
 use super::*;
 #[path = "export_correspondence.rs"]
-mod correspondence;
+pub(super) mod correspondence;
 
 const SOURCE_BYTES: usize = 8 * 1024 * 1024;
 const SOURCE_NODES: usize = 1_000_000;
@@ -56,6 +56,19 @@ pub(super) fn render(
     writer.push("; Checked native translation of a Lean export, not an admission.\n")?;
     writer.push(&format!("; Lean: {LEAN_EXPORT_VERSION} ({LEAN_EXPORT_GITHASH})\n; Exporter: {EXPORTER_REVISION}\n; Input SHA-256: {}\n; Native theorem: {target}\n", report.input_sha256))?;
     writer.push("; Keep the upstream source/license provenance with this translation.\n\n")?;
+    if !report.foundations.is_empty() {
+        writer.push(&format!(
+            "; Checked primitive foundations: {}\n\n",
+            Json::Array(
+                report
+                    .foundations
+                    .iter()
+                    .map(|name| text_json(name))
+                    .collect()
+            )
+            .render()
+        ))?;
+    }
     for declaration in &report.declarations {
         let checked = writer
             .kernel

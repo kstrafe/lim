@@ -38,6 +38,24 @@ struct Pending {
     body: Body,
 }
 
+/// Parse only compiler-owned closed templates. Callers must relocate every
+/// placeholder global/universe and check the resulting term in the kernel.
+fn parse_closed_template(source: &str, universes: &[&str]) -> Result<T> {
+    let forms = crate::parse(source)?;
+    if forms.len() != 1 {
+        return Err("kernel template must contain exactly one expression".into());
+    }
+    let facts = HashSet::new();
+    let mut parser = Parser {
+        locals: vec![],
+        universes: universes.iter().map(|name| (*name).to_owned()).collect(),
+        facts: &facts,
+        dependencies: BTreeSet::new(),
+        nodes: 0,
+    };
+    parser.expression(&forms[0].expr, 0)
+}
+
 pub(super) fn check(
     program: &crate::Program,
     facts: &HashSet<String>,

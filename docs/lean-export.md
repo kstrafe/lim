@@ -21,11 +21,10 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Nine real exports of original small Lean proofs replay successfully, including
-universe-polymorphic, indexed, multiply nested and Sigma container cases.
-They do not check the
-upstream Fermat proof. The reader does not yet emit equivalent native `.lim`
-source or handle the complete Lean/Mathlib environment. See the
+Ten real exports of original small Lean proofs replay and translate to
+rechecked native `.lim` source, including universe-polymorphic, indexed,
+multiply nested, Sigma container and quotient computation cases. They do not
+check the upstream Fermat proof or the complete Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
 
 ## Exact protocol pins
@@ -80,6 +79,20 @@ determine the extra motives, branches and `rec_1`, `rec_2`, ... wrappers.
 The exported nested count and auxiliary recursor metadata must match that
 reconstruction. [Nested replay](lean-nested-replay.md) describes parameter
 scope, positivity, original constructor identities and remaining boundaries.
+
+The four `quot` records must form the pinned, ordered package `Quot`,
+`Quot.mk`, `Quot.lift`, `Quot.ind`. Primitive tables may occur between them;
+other declarations may not. Missing, duplicate, reordered or altered members
+fail. Lim checks the existing standard nominal `Eq`/`Eq.refl` family, every
+provided signature's typing, universe arity and conversion to a fixed schema.
+Only then does it independently check ordinary wrappers around the native
+[`#pt-quot` computation primitives](kernel.md). A typed equality-induction
+adapter supplies the lift's primitive equality evidence. No exported record
+can add a reduction rule or assert equality of related representatives.
+`Quot.ind` remains restricted to proposition-valued motives. The
+[genuine quotient fixture](../tests/fixtures/lean_export_quotient/README.md)
+records reproducible source/module/license provenance and all three native
+theorem targets. `Quot.sound` and all other axiom records remain unsupported.
 
 The selected target must be an actual theorem, not a proposition-valued
 definition. Success requires reaching EOF and checking all declarations,
@@ -145,8 +158,8 @@ proof of a different proposition fails correspondence. This pass uses no source
 comments as authority and does not formally verify the translator or kernel.
 
 
-The [nine committed native translations](../theorems/lean_replay/README.md) reproduce
-the genuine producer corpus. Their manifest maps every original declaration to its
+The [committed native translations](../theorems/lean_replay/README.md) reproduce
+the ten-file genuine producer corpus. Their manifests map every original declaration to its
 native name and hashes both input and output files, linking the original source,
 module and license provenance. The regeneration script checks byte-for-byte
 reproduction and independently runs ordinary `--check-theorem`. These small proofs
@@ -158,7 +171,10 @@ are not the full upstream Fermat development.
 target, exact input byte count and SHA-256, record count, protocol/toolchain
 pins, and every accepted declaration's display name, canonical identity, kind,
 record line, SHA-256 and direct dependencies. The axiom inventory is empty
-because all axiom and quotient records are rejected. Dependencies within a
+because all axiom records are rejected. A separate `foundations` list records
+`quotient-computation-v1` when the complete checked primitive package is used;
+otherwise it is empty. The same inventory is written in the native source
+header when nonempty. Dependencies within a
 mutual inductive block refer to the other identities checked in that block;
 those are family relationships, not permission for cyclic definitions.
 
@@ -217,7 +233,7 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, large natural-literal representations, quotient foundations, classical axioms,
+String literals, large natural-literal representations, quotient soundness, classical axioms,
 Lean surface syntax/tactics and full-environment storage/replay are not
 implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe
