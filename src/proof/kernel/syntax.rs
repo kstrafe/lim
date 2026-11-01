@@ -171,6 +171,38 @@ impl Kernel {
                     }
                     child!(asu, bsu);
                 }
+                (
+                    Term::NestedInduct {
+                        family: af,
+                        levels: au,
+                        parameters: ap,
+                        selected: ase,
+                        indices: ai,
+                        cases: ac,
+                        subject: asu,
+                    },
+                    Term::NestedInduct {
+                        family: bf,
+                        levels: bu,
+                        parameters: bp,
+                        selected: bse,
+                        indices: bi,
+                        cases: bc,
+                        subject: bsu,
+                    },
+                ) if af == bf && au == bu && ase == bse => {
+                    children!(ap, bp);
+                    children!(ai, bi);
+                    if ac.len() != bc.len() {
+                        return Ok(false);
+                    }
+                    for (a, b) in ac.iter().zip(bc) {
+                        child!(&a.selector, &b.selector);
+                        child!(&a.motive, &b.motive);
+                        children!(&a.branches, &b.branches);
+                    }
+                    child!(asu, bsu);
+                }
                 (Term::SelfType, Term::SelfType) => {}
                 (Term::SelfAt(a), Term::SelfAt(b)) => children!(a, b),
                 (Term::Recur(an, a), Term::Recur(bn, b)) if an == bn => children!(a, b),

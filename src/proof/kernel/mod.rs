@@ -7,7 +7,7 @@ use crate::{Expr, Item};
 pub use core::export::{
     check_lean_export, LeanDeclarationReport, LeanExportError, LeanExportReport,
 };
-use core::{apps, term, InductiveInput, Kernel, Level, RecursionCase, Term, T};
+use core::{apps, term, InductiveInput, Kernel, Level, NestedCase, RecursionCase, Term, T};
 use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;
 
@@ -528,18 +528,31 @@ impl Parser<'_> {
             "#pt-construct"=>{arity(head,args,5)?;let family=self.global(&args[0])?;Ok(term(Term::Ctor{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,constructor:symbol(&args[3])?.into(),fields:self.terms(&args[4],depth+1)?}))},
             "#pt-self-at"=>{arity(head,args,1)?;Ok(term(Term::SelfAt(self.terms(&args[0],depth+1)?)))},
             "#pt-recur"=>{arity(head,args,2)?;Ok(term(Term::Recur(self.global(&args[0])?,self.terms(&args[1],depth+1)?)))},
-            "#pt-mutual-induct" => {
-                arity(head, args, 6)?;
+            "#pt-mutual-induct" | "#pt-nested-induct" => {
+                let nested = head == "#pt-nested-induct";
+                let offset = usize::from(nested);
+                arity(head, args, 6 + offset)?;
                 let family = self.global(&args[0])?;
                 let levels = self.levels(&args[1], depth + 1)?;
                 let parameters = self.terms(&args[2], depth + 1)?;
-                let clause = list(&args[3])?;
+                let clause = list(&args[3 + offset])?;
                 if clause.first().map(symbol).transpose()? != Some("#indices") || clause.len() > 65 {
-                    return Err("#pt-mutual-induct requires an explicit #indices clause with at most 64 values".into());
+                    return Err(format!("{head} requires an explicit #indices clause with at most 64 values"));
                 }
                 let indices = clause[1..].iter().map(|index| self.expression(index, depth + 1)).collect::<Result<Vec<_>>>()?;
-                let bundles = list(&args[4])?;
-                if !(2..=16).contains(&bundles.len()) { return Err("#pt-mutual-induct requires between 2 and 16 family cases".into()); }
+                let bundles = list(&args[4 + offset])?;
+                if !(2..=16).contains(&bundles.len()) { return Err(format!("{head} requires between 2 and 16 family cases")); }
+                if nested {
+                    let selected = natural(&args[3])?;
+                    let cases = bundles.iter().map(|bundle| {
+                        let parts = list(bundle)?;
+                        if parts.len() != 4 || symbol(&parts[0])? != "#pt-case" {
+                            return Err("nested cases require (#pt-case FamilyType Motive (Branches...))".into());
+                        }
+                        Ok(NestedCase { selector: self.expression(&parts[1], depth + 1)?, motive: self.expression(&parts[2], depth + 1)?, branches: self.terms(&parts[3], depth + 1)? })
+                    }).collect::<Result<Vec<_>>>()?;
+                    return Ok(term(Term::NestedInduct { family, levels, parameters, selected, indices, cases, subject: self.expression(&args[6], depth + 1)? }));
+                }
                 let cases = bundles.iter().map(|bundle| {
                     let parts = list(bundle)?;
                     if parts.len() != 3 { return Err("mutual cases require (Family Motive (Branches...))".into()); }

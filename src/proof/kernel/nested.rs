@@ -19,8 +19,45 @@ pub(super) struct NestedBuild {
 }
 
 impl Kernel {
-    pub(super) fn enable_nested_replay(&mut self) {
-        self.nested_replay = true;
+    /// Resolve explicit physical type selectors to this declaration's scoped
+    /// cases. Selectors are checked before conversion can erase any subterm.
+    pub(super) fn nested_cases(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        cases: &[NestedCase],
+        depth: usize,
+    ) -> Result<Vec<RecursionCase>> {
+        self.tick(depth)?;
+        if self.provisional_family(name) {
+            return Err("cannot eliminate a provisional inductive family".into());
+        }
+        let (family, _) = self.family(name, levels, depth + 1)?;
+        if self.nested.contains_key(name)
+            || !family.group.iter().any(|key| self.nested.contains_key(key))
+        {
+            return Err("#pt-nested-induct requires a family with nested recursion cases".into());
+        }
+        if cases.len() != family.group.len() {
+            return Err(
+                "nested induction cases must cover every root and container in derivation order"
+                    .into(),
+            );
+        }
+        cases.iter().zip(&family.group).map(|(case, key)| {
+            self.infer(ctx, &case.selector, depth + 1)?;
+            let expected = self.family_application(key, levels, parameters, &[], depth + 1)?;
+            if !self.convertible(ctx, &case.selector, &expected, depth + 1)? {
+                return Err("nested induction selector must name the partially applied family type in derivation order".into());
+            }
+            Ok(RecursionCase {
+                family: key.clone(),
+                motive: case.motive.clone(),
+                branches: case.branches.clone(),
+            })
+        }).collect()
     }
     pub(super) fn provisional_family(&self, name: &str) -> bool {
         self.nested_build.as_ref().is_some_and(|build| {
@@ -146,6 +183,30 @@ impl Kernel {
                     for case in cases {
                         pending.push((case.motive.clone(), binders));
                         pending.extend(case.branches.iter().cloned().map(|v| (v, binders)));
+                    }
+                }
+                Term::NestedInduct {
+                    parameters,
+                    indices,
+                    cases,
+                    subject,
+                    ..
+                } => {
+                    pending.extend(
+                        parameters
+                            .iter()
+                            .chain(indices)
+                            .chain([subject])
+                            .cloned()
+                            .map(|v| (v, binders)),
+                    );
+                    for case in cases {
+                        pending.extend(
+                            [case.selector.clone(), case.motive.clone()]
+                                .into_iter()
+                                .chain(case.branches.iter().cloned())
+                                .map(|v| (v, binders)),
+                        );
                     }
                 }
                 Term::EqElim {

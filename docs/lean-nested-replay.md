@@ -82,9 +82,10 @@ hypotheses, negative fields, local capture, erased nonuniform parameters,
 provisional elimination and Prop-to-data attacks. Corrupted exported counts,
 flags and rules must still fail. Resource exhaustion establishes no theorem.
 
-This is currently an elaborated-replay capability. Native `.lim` mathematical
-declarations and eliminator syntax have not gained an auxiliary-case form,
-and native proof-source translation remains unfinished. The kernel is not
+Native `.lim` declarations use this same derivation. The explicit
+[`#pt-nested-induct` form](kernel.md#nested-inductive-groups) names each case
+by its physical family type rather than a private identifier. Native
+proof-source translation from exported terms remains unfinished. The kernel is not
 formally verified; these fixtures do not establish complete Lean compatibility
 or check the full FLT proof. Existing input, universe, work and allocation
 [bounds](lean-export.md#resource-limits-and-unsupported-features) continue to apply.

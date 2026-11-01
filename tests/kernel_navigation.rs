@@ -746,6 +746,81 @@ fn recursive_function_fields_keep_nested_pi_and_self_index_scopes_local() {
 }
 
 #[test]
+fn nested_induction_resolves_terms_and_rejects_malformed_cases() {
+    run(
+        r#"
+      (#math-inductive [[family|tree]] ([[family-level|u]]) ((A (#pt-type u))) (#pt-type u) ((leaf ())))
+      (#math-definition [[selector|tree-view]] () (#pt-type 0) #pt-nat)
+      (#math-definition [[apply-selector|apply-selector]] () (#pt-pi ((f #pt-nat)) #pt-nat) (#pt-lambda ((f #pt-nat)) f))
+      (#math-definition proof ([[level|v]]) #pt-nat
+        (#pt-lambda (([[binding|x]] (#pt-type v)) ([[selector-binding|view]] #pt-nat))
+          (#pt-nested-induct [[family-use|tree]] ([[level-use|v]]) ([[parameter-use|x]]) 0 (#indices [[index-use|x]])
+            ((#pt-case [[local-selector|view]]
+               (#pt-lambda (([[motive-binding|m]] #pt-nat)) [[motive-use|m]])
+               ((#pt-lambda (([[branch-binding|b]] #pt-nat)) [[branch-use|b]])))
+             (#pt-case (#pt-app (#pt-use [[app-head|apply-selector]] ()) (#pt-use [[app-argument|tree-view]] ()))
+               #pt-nat ([[sibling-use|x]]))) [[subject|x]])))
+      (#math-definition bad-case () #pt-nat (#pt-nested-induct [[malformed-family|tree]] () () 0 (#indices)
+        ((#pt-case (#pt-use tree ()) #pt-nat (#pt-zero)) (#pt-case #pt-nat #pt-nat #pt-zero)) #pt-zero))
+    "#,
+        &[
+            ("family", &["family"]),
+            ("family-level", &["family-level"]),
+            ("selector", &["selector"]),
+            ("apply-selector", &["apply-selector"]),
+            ("family-use", &["family"]),
+            ("level-use", &["level"]),
+            ("parameter-use", &["binding"]),
+            ("index-use", &["binding"]),
+            ("selector-binding", &["selector-binding"]),
+            ("local-selector", &["selector-binding"]),
+            ("motive-binding", &["motive-binding"]),
+            ("motive-use", &["motive-binding"]),
+            ("branch-binding", &["branch-binding"]),
+            ("branch-use", &["branch-binding"]),
+            ("app-head", &["apply-selector"]),
+            ("app-argument", &["selector"]),
+            ("sibling-use", &["binding"]),
+            ("subject", &["binding"]),
+            ("malformed-family", &[]),
+        ],
+    );
+    run(
+        r#"(#math-inductive tree () () (#pt-type 0) ((leaf ())))
+           (#math-definition bad () #pt-nat
+             (#pt-nested-induct [[query|tree]] () () 0 (#indices)
+               ((#wrong-case (#pt-use tree ()) #pt-nat (#pt-zero))
+                (#pt-case (#pt-use tree ()) #pt-nat #pt-zero)) #pt-zero))"#,
+        &[("query", &[])],
+    );
+    run(
+        r#"(#math-inductive tree () () (#pt-type 0) ((leaf ())))
+           (#math-definition case-index () #pt-nat #pt-zero)
+           (#math-definition bad-index () #pt-nat
+             (#pt-nested-induct tree () () [[query|case-index]] (#indices)
+               ((#pt-case #pt-nat #pt-nat (#pt-zero))
+                (#pt-case #pt-nat #pt-nat (#pt-zero))) #pt-zero))"#,
+        &[("query", &[])],
+    );
+}
+
+#[test]
+fn generated_nested_example_family_resolves_to_emitted_declaration() {
+    let example = include_str!("../examples/proof_nested.lim");
+    let (declarations, rest) = example
+        .split_once("(#math-definition add")
+        .expect("nested example has declarations before add");
+    let rest = rest.replacen(
+        "(#pt-nested-induct tree",
+        "(#pt-nested-induct [[family-use|tree]]",
+        1,
+    );
+    let source =
+        format!("(#gn emit () `({declarations}))\n(#generate emit)\n(#math-definition add{rest}");
+    run(&source, &[("family-use", &["generated:tree"])]);
+}
+
+#[test]
 fn indexed_forms_reject_malformed_clauses_arities_and_binders() {
     run(
         r#"

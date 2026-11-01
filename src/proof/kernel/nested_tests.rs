@@ -37,7 +37,6 @@ fn nat() -> T {
 }
 fn sequence() -> Kernel {
     let mut kernel = Kernel::new();
-    kernel.enable_nested_replay();
     kernel
         .inductive(
             "Seq",
@@ -184,7 +183,6 @@ fn transitive_nested_containers_form_a_finite_group() {
 #[test]
 fn contravariant_containers_fail_without_leaving_auxiliary_signatures() {
     let mut kernel = Kernel::new();
-    kernel.enable_nested_replay();
     kernel
         .inductive(
             "Consumer",
@@ -243,7 +241,6 @@ fn constructor_local_capture_and_changed_uniform_parameters_are_rejected() {
 #[test]
 fn nested_mutual_propositions_cannot_eliminate_into_data() {
     let mut kernel = Kernel::new();
-    kernel.enable_nested_replay();
     kernel
         .inductive(
             "ProofBox",
@@ -404,7 +401,6 @@ fn checked_dependent_container_functions_are_instantiated_before_positivity() {
 #[test]
 fn phantom_parameters_cannot_hide_elimination_of_a_provisional_family() {
     let mut kernel = Kernel::new();
-    kernel.enable_nested_replay();
     let falsity = g("#pt-false");
     kernel
         .inductive(
@@ -446,7 +442,6 @@ fn phantom_parameters_cannot_hide_elimination_of_a_provisional_family() {
 #[test]
 fn nested_universe_templates_substitute_levels_once_without_rewriting_caller_values() {
     let mut kernel = Kernel::new();
-    kernel.enable_nested_replay();
     let u = Level::variable("u".into());
     let w = Level::variable("w".into());
     kernel

@@ -380,8 +380,9 @@ may also occur as terminal codomains under zero or more `#pt-pi` binders. This
 supports strictly positive function fields, including dependent function
 telescopes; the current family may not occur anywhere in a function domain,
 including double-negative positions. No self occurrence is allowed in the
-current family's indices. Explicit mutual groups are described below;
-recursion nested in containers or Sigma types remains unsupported.
+current family's indices. Explicit mutual groups and checked nominal nested
+containers are described below. Direct recursion under primitive `#pt-sigma`
+is unsupported; a previously declared dependent-pair datatype can be a container.
 
 A checked `#pt-let` wrapper is permitted along a Pi codomain only when its
 annotation and value contain no occurrence of the current family. The kernel
@@ -532,8 +533,9 @@ As a proposition-valued example, this family has evidence only at zero:
 
 The kernel checks constructor types, strictly positive recursive positions,
 result indices, branch types, and universe constraints. It rejects negative
-and current-index occurrences of the family, as well as recursion nested in
-containers or Sigma types.
+and current-index occurrences of the family. Nested recursion is accepted
+only through checked nominal container constructors, not primitive Sigma or
+arbitrary type functions.
 
 ## Falsehood and elimination from propositions
 
@@ -572,8 +574,8 @@ data values. The restriction is a kernel rule, not a runtime representation
 or erasure promise. Indexed data families have no unit conversion or neutral
 recursor shortcut, since indexed families have distinct fibres. A restricted
 proof computation rule for matching fibres is described below.
-Nested inductives remain unsupported. Mutual predicates follow the stricter
-group elimination rule described below.
+Mutual and nested predicates follow the stricter group elimination rule
+described below.
 
 This recoverable-field condition follows Lean 4.33.1's
 [`elim_only_at_universe_zero`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536)
@@ -837,8 +839,8 @@ fields that would otherwise be erased. Opaque theorem bodies stay opaque.
 See the [record example](../examples/proof_records.lim),
 [source regressions](../tests/kernel_records.rs), and
 [navigation tests](../tests/kernel_projection_navigation.rs). This restricted
-record rule does not supply nested inductives, quotients, a Lean
-importer, or the full FLT dependency replay.
+record rule does not supply quotients, proof-source translation, or the full
+FLT dependency replay. Nested groups use the separate rule described below.
 
 ### Mutual inductive groups
 
@@ -901,18 +903,78 @@ projection/eta shortcuts do not apply to components of a mutual group.
 Native functions still cannot recurse; these are compile-time mathematical
 inductive terms.
 
-The elaborated export reader additionally reconstructs scoped recursion cases
-for nested containers using previously checked constructor signatures. Its
-views retain the original types and constructors, validate positivity and
-scope after specialization, and check the supplied extra recursors against
-the derived rules. See [nested replay](lean-nested-replay.md). This import
-capability does not add auxiliary-case syntax to native mathematical source.
+## Nested inductive groups
+
+A recursive field can apply a previously checked inductive container to an
+explicit, fully applied reference to the new family. For example:
+
+```lisp
+(#math-inductive seq () ((Element (#pt-type 0))) (#pt-type 0)
+  ((nil ()) (cons ((first Element) (rest #pt-self)))))
+(#math-inductive tree () () (#pt-type 0)
+  ((leaf ())
+   (node ((children (#pt-app (#pt-use seq ()) (#pt-use tree ())))))))
+```
+
+The checker derives a recursion case for `tree`, followed by one for `seq tree`.
+It specializes the container's checked constructors and verifies every field's
+positivity. It keeps the original container types and constructor names; no
+private auxiliary identifier needs to appear in source.
+
+```text
+(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX
+  (#indices selected-index-terms...)
+  ((#pt-case PARTIALLY-APPLIED-FAMILY-TYPE MOTIVE (BRANCHES...))...)
+  SUBJECT)
+```
+
+The `FAMILY` operand names the owner declaration whose nested group is used.
+`CASE-INDEX` is an explicit untyped, zero-based integer selecting the case to
+eliminate: `0` selects the first root and `1` selects `seq tree` in this example.
+The subject and index terms must have the selected case's type and indices;
+out-of-range indices are rejected. This permits container recursor wrappers
+without naming internal identifiers or inferring a case from the subject.
+
+Cases cover all declared group roots in declaration order, followed by the
+specialized containers in breadth-first derivation order. Identical structural
+specializations share a case; distinct specializations remain separate. For the
+example above, the selectors are `(#pt-use tree ())` and
+`(#pt-app (#pt-use seq ()) (#pt-use tree ()))`. Each selector is a checked term,
+then compared definitionally with the expected family type. A type alias can
+therefore select the same case, but an ill-typed argument cannot disappear
+through conversion. Selectors declare no bindings. `#pt-case` is only valid
+inside this case list.
+
+Selectors apply uniform parameters but leave indices unapplied. An indexed
+container selector is `vector tree`, rather than `vector tree length`; its
+motive binds all generic indices followed by its subject. All branch lists use
+original constructor order, with each recursive field immediately followed by
+its family-specific IH, including pointwise IHs for function fields. Every
+motive and branch is checked, even for an empty subject. The selected case's
+index clause is explicit, including `(#indices)` when it has no indices.
+
+Nested parameters cannot capture constructor-local variables or surrounding
+function arguments, change the root's uniform parameters/universes, or put the
+root in container indices. Negative occurrences and unchecked type functions
+are rejected. Nested `#pt-self` markers are not container arguments: spell the
+root's type and parameters explicitly. Direct recursion under primitive
+`#pt-sigma` is unsupported; a declared dependent-pair container is checked by
+specializing its constructor just like any other container. Construction,
+projection and elimination of provisional families remain forbidden. Nested
+propositions retain the mutual Prop elimination restriction.
+
+The [native example](../examples/proof_nested.lim) implements both the tree
+and container counts, proves their generic defining equations, and checks a
+nonempty tree's result by reflexivity. The export reader uses the same
+checked group and additionally verifies exported auxiliary recursor types and
+rules; see [nested replay](lean-nested-replay.md). Native proof-source emission
+from Lean exports remains unfinished.
 
 The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete
 count. The [functional example](../examples/proof_mutual_function.lim) checks
 pointwise sibling recursion at each child's index. Neither completes the
-remaining nested-inductive, quotient, importer or FLT replay work.
+remaining quotient, proof-source import or FLT replay work.
 
 The kernel has no cumulativity, quotients,
 classical axioms, `admit`, general recursion,

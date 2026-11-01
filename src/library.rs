@@ -551,6 +551,24 @@ pub(crate) fn qualify(
                             && matches!(&bundle.children[2].expr, Expr::List(_))
                     })
             });
+        let nested_induct = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-nested-induct"))
+            && tree.children.len() == 8
+            && matches!(&tree.children[1].expr, Expr::Symbol(_))
+            && matches!(&tree.children[2].expr, Expr::List(_))
+            && matches!(&tree.children[3].expr, Expr::List(_))
+            && (matches!(&tree.children[4].expr, Expr::Integer(value) if *value >= 0 && usize::try_from(*value).is_ok())
+                || matches!(&tree.children[4].expr, Expr::UnsignedInteger(value) if usize::try_from(*value).is_ok()))
+            && matches!(&tree.children[5].expr, Expr::List(parts)
+                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#indices")
+                    && parts.len() <= 65)
+            && matches!(&tree.children[6].expr, Expr::List(_))
+            && (2..=16).contains(&tree.children[6].children.len())
+            && tree.children[6].children.iter().all(|bundle| {
+                bundle.children.len() == 4
+                    && matches!(&bundle.children[0].expr, Expr::Symbol(head) if head == "#pt-case")
+                    && matches!(&bundle.children[3].expr, Expr::List(_))
+            });
         for (index, child) in tree.children.iter_mut().enumerate() {
             if mutual_induct && index == 5 {
                 for bundle in &mut child.children {
@@ -595,7 +613,11 @@ pub(crate) fn qualify(
                 visibility,
                 qualified,
                 mathematical,
-                (selects_global || selects_project_family || mutual_recur || mutual_induct)
+                (selects_global
+                    || selects_project_family
+                    || mutual_recur
+                    || mutual_induct
+                    || nested_induct)
                     && index == 1
                     || mutual_header && index > 0,
             )?;

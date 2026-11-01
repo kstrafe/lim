@@ -2095,15 +2095,15 @@ recursive fields use `(#pt-self-at (index-terms...))`; parameters are inherited
 from the declaration. `#pt-self` and `#pt-self-at` may be terminal codomains
 beneath zero or more `#pt-pi` binders, enabling strictly positive function
 fields and dependent telescopes. The current family cannot occur in any
-function domain, including double-negative positions. Recursion nested in
-containers or Sigma types and occurrences in current-family indices remain
-unsupported. Explicit mutual groups use the forms described below.
+function domain, including double-negative positions. Occurrences in current-family indices and direct recursion under primitive
+`#pt-sigma` remain unsupported. Previously checked nominal containers can
+contain explicit, uniformly applied family references, as described below. Explicit mutual groups use the forms described below.
 
 A typed `#pt-let` may wrap a Pi codomain when neither its annotation nor its
 value contains the current family. The checker verifies the annotation's sort
 and the value's type before zeta substitution, then continues the positivity
 check in the instantiated body. Recursive aliases in definitions and
-recursion hidden in Sigma types or applications remain unsupported.
+recursion hidden in primitive Sigma types or arbitrary type functions remains unsupported.
 
 Mathematical mutual groups keep separate declarations with an identical
 `(#mutual FAMILY...)` clause after the parameter list and before `#indices`.
@@ -2127,6 +2127,24 @@ Record/unit/K shortcuts do not apply to components of a mutual group.
 See [mutual examples](../examples/proof_mutual.lim) and the
 [kernel guide](kernel.md#mutual-inductive-groups). These forms add no native
 recursion, automatic proof search, axioms or admissions.
+
+Nested containers use the same checked group machinery. A field such as
+`(#pt-app (#pt-use seq ()) (#pt-use tree ()))` derives a scoped recursion
+case for `seq tree` from the previously checked `seq` constructor types.
+`(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX (#indices values...)
+((#pt-case FamilyType motive (branches...))...) subject)` names every case
+by its physical type. The explicit untyped zero-based `CASE-INDEX` selects a
+root or container case; subject and index types follow that case, and invalid
+ordinals fail. Selectors apply parameters but not indices. The order is
+all root families, then specialized containers in breadth-first derivation
+order, sharing repeated structural specializations. Every selector is inferred
+before definitional comparison; all motives and branch lists are checked.
+Selectors bind no names; each motive/branch has its own ordinary term scope.
+Private case identifiers never become global constants or constructors.
+Captured constructor locals, nonuniform parameters/universes, recursive indices,
+negative specialized fields and unfinished-family elimination remain rejected.
+See the [nested example](../examples/proof_nested.lim) and
+[kernel guide](kernel.md#nested-inductive-groups).
 
 Regular `#pt-induct` keeps its existing syntax. Indexed `#pt-induct` adds an
 explicit index clause after parameters:
@@ -3168,7 +3186,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
 | `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
-| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field TYPE)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Recursive markers may be terminal codomains under zero or more `#pt-pi` binders, but the family cannot occur in function domains. Indexed constructors give exact result indices. Both forms may insert an explicit #mutual group clause after parameters. Recursion nested in containers or Sigma types remains unsupported. |
+| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field TYPE)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Recursive markers may be terminal codomains under zero or more `#pt-pi` binders, but the family cannot occur in function domains. Indexed constructors give exact result indices. Both forms may insert an explicit #mutual group clause after parameters. Nested occurrences use explicit family applications through checked nominal containers; primitive #pt-sigma nesting and arbitrary type functions remain unsupported. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
@@ -3241,6 +3259,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
 | `#pt-app` | `(#pt-app function argument...)` | `(#pt-app (#pt-use identity (0)) #pt-nat #pt-zero)` (mathematical term) | Explicit term application after universe instantiation, substituting arguments into dependent result types. |
+| `#pt-case` | `(#pt-case FamilyType motive (branches...))` | `(#pt-case (#pt-use tree ()) (#pt-lambda ((subject (#pt-use tree ()))) #pt-nat) (leaf-branch node-branch))` (case inside #pt-nested-induct; schematic) | Supplies an explicit physical family type and its motive and complete constructor branches. Applies uniform parameters but leaves indices unapplied; introduces no binding and is invalid as a standalone term. |
 | `#pt-certificate` | `(#pt-certificate procedural-proof-name)` | `(#pt-certificate identity-native-law)` (mathematical evidence) | Evidence of the corresponding program atom only after that procedural proof has passed its existing checker; not an unchecked assumption. |
 | `#pt-construct` | `(#pt-construct datatype (levels...) (parameters...) constructor-label (fields...))` | `(#pt-construct ticks () () tick-zero ())` (mathematical term) | Constructs a user-inductive value with explicit universe, parameter, constructor, and field arguments, including empty lists. |
 | `#pt-eq` | `(#pt-eq Type lhs rhs)` | `(#pt-eq #pt-nat #pt-zero #pt-zero)` (mathematical proposition) | Propositional equality between two terms of the stated type; its type is Prop. |
@@ -3256,6 +3275,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-mutual-induct` | `(#pt-mutual-induct FAMILY (levels...) (parameters...) (#indices values...) ((FAMILY motive (branches...))...) subject)` | `(#pt-mutual-induct left () () (#indices) ((left (#pt-lambda ((x (#pt-use left ()))) #pt-nat) (#pt-zero)) (right (#pt-lambda ((x (#pt-use right ()))) #pt-nat) (#pt-zero))) value)` (mathematical term; two zero-field data families) | Checks every group motive and branch set in declaration order; recursive IHs and computation select each child's own family and indices. The selected indices clause is explicit even when empty. |
 | `#pt-nat` | `#pt-nat` | `(#pt-pi ((n #pt-nat)) #pt-nat)` (mathematical type) | Unbounded Peano natural-number type, distinct from native machine integers; symbol, not an empty application. |
 | `#pt-nat-induct` | `(#pt-nat-induct motive zeroCase stepCase n)` | `(#pt-nat-induct (#pt-lambda ((k #pt-nat)) #pt-nat) #pt-zero (#pt-lambda ((k #pt-nat) (ih #pt-nat)) (#pt-succ ih)) n)` (mathematical term) | Natural induction or recursion using a zero case and a successor case taking the predecessor and induction hypothesis. |
+| `#pt-nested-induct` | `(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX (#indices values...) ((#pt-case FamilyType motive (branches...))...) subject)` | `(#pt-nested-induct tree () () 0 (#indices) ((#pt-case (#pt-use tree ()) tree-motive (leaf-branch node-branch)) (#pt-case (#pt-app (#pt-use seq ()) (#pt-use tree ())) seq-motive (nil-branch cons-branch))) value)` (mathematical term; schematic) | Selects an explicit zero-based case ordinal and checks every root and specialized container case in derivation order, comparing checked type selectors and preserving original constructors. Uses the same typed motives, family-specific IHs, computation and Prop guards as group induction. |
 | `#pt-numeral` | `(#pt-numeral nonnegative-source-integer)` | `(#pt-numeral 3)` (mathematical term) | Source integers from 0 through 128 expand to a Peano spine; this abbreviation limit does not bound Nat or its quantifiers. |
 | `#pt-pair` | `(#pt-pair SigmaType first second)` | `(#pt-pair (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n)) #pt-zero (#pt-refl #pt-nat #pt-zero))` (mathematical term) | Constructs a dependent pair with its full Sigma type stated explicitly. |
 | `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
@@ -3266,7 +3286,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
 | `#pt-self` | `#pt-self as a recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Recursive field marker for regular inductives; may also be a terminal codomain beneath zero or more `#pt-pi` binders. Function domains cannot contain the family, including double-negative positions. |
-| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. It may be a terminal codomain beneath zero or more `#pt-pi` binders. Recursion nested in containers or Sigma types remains unsupported. |
+| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. It may be a terminal codomain beneath zero or more `#pt-pi` binders. Nested occurrences use explicit family applications through checked nominal containers; primitive #pt-sigma nesting and arbitrary type functions remain unsupported. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
 | `#pt-sort` | `(#pt-sort LEVEL)` | `(#math-definition prop-sort () (#pt-type 0) (#pt-sort 0))` (mathematical definition) | General Sort LEVEL with an explicit universe expression; level zero is Prop and Type u is Sort (succ u). A sort inhabits its successor sort, without inference, cumulativity, or type-in-type. |
 | `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |

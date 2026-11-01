@@ -309,7 +309,7 @@ impl Kernel {
                         self.sort(ctx, field, depth + 1)?;
                         return Ok((field.clone(), Some(target.clone())));
                     }
-                    if self.nested_replay && self.declarations.get(target).is_some_and(|decl|decl.family.is_some()) {
+                    if self.declarations.get(target).is_some_and(|decl|decl.family.is_some()) {
                         // Parameter specialization is checked before it can
                         // define an auxiliary view; positivity is then checked
                         // on every specialized constructor field in the queue.

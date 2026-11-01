@@ -216,8 +216,7 @@ pub fn check_lean_export<R: BufRead>(
 
 impl Replay {
     fn new() -> Self {
-        let mut kernel = Kernel::new();
-        kernel.enable_nested_replay();
+        let kernel = Kernel::new();
         Self {
             kernel,
             names: vec![Name {
@@ -589,6 +588,22 @@ fn dependencies(roots: &[T]) -> Result<Vec<String>> {
                 for case in cases {
                     names.insert(case.family.clone());
                     stack.push(case.motive.clone());
+                    stack.extend(case.branches.iter().cloned());
+                }
+            }
+            Term::NestedInduct {
+                family,
+                parameters,
+                indices,
+                cases,
+                subject,
+                ..
+            } => {
+                names.insert(family.clone());
+                stack.extend(parameters.iter().chain(indices).cloned());
+                stack.push(subject.clone());
+                for case in cases {
+                    stack.extend([case.selector.clone(), case.motive.clone()]);
                     stack.extend(case.branches.iter().cloned());
                 }
             }

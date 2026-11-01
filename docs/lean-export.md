@@ -154,8 +154,9 @@ String literals, large natural-literal representations, quotient foundations, cl
 Lean surface syntax/tactics, native `.lim` translation and full-environment
 storage/replay are not implemented. General mathematical Nat and universe
 quantification remain unbounded; representation limits are not finite models.
-Native Lim's mathematical declaration/eliminator syntax is unchanged; scoped
-nested cases are currently available through elaborated export replay.
+Native Lim also supports explicit type-selected nested cases through
+[`#pt-nested-induct`](kernel.md#nested-inductive-groups). This does not yet
+provide translation from exported terms to native proof-source files.
 
 The [kernel's trust assumptions](kernel.md#trust-assumptions) still apply.
 Local rechecking and adversarial tests do not formally verify the checker.

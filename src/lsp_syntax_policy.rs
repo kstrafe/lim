@@ -182,6 +182,8 @@ mod tests {
         "pt-induct",
         "pt-recur",
         "pt-mutual-induct",
+        "pt-nested-induct",
+        "pt-case",
         "pt-self-at",
         "pt-nat-induct",
         "pt-eq",

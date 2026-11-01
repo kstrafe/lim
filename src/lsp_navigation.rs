@@ -1256,6 +1256,55 @@ impl<'a> Index<'a> {
                 }
                 return self.kernel_term(&xs[6], scope, levels);
             }
+            "pt-nested-induct" => {
+                let valid_case_index = xs.get(4).is_some_and(|index| match &index.expr {
+                    Expr::Integer(value) => *value >= 0 && usize::try_from(*value).is_ok(),
+                    Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
+                    _ => false,
+                });
+                if xs.len() != 8
+                    || !valid_case_index
+                    || head(&xs[5]) != "indices"
+                    || !matches!(xs[2].expr, Expr::List(_))
+                    || !matches!(xs[3].expr, Expr::List(_))
+                    || xs[5].children.len() > 65
+                    || !(2..=16).contains(&xs[6].children.len())
+                    || xs[6].children.iter().any(|case| {
+                        case.children.len() != 4
+                            || head(case) != "pt-case"
+                            || !matches!(case.children[3].expr, Expr::List(_))
+                    })
+                {
+                    return vec![];
+                }
+                if let Some(family) = xs.get(1).filter(|family| self.contains(family)) {
+                    return self
+                        .kernel_proof(family)
+                        .filter(|decl| head(decl) == "math-inductive")
+                        .and_then(|decl| decl.children.get(1))
+                        .map(|name| vec![name.span])
+                        .unwrap_or_default();
+                }
+                if self.contains(&xs[2]) {
+                    return self.kernel_levels(&xs[2], levels);
+                }
+                if self.contains(&xs[3]) {
+                    return self.kernel_terms(&xs[3], scope, levels);
+                }
+                if self.contains(&xs[5]) {
+                    return self.kernel_terms(&xs[5], scope, levels);
+                }
+                for case in xs[6].children.iter().filter(|case| self.contains(case)) {
+                    if self.contains(&case.children[1]) {
+                        return self.kernel_term(&case.children[1], scope, levels);
+                    }
+                    if self.contains(&case.children[2]) {
+                        return self.kernel_term(&case.children[2], scope, levels);
+                    }
+                    return self.kernel_terms(&case.children[3], scope, levels);
+                }
+                return self.kernel_term(&xs[7], scope, levels);
+            }
             "pt-self-at" => {
                 if xs.len() == 2 && symbol(&xs[1]).is_none() {
                     return self.kernel_terms(&xs[1], scope, levels);

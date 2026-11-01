@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "kernel-nested-case-index",
+            diagnostic_code: "E4400",
+            offending_line: "(#math-definition tree-count",
+            line_number: 4,
+        },
+        Case {
             name: "validation-wrong-object",
             diagnostic_code: "E4400",
             offending_line: "  (#proof-requires-validation main",
@@ -1447,6 +1453,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "array-repeat-linear" => Some("(#array-repeat (#struct-literal Token ((value 1u64))))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "local-name-type-error" => Some("flag"),
+            "kernel-nested-case-index" => Some(&include_str!("ui/kernel-nested-case-index.lim").lines().nth(3).unwrap()[..80]),
             "shadowing" => Some("value"),
             "shadowing-destructure" => Some("value"),
             "shadowing-if-let" => Some("value"),

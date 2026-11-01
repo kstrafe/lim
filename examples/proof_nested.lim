@@ -1,0 +1,111 @@
+; The container is checked before tree. Its original constructors are reused.
+(#math-inductive seq () ((Element (#pt-type 0))) (#pt-type 0)
+  ((nil ()) (cons ((first Element) (rest #pt-self)))))
+(#math-inductive tree () () (#pt-type 0)
+  ((leaf ())
+   (node ((children (#pt-app (#pt-use seq ()) (#pt-use tree ())))))))
+
+(#math-definition add ()
+  (#pt-pi ((x #pt-nat) (y #pt-nat)) #pt-nat)
+  (#pt-lambda ((x #pt-nat) (y #pt-nat))
+    (#pt-nat-induct
+      (#pt-lambda ((n #pt-nat)) #pt-nat)
+      y
+      (#pt-lambda ((previous #pt-nat) (ih #pt-nat)) (#pt-succ ih))
+      x)))
+
+; Cases list the root first, then the specialized containers in derivation
+; order. Every selector is an explicit type, not a new declaration or binding.
+(#math-definition tree-count ()
+  (#pt-pi ((value (#pt-use tree ()))) #pt-nat)
+  (#pt-lambda ((value (#pt-use tree ())))
+    (#pt-nested-induct tree () () 0 (#indices)
+      ((#pt-case (#pt-use tree ())
+         (#pt-lambda ((subject (#pt-use tree ()))) #pt-nat)
+         ((#pt-succ #pt-zero)
+          (#pt-lambda
+            ((children (#pt-app (#pt-use seq ()) (#pt-use tree ())))
+             (children-count #pt-nat))
+            (#pt-succ children-count))))
+       (#pt-case (#pt-app (#pt-use seq ()) (#pt-use tree ()))
+         (#pt-lambda
+           ((subject (#pt-app (#pt-use seq ()) (#pt-use tree ())))) #pt-nat)
+         (#pt-zero
+          (#pt-lambda
+            ((first (#pt-use tree ())) (first-count #pt-nat)
+             (rest (#pt-app (#pt-use seq ()) (#pt-use tree ())))
+             (rest-count #pt-nat))
+            (#pt-app (#pt-use add ()) first-count rest-count)))))
+      value)))
+
+; Select the second explicit case to fold a sequence of trees directly.
+(#math-definition seq-count ()
+  (#pt-pi ((value (#pt-app (#pt-use seq ()) (#pt-use tree ())))) #pt-nat)
+  (#pt-lambda ((value (#pt-app (#pt-use seq ()) (#pt-use tree ()))))
+    (#pt-nested-induct tree () () 1 (#indices)
+      ((#pt-case (#pt-use tree ())
+         (#pt-lambda ((subject (#pt-use tree ()))) #pt-nat)
+         ((#pt-succ #pt-zero)
+          (#pt-lambda
+            ((children (#pt-app (#pt-use seq ()) (#pt-use tree ())))
+             (children-count #pt-nat))
+            (#pt-succ children-count))))
+       (#pt-case (#pt-app (#pt-use seq ()) (#pt-use tree ()))
+         (#pt-lambda
+           ((subject (#pt-app (#pt-use seq ()) (#pt-use tree ())))) #pt-nat)
+         (#pt-zero
+          (#pt-lambda
+            ((first (#pt-use tree ())) (first-count #pt-nat)
+             (rest (#pt-app (#pt-use seq ()) (#pt-use tree ())))
+             (rest-count #pt-nat))
+            (#pt-app (#pt-use add ()) first-count rest-count)))))
+      value)))
+
+; These equations hold for arbitrary children, not only closed constructors.
+(#theorem tree-count-node
+  (#universes)
+  (#parameters
+    (#parameter children (#pt-app (#pt-use seq ()) (#pt-use tree ()))))
+  (#statement
+    (#pt-eq #pt-nat
+      (#pt-app (#pt-use tree-count ()) (#pt-construct tree () () node (children)))
+      (#pt-succ (#pt-app (#pt-use seq-count ()) children))))
+  (#proof (#pt-refl #pt-nat (#pt-succ (#pt-app (#pt-use seq-count ()) children)))))
+
+(#theorem seq-count-cons
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use tree ()))
+    (#parameter rest (#pt-app (#pt-use seq ()) (#pt-use tree ()))))
+  (#statement
+    (#pt-eq #pt-nat
+      (#pt-app (#pt-use seq-count ())
+        (#pt-construct seq () ((#pt-use tree ())) cons (first rest)))
+      (#pt-app (#pt-use add ())
+        (#pt-app (#pt-use tree-count ()) first)
+        (#pt-app (#pt-use seq-count ()) rest))))
+  (#proof
+    (#pt-refl #pt-nat
+      (#pt-app (#pt-use add ())
+        (#pt-app (#pt-use tree-count ()) first)
+        (#pt-app (#pt-use seq-count ()) rest)))))
+
+; A node containing two leaves has three nodes. This forces recursion through
+; both the root and the container cases; reflexivity checks the computation.
+(#theorem nested-recursion-computes
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-eq #pt-nat
+      (#pt-app (#pt-use tree-count ())
+        (#pt-construct tree () () node
+          ((#pt-construct seq () ((#pt-use tree ())) cons
+            ((#pt-construct tree () () leaf ())
+             (#pt-construct seq () ((#pt-use tree ())) cons
+               ((#pt-construct tree () () leaf ())
+                (#pt-construct seq () ((#pt-use tree ())) nil ()))))))))
+      (#pt-numeral 3)))
+  (#proof (#pt-refl #pt-nat (#pt-numeral 3))))
+
+(#fn main () #u64
+  (#return 42u64))

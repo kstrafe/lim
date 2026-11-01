@@ -78,6 +78,15 @@ pub(super) enum Term {
         cases: Vec<RecursionCase>,
         subject: T,
     },
+    NestedInduct {
+        family: String,
+        levels: Vec<Level>,
+        parameters: Vec<T>,
+        selected: usize,
+        indices: Vec<T>,
+        cases: Vec<NestedCase>,
+        subject: T,
+    },
     SelfType,
     SelfAt(Vec<T>),
     Recur(String, Vec<T>),
@@ -85,6 +94,12 @@ pub(super) enum Term {
 #[derive(Clone, Debug)]
 pub(super) struct RecursionCase {
     pub family: String,
+    pub motive: T,
+    pub branches: Vec<T>,
+}
+#[derive(Clone, Debug)]
+pub(super) struct NestedCase {
+    pub selector: T,
     pub motive: T,
     pub branches: Vec<T>,
 }
@@ -123,7 +138,6 @@ pub(super) struct Kernel {
     declarations: HashMap<String, Declaration>,
     nested: HashMap<String, NestedFamily>,
     nested_build: Option<NestedBuild>,
-    nested_replay: bool,
     work: usize,
     transformed_bytes: usize,
 }
@@ -133,7 +147,6 @@ impl Kernel {
             declarations: HashMap::new(),
             nested: HashMap::new(),
             nested_build: None,
-            nested_replay: false,
             work: 0,
             transformed_bytes: 0,
         };
@@ -587,6 +600,31 @@ impl Kernel {
                 subject,
                 depth + 1,
             ),
+            Term::NestedInduct {
+                family,
+                levels,
+                parameters,
+                selected,
+                indices,
+                cases,
+                subject,
+            } => {
+                let cases = self.nested_cases(ctx, family, levels, parameters, cases, depth + 1)?;
+                let family = &cases
+                    .get(*selected)
+                    .ok_or("nested induction case index is out of range")?
+                    .family;
+                self.mutual_induction(
+                    ctx,
+                    family,
+                    levels,
+                    parameters,
+                    indices,
+                    &cases,
+                    subject,
+                    depth + 1,
+                )
+            }
             Term::SelfType | Term::SelfAt(_) | Term::Recur(..) => Err(
                 "recursive markers are only valid in strictly positive inductive field codomains"
                     .into(),
@@ -922,6 +960,31 @@ impl Kernel {
                     } else {
                         return Ok(value);
                     }
+                }
+                Term::NestedInduct {
+                    family,
+                    levels,
+                    parameters,
+                    selected,
+                    indices,
+                    cases,
+                    subject,
+                } => {
+                    let cases =
+                        self.nested_cases(ctx, family, levels, parameters, cases, depth + 1)?;
+                    let family = cases
+                        .get(*selected)
+                        .ok_or("nested induction case index is out of range")?
+                        .family
+                        .clone();
+                    value = term(Term::MutualInduct {
+                        family,
+                        levels: levels.clone(),
+                        parameters: parameters.clone(),
+                        indices: indices.clone(),
+                        cases,
+                        subject: subject.clone(),
+                    });
                 }
                 _ => return Ok(value),
             }
@@ -1400,13 +1463,52 @@ impl Kernel {
                     .collect::<Result<_>>()?,
                 subject: walk!(subject),
             },
+            Term::NestedInduct {
+                family,
+                levels,
+                parameters,
+                selected,
+                indices,
+                cases,
+                subject,
+            } => Term::NestedInduct {
+                family: family.clone(),
+                levels: levels.iter().map(&mut *level).collect::<Result<_>>()?,
+                parameters: many!(parameters),
+                selected: *selected,
+                indices: many!(indices),
+                cases: cases
+                    .iter()
+                    .map(|case| {
+                        Ok(NestedCase {
+                            selector: self.transform(
+                                &case.selector,
+                                binders,
+                                depth + 1,
+                                var,
+                                level,
+                            )?,
+                            motive: self.transform(&case.motive, binders, depth + 1, var, level)?,
+                            branches: case
+                                .branches
+                                .iter()
+                                .map(|branch| {
+                                    self.transform(branch, binders, depth + 1, var, level)
+                                })
+                                .collect::<Result<_>>()?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+                subject: walk!(subject),
+            },
         };
         let levels = match &transformed {
             Term::Sort(level) => level.memory_weight(),
             Term::Global(_, levels)
             | Term::Ctor { levels, .. }
             | Term::Induct { levels, .. }
-            | Term::MutualInduct { levels, .. } => levels.iter().map(Level::memory_weight).sum(),
+            | Term::MutualInduct { levels, .. }
+            | Term::NestedInduct { levels, .. } => levels.iter().map(Level::memory_weight).sum(),
             _ => 0,
         };
         let name_bytes = match &transformed {
@@ -1421,7 +1523,9 @@ impl Kernel {
                     total.saturating_add(case.family.len())
                 })
             }
-            Term::Induct { family, .. } | Term::Project { family, .. } => family.len(),
+            Term::Induct { family, .. }
+            | Term::NestedInduct { family, .. }
+            | Term::Project { family, .. } => family.len(),
             _ => 0,
         };
         self.charge_transformation(128usize.saturating_add(levels).saturating_add(name_bytes))?;
@@ -1447,6 +1551,7 @@ fn contains_recursive(t: &T, name: &str) -> bool {
         Term::Ctor { family, .. }
         | Term::Induct { family, .. }
         | Term::MutualInduct { family, .. }
+        | Term::NestedInduct { family, .. }
         | Term::Project { family, .. }
             if family == name =>
         {
@@ -1508,6 +1613,24 @@ fn contains_recursive(t: &T, name: &str) -> bool {
                 .any(|t| contains_recursive(t, name))
                 || cases.iter().any(|case| {
                     case.family == name
+                        || contains_recursive(&case.motive, name)
+                        || case.branches.iter().any(|t| contains_recursive(t, name))
+                })
+        }
+        Term::NestedInduct {
+            parameters,
+            indices,
+            cases,
+            subject,
+            ..
+        } => {
+            parameters
+                .iter()
+                .chain(indices)
+                .chain(std::iter::once(subject))
+                .any(|t| contains_recursive(t, name))
+                || cases.iter().any(|case| {
+                    contains_recursive(&case.selector, name)
                         || contains_recursive(&case.motive, name)
                         || case.branches.iter().any(|t| contains_recursive(t, name))
                 })

@@ -1,5 +1,22 @@
 //! Check the complete indexed-family examples in the kernel guide.
 #[test]
+fn native_nested_group_guide_declarations_are_checked() {
+    let guide = include_str!("../docs/kernel.md");
+    let source = guide
+        .split("## Nested inductive groups")
+        .nth(1)
+        .unwrap()
+        .split("```lisp\n")
+        .nth(1)
+        .unwrap()
+        .split("```")
+        .next()
+        .unwrap();
+    let program = lim::parse_program(source).unwrap();
+    lim::check_types(&program).unwrap();
+}
+
+#[test]
 fn indexed_vector_and_proposition_guide_examples_are_checked() {
     let guide = include_str!("../docs/kernel.md");
     let section = guide

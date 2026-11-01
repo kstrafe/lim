@@ -5021,6 +5021,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "pt-induct"
             | "pt-recur"
             | "pt-mutual-induct"
+            | "pt-nested-induct"
+            | "pt-case"
             | "pt-nat-induct"
             | "pt-eq"
             | "pt-refl"

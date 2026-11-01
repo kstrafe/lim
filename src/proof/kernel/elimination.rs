@@ -18,7 +18,7 @@ impl Kernel {
         let (family, _) = self.family(name, levels, depth + 1)?;
         if family.group.len() != 1 {
             return Err(
-                "mutual families require #pt-mutual-induct with all group motives and branches"
+                "group families require #pt-mutual-induct or #pt-nested-induct with all motives and branches"
                     .into(),
             );
         }

@@ -271,6 +271,20 @@ declaration role and its indices as terms. `#pt-mutual-induct` uses explicit
 indices and ordered `(FAMILY MOTIVE (BRANCHES...))` bundles; family keys are
 metadata and motives, branches, and subject use ordinary term scopes.
 
+`#pt-nested-induct` separates the owner-family, level, parameter, selected
+case ordinal, index and subject roles. The zero-based case ordinal is untyped
+nonnegative integer metadata, with no definition lookup. Its case container instead holds
+`(#pt-case FamilyType Motive (Branches...))` entries. `FamilyType` is an
+ordinary proof term, including a local type alias, not a global case key or a
+binding. Selectors, motives and branches reuse the current lexical scope;
+bindings inside one operand do not leak into siblings. Every case must have
+its tag, exact arity and a branch container before navigation resolves any
+part of the eliminator. `#pt-case` itself has no definition. Native import
+rewriting and generated-source expansion preserve the same roles. Tests in
+`tests/kernel_navigation.rs` and `tests/kernel_nested.rs` cover these forms.
+New mathematical syntax must update these role rules and navigation tests as
+well as checking, diagnostics, builtin reference and highlighting.
+
 A mathematical theorem uses shared explicit binders:
 
 ```lim

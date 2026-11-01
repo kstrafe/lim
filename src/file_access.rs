@@ -474,39 +474,60 @@ impl Resolver<'_> {
                 self.rewrite(&mut node.children[1], file, &HashSet::new())?;
                 self.proof_term_list(node, 2, file, locals)?;
             }
-        } else if kind == "#pt-mutual-induct" {
-            let valid = node.children.len() == 7
+        } else if matches!(kind.as_str(), "#pt-mutual-induct" | "#pt-nested-induct") {
+            let nested = kind == "#pt-nested-induct";
+            let offset = usize::from(nested);
+            let valid = node.children.len() == 7 + offset
                 && matches!(&node.children[1].expr, Expr::Symbol(_))
                 && matches!(&node.children[2].expr, Expr::List(_))
-                && head(&node.children[4]) == "#indices"
+                && (!nested
+                    || matches!(&node.children[4].expr,
+                    Expr::Integer(value) if *value >= 0 && usize::try_from(*value).is_ok())
+                    || nested
+                        && matches!(&node.children[4].expr,
+                        Expr::UnsignedInteger(value) if usize::try_from(*value).is_ok()))
+                && head(&node.children[4 + offset]) == "#indices"
                 && matches!(&node.children[3].expr, Expr::List(_))
-                && matches!(&node.children[4].expr, Expr::List(_))
-                && matches!(&node.children[5].expr, Expr::List(_))
-                && (2..=16).contains(&node.children[5].children.len())
-                && node.children[5].children.iter().all(|bundle| {
-                    bundle.children.len() == 3
-                        && matches!(&bundle.children[0].expr, Expr::Symbol(_))
-                        && matches!(&bundle.children[2].expr, Expr::List(_))
+                && matches!(&node.children[4 + offset].expr, Expr::List(_))
+                && node.children[4 + offset].children.len() <= 65
+                && matches!(&node.children[5 + offset].expr, Expr::List(_))
+                && (2..=16).contains(&node.children[5 + offset].children.len())
+                && node.children[5 + offset].children.iter().all(|bundle| {
+                    if nested {
+                        bundle.children.len() == 4
+                            && head(bundle) == "#pt-case"
+                            && matches!(&bundle.children[3].expr, Expr::List(_))
+                    } else {
+                        bundle.children.len() == 3
+                            && matches!(&bundle.children[0].expr, Expr::Symbol(_))
+                            && matches!(&bundle.children[2].expr, Expr::List(_))
+                    }
                 });
             if valid {
                 self.rewrite(&mut node.children[1], file, &HashSet::new())?;
                 self.proof_term_list(node, 3, file, locals)?;
-                if let Some(indices) = node.children.get_mut(4) {
+                if let Some(indices) = node.children.get_mut(4 + offset) {
                     for term in indices.children.iter_mut().skip(1) {
                         self.proof_term(term, file, locals)?;
                     }
                     rebuild(indices)?;
                 }
-                if let Some(bundles) = node.children.get_mut(5) {
+                if let Some(bundles) = node.children.get_mut(5 + offset) {
                     for bundle in &mut bundles.children {
-                        self.rewrite(&mut bundle.children[0], file, &HashSet::new())?;
-                        self.proof_term(&mut bundle.children[1], file, locals)?;
-                        self.proof_term_list(bundle, 2, file, locals)?;
+                        if nested {
+                            self.proof_term(&mut bundle.children[1], file, locals)?;
+                            self.proof_term(&mut bundle.children[2], file, locals)?;
+                            self.proof_term_list(bundle, 3, file, locals)?;
+                        } else {
+                            self.rewrite(&mut bundle.children[0], file, &HashSet::new())?;
+                            self.proof_term(&mut bundle.children[1], file, locals)?;
+                            self.proof_term_list(bundle, 2, file, locals)?;
+                        }
                         rebuild(bundle)?;
                     }
                     rebuild(bundles)?;
                 }
-                self.proof_term_child(node, 6, file, locals)?;
+                self.proof_term_child(node, 6 + offset, file, locals)?;
             }
         } else if kind == "#pt-induct" {
             if let Some(name) = node.children.get_mut(1) {
