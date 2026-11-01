@@ -13,6 +13,11 @@ mod elimination;
 pub(super) mod export;
 #[path = "inductive.rs"]
 mod inductive;
+#[path = "nested.rs"]
+mod nested;
+#[path = "syntax.rs"]
+mod syntax;
+use nested::{NestedBuild, NestedFamily};
 
 pub(super) type Result<T> = std::result::Result<T, String>;
 pub(super) type T = Arc<Term>;
@@ -116,6 +121,9 @@ pub(super) struct Declaration {
 }
 pub(super) struct Kernel {
     declarations: HashMap<String, Declaration>,
+    nested: HashMap<String, NestedFamily>,
+    nested_build: Option<NestedBuild>,
+    nested_replay: bool,
     work: usize,
     transformed_bytes: usize,
 }
@@ -123,6 +131,9 @@ impl Kernel {
     pub fn new() -> Self {
         let mut result = Self {
             declarations: HashMap::new(),
+            nested: HashMap::new(),
+            nested_build: None,
+            nested_replay: false,
             work: 0,
             transformed_bytes: 0,
         };
@@ -176,7 +187,7 @@ impl Kernel {
         result
     }
     pub fn contains(&self, name: &str) -> bool {
-        self.declarations.contains_key(name)
+        self.declarations.contains_key(name) || self.nested.contains_key(name)
     }
     fn scope(&mut self, universes: &[String], terms: &[T]) -> Result<()> {
         let map = universes
@@ -243,7 +254,7 @@ impl Kernel {
         value: T,
         theorem: bool,
     ) -> Result<()> {
-        if self.declarations.contains_key(name) {
+        if self.contains(name) {
             return Err("duplicate kernel declaration".into());
         }
         self.scope(&universes, &[ty.clone(), value.clone()])?;
@@ -325,6 +336,7 @@ impl Kernel {
         let declaration = self
             .declarations
             .get(name)
+            .or_else(|| self.nested.get(name).map(|nested| &nested.declaration))
             .cloned()
             .ok_or_else(|| format!("unknown or unchecked kernel declaration '{name}'"))?;
         if declaration.universes.len() != levels.len() {
@@ -367,13 +379,12 @@ impl Kernel {
         let params = (0..family.parameters.len())
             .map(|i| term(Term::Var(count - 1 - i)))
             .collect::<Vec<_>>();
-        let result = apps(term(Term::Global(name.into(), levels.to_vec())), &params);
         let indices = ctor
             .result_indices
             .iter()
             .map(|value| self.universes(value, &map, depth + 1))
             .collect::<Result<Vec<_>>>()?;
-        let result = apps(result, &indices);
+        let result = self.family_application(name, levels, &params, &indices, depth + 1)?;
         // The return already uses specialized universe levels. Substitute only
         // telescope annotations, never substitute the caller's levels again.
         let mut domains = vec![];
@@ -427,6 +438,9 @@ impl Kernel {
                 self.shift(ty, offset, 0, depth + 1)
             }
             Term::Global(name, levels) => {
+                if self.nested.contains_key(name) {
+                    return Err("internal nested family is not a global constant".into());
+                }
                 let (decl, map) = self.specialization(name, levels, depth + 1)?;
                 self.universes(&decl.ty, &map, depth + 1)
             }
@@ -516,6 +530,14 @@ impl Kernel {
                 constructor,
                 fields,
             } => {
+                if self.provisional_family(family) {
+                    return Err("cannot construct a provisional inductive family".into());
+                }
+                if self.nested.contains_key(family) {
+                    return Err(
+                        "internal nested families require their original constructors".into(),
+                    );
+                }
                 let (desc, _) = self.family(family, levels, depth + 1)?;
                 let ctor = desc
                     .constructors
@@ -653,21 +675,26 @@ impl Kernel {
         let Term::Global(actual, actual_levels) = head.as_ref() else {
             return Err("expected a fully applied inductive family".into());
         };
-        if actual != name
-            || !same_levels(levels, actual_levels)?
-            || arguments.len() != desc.parameters.len() + desc.indices.len()
+        let expected = self.family_application(name, levels, parameters, &[], depth + 1)?;
+        let (expected_head, expected_parameters) = nested::application(&expected);
+        let Term::Global(expected_name, expected_levels) = expected_head.as_ref() else {
+            return Err("invalid family head".into());
+        };
+        if actual != expected_name
+            || !same_levels(expected_levels, actual_levels)?
+            || arguments.len() != expected_parameters.len() + desc.indices.len()
         {
             return Err("inductive family application has the wrong head or arity".into());
         }
         if !self.same_many(
             ctx,
-            parameters,
-            &arguments[..desc.parameters.len()],
+            &expected_parameters,
+            &arguments[..expected_parameters.len()],
             depth + 1,
         )? {
             return Err("recursive inductive parameters must remain uniform".into());
         }
-        Ok(arguments.split_off(desc.parameters.len()))
+        Ok(arguments.split_off(expected_parameters.len()))
     }
     /// Recognize a fully applied nonrecursive, unindexed record type. Merely
     /// having one constructor is insufficient for projection and eta rules.
@@ -708,6 +735,9 @@ impl Kernel {
         subject: &T,
         depth: usize,
     ) -> Result<T> {
+        if self.provisional_family(name) {
+            return Err("cannot project a provisional inductive family".into());
+        }
         let ty = self.infer(ctx, subject, depth + 1)?;
         let shape = self.whnf(ctx, &ty, depth + 1)?;
         let Some((actual, levels, parameters, family)) = self.record_type(&shape, depth + 1)?

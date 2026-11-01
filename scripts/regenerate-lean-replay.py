@@ -29,7 +29,11 @@ TARGETS = {
     "inductives": ("ReplaySource.doubleTwo", "checked"),
     "projection": ("ReplaySource.projection", "checked"),
     "mutual": ("ReplaySource.mutualDepth", "checked"),
-    "nested": ("ReplaySource.nestedLeaf", "unsupported-nested-inductive"),
+    "nested": ("ReplaySource.nestedCount", "checked"),
+    "nested-poly": ("ReplaySource.polyNested", "checked"),
+    "nested-indexed": ("ReplaySource.indexedNested", "checked"),
+    "nested-deep": ("ReplaySource.deepNested", "checked"),
+    "nested-sigma": ("ReplaySource.sigmaNested", "checked"),
 }
 
 

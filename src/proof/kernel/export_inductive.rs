@@ -2,6 +2,7 @@
 //! Exported recursor types, flags and reduction rules cannot install rules.
 use super::*;
 
+#[derive(Clone)]
 struct TypeSpec {
     name: Name,
     universes: Vec<String>,
@@ -11,13 +12,13 @@ struct TypeSpec {
     constructors: Vec<Name>,
     domains: Vec<T>,
     sort: Level,
+    nested: usize,
 }
 struct ConstructorSpec {
     name: Name,
     family: String,
     universes: Vec<String>,
     ty: T,
-    fields: usize,
     domains: Vec<T>,
     indices: Vec<T>,
 }
@@ -59,8 +60,9 @@ impl Replay {
             }
             boolean(&value["isRec"])?;
             boolean(&value["isReflexive"])?;
-            if index(&value["numNested"])? != 0 {
-                return Err("nested inductive export replay is not implemented".into());
+            let nested = index(&value["numNested"])?;
+            if nested > 16 {
+                return Err("nested inductive count limit exceeded".into());
             }
             let name = self.name(&value["name"])?;
             let universes = self.universes(&value["levelParams"])?;
@@ -91,6 +93,7 @@ impl Replay {
                     constructors: self.name_list(&value["ctors"], 64)?,
                     domains,
                     sort: sort.clone(),
+                    nested,
                 },
                 members,
             ));
@@ -191,7 +194,6 @@ impl Replay {
                 family: family.key,
                 universes,
                 ty,
-                fields: fields_count,
                 domains,
                 indices: args[spec.parameters..].to_vec(),
             });
@@ -209,15 +211,20 @@ impl Replay {
             return Err("inductive block must supply every constructor in family order".into());
         }
         let raw_recs = array(&data["recs"], 16)?;
-        if raw_recs.len() != types.len() {
-            return Err("inductive block must supply one standard recursor per family".into());
-        }
         self.room(types.len() + constructors.len() + raw_recs.len())?;
         let all_names = group
             .iter()
             .cloned()
             .chain(constructors.iter().map(|ctor| ctor.name.key.clone()))
-            .chain(types.iter().map(|spec| format!("{}s3:rec", spec.name.key)))
+            .chain(
+                raw_recs
+                    .iter()
+                    .map(|value| {
+                        self.name(value.get("name").ok_or("missing recursor name")?)
+                            .map(|name| name.key)
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            )
             .collect::<Vec<_>>();
         if all_names.iter().collect::<HashSet<_>>().len() != all_names.len()
             || all_names.iter().any(|name| self.kernel.contains(name))
@@ -247,6 +254,74 @@ impl Replay {
             .collect::<Vec<_>>();
         self.reset_budget()?;
         self.kernel.declare_group(inputs)?;
+        let root = &types[0];
+        let levels = root
+            .universes
+            .iter()
+            .cloned()
+            .map(Level::variable)
+            .collect::<Vec<_>>();
+        let (derived, _) = self.kernel.family(&root.name.key, &levels, 0)?;
+        let nested_count = derived.group.len() - types.len();
+        if types.iter().any(|spec| spec.nested != nested_count) {
+            return Err(
+                "exported nested count disagrees with reconstructed auxiliary families".into(),
+            );
+        }
+        if raw_recs.len() != derived.group.len() {
+            return Err(
+                "inductive block must supply one standard recursor per reconstructed family".into(),
+            );
+        }
+        let mut eliminators = types
+            .iter()
+            .map(|spec| (spec.clone(), suffixed(&spec.name, "rec")))
+            .collect::<Vec<_>>();
+        for (index, key) in derived.group.iter().skip(types.len()).enumerate() {
+            let (declaration, _) = self.kernel.specialization(key, &levels, 0)?;
+            let family = declaration
+                .family
+                .ok_or("missing reconstructed nested family")?;
+            let mut domains = family.parameters.clone();
+            domains.extend(family.indices.iter().cloned());
+            let constructors = family
+                .constructors
+                .iter()
+                .map(|ctor| {
+                    self.names
+                        .iter()
+                        .find(|name| name.key == ctor.name)
+                        .cloned()
+                        .ok_or_else(|| "missing original nested constructor name".to_owned())
+                })
+                .collect::<Result<Vec<_>>>()?;
+            eliminators.push((
+                TypeSpec {
+                    name: Name {
+                        key: key.clone(),
+                        display: format!("nested case {}", index + 1),
+                        depth: 1,
+                    },
+                    universes: root.universes.clone(),
+                    ty: declaration.ty,
+                    parameters: family.parameters.len(),
+                    indices: family.indices.len(),
+                    constructors,
+                    domains,
+                    sort: family.sort,
+                    nested: 0,
+                },
+                suffixed(&root.name, &format!("rec_{}", index + 1)),
+            ));
+        }
+        let expanded_types = eliminators
+            .iter()
+            .map(|(spec, _)| spec.clone())
+            .collect::<Vec<_>>();
+        let constructor_count = expanded_types
+            .iter()
+            .map(|spec| spec.constructors.len())
+            .sum::<usize>();
         // Peeling cannot erase ill-typed type wrappers or unused arguments.
         for spec in &types {
             self.reset_budget()?;
@@ -341,10 +416,11 @@ impl Replay {
                 return Err("unsafe recursors are forbidden".into());
             }
             let name = self.name(&value["name"])?;
-            let spec = types
+            let spec = eliminators
                 .iter()
-                .find(|spec| name.key == format!("{}s3:rec", spec.name.key))
-                .ok_or("recursor is not a standard member recursor")?;
+                .find(|(_, expected)| name.key == expected.key)
+                .map(|(spec, _)| spec)
+                .ok_or("recursor is not a derived member or auxiliary recursor")?;
             if recursors
                 .iter()
                 .any(|r: &RecursorSpec| r.family == spec.name.key)
@@ -355,15 +431,15 @@ impl Replay {
             if members.iter().map(|n| &n.key).ne(group.iter())
                 || index(&value["numParams"])? != spec.parameters
                 || index(&value["numIndices"])? != spec.indices
-                || index(&value["numMotives"])? != types.len()
-                || index(&value["numMinors"])? != constructors.len()
+                || index(&value["numMotives"])? != expanded_types.len()
+                || index(&value["numMinors"])? != constructor_count
             {
                 return Err("recursor membership or telescope counts mismatch".into());
             }
-            let k = types.len() == 1
+            let k = expanded_types.len() == 1
                 && spec.sort.zero()
                 && spec.constructors.len() == 1
-                && constructors[0].fields == 0;
+                && constructors[0].domains.len() == spec.parameters;
             if boolean(&value["k"])? != k {
                 return Err("exported K flag disagrees with the checked constructor shape".into());
             }
@@ -384,12 +460,15 @@ impl Replay {
             for rule in array(&value["rules"], 64)? {
                 let rule = fields(rule, &["ctor", "nfields", "rhs"])?;
                 let ctor = self.name(&rule["ctor"])?;
-                let expected = constructors
+                let (family, _) = self.kernel.family(&spec.name.key, &levels, 0)?;
+                let expected = family
+                    .constructors
                     .iter()
-                    .find(|c| c.name.key == ctor.key && c.family == spec.name.key)
+                    .find(|c| c.name == ctor.key)
                     .ok_or("recursor rule names a foreign constructor")?;
                 let nfields = index(&rule["nfields"])?;
-                if nfields != expected.fields || rules.iter().any(|(name, _, _)| name == &ctor.key)
+                if nfields != expected.fields.len()
+                    || rules.iter().any(|(name, _, _)| name == &ctor.key)
                 {
                     return Err("recursor rule field count or uniqueness mismatch".into());
                 }
@@ -409,10 +488,10 @@ impl Replay {
             });
         }
         for rec in &recursors {
-            self.install_recursor(rec, &types, &constructors)?;
+            self.install_recursor(rec, &expanded_types, constructor_count)?;
         }
         for rec in &recursors {
-            self.check_recursor_rules(rec, &types, &constructors)?;
+            self.check_recursor_rules(rec, &expanded_types, constructor_count)?;
         }
         // Receipts preserve all raw dependencies, even erased proof terms.
         for spec in &types {
@@ -483,13 +562,13 @@ impl Replay {
         &mut self,
         rec: &RecursorSpec,
         types: &[TypeSpec],
-        constructors: &[ConstructorSpec],
+        constructor_count: usize,
     ) -> Result<()> {
         let spec = types
             .iter()
             .find(|spec| spec.name.key == rec.family)
             .ok_or("missing recursor family")?;
-        let prefix = spec.parameters + types.len() + constructors.len();
+        let prefix = spec.parameters + types.len() + constructor_count;
         let count = prefix + spec.indices + 1;
         self.reset_budget()?;
         self.kernel
@@ -589,20 +668,28 @@ impl Replay {
         &mut self,
         rec: &RecursorSpec,
         types: &[TypeSpec],
-        constructors: &[ConstructorSpec],
+        constructor_count: usize,
     ) -> Result<()> {
         let spec = types
             .iter()
             .find(|spec| spec.name.key == rec.family)
             .ok_or("missing recursor family")?;
-        let prefix_count = spec.parameters + types.len() + constructors.len();
+        let prefix_count = spec.parameters + types.len() + constructor_count;
         for (label, _, provided) in &rec.rules {
             self.reset_budget()?;
             self.kernel
                 .scope(&rec.universes, std::slice::from_ref(provided))?;
-            let ctor = constructors
+            let levels = spec
+                .universes
                 .iter()
-                .find(|ctor| &ctor.name.key == label)
+                .cloned()
+                .map(Level::variable)
+                .collect::<Vec<_>>();
+            let (family, _) = self.kernel.family(&rec.family, &levels, 0)?;
+            let ctor = family
+                .constructors
+                .iter()
+                .find(|ctor| &ctor.name == label)
                 .ok_or("missing rule constructor")?;
             let (mut domains, _) = self.peel(&rec.ty, prefix_count, &[])?;
             let levels = spec
@@ -623,7 +710,7 @@ impl Replay {
                     self.kernel
                         .instantiate(body, &term(Term::Var(prefix_count - 1 - i)), 0)?;
             }
-            for _ in 0..ctor.fields {
+            for _ in 0..ctor.fields.len() {
                 let reduced = self.kernel.whnf(&domains, &telescope, 0)?;
                 let Term::Pi(domain, body) = reduced.as_ref() else {
                     return Err("invalid constructor field telescope".into());
@@ -643,15 +730,17 @@ impl Replay {
                 &telescope,
                 0,
             )?;
-            let subject = term(Term::Ctor {
-                family: rec.family.clone(),
-                levels,
-                parameters: parameters.clone(),
-                constructor: label.clone(),
-                fields: (prefix_count..count)
-                    .map(|i| term(Term::Var(count - 1 - i)))
-                    .collect(),
-            });
+            let fields = (prefix_count..count)
+                .map(|i| term(Term::Var(count - 1 - i)))
+                .collect();
+            let subject = self.kernel.family_constructor(
+                &rec.family,
+                &levels,
+                &parameters,
+                label,
+                fields,
+                0,
+            )?;
             let args = (0..prefix_count)
                 .map(|i| term(Term::Var(count - 1 - i)))
                 .chain(indices)
@@ -677,6 +766,14 @@ impl Replay {
             }
         }
         Ok(())
+    }
+}
+
+fn suffixed(root: &Name, segment: &str) -> Name {
+    Name {
+        key: format!("{}s{}:{segment}", root.key, segment.len()),
+        display: format!("{}.{segment}", root.display),
+        depth: root.depth + 1,
     }
 }
 

@@ -216,8 +216,10 @@ pub fn check_lean_export<R: BufRead>(
 
 impl Replay {
     fn new() -> Self {
+        let mut kernel = Kernel::new();
+        kernel.enable_nested_replay();
         Self {
-            kernel: Kernel::new(),
+            kernel,
             names: vec![Name {
                 key: "$lean:".into(),
                 display: String::new(),

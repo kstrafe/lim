@@ -78,6 +78,9 @@ impl Kernel {
         subject: &T,
         depth: usize,
     ) -> Result<T> {
+        if self.provisional_family(name) {
+            return Err("cannot eliminate a provisional inductive family".into());
+        }
         let (desc, map) = self.family(name, levels, depth + 1)?;
         if cases.len() != desc.group.len()
             || !cases
@@ -97,10 +100,7 @@ impl Kernel {
         let ty = self.universes(&decl.ty, &map, depth + 1)?;
         let telescope = self.arguments(ctx, ty, parameters, depth + 1)?;
         self.arguments(ctx, telescope, indices, depth + 1)?;
-        let subject_type = apps(
-            apps(term(Term::Global(name.into(), levels.to_vec())), parameters),
-            indices,
-        );
+        let subject_type = self.family_application(name, levels, parameters, indices, depth + 1)?;
         self.check(ctx, subject, &subject_type, depth + 1)?;
         // Validate *all* motives before any of them is used in an IH type.
         for case in cases {
@@ -160,7 +160,8 @@ impl Kernel {
         let mut telescope = self.arguments(ctx, ty, parameters, depth + 1)?;
         let mut mt = self.infer(ctx, motive, depth + 1)?;
         let mut motive_context = ctx.to_vec();
-        let mut generic_family = apps(term(Term::Global(name.into(), levels.to_vec())), parameters);
+        let mut generic_family =
+            self.family_application(name, levels, parameters, &[], depth + 1)?;
         for _ in &desc.indices {
             let expected = self.whnf(&motive_context, &telescope, depth + 1)?;
             let actual = self.whnf(&motive_context, &mt, depth + 1)?;
@@ -255,13 +256,7 @@ impl Kernel {
             }
         }
         let result_indices = self.family_indices(&inner, name, levels, &params, &ty, depth + 1)?;
-        let value = term(Term::Ctor {
-            family: name.into(),
-            levels: levels.to_vec(),
-            parameters: params,
-            constructor: ctor.name.clone(),
-            fields: args,
-        });
+        let value = self.family_constructor(name, levels, &params, &ctor.name, args, depth + 1)?;
         Ok(pis(
             &domains,
             term(Term::App(
@@ -476,7 +471,9 @@ impl Kernel {
             }
             return Ok(None);
         };
-        if actual != name {
+        let original = self.family_application(name, levels, parameters, &[], depth + 1)?;
+        let (original, _) = nested::application(&original);
+        if !matches!(original.as_ref(),Term::Global(expected,_) if expected==actual) {
             return Err("induction subject belongs to a different family".into());
         }
         let index = desc

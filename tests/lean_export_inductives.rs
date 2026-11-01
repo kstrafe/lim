@@ -124,7 +124,7 @@ fn forged_constructor_and_recursor_metadata_are_rejected() {
         &mut array(field(block(&mut data, 0), "types"))[0],
         "numNested",
     ) = number(1);
-    rejects(&data, "nested inductive");
+    rejects(&data, "nested count");
 }
 
 #[test]

@@ -901,6 +901,13 @@ projection/eta shortcuts do not apply to components of a mutual group.
 Native functions still cannot recurse; these are compile-time mathematical
 inductive terms.
 
+The elaborated export reader additionally reconstructs scoped recursion cases
+for nested containers using previously checked constructor signatures. Its
+views retain the original types and constructors, validate positivity and
+scope after specialization, and check the supplied extra recursors against
+the derived rules. See [nested replay](lean-nested-replay.md). This import
+capability does not add auxiliary-case syntax to native mathematical source.
+
 The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete
 count. The [functional example](../examples/proof_mutual_function.lim) checks

@@ -65,4 +65,45 @@ inductive Rose where
 
 theorem nestedLeaf : Rose.node [] = Rose.node [] := rfl
 
+noncomputable def roseCount (rose : Rose) : Nat :=
+  @Rose.rec (fun _ => Nat) (fun _ => Nat)
+    (fun _ childCount => Nat.succ childCount)
+    Nat.zero
+    (fun _ _ firstCount remainingCount => Nat.add firstCount remainingCount)
+    rose
+
+theorem nestedCount :
+    roseCount (Rose.node [Rose.node [], Rose.node []]) = 3 := rfl
+
+inductive PolyRose (Element : Type u) : Type u where
+  | leaf (element : Element)
+  | node (children : List (PolyRose Element))
+
+theorem polyNested (Element : Type u) (element : Element) :
+    PolyRose.node [PolyRose.leaf element] = PolyRose.node [PolyRose.leaf element] := rfl
+
+inductive VecLike (Element : Type) : Nat -> Type where
+  | nil : VecLike Element 0
+  | cons (size : Nat) (element : Element) (tail : VecLike Element size) :
+      VecLike Element (Nat.succ size)
+
+inductive IndexedRose where
+  | node (size : Nat) (children : VecLike IndexedRose size)
+
+theorem indexedNested :
+    IndexedRose.node 0 VecLike.nil = IndexedRose.node 0 VecLike.nil := rfl
+
+inductive DeepRose where
+  | node (children : List (List DeepRose))
+
+theorem deepNested :
+    DeepRose.node [[DeepRose.node []]] = DeepRose.node [[DeepRose.node []]] := rfl
+
+inductive SigmaRose where
+  | leaf
+  | node (pair : Sigma (fun (_ : Nat) => SigmaRose))
+
+theorem sigmaNested :
+    SigmaRose.node ⟨0, SigmaRose.leaf⟩ = SigmaRose.node ⟨0, SigmaRose.leaf⟩ := rfl
+
 end ReplaySource

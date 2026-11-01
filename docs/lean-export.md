@@ -21,8 +21,9 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Four real exports of original small Lean proofs replay successfully; the
-nested-inductive fixture is intentionally rejected. They do not check the
+Nine real exports of original small Lean proofs replay successfully, including
+universe-polymorphic, indexed, multiply nested and Sigma container cases.
+They do not check the
 upstream Fermat proof. The reader does not yet emit equivalent native `.lim`
 source or handle the complete Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
@@ -72,6 +73,13 @@ field/hypothesis convention and are themselves type checked. Exported recursor
 types and every supplied computation rule must check and agree with the
 derived recursor. Constructor ownership, rule coverage, field counts, family
 membership and the restricted K flag are checked against the derived shapes.
+
+Nested blocks additionally reconstruct scoped cases by specializing the
+constructors of already checked containers. Their actual number and order
+determine the extra motives, branches and `rec_1`, `rec_2`, ... wrappers.
+The exported nested count and auxiliary recursor metadata must match that
+reconstruction. [Nested replay](lean-nested-replay.md) describes parameter
+scope, positivity, original constructor identities and remaining boundaries.
 
 The selected target must be an actual theorem, not a proposition-valued
 definition. Success requires reaching EOF and checking all declarations,
@@ -127,6 +135,7 @@ kernel replay establishes the accepted theorem's typing judgment.
 | Dependency receipts | 1,000,000 entries; 16 MiB accounted payload |
 | Universes per declaration/application | 32 |
 | Mutual families | 16 |
+| Expanded nested recursion group | 16 total main and scoped container cases |
 | Parameters, indices, constructors, fields and per-family rules | 64 each |
 | Natural-literal abbreviation | 0 through 128 |
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
@@ -141,11 +150,12 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-Nested inductive export blocks, auxiliary recursor schemes, string literals,
-large natural-literal representations, quotient foundations, classical axioms,
+String literals, large natural-literal representations, quotient foundations, classical axioms,
 Lean surface syntax/tactics, native `.lim` translation and full-environment
 storage/replay are not implemented. General mathematical Nat and universe
 quantification remain unbounded; representation limits are not finite models.
+Native Lim's mathematical declaration/eliminator syntax is unchanged; scoped
+nested cases are currently available through elaborated export replay.
 
 The [kernel's trust assumptions](kernel.md#trust-assumptions) still apply.
 Local rechecking and adversarial tests do not formally verify the checker.

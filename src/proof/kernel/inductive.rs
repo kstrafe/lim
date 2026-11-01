@@ -108,8 +108,17 @@ impl Kernel {
             .iter()
             .map(|u| Level::variable(u.clone()))
             .collect::<Vec<_>>();
-        let outcome = (|| {
-            for input in inputs {
+        self.nested_build = Some(NestedBuild {
+            roots: names.clone(),
+            universes: universes.clone(),
+            parameters: parameters.clone(),
+            sort: sort.clone(),
+            aliases: vec![],
+            pending: vec![],
+        });
+        let mut queue = std::collections::VecDeque::from(inputs);
+        let mut outcome = (|| {
+            while let Some(input) = queue.pop_front() {
                 *failing = input.name.clone();
                 let name = &input.name;
                 let (mut family, _) = self.family(name, &levels, 0)?;
@@ -151,10 +160,8 @@ impl Kernel {
                     let params = (0..parameters.len())
                         .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
                         .collect::<Vec<_>>();
-                    let result = apps(
-                        apps(term(Term::Global(name.clone(), levels.clone())), &params),
-                        &result_indices,
-                    );
+                    let result =
+                        self.family_application(name, &levels, &params, &result_indices, 0)?;
                     self.sort(&ctx, &result, 0)?;
                     for (position, field_sort) in field_sorts.iter().enumerate() {
                         let field_index = checked.len() - 1 - position;
@@ -170,14 +177,51 @@ impl Kernel {
                 }
                 self.declarations
                     .get_mut(name)
+                    .or_else(|| self.nested.get_mut(name).map(|view| &mut view.declaration))
                     .ok_or("missing provisional inductive family")?
                     .family = Some(family);
+                queue.extend(
+                    self.nested_build
+                        .as_mut()
+                        .ok_or("missing nested build")?
+                        .pending
+                        .drain(..),
+                );
             }
             Ok(())
         })();
+        let build = self.nested_build.take().ok_or("missing nested build")?;
+        if outcome.is_ok() {
+            let group = names
+                .iter()
+                .chain(&build.aliases)
+                .cloned()
+                .collect::<Vec<_>>();
+            outcome = (|| {
+                for name in &group {
+                    let declaration = self
+                        .declarations
+                        .get_mut(name)
+                        .or_else(|| self.nested.get_mut(name).map(|view| &mut view.declaration))
+                        .ok_or("missing checked group family")?;
+                    let family = declaration
+                        .family
+                        .as_mut()
+                        .ok_or("missing checked group descriptor")?;
+                    family.group = group.clone();
+                    if group.len() > 1 {
+                        family.large = false;
+                    }
+                }
+                Ok(())
+            })();
+        }
         if outcome.is_err() {
-            for name in names {
-                self.declarations.remove(&name);
+            for name in &names {
+                self.declarations.remove(name);
+            }
+            for name in build.aliases {
+                self.nested.remove(&name);
             }
         }
         outcome
@@ -264,6 +308,14 @@ impl Kernel {
                         self.family_indices(ctx, target, levels, parameters, field, depth + 1)?;
                         self.sort(ctx, field, depth + 1)?;
                         return Ok((field.clone(), Some(target.clone())));
+                    }
+                    if self.nested_replay && self.declarations.get(target).is_some_and(|decl|decl.family.is_some()) {
+                        // Parameter specialization is checked before it can
+                        // define an auxiliary view; positivity is then checked
+                        // on every specialized constructor field in the queue.
+                        self.sort(ctx,field,depth+1)?;
+                        let target=self.nested_field(ctx,target,actual_levels,&arguments,depth+1)?;
+                        return Ok((field.clone(),Some(target)));
                     }
                 }
                 Err("recursive fields must end in a group family through strictly positive Pi codomains (strict positivity)".into())

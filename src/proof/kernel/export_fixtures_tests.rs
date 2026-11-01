@@ -9,7 +9,7 @@ const ORIGINS: &[u8] = include_bytes!("../../../scripts/lean-export-origins.lean
 const LEAN_LICENSE: &[u8] = include_bytes!("../../../tests/fixtures/lean_export/LEAN-LICENSE.txt");
 const EXPORTER_LICENSE: &[u8] =
     include_bytes!("../../../tests/fixtures/lean_export/EXPORTER-LICENSE.txt");
-const EXPORTS: [(&str, &[u8]); 5] = [
+const EXPORTS: [(&str, &[u8]); 9] = [
     (
         "real-identity.ndjson",
         include_bytes!("../../../tests/fixtures/lean_export/real-identity.ndjson"),
@@ -29,6 +29,22 @@ const EXPORTS: [(&str, &[u8]); 5] = [
     (
         "real-nested.ndjson",
         include_bytes!("../../../tests/fixtures/lean_export/real-nested.ndjson"),
+    ),
+    (
+        "real-nested-poly.ndjson",
+        include_bytes!("../../../tests/fixtures/lean_export/real-nested-poly.ndjson"),
+    ),
+    (
+        "real-nested-indexed.ndjson",
+        include_bytes!("../../../tests/fixtures/lean_export/real-nested-indexed.ndjson"),
+    ),
+    (
+        "real-nested-deep.ndjson",
+        include_bytes!("../../../tests/fixtures/lean_export/real-nested-deep.ndjson"),
+    ),
+    (
+        "real-nested-sigma.ndjson",
+        include_bytes!("../../../tests/fixtures/lean_export/real-nested-sigma.ndjson"),
     ),
 ];
 

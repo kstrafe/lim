@@ -128,20 +128,41 @@ fn replays_pinned_real_lean_exports_with_provenance() {
 }
 
 #[test]
-fn nested_inductive_fails_at_the_unsupported_inductive_record() {
-    let source = include_str!("fixtures/lean_export/real-nested.ndjson");
-    let error = lim::check_lean_export(Cursor::new(source.as_bytes()), "ReplaySource.nestedLeaf")
-        .expect_err("nested inductive fixture is intentionally unsupported");
-    assert_eq!(
-        error.message,
-        "nested inductive export replay is not implemented"
+fn nested_recursors_are_derived_and_compute_over_nonempty_containers() {
+    assert_checked_fixture(
+        include_str!("fixtures/lean_export/real-nested.ndjson"),
+        "real-nested.ndjson",
+        "ReplaySource.nestedCount",
+        36,
     );
-    assert!(source
-        .lines()
-        .nth(error.line.saturating_sub(1))
-        .is_some_and(|line| line.contains("\"inductive\"")));
-    assert!(!error.message.to_lowercase().contains("resource limit"));
-    assert!(!error.message.to_lowercase().contains("resource exhaustion"));
+}
+
+#[test]
+fn nested_replay_preserves_polymorphism_indices_and_multiple_specializations() {
+    assert_checked_fixture(
+        include_str!("fixtures/lean_export/real-nested-poly.ndjson"),
+        "real-nested-poly.ndjson",
+        "ReplaySource.polyNested",
+        14,
+    );
+    assert_checked_fixture(
+        include_str!("fixtures/lean_export/real-nested-indexed.ndjson"),
+        "real-nested-indexed.ndjson",
+        "ReplaySource.indexedNested",
+        22,
+    );
+    assert_checked_fixture(
+        include_str!("fixtures/lean_export/real-nested-deep.ndjson"),
+        "real-nested-deep.ndjson",
+        "ReplaySource.deepNested",
+        14,
+    );
+    assert_checked_fixture(
+        include_str!("fixtures/lean_export/real-nested-sigma.ndjson"),
+        "real-nested-sigma.ndjson",
+        "ReplaySource.sigmaNested",
+        22,
+    );
 }
 
 #[test]
@@ -171,4 +192,36 @@ fn rejects_a_semantically_corrupted_mutual_recursor() {
         .expect_err("corrupt mutual recursor must fail kernel replay");
     assert!(!error.message.to_lowercase().contains("resource limit"));
     assert!(!error.message.to_lowercase().contains("invalid export json"));
+}
+
+#[test]
+fn nested_counts_k_flags_and_auxiliary_rules_are_not_trusted() {
+    let source = include_str!("fixtures/lean_export/real-nested.ndjson");
+    for (before, after, expected) in [
+        ("\"numNested\":1", "\"numNested\":0", "nested count"),
+        ("\"numMotives\":2", "\"numMotives\":1", "telescope counts"),
+        ("\"nfields\":2", "\"nfields\":1", "field count"),
+        ("\"k\":false", "\"k\":true", "K flag"),
+    ] {
+        let mut changed = false;
+        let input = source
+            .lines()
+            .map(|line| {
+                if line.contains("\"numNested\":1") {
+                    assert!(line.contains(before));
+                    changed = true;
+                    line.replacen(before, after, 1)
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        assert!(changed);
+        let error =
+            lim::check_lean_export(input.as_bytes(), "ReplaySource.nestedCount").unwrap_err();
+        assert!(error.message.contains(expected), "{error}");
+        assert!(!error.message.contains("resource limit"), "{error}");
+    }
 }

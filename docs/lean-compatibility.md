@@ -127,7 +127,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 
 | Required area | Current boundary | Work needed for a full port |
 | --- | --- | --- |
-| Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in Sigma types or applications, and current-index occurrences remain unsupported. Explicit mutual groups have shared universes/parameters/sort, independent index telescopes, atomic positivity validation and family-specific motives/IHs/computation. Mutual predicates only eliminate into Prop; unit/K/record shortcuts exclude group components. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; audit mutual groups and implement nested inductives for a full port. |
+| Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in Sigma types or applications, and current-index occurrences remain unsupported. Explicit mutual groups have shared universes/parameters/sort, independent index telescopes, atomic positivity validation and family-specific motives/IHs/computation. Mutual predicates only eliminate into Prop; unit/K/record shortcuts exclude group components. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; audit scoped nested replay against the full dependency closure and add native auxiliary-case syntax. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Under the zero-family-sort guard, empty inductives and single-constructor inductives whose every non-proof field occurs directly as a bare variable among the constructor result indices may eliminate into data universes; proof fields need no such exposure. Computed or partial exposure and multiple constructors do not qualify. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
 | Conversion | Beta, transparent delta, typed-local-let zeta, iota, primitive Sigma projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Unit-like data conversion and fieldless neutral data recursion require an unindexed, fully applied one-constructor zero-field family. Indexed zero-field singleton propositions also admit neutral computation when their supplied indices convert to the specialized constructor indices; indexed data and mismatching fibres do not. Checked projections and typed fieldwise eta apply to unindexed, nonrecursive single-constructor mathematical records; neutral recursors respect the reconstruction when its projections are legal. Guarded checks prevent extracting data from Prop. No indexed/recursive record eta or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
@@ -264,18 +264,20 @@ release archive SHA-256
 `890afd185370f85666025b883914ab4f4b339136f8c96167b69cfb62aecaf235`;
 its runtime reports the pinned revision. The exact pinned exporter and original
 small proof sources were compiled and run inside the existing resource guard.
-The completed regeneration run's peak child RSS was 1,995,044 KiB; the cgroup
+The expanded regeneration run's peak child RSS was 2,002,652 KiB; the cgroup
 retained its 2 GiB memory and 200% CPU limits throughout.
 Lim now has a
 [version-pinned bounded NDJSON reader](lean-export.md), exercised with local,
 independently hand-authored fixtures for polymorphism, indexed equality,
 dependent records and mutual recursors. Those fixtures are not exported Lean
-proofs. Four additional genuine outputs from the pinned producer now replay
-through Lim, including mutual recursion; their source/module/license provenance
-is committed. A genuine nested `List Rose` example fails at its unsupported
-inductive block and retains its auxiliary recursors as a coverage target.
-The reader rejects all axioms and quotient records, unsupported nested
-families and resource exhaustion; native `.lim` emission, full upstream FLT
+proofs. Nine genuine outputs from the pinned producer now replay through Lim,
+including a nonempty nested fold, universe-polymorphic roots, indexed containers,
+two list specializations and dependent Sigma parameters. Their source/module/
+license provenance is committed. Scoped recursion cases are derived from checked
+container constructors; exported auxiliary recursors and rules are rechecked.
+See [nested replay](lean-nested-replay.md) for the checks and scope.
+The reader rejects all axioms and quotient records, unsupported rules
+and resource exhaustion; native nested-case syntax, `.lim` emission, full upstream FLT
 provenance and full-environment replay remain unfinished.
 
 The remaining work is a staged port, not a completed deliverable:
@@ -295,8 +297,9 @@ The remaining work is a staged port, not a completed deliverable:
    relationship to the pinned target statement, and produce a final axiom and
    dependency audit with reproducible resource measurements.
 
-Until that final stage is complete, the accurate status is shared syntax and
-an unproved FLT statement with a documented compatibility roadmap. Even a
+Until that final stage is complete, the accurate status is an implemented
+constructive kernel and bounded replay subset, genuine regression exports,
+and an unproved FLT statement with a compatibility roadmap. Even a
 future successful replay would remain conditional on the implemented checker,
 translator validation, and explicitly declared axioms; it would not make Lim a
 formally verified kernel or establish parity with all of Lean and Mathlib.
