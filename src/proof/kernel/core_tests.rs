@@ -1120,6 +1120,82 @@ fn positive_recursive_let_wrappers_cannot_erase_bad_definitions() {
 }
 
 #[test]
+fn large_elimination_recovery_does_not_confuse_parameters_with_fields() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "HiddenField",
+        vec![],
+        vec![nat()],
+        vec![nat()],
+        level(0),
+        vec![("make".into(), vec![nat()], vec![var(1)])],
+    )
+    .unwrap();
+    let (desc, _) = k.family("HiddenField", &[], 0).unwrap();
+    assert!(
+        !desc.large,
+        "the index is the parameter, not the hidden field"
+    );
+    let value = term(Term::Induct {
+        family: "HiddenField".into(),
+        levels: vec![],
+        parameters: vec![zero()],
+        indices: vec![zero()],
+        motive: lam(
+            nat(),
+            lam(app(app(global("HiddenField"), zero()), var(0)), nat()),
+        ),
+        branches: vec![lam(nat(), var(0))],
+        subject: ctor("HiddenField", vec![zero()], "make", vec![succ(zero())]),
+    });
+    let error = k.infer(&[], &value, 0).unwrap_err();
+    assert!(error.contains("large elimination"), "{error}");
+}
+
+#[test]
+fn index_recoverable_accessibility_uses_constructor_fields_without_synthetic_ih_binders() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "Access",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(0),
+        vec![(
+            "intro".into(),
+            vec![
+                nat(),
+                pi(nat(), pi(falsity(), term(Term::SelfAt(vec![var(1)])))),
+            ],
+            vec![var(1)],
+        )],
+    )
+    .unwrap();
+    let (desc, _) = k.family("Access", &[], 0).unwrap();
+    assert!(desc.large);
+    let motive = lam(nat(), lam(app(global("Access"), var(0)), nat()));
+    let branch = k
+        .branch_type(&[], "Access", &[], &[], &motive, &desc.constructors[0], 0)
+        .unwrap();
+    // The branch has point, lower, and a data-valued pointwise IH. That IH
+    // is not a hidden constructor field and must not affect recoverability.
+    k.sort(&[], &branch, 0).unwrap();
+    k.check(
+        &[],
+        &lam(
+            nat(),
+            lam(
+                pi(nat(), pi(falsity(), app(global("Access"), var(1)))),
+                lam(pi(nat(), pi(falsity(), nat())), var(2)),
+            ),
+        ),
+        &branch,
+        0,
+    )
+    .unwrap();
+}
+
+#[test]
 fn maximal_malformed_variable_index_returns_error_instead_of_panicking() {
     let mut k = Kernel::new();
     // Public declaration checking reaches infer(Var), whose index+1 must be checked.

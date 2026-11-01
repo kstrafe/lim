@@ -2121,20 +2121,41 @@ child's indices. The branch result is checked at the constructor's declared
 result indices. A complete vector and Prop-valued identity example appears in
 the [kernel guide](kernel.md#user-inductives-constructors-and-branches).
 
-Elimination of inductive propositions into
-data-type universes is restricted to empty inductives or a single constructor
-whose fields are all proofs whenever the family sort is zero. For every field,
-`imax(fieldSort, familySort) <= familySort` must hold. Unless that elimination
+Elimination of inductive propositions into data-type universes is allowed for
+empty families or single-constructor families whose non-proof fields each occur
+directly as a bare field variable among the constructor's result indices. A
+computed index such as `succ field`, or partial exposure of a field, does not
+qualify. Fields whose type has sort zero satisfy the proof-field condition
+without index exposure. Multiple constructors remain restricted even when
+their fields expose data. For every field, `imax(fieldSort, familySort) <=
+familySort` must hold. Unless the empty or singleton recoverable-field
 exception applies, whenever a symbolic family sort could be zero the motive
 sort must also be zero. Correlated family and motive sorts using the same `u`
 can satisfy this condition; an independent data universe allowing a positive
 motive sort when the family is Prop cannot. `#pt-false` is an empty proposition.
+For example, a hidden `Nat` field blocks large elimination. A field
+`P : #pt-prop` is also data (its type has sort 1), and must itself occur directly
+among the result indices to be recoverable; exposing only part of a field or
+using a computed index such as `succ field` does not qualify. This matches
+Lean 4.33.1's [universe-zero elimination rule](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536).
 Indexed families do not receive unit or K optimization: fieldless unit
 conversion and neutral recursor reduction are limited to unindexed families
 because indexed families have distinct fibres. General Sort and guarded
 elimination do not add cumulativity or type-in-type,
 and do not complete the FLT proof port. Proof irrelevance is the separate typed
 conversion rule described below.
+
+The recoverable-field exception supports Type-valued accessibility recursion:
+the point field is exposed as the constructor's result index, while its
+recursive functional field is proof-valued. The concrete [accessibility
+example](../examples/proof_accessibility.lim) defines
+`well-founded-recursion (u v)`, proves its generic equation theorem
+`well-founded-recursion-unfolds`, constructs `no-predecessors (u)` without an
+axiom, and proves `empty-relation-recursion-computes` for every Nat. The
+focused 11-test suite passes with the complete example; a negative poison case
+that mis-types the pointwise induction hypothesis for `lower` as data is
+rejected with a type mismatch. This focused evidence does not establish full
+Lean parity or formal verification of Lim's kernel.
 
 `(#pt-program procedural-proof-name)` is a proposition atom;
 `(#pt-certificate procedural-proof-name)` is its evidence only after the existing

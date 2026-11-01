@@ -307,6 +307,7 @@ impl Kernel {
                 let mut ctx = context.clone();
                 let mut checked = vec![];
                 let mut recursive = vec![];
+                let mut field_sorts = vec![];
                 for field in fields {
                     let params = (0..parameters.len())
                         .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
@@ -324,7 +325,7 @@ impl Kernel {
                     if !field_sort.imax(&sort)?.at_most(&sort)? {
                         return Err("inductive field exceeds the datatype's universe".into());
                     }
-                    family.large &= sort.zero_implies_zero(&field_sort)?;
+                    field_sorts.push(field_sort);
                     ctx.push(field.clone());
                     checked.push(field);
                     recursive.push(is_recursive);
@@ -346,6 +347,16 @@ impl Kernel {
                     &result_indices,
                 );
                 self.sort(&ctx, &result, 0)?;
+                // A data field exposed verbatim by an index contains no
+                // information hidden in the proof. Every other field must
+                // be propositional whenever the family itself is Prop.
+                for (position, field_sort) in field_sorts.iter().enumerate() {
+                    let field_index = checked.len() - 1 - position;
+                    let exposed = result_indices.iter().any(
+                        |index| matches!(index.as_ref(), Term::Var(found) if *found == field_index),
+                    );
+                    family.large &= exposed || sort.zero_implies_zero(field_sort)?;
+                }
                 family.constructors.push(Constructor {
                     name: constructor,
                     fields: checked,

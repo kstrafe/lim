@@ -540,17 +540,25 @@ containers or Sigma types.
 `#pt-false` denotes an empty proposition and has no introduction constructor.
 There is no `admit` or axiom declaration that supplies a proof of it.
 
-An inductive proposition normally eliminates into propositions. Elimination
-from `Prop` into a data-type universe is restricted to empty inductives or
-single-constructor inductives whose fields are all proofs. Merely having one
-constructor is insufficient if a field carries data. For a family with sort
-`Sort u`, the singleton exception requires every field to inhabit Prop whenever
-`u = 0`. Constructor field universes must also satisfy
+An inductive proposition normally eliminates into propositions. When a family
+sort can be zero, large elimination into a data-type universe is allowed for
+an empty family or for a single-constructor family when every non-proof field
+is exposed directly as a bare field variable among that constructor's result
+indices. Each such field must be recoverable this way; a computed index such
+as `succ field`, or an index that exposes only part of a field, does not count.
+A field whose type has sort zero satisfies the ordinary proof-field condition
+and needs no index exposure. More than one constructor does not qualify, even
+if its fields expose data. Constructor field universes must also satisfy
 `imax(fieldSort, familySort) <= familySort` for all universe assignments.
+Thus a hidden `Nat` field prevents large elimination, as does a field
+`P : #pt-prop` unless `P` itself is a result index: `#pt-prop` has sort 1, so
+such a proposition-valued datum is not a proof field. Directly exposing only a
+projection or other part of a data field is insufficient.
 
 For families polymorphic over general Sort, large elimination is checked under
-the guard that the family sort is zero. Unless the empty/singleton-proof
-exception applies, the motive's result sort must also be zero under that guard.
+the guard that the family sort is zero. Unless the empty or singleton
+recoverable-field exception applies, the motive's result sort must also be zero
+under that guard.
 A family in `Sort u` with a motive in `Sort u` preserves the same-variable
 correlation and is permitted by this restriction. A motive in an independent
 `Sort v` is rejected when `u = 0` and `v > 0` is possible. It is not enough that
@@ -565,6 +573,22 @@ or erasure promise. Indexed families have no unit or K optimization: fieldless
 unit conversion and neutral recursor reduction for fieldless families apply
 only to unindexed families, since indexed families have distinct fibres.
 Mutual and nested inductives remain unsupported.
+
+This recoverable-field condition follows Lean 4.33.1's
+[`elim_only_at_universe_zero`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536)
+rule.
+
+This exception permits Type-valued accessibility recursion when the data field
+is the constructor's direct result index and the recursive function field is
+proof-valued. The [accessibility example](../examples/proof_accessibility.lim)
+contains the `well-founded-recursion (u v)` definition and the generic
+`well-founded-recursion-unfolds` equation theorem. It also proves
+`no-predecessors (u)` as an actual accessibility proof and
+`empty-relation-recursion-computes`, which computes for every Nat. The focused
+11-test suite passes, including this complete example; a negative poison case
+that mis-types the pointwise induction hypothesis for `lower` as data is
+rejected with a type mismatch. This focused evidence does not establish full
+Lean parity or formal verification of Lim's kernel.
 
 ## Reuse evidence about native programs
 

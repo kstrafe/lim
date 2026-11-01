@@ -123,8 +123,8 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 
 | Required area | Current boundary | Work needed for a full port |
 | --- | --- | --- |
-| Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in Sigma types or applications, mutual recursion, and current-index occurrences remain unsupported. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; implement and audit mutual and nested inductives for a full port. Prop accessibility proofs can express `∀ y : A, R y x → Acc y`, but Type-valued accessibility elimination is still blocked when a proof constructor carries data such as `a : A`; a separate recoverable-index-field exception is needed. This support does not complete well-founded recursion, full Lean compatibility, or the FLT port. |
-| Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
+| Inductive families | Regular and indexed families with explicit index telescopes, direct recursion and strictly positive function fields using terminal `#pt-self`/`#pt-self-at` codomains under zero or more `#pt-pi` binders. Checked `#pt-let` wrappers along Pi codomains are allowed only when their annotation and value contain no current-family occurrence; both are checked before zeta substitution and positivity continues in the instantiated body. Function domains cannot contain the current family, including double-negative positions. Recursive aliases in definitions, recursion hidden in Sigma types or applications, mutual recursion, and current-index occurrences remain unsupported. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. | Audit positivity, fibre-sensitive recursors, and computation against imported elaborated terms; implement and audit mutual and nested inductives for a full port. |
+| Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Under the zero-family-sort guard, empty inductives and single-constructor inductives whose every non-proof field occurs directly as a bare variable among the constructor result indices may eliminate into data universes; proof fields need no such exposure. Computed or partial exposure and multiple constructors do not qualify. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
 | Conversion | Beta, transparent delta, typed-local-let zeta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. The unit-like data rule and fieldless neutral recursor reduction apply only to unindexed, fully applied one-constructor zero-field families. Indexed families receive neither unit nor K optimization because their fibres differ. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
@@ -146,11 +146,25 @@ Exhaustion returns an error, never an accepted theorem. These bounds are
 resource limits, not a finite model of universe values.
 
 Guarded large elimination requires a proposition-valued motive whenever the
-family sort is zero, unless the empty/singleton-proof exception holds. Matching
+family sort is zero, unless the family is empty or has one constructor whose
+non-proof fields all occur directly as bare variables among its result indices.
+Proof fields satisfy the universe-zero implication without index exposure;
+computed or partial exposure and multiple constructors do not qualify. Matching
 family and motive variables retain their correlation; independent levels must
-satisfy the condition for every assignment. Indexed families are supported,
-but mutual and nested inductives remain absent. This is not a full FLT proof
-port.
+satisfy the condition for every assignment. This follows Lean 4.33.1's
+[`elim_only_at_universe_zero`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536)
+rule. Type-valued accessibility recursion is now allowed when its data field
+is exposed by the constructor result index and its recursive field is
+proof-valued. The [accessibility example](../examples/proof_accessibility.lim)
+defines `well-founded-recursion (u v)`, proves the generic
+`well-founded-recursion-unfolds` equation, constructs `no-predecessors (u)` as
+actual accessibility evidence, and proves `empty-relation-recursion-computes`
+for every Nat. The focused 11-test suite passes, including the complete
+example; a negative poison case that mis-types the pointwise induction
+hypothesis for `lower` as data is rejected with a type mismatch. Mutual and
+nested inductives, quotients, a full Lean
+importer, and the FLT port remain open. Lim's kernel is not formally verified
+and this does not establish full Lean parity.
 
 Typed definitional proof irrelevance is now supported for well-typed proofs of
 the same proposition, following the concept in Lean 4.33.1's
