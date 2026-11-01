@@ -13,7 +13,16 @@ lim --check-lean-export tests/fixtures/lean_export/mutual.ndjson \
   Replay.mutualDepth
 ```
 
-These commands check hand-authored protocol fixtures. They do not check the
+These commands check hand-authored protocol fixtures. Additional genuine
+producer outputs are recorded in the [fixture guide](../tests/fixtures/lean_export/README.md#actual-pinned-producer-outputs):
+
+```sh
+lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
+  ReplaySource.mutualDepth
+```
+
+Four real exports of original small Lean proofs replay successfully; the
+nested-inductive fixture is intentionally rejected. They do not check the
 upstream Fermat proof. The reader does not yet emit equivalent native `.lim`
 source or handle the complete Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.
@@ -97,7 +106,11 @@ skips checking because a digest matches. The input digest authenticates no
 external source: source project revisions, source-to-target declaration maps,
 license identifiers and notices still need a separate provenance manifest
 before importing an upstream development. This reader does not supply that
-manifest or claim an upstream proof was checked.
+manifest for arbitrary inputs or claim the upstream FLT proof was checked.
+The committed genuine fixtures have a separate `real-provenance.json` with
+per-declaration source modules, source hashes and notices, license texts and
+artifact hashes. Those records provide reproducibility and attribution; only
+kernel replay establishes the accepted theorem's typing judgment.
 
 ## Resource limits and unsupported features
 

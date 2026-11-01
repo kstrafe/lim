@@ -44,8 +44,12 @@ record material derived from the Imperial College London FLT project,
 flt-regular, and Mathlib. The license and axiom inventory are also recorded in
 [formalization.yaml](https://github.com/anthropics/fermats-last-theorem/blob/6e837e75355538c7f80bab5b956861e86c4eacc2/formalization.yaml).
 
-This task copies no upstream proof text or source code. The local FLT artifact
-expresses a mathematical statement. A future source or term import must keep a
+The local FLT artifact expresses a mathematical statement and copies no
+upstream FLT proof text or source code. Small genuine Lean export fixtures now
+include foundational declarations from Lean's `Init.Prelude`, with exact source
+hashes, module mappings, the original notice and preserved license texts in
+[their provenance manifest](../tests/fixtures/lean_export/real-provenance.json).
+A future FLT source or term import must keep a
 provenance manifest with exact revisions, source declarations, licenses, and
 applicable notices and attribution; generated translations must be identified
 as translations rather than original upstream files.
@@ -253,16 +257,26 @@ unprovided mathematical proof term.
 ## Resource-aware port plan
 
 This task's execution budget is 2 GiB of memory and 200% CPU. The upstream
-resource requirements exceed that budget. No full clone, Lean or Mathlib
-installation, dependency download, export, build, or independent replay was
-attempted for the upstream development. Inspection was limited to small
-metadata and text requests. Lim now has a
+resource requirements exceed that budget. No full FLT checkout, Mathlib
+installation/build, or full upstream proof export/replay was attempted.
+A standalone Lean 4.33.1 release was downloaded and verified against the
+release archive SHA-256
+`890afd185370f85666025b883914ab4f4b339136f8c96167b69cfb62aecaf235`;
+its runtime reports the pinned revision. The exact pinned exporter and original
+small proof sources were compiled and run inside the existing resource guard.
+The completed regeneration run's peak child RSS was 1,995,044 KiB; the cgroup
+retained its 2 GiB memory and 200% CPU limits throughout.
+Lim now has a
 [version-pinned bounded NDJSON reader](lean-export.md), exercised with local,
 independently hand-authored fixtures for polymorphism, indexed equality,
 dependent records and mutual recursors. Those fixtures are not exported Lean
-proofs. The reader rejects all axioms and quotient records, unsupported nested
-families and resource exhaustion; native `.lim` emission, upstream provenance
-manifests and full-environment replay remain unfinished.
+proofs. Four additional genuine outputs from the pinned producer now replay
+through Lim, including mutual recursion; their source/module/license provenance
+is committed. A genuine nested `List Rose` example fails at its unsupported
+inductive block and retains its auxiliary recursors as a coverage target.
+The reader rejects all axioms and quotient records, unsupported nested
+families and resource exhaustion; native `.lim` emission, full upstream FLT
+provenance and full-environment replay remain unfinished.
 
 The remaining work is a staged port, not a completed deliverable:
 

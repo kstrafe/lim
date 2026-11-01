@@ -5,6 +5,9 @@ use crate::lsp::json::Json;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::BufRead;
 
+#[cfg(test)]
+#[path = "export_fixtures_tests.rs"]
+mod fixtures_tests;
 #[path = "export_hash.rs"]
 mod hash;
 #[path = "export_inductive.rs"]
