@@ -889,7 +889,19 @@ impl<'a> Index<'a> {
         if head(declaration) != "math-inductive" {
             return vec![];
         }
-        let Some(constructors) = declaration.children.get(5) else {
+        let indexed = declaration
+            .children
+            .get(4)
+            .is_some_and(|node| head(node) == "indices");
+        if indexed && !Self::kernel_indexed_shape_valid(declaration) {
+            return vec![];
+        }
+        let constructors = if indexed {
+            declaration.children.get(6)
+        } else {
+            declaration.children.get(5)
+        };
+        let Some(constructors) = constructors else {
             return vec![];
         };
         let Some(label) = symbol(label).filter(|name| !name.starts_with('#')) else {
@@ -908,6 +920,83 @@ impl<'a> Index<'a> {
         } else {
             vec![target.span]
         }
+    }
+    fn kernel_identifier(name: &Node) -> Option<&str> {
+        let name = symbol(name)?;
+        (!name.starts_with(['#', '@'])
+            && !name.contains([':', '/', '.', '@'])
+            && name
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_'))
+        .then_some(name)
+    }
+    fn kernel_indexed_shape_valid(declaration: &Node) -> bool {
+        let xs = &declaration.children;
+        let Some(indices) = xs.get(4).filter(|n| head(n) == "indices") else {
+            return false;
+        };
+        if xs.len() != 7 {
+            return false;
+        }
+        let index_count = indices.children.len().saturating_sub(1);
+        if !(1..=64).contains(&index_count) {
+            return false;
+        }
+        let mut bound = std::collections::HashSet::new();
+        if let Some(universes) = xs.get(2) {
+            for universe in &universes.children {
+                if let Some(name) = Self::kernel_identifier(universe) {
+                    bound.insert(name);
+                }
+            }
+        }
+        if let Some(parameters) = xs.get(3) {
+            for parameter in &parameters.children {
+                if let Some(name) = parameter.children.first().and_then(Self::kernel_identifier) {
+                    bound.insert(name);
+                }
+            }
+        }
+        let base = bound.clone();
+        for binder in indices.children.iter().skip(1) {
+            if head(binder) != "parameter" || binder.children.len() != 3 {
+                return false;
+            }
+            let Some(name) = binder.children.get(1).and_then(Self::kernel_identifier) else {
+                return false;
+            };
+            if !bound.insert(name) {
+                return false;
+            }
+        }
+        let Some(constructors) = xs.get(6) else {
+            return false;
+        };
+        for ctor in &constructors.children {
+            if ctor.children.len() != 3 {
+                return false;
+            }
+            let Some(fields) = ctor.children.get(1) else {
+                return false;
+            };
+            let mut visible = base.clone();
+            for field in &fields.children {
+                if field.children.len() != 2 {
+                    return false;
+                }
+                let Some(name) = field.children.first().and_then(Self::kernel_identifier) else {
+                    return false;
+                };
+                if !visible.insert(name) {
+                    return false;
+                }
+            }
+            if ctor.children[2].children.len() != index_count {
+                return false;
+            }
+        }
+        true
     }
     fn kernel_terms(&self, node: &Node, scope: &Scope, levels: &Scope) -> Vec<Span> {
         node.children
@@ -1002,6 +1091,18 @@ impl<'a> Index<'a> {
                 }
             }
             "pt-construct" | "pt-induct" => {
+                if head(node) == "pt-induct"
+                    && !((xs.len() == 7 && head(&xs[4]) != "indices")
+                        || (xs.len() == 8 && head(&xs[4]) == "indices"))
+                {
+                    return vec![];
+                }
+                if head(node) == "pt-induct"
+                    && xs.len() == 8
+                    && !(2..=65).contains(&xs[4].children.len())
+                {
+                    return vec![];
+                }
                 if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
                     return self
                         .kernel_proof(name)
@@ -1026,15 +1127,29 @@ impl<'a> Index<'a> {
                         return self.kernel_terms(fields, scope, levels);
                     }
                 } else {
-                    if let Some(motive) = xs.get(4).filter(|node| self.contains(node)) {
+                    let indexed = xs.len() == 8;
+                    let (indices, motive_at, branches_at, subject_at) = if indexed {
+                        (xs.get(4), 5, 6, 7)
+                    } else {
+                        (None, 4, 5, 6)
+                    };
+                    if let Some(indices) = indices.filter(|node| self.contains(node)) {
+                        return self.kernel_terms(indices, scope, levels);
+                    }
+                    if let Some(motive) = xs.get(motive_at).filter(|node| self.contains(node)) {
                         return self.kernel_term(motive, scope, levels);
                     }
-                    if let Some(branches) = xs.get(5).filter(|node| self.contains(node)) {
+                    if let Some(branches) = xs.get(branches_at).filter(|node| self.contains(node)) {
                         return self.kernel_terms(branches, scope, levels);
                     }
-                    if let Some(subject) = xs.get(6) {
+                    if let Some(subject) = xs.get(subject_at) {
                         return self.kernel_term(subject, scope, levels);
                     }
+                }
+            }
+            "pt-self-at" => {
+                if xs.len() == 2 && symbol(&xs[1]).is_none() {
+                    return self.kernel_terms(&xs[1], scope, levels);
                 }
             }
             "pt-app" | "pt-eq" | "pt-refl" | "pt-eq-elim" | "pt-pair" | "pt-first"
@@ -1065,15 +1180,52 @@ impl<'a> Index<'a> {
         }
         let mut scope = Scope::new();
         if head(node) == "math-inductive" {
+            let indexed = xs.get(4).is_some_and(|node| head(node) == "indices");
+            if indexed && !Self::kernel_indexed_shape_valid(node) {
+                return vec![];
+            }
             if let Some(parameters) = xs.get(3) {
                 if let Some(found) = self.kernel_binders(parameters, &mut scope, &levels) {
                     return found;
                 }
             }
-            if let Some(sort) = xs.get(4).filter(|node| self.contains(node)) {
-                return self.kernel_term(sort, &scope, &levels);
+            if indexed {
+                let mut indices = scope.clone();
+                if let Some(declared) = xs.get(4) {
+                    for binder in declared.children.iter().skip(1) {
+                        if head(binder) != "parameter" || binder.children.len() != 3 {
+                            continue;
+                        }
+                        if let Some(ty) = binder.children.get(2).filter(|ty| self.contains(ty)) {
+                            return self.kernel_term(ty, &indices, &levels);
+                        }
+                        if let Some(name) = binder.children.get(1) {
+                            let found = self.kernel_bind(name, &mut indices);
+                            if self.contains(name) {
+                                return found;
+                            }
+                        }
+                    }
+                }
             }
-            if let Some(constructors) = xs.get(5) {
+            let sort_at = if indexed { 5 } else { 4 };
+            let constructors_at = if indexed { 6 } else { 5 };
+            let mut indices = scope.clone();
+            if indexed {
+                if let Some(declared) = xs.get(4) {
+                    for binder in declared.children.iter().skip(1) {
+                        if head(binder) == "parameter" && binder.children.len() == 3 {
+                            if let Some(name) = binder.children.get(1) {
+                                self.kernel_bind(name, &mut indices);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(sort) = xs.get(sort_at).filter(|node| self.contains(node)) {
+                return self.kernel_term(sort, &indices, &levels);
+            }
+            if let Some(constructors) = xs.get(constructors_at) {
                 for ctor in constructors
                     .children
                     .iter()
@@ -1086,6 +1238,13 @@ impl<'a> Index<'a> {
                     if let Some(binders) = ctor.children.get(1) {
                         if let Some(found) = self.kernel_binders(binders, &mut fields, &levels) {
                             return found;
+                        }
+                    }
+                    if indexed {
+                        if let Some(outputs) =
+                            ctor.children.get(2).filter(|node| self.contains(node))
+                        {
+                            return self.kernel_terms(outputs, &fields, &levels);
                         }
                     }
                 }

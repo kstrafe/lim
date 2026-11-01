@@ -450,14 +450,28 @@ impl Resolver<'_> {
             }
             self.proof_term_list(node, 3, file, locals)?;
             self.proof_term_list(node, 5, file, locals)?;
+        } else if kind == "#pt-self-at" {
+            self.proof_term_list(node, 1, file, locals)?;
         } else if kind == "#pt-induct" {
             if let Some(name) = node.children.get_mut(1) {
                 self.rewrite(name, file, &HashSet::new())?;
             }
             self.proof_term_list(node, 3, file, locals)?;
-            self.proof_term_child(node, 4, file, locals)?;
-            self.proof_term_list(node, 5, file, locals)?;
-            self.proof_term_child(node, 6, file, locals)?;
+            if node.children.len() == 8 {
+                if let Some(indices) = node.children.get_mut(4) {
+                    for value in indices.children.iter_mut().skip(1) {
+                        self.proof_term(value, file, locals)?;
+                    }
+                    rebuild(indices)?;
+                }
+                self.proof_term_child(node, 5, file, locals)?;
+                self.proof_term_list(node, 6, file, locals)?;
+                self.proof_term_child(node, 7, file, locals)?;
+            } else {
+                self.proof_term_child(node, 4, file, locals)?;
+                self.proof_term_list(node, 5, file, locals)?;
+                self.proof_term_child(node, 6, file, locals)?;
+            }
         } else {
             for index in 1..node.children.len() {
                 self.proof_term_child(node, index, file, locals)?;
@@ -554,10 +568,31 @@ impl Resolver<'_> {
             }
             rebuild(parameters)?;
         }
-        if let Some(sort) = node.children.get_mut(4) {
+        let indexed = node.children.len() == 7;
+        if indexed {
+            if let Some(indices) = node.children.get_mut(4) {
+                let mut index_scope = inner.clone();
+                for index in &mut indices.children {
+                    if head(index) != "#parameter" || index.children.len() != 3 {
+                        continue;
+                    }
+                    if let Some(ty) = index.children.get_mut(2) {
+                        self.proof_term(ty, file, &index_scope)?;
+                    }
+                    if let Some(name) = index.children.get(1).and_then(symbol) {
+                        index_scope.insert(name.to_owned());
+                    }
+                    rebuild(index)?;
+                }
+                rebuild(indices)?;
+            }
+        }
+        let sort_index = if indexed { 5 } else { 4 };
+        let constructors_index = if indexed { 6 } else { 5 };
+        if let Some(sort) = node.children.get_mut(sort_index) {
             self.proof_term(sort, file, &inner)?;
         }
-        if let Some(constructors) = node.children.get_mut(5) {
+        if let Some(constructors) = node.children.get_mut(constructors_index) {
             for constructor in &mut constructors.children {
                 let mut constructor_scope = inner.clone();
                 if let Some(fields) = constructor.children.get_mut(1) {
@@ -571,6 +606,14 @@ impl Resolver<'_> {
                         rebuild(field)?;
                     }
                     rebuild(fields)?;
+                }
+                if indexed {
+                    if let Some(results) = constructor.children.get_mut(2) {
+                        for result in &mut results.children {
+                            self.proof_term(result, file, &constructor_scope)?;
+                        }
+                        rebuild(results)?;
+                    }
                 }
                 rebuild(constructor)?;
             }

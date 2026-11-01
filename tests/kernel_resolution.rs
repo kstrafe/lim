@@ -49,6 +49,59 @@ fn proof_names_resolve_inside_constructor_and_induction_data_lists() {
 }
 
 #[test]
+fn imported_aliases_resolve_in_indexed_recursion_and_elimination_lists() {
+    let scratch = support::Scratch::new("kernel-indexed-resolution-lists");
+    write(
+        scratch.path(),
+        "math.lim",
+        "(#math-definition identity () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))",
+    );
+    let source = r#"
+      (#alias identity-alias = ./math.lim::identity)
+      (#math-inductive sequence () ()
+        (#indices (#parameter length #pt-nat)) (#pt-type 0)
+        ((empty () (#pt-zero))
+         (step ((n #pt-nat)
+                (previous (#pt-self-at ((#pt-app (#pt-use identity-alias ()) n)))))
+           ((#pt-app (#pt-use identity-alias ()) (#pt-succ n))))))
+      (#math-definition one-sequence ()
+        (#pt-app (#pt-use sequence ()) (#pt-app (#pt-use identity-alias ()) (#pt-succ #pt-zero)))
+        (#pt-construct sequence () () step
+          (#pt-zero (#pt-construct sequence () () empty ()))))
+      (#theorem indexed_alias_resolution (#universes) (#parameters)
+        (#statement (#pt-let (#parameter result #pt-nat)
+          (#pt-induct sequence () ()
+            (#indices (#pt-app (#pt-use identity-alias ()) (#pt-succ #pt-zero)))
+            (#pt-lambda ((length #pt-nat)
+              (value (#pt-app (#pt-use sequence ()) length))) #pt-nat)
+            (#pt-zero
+             (#pt-lambda ((n #pt-nat)
+               (previous (#pt-app (#pt-use sequence ()) (#pt-app (#pt-use identity-alias ()) n)))
+               (ih #pt-nat)) #pt-zero))
+            (#pt-use one-sequence ()))
+          (#pt-eq #pt-nat result result)))
+        (#proof (#pt-let (#parameter result #pt-nat)
+          (#pt-induct sequence () ()
+            (#indices (#pt-app (#pt-use identity-alias ()) (#pt-succ #pt-zero)))
+            (#pt-lambda ((length #pt-nat)
+              (value (#pt-app (#pt-use sequence ()) length))) #pt-nat)
+            (#pt-zero
+             (#pt-lambda ((n #pt-nat)
+               (previous (#pt-app (#pt-use sequence ()) (#pt-app (#pt-use identity-alias ()) n)))
+               (ih #pt-nat)) #pt-zero))
+            (#pt-use one-sequence ()))
+          (#pt-refl #pt-nat result))))
+    "#;
+    let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
+    let resolved = format!("{:#?}", program.items);
+    assert!(
+        resolved.matches("math.lim::identity").count() >= 4,
+        "{resolved}"
+    );
+    lim::check_types(&program).unwrap();
+}
+
+#[test]
 fn pt_let_file_resolution_preserves_type_value_body_scopes() {
     let scratch = support::Scratch::new("kernel-let-resolution-scope");
     write(

@@ -2035,6 +2035,9 @@ natural induction, and the procedural-certificate bridge.
 (#math-definition NAME (u...) TYPE VALUE)
 (#math-inductive NAME (u...) ((parameter Type)...) SORT
   ((constructor ((field Type)...))...))
+(#math-inductive NAME (u...) ((parameter Type)...)
+  (#indices (#parameter index TYPE)...) SORT
+  ((constructor ((field TYPE)...) (result-index...))...))
 ```
 
 `#universes` and `#parameters` are explicit clauses, including empty clauses.
@@ -2072,12 +2075,44 @@ machine integers or bounded symbolic samples. There is no automatic coercion
 from a native integer to mathematical Nat. Explicit universe polymorphism is
 compile-time mathematical generic reasoning, not native generics.
 
-User inductives initially have parameters and direct recursive fields, without
-indices, nested self occurrences, or mutual recursion. `#pt-self` is legal only
-as a complete direct recursive field type. `#pt-induct` takes explicit universe
-and parameter lists, a motive, constructor branches in declaration order, and
-a subject. Each recursive field is immediately followed by its induction
-hypothesis in the branch arguments. Elimination of inductive propositions into
+User inductives retain the regular parameterized form and also support indexed
+families. Indexed declarations require a nonempty `#indices` clause after the
+parameters:
+
+```lisp syntax
+(#math-inductive NAME (u...)
+  ((parameter Type)...)
+  (#indices (#parameter index TYPE)...)
+  SORT
+  ((constructor ((field TYPE)...) (result-index...))...))
+```
+
+Index types may refer to parameters and earlier indices. Constructor fields
+may refer to parameters and earlier fields; each constructor gives exactly one
+result index per family index, with result terms allowed to refer to all
+fields. Types and indices are checked at exact arity and universe. Indexed
+direct recursive fields use `(#pt-self-at (index-terms...))`; parameters are
+inherited from the declaration. Bare `#pt-self` remains for regular families.
+Nested and negative occurrences, occurrences in the current family's indices,
+and mutual recursion remain unsupported.
+
+Regular `#pt-induct` keeps its existing syntax. Indexed `#pt-induct` adds an
+explicit index clause after parameters:
+
+```lisp syntax
+(#pt-induct family (levels...) (parameters...) (#indices index-terms...)
+  motive (branches...) subject)
+```
+
+The motive binds all generic indices freshly, then the subject at the family
+applied to those indices. This prevents a motive from capturing or freezing
+the subject's indices. Branches follow constructor and field order; each
+recursive child is followed immediately by its induction hypothesis at the
+child's indices. The branch result is checked at the constructor's declared
+result indices. A complete vector and Prop-valued identity example appears in
+the [kernel guide](kernel.md#user-inductives-constructors-and-branches).
+
+Elimination of inductive propositions into
 data-type universes is restricted to empty inductives or a single constructor
 whose fields are all proofs whenever the family sort is zero. For every field,
 `imax(fieldSort, familySort) <= familySort` must hold. Unless that elimination
@@ -2085,7 +2120,10 @@ exception applies, whenever a symbolic family sort could be zero the motive
 sort must also be zero. Correlated family and motive sorts using the same `u`
 can satisfy this condition; an independent data universe allowing a positive
 motive sort when the family is Prop cannot. `#pt-false` is an empty proposition.
-General Sort and guarded elimination do not add cumulativity or type-in-type,
+Indexed families do not receive unit or K optimization: fieldless unit
+conversion and neutral recursor reduction are limited to unindexed families
+because indexed families have distinct fibres. General Sort and guarded
+elimination do not add cumulativity or type-in-type,
 and do not complete the FLT proof port. Proof irrelevance is the separate typed
 conversion rule described below.
 
@@ -2144,14 +2182,16 @@ General user-inductive record eta with fields remains unsupported; full Lean
 eta is not claimed.
 
 A unit-like data rule also identifies well-typed values of the same fully
-applied user datatype when it has exactly one zero-field constructor. Neutral
-variables, function results, and constructor values are included, with checked
+applied, unindexed user datatype when it has exactly one zero-field
+constructor. Indexed families are excluded because their indices identify
+distinct fibres. Neutral variables, function results, and constructor values are included, with checked
 matching nominal family, parameters, and universe levels. The rule is
 universe-polymorphic and concerns values, not equality of datatype types.
 It does not identify different nominal types or parameter/level instantiations,
 and does not apply to constructors with data or recursive fields, Nat, or False.
-A recursor over such fieldless data reduces to its sole branch for a neutral
-subject, consistently with the existing fieldless singleton-Prop computation.
+A recursor over such unindexed fieldless data reduces to its sole branch for a
+neutral subject, consistently with the existing fieldless singleton-Prop
+computation; indexed families receive no such optimization.
 Pi/Sigma eta can compose with this rule and proof irrelevance through proof or
 qualifying unit-like fields. Source evidence and the shared type remain fully
 checked, and opaque theorem bodies stay opaque. This adds no syntax or general
@@ -3031,6 +3071,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
+| `#indices` | `(#indices (#parameter index TYPE)...)` | `(#indices (#parameter n #pt-nat))` (indexed mathematical inductive or eliminator) | Explicit nonempty index telescope; each index type may depend on parameters and earlier indices. |
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
@@ -3042,7 +3083,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
 | `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
-| `#math-inductive` | `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...))` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (top level) | Regular mathematical inductive with explicit universe parameters, datatype parameters, sort, constructors, and direct recursive fields; no indices, nested self, or mutual recursion. |
+| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Indexed constructors give exact result indices; mutual and nested recursion and negative occurrences remain unsupported. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
@@ -3120,7 +3161,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-eq-elim` | `(#pt-eq-elim Type lhs motive base rhs equality)` | `(#pt-eq-elim #pt-nat a (#pt-lambda ((x #pt-nat) (h (#pt-eq #pt-nat a x))) (#pt-eq #pt-nat x x)) (#pt-refl #pt-nat a) b e)` (mathematical term) | Dependent equality elimination; motive takes x and evidence of Eq(lhs,x), and base supplies its value at reflexivity. |
 | `#pt-false` | `#pt-false` | `(#pt-pi ((h #pt-false)) #pt-false)` (mathematical proposition) | Empty proposition with no introduction constructor; no admit or unchecked axiom creates an inhabitant. |
 | `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
-| `#pt-induct` | `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)` | `(#pt-induct ticks () () (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat) (#pt-zero (#pt-lambda ((p (#pt-use ticks ())) (ih #pt-nat)) (#pt-succ ih))) t)` (mathematical term) | Eliminates a user inductive with branches in constructor order; an induction hypothesis follows each recursive field. Prop-to-Type elimination is restricted. |
+| `#pt-induct` | Regular: `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)`; indexed: `(#pt-induct family (levels...) (parameters...) (#indices index-terms...) motive (branches...) subject)` | `(#pt-induct vector (0) (#pt-nat) (#indices (#pt-numeral 2)) motive (nil-branch cons-branch) v)` (mathematical term; schematic) | Eliminates a user inductive in constructor order. Indexed motives bind fresh generic indices before the subject; each recursive field is followed by an IH at the child's indices. Prop-to-Type elimination is restricted. |
 | `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
 | `#pt-let` | `(#pt-let (#parameter NAME TYPE) VALUE BODY)` | `(#theorem zero-via-alias (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat (#pt-refl Alias #pt-zero))))` (mathematical theorem declaration) | Typed local binding with TYPE and VALUE in the outer scope and NAME only in BODY. Checks the annotation sort and value type before substitution and body inference; supports true aliases and zeta reduction. No local/universe shadowing, implicit typing, or recursion; unused bad values and exhausted budgets still fail. |
 | `#pt-level-imax` | `(#pt-level-imax LEFT RIGHT)` | `(#math-definition prop-imax () (#pt-type 0) (#pt-sort (#pt-level-imax 2 0)))` (mathematical definition) | Explicit two-operand universe operation: zero if RIGHT is zero, otherwise max(LEFT, RIGHT). Pi sorts use imax(domainLevel, rangeLevel); symbolic relationships are checked for all nonnegative assignments within resource budgets. |
@@ -3135,7 +3176,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
-| `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
+| `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Direct recursive field marker for regular inductives only; nested occurrences are unsupported. |
+| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Direct recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
 | `#pt-sort` | `(#pt-sort LEVEL)` | `(#math-definition prop-sort () (#pt-type 0) (#pt-sort 0))` (mathematical definition) | General Sort LEVEL with an explicit universe expression; level zero is Prop and Type u is Sort (succ u). A sort inhabits its successor sort, without inference, cumulativity, or type-in-type. |
 | `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |

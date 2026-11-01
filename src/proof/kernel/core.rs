@@ -49,21 +49,25 @@ pub(super) enum Term {
         family: String,
         levels: Vec<Level>,
         parameters: Vec<T>,
+        indices: Vec<T>,
         motive: T,
         branches: Vec<T>,
         subject: T,
     },
     SelfType,
+    SelfAt(Vec<T>),
 }
 #[derive(Clone)]
 pub(super) struct Constructor {
     pub name: String,
     pub fields: Vec<T>,
     pub recursive: Vec<bool>,
+    pub result_indices: Vec<T>,
 }
 #[derive(Clone)]
 pub(super) struct Family {
     pub parameters: Vec<T>,
+    pub indices: Vec<T>,
     pub sort: Level,
     pub constructors: Vec<Constructor>,
     pub large: bool,
@@ -88,17 +92,20 @@ impl Kernel {
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
             parameters: vec![],
+            indices: vec![],
             sort: Level::number(1).unwrap(),
             constructors: vec![
                 Constructor {
                     name: "zero".into(),
                     fields: vec![],
                     recursive: vec![],
+                    result_indices: vec![],
                 },
                 Constructor {
                     name: "succ".into(),
                     fields: vec![nat],
                     recursive: vec![true],
+                    result_indices: vec![],
                 },
             ],
             large: true,
@@ -120,6 +127,7 @@ impl Kernel {
                 value: None,
                 family: Some(Family {
                     parameters: vec![],
+                    indices: vec![],
                     sort: Level::number(0).unwrap(),
                     constructors: vec![],
                     large: true,
@@ -213,13 +221,50 @@ impl Kernel {
         sort: Level,
         constructors: Vec<(String, Vec<T>)>,
     ) -> Result<()> {
+        self.declare_inductive(
+            name,
+            universes,
+            parameters,
+            vec![],
+            sort,
+            constructors
+                .into_iter()
+                .map(|(n, f)| (n, f, vec![]))
+                .collect(),
+        )
+    }
+    pub fn indexed_inductive(
+        &mut self,
+        name: &str,
+        universes: Vec<String>,
+        parameters: Vec<T>,
+        indices: Vec<T>,
+        sort: Level,
+        constructors: Vec<(String, Vec<T>, Vec<T>)>,
+    ) -> Result<()> {
+        if indices.is_empty() {
+            return Err("indexed inductives require at least one index".into());
+        }
+        self.declare_inductive(name, universes, parameters, indices, sort, constructors)
+    }
+    fn declare_inductive(
+        &mut self,
+        name: &str,
+        universes: Vec<String>,
+        parameters: Vec<T>,
+        indices: Vec<T>,
+        sort: Level,
+        constructors: Vec<(String, Vec<T>, Vec<T>)>,
+    ) -> Result<()> {
         if self.declarations.contains_key(name) {
             return Err("duplicate kernel declaration".into());
         }
         let mut scoped = parameters.clone();
+        scoped.extend(indices.iter().cloned());
         scoped.push(term(Term::Sort(sort.clone())));
-        for (_, fields) in &constructors {
+        for (_, fields, results) in &constructors {
             scoped.extend(fields.iter().cloned());
+            scoped.extend(results.iter().cloned());
         }
         self.scope(&universes, &scoped)?;
         let mut context = vec![];
@@ -227,9 +272,15 @@ impl Kernel {
             self.sort(&context, parameter, 0)?;
             context.push(parameter.clone());
         }
-        let family_type = pis(&parameters, term(Term::Sort(sort.clone())));
+        let mut index_context = context.clone();
+        for index in &indices {
+            self.sort(&index_context, index, 0)?;
+            index_context.push(index.clone());
+        }
+        let family_type = pis(&parameters, pis(&indices, term(Term::Sort(sort.clone()))));
         let mut family = Family {
             parameters: parameters.clone(),
+            indices: indices.clone(),
             sort: sort.clone(),
             constructors: vec![],
             large: constructors.len() <= 1,
@@ -249,7 +300,7 @@ impl Kernel {
             .collect::<Vec<_>>();
         let outcome = (|| {
             let mut labels = std::collections::HashSet::new();
-            for (constructor, fields) in constructors {
+            for (constructor, fields, result_indices) in constructors {
                 if !labels.insert(constructor.clone()) {
                     return Err("duplicate inductive constructor".into());
                 }
@@ -257,15 +308,39 @@ impl Kernel {
                 let mut checked = vec![];
                 let mut recursive = vec![];
                 for field in fields {
-                    let direct = matches!(field.as_ref(), Term::SelfType);
-                    let field = if direct {
+                    let recursive_indices = match field.as_ref() {
+                        Term::SelfType if indices.is_empty() => Some(vec![]),
+                        Term::SelfType => return Err(
+                            "indexed recursive fields require #pt-self-at with explicit indices"
+                                .into(),
+                        ),
+                        Term::SelfAt(values) => {
+                            if indices.is_empty() || values.len() != indices.len() {
+                                return Err(
+                                    "#pt-self-at index count does not match the indexed family"
+                                        .into(),
+                                );
+                            }
+                            if values.iter().any(|value| contains_recursive(value, name)) {
+                                return Err(
+                                    "recursive occurrences in an index violate strict positivity"
+                                        .into(),
+                                );
+                            }
+                            Some(values.clone())
+                        }
+                        _ => None,
+                    };
+                    let direct = recursive_indices.is_some();
+                    let field = if let Some(values) = recursive_indices {
                         let params = (0..parameters.len())
                             .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
                             .collect::<Vec<_>>();
-                        apps(term(Term::Global(name.into(), levels.clone())), &params)
+                        let family = apps(term(Term::Global(name.into(), levels.clone())), &params);
+                        apps(family, &values)
                     } else {
                         if contains_recursive(&field, name) {
-                            return Err("inductive recursion must be a direct #pt-self field (strict positivity)".into());
+                            return Err("inductive recursion must be a direct #pt-self or #pt-self-at field (strict positivity)".into());
                         }
                         field
                     };
@@ -278,10 +353,28 @@ impl Kernel {
                     checked.push(field);
                     recursive.push(direct);
                 }
+                if result_indices.len() != indices.len() {
+                    return Err("constructor result index count does not match the family".into());
+                }
+                if result_indices
+                    .iter()
+                    .any(|value| contains_recursive(value, name))
+                {
+                    return Err("recursive occurrences in constructor result indices violate strict positivity".into());
+                }
+                let params = (0..parameters.len())
+                    .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
+                    .collect::<Vec<_>>();
+                let result = apps(
+                    apps(term(Term::Global(name.into(), levels.clone())), &params),
+                    &result_indices,
+                );
+                self.sort(&ctx, &result, 0)?;
                 family.constructors.push(Constructor {
                     name: constructor,
                     fields: checked,
                     recursive,
+                    result_indices,
                 });
             }
             self.declarations.insert(
@@ -353,6 +446,12 @@ impl Kernel {
             .map(|i| term(Term::Var(count - 1 - i)))
             .collect::<Vec<_>>();
         let result = apps(term(Term::Global(name.into(), levels.to_vec())), &params);
+        let indices = ctor
+            .result_indices
+            .iter()
+            .map(|value| self.universes(value, &map, depth + 1))
+            .collect::<Result<Vec<_>>>()?;
+        let result = apps(result, &indices);
         // The return already uses specialized universe levels. Substitute only
         // telescope annotations, never substitute the caller's levels again.
         let mut domains = vec![];
@@ -507,6 +606,7 @@ impl Kernel {
                 family,
                 levels,
                 parameters,
+                indices,
                 motive,
                 branches,
                 subject,
@@ -515,12 +615,15 @@ impl Kernel {
                 family,
                 levels,
                 parameters,
+                indices,
                 motive,
                 branches,
                 subject,
                 depth + 1,
             ),
-            Term::SelfType => Err("#pt-self is only valid as a direct inductive field type".into()),
+            Term::SelfType | Term::SelfAt(_) => {
+                Err("recursive markers are only valid as direct inductive field types".into())
+            }
         }
     }
     #[expect(clippy::too_many_arguments)]
@@ -591,26 +694,58 @@ impl Kernel {
         name: &str,
         levels: &[Level],
         parameters: &[T],
+        indices: &[T],
         motive: &T,
         branches: &[T],
         subject: &T,
         depth: usize,
     ) -> Result<T> {
         let (desc, map) = self.family(name, levels, depth + 1)?;
-        if parameters.len() != desc.parameters.len() || branches.len() != desc.constructors.len() {
-            return Err("induction parameter or branch count mismatch".into());
+        if parameters.len() != desc.parameters.len()
+            || indices.len() != desc.indices.len()
+            || branches.len() != desc.constructors.len()
+        {
+            return Err("induction parameter, index, or branch count mismatch".into());
         }
         let (decl, _) = self.specialization(name, levels, depth + 1)?;
         let ty = self.universes(&decl.ty, &map, depth + 1)?;
-        self.arguments(ctx, ty, parameters, depth + 1)?;
-        let family_type = apps(term(Term::Global(name.into(), levels.to_vec())), parameters);
+        let index_telescope = self.arguments(ctx, ty, parameters, depth + 1)?;
+        self.arguments(ctx, index_telescope.clone(), indices, depth + 1)?;
+        let family = apps(term(Term::Global(name.into(), levels.to_vec())), parameters);
+        let family_type = apps(family.clone(), indices);
         self.check(ctx, subject, &family_type, depth + 1)?;
-        let mt = self.infer(ctx, motive, depth + 1)?;
-        let mt = self.whnf(ctx, &mt, depth + 1)?;
+        // Validate the motive at fresh generic indices. Checking it only at
+        // this subject's concrete indices would accept a frozen-index motive.
+        let mut mt = self.infer(ctx, motive, depth + 1)?;
+        let mut telescope = index_telescope;
+        let mut motive_context = ctx.to_vec();
+        let mut generic_family = family;
+        for _ in &desc.indices {
+            let expected = self.whnf(&motive_context, &telescope, depth + 1)?;
+            let actual = self.whnf(&motive_context, &mt, depth + 1)?;
+            let (Term::Pi(domain, rest), Term::Pi(actual_domain, actual_rest)) =
+                (expected.as_ref(), actual.as_ref())
+            else {
+                return Err("induction motive must bind every index".into());
+            };
+            if !self.convertible(&motive_context, domain, actual_domain, depth + 1)? {
+                return Err("induction motive has the wrong index type".into());
+            }
+            motive_context.push(domain.clone());
+            telescope = rest.clone();
+            mt = actual_rest.clone();
+            generic_family = term(Term::App(
+                self.shift(&generic_family, 1, 0, depth + 1)?,
+                term(Term::Var(0)),
+            ));
+        }
+        let mt = self.whnf(&motive_context, &mt, depth + 1)?;
         let Term::Pi(domain, range) = mt.as_ref() else {
             return Err("induction motive must bind its subject".into());
         };
-        let mut motive_context = ctx.to_vec();
+        if !self.convertible(&motive_context, domain, &generic_family, depth + 1)? {
+            return Err("induction motive has the wrong generic subject type".into());
+        }
         motive_context.push(domain.clone());
         if !matches!(
             self.whnf(&motive_context, range, depth + 1)?.as_ref(),
@@ -618,10 +753,7 @@ impl Kernel {
         ) {
             return Err("induction motive must return a fixed universe sort".into());
         }
-        if !self.convertible(ctx, domain, &family_type, depth + 1)? {
-            return Err("induction motive has the wrong subject type".into());
-        }
-        let result = apps(motive.clone(), std::slice::from_ref(subject));
+        let result = apps(apps(motive.clone(), indices), std::slice::from_ref(subject));
         let target_sort = self.sort(ctx, &result, depth + 1)?;
         if !desc.large
             && !desc
@@ -668,6 +800,11 @@ impl Kernel {
             let Term::Pi(domain, body) = reduced.as_ref() else {
                 return Err("invalid constructor field telescope".into());
             };
+            let recursive_indices = if is_recursive {
+                self.family_indices(&inner, name, levels, &params, domain, depth + 1)?
+            } else {
+                vec![]
+            };
             domains.push(domain.clone());
             inner.push(domain.clone());
             ty = body.clone();
@@ -676,7 +813,11 @@ impl Kernel {
             params = self.shift_many(&params, 1, depth + 1)?;
             motive = self.shift(&motive, 1, 0, depth + 1)?;
             if is_recursive {
-                let ih = term(Term::App(motive.clone(), term(Term::Var(0))));
+                let recursive_indices = self.shift_many(&recursive_indices, 1, depth + 1)?;
+                let ih = apps(
+                    apps(motive.clone(), &recursive_indices),
+                    &[term(Term::Var(0))],
+                );
                 domains.push(ih.clone());
                 inner.push(ih);
                 ty = self.shift(&ty, 1, 0, depth + 1)?;
@@ -685,6 +826,7 @@ impl Kernel {
                 motive = self.shift(&motive, 1, 0, depth + 1)?;
             }
         }
+        let result_indices = self.family_indices(&inner, name, levels, &params, &ty, depth + 1)?;
         let value = term(Term::Ctor {
             family: name.into(),
             levels: levels.to_vec(),
@@ -692,7 +834,47 @@ impl Kernel {
             constructor: ctor.name.clone(),
             fields: args,
         });
-        Ok(pis(&domains, term(Term::App(motive, value))))
+        Ok(pis(
+            &domains,
+            term(Term::App(apps(motive, &result_indices), value)),
+        ))
+    }
+    fn family_indices(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        ty: &T,
+        depth: usize,
+    ) -> Result<Vec<T>> {
+        let (desc, _) = self.family(name, levels, depth + 1)?;
+        let mut head = self.whnf(ctx, ty, depth + 1)?;
+        let mut arguments = vec![];
+        while let Term::App(function, argument) = head.as_ref() {
+            self.tick(depth)?;
+            arguments.push(argument.clone());
+            head = function.clone();
+        }
+        arguments.reverse();
+        let Term::Global(actual, actual_levels) = head.as_ref() else {
+            return Err("expected a fully applied inductive family".into());
+        };
+        if actual != name
+            || !same_levels(levels, actual_levels)?
+            || arguments.len() != desc.parameters.len() + desc.indices.len()
+        {
+            return Err("inductive family application has the wrong head or arity".into());
+        }
+        if !self.same_many(
+            ctx,
+            parameters,
+            &arguments[..desc.parameters.len()],
+            depth + 1,
+        )? {
+            return Err("recursive inductive parameters must remain uniform".into());
+        }
+        Ok(arguments.split_off(desc.parameters.len()))
     }
     fn whnf(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<T> {
         self.tick(depth)?;
@@ -750,6 +932,7 @@ impl Kernel {
                     family,
                     levels,
                     parameters,
+                    indices: _,
                     motive,
                     branches,
                     subject,
@@ -766,7 +949,10 @@ impl Kernel {
                         // A fieldless singleton's subject equals its sole
                         // constructor, for both data and propositions. Its
                         // recursor must respect that constructor computation.
-                        if desc.constructors.len() == 1 && desc.constructors[0].fields.is_empty() {
+                        if desc.indices.is_empty()
+                            && desc.constructors.len() == 1
+                            && desc.constructors[0].fields.is_empty()
+                        {
                             value = branches
                                 .first()
                                 .cloned()
@@ -787,8 +973,27 @@ impl Kernel {
                         .get(index)
                         .cloned()
                         .ok_or("missing induction branch")?;
+                    let (mut telescope, _) =
+                        self.constructor_type(family, levels, constructor, depth + 1)?;
+                    for parameter in parameters {
+                        let reduced = self.whnf(ctx, &telescope, depth + 1)?;
+                        let Term::Pi(_, body) = reduced.as_ref() else {
+                            return Err("invalid constructor parameter telescope".into());
+                        };
+                        telescope = self.instantiate(body, parameter, depth + 1)?;
+                    }
                     for (field, recursive) in fields.iter().zip(&desc.constructors[index].recursive)
                     {
+                        let reduced = self.whnf(ctx, &telescope, depth + 1)?;
+                        let Term::Pi(domain, body) = reduced.as_ref() else {
+                            return Err("invalid constructor field telescope".into());
+                        };
+                        let child_indices = if *recursive {
+                            self.family_indices(ctx, family, levels, parameters, domain, depth + 1)?
+                        } else {
+                            vec![]
+                        };
+                        telescope = self.instantiate(body, field, depth + 1)?;
                         result = term(Term::App(result, field.clone()));
                         if *recursive {
                             result = term(Term::App(
@@ -797,6 +1002,7 @@ impl Kernel {
                                     family: family.clone(),
                                     levels: levels.clone(),
                                     parameters: parameters.clone(),
+                                    indices: child_indices,
                                     motive: motive.clone(),
                                     branches: branches.clone(),
                                     subject: field.clone(),
@@ -876,6 +1082,7 @@ impl Kernel {
                     family: a,
                     levels: u,
                     parameters: p,
+                    indices: i,
                     motive: m,
                     branches: r,
                     subject: s,
@@ -884,6 +1091,7 @@ impl Kernel {
                     family: b,
                     levels: v,
                     parameters: q,
+                    indices: j,
                     motive: n,
                     branches: t,
                     subject: w,
@@ -891,6 +1099,7 @@ impl Kernel {
             ) => Ok(a == b
                 && same_levels(u, v)?
                 && self.same_many(ctx, p, q, depth + 1)?
+                && self.same_many(ctx, i, j, depth + 1)?
                 && self.convertible(ctx, m, n, depth + 1)?
                 && self.same_many(ctx, r, t, depth + 1)?
                 && self.convertible(ctx, s, w, depth + 1)?),
@@ -987,6 +1196,7 @@ impl Kernel {
             .and_then(|declaration| declaration.family.as_ref())
             .is_some_and(|family| {
                 family.parameters.len() == supplied
+                    && family.indices.is_empty()
                     && family.constructors.len() == 1
                     && family.constructors[0].fields.is_empty()
             }))
@@ -1152,6 +1362,7 @@ impl Kernel {
                 family,
                 levels,
                 parameters,
+                indices,
                 motive,
                 branches,
                 subject,
@@ -1159,11 +1370,13 @@ impl Kernel {
                 family: family.clone(),
                 levels: levels.iter().map(&mut *level).collect::<Result<_>>()?,
                 parameters: many!(parameters),
+                indices: many!(indices),
                 motive: walk!(motive),
                 branches: many!(branches),
                 subject: walk!(subject),
             },
             Term::SelfType => Term::SelfType,
+            Term::SelfAt(indices) => Term::SelfAt(many!(indices)),
         }))
     }
 }
@@ -1181,7 +1394,7 @@ fn pis(domains: &[T], mut body: T) -> T {
 }
 fn contains_recursive(t: &T, name: &str) -> bool {
     match t.as_ref() {
-        Term::SelfType => true,
+        Term::SelfType | Term::SelfAt(_) => true,
         Term::Global(global, _) if global == name => true,
         Term::Ctor { family, .. } | Term::Induct { family, .. } if family == name => true,
         Term::Pi(a, b)
@@ -1213,12 +1426,14 @@ fn contains_recursive(t: &T, name: &str) -> bool {
             .any(|t| contains_recursive(t, name)),
         Term::Induct {
             parameters,
+            indices,
             motive,
             branches,
             subject,
             ..
         } => parameters
             .iter()
+            .chain(indices)
             .chain(branches)
             .chain([motive, subject])
             .any(|t| contains_recursive(t, name)),

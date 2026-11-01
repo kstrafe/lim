@@ -105,7 +105,9 @@ The public mathematical theorem form is:
 
 The procedural shorthand is `(#theorem NAME CLAIM)`. Data definitions use
 `(#math-definition NAME (universes...) TYPE VALUE)`; regular inductives use
-`(#math-inductive NAME (universes...) (parameters...) SORT (constructors...))`.
+`(#math-inductive NAME (universes...) (parameters...) SORT (constructors...))`,
+and indexed inductives add a nonempty `#indices` telescope and constructor
+result indices. The regular syntax remains unchanged.
 `#proof` is only a theorem evidence clause. Private kernel wrappers are not
 public declaration syntax. The inner `#pt-` language remains explicit, including
 universe instantiation, typed binders, applications, and induction.
@@ -121,9 +123,9 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 
 | Required area | Current boundary | Work needed for a full port |
 | --- | --- | --- |
-| Inductive families | Regular parameterized datatypes with direct recursive fields. No indices, mutual recursion, or nested self occurrences. | Implement and audit indexed, mutual, and nested inductives, their positivity conditions, recursors, and computation rules. |
+| Inductive families | Regular families plus indexed families with explicit index telescopes, direct `#pt-self-at` recursion, result indices, and indexed elimination. Index types scope over parameters and earlier indices; fields over parameters and earlier fields; result indices over parameters and all fields. Exact arity and universe checks apply. Nested, negative, and current-index self occurrences, mutual recursion, and nested inductives remain unsupported. | Audit indexed positivity, fibre-sensitive recursors, and computation against imported elaborated terms; implement and audit mutual and nested inductives for a full port. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
-| Conversion | Beta, transparent delta, typed-local-let zeta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. Same-type values of a fully applied one-constructor, zero-field user datatype convert by the unit-like data rule, including neutrals; its recursor reduces to the sole branch on a neutral subject. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
+| Conversion | Beta, transparent delta, typed-local-let zeta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. Symmetric type-directed Pi/Sigma eta compares any two same-typed terms through fresh applications or dependent projections, with rigid neutral head/subject comparison preventing repeated expansion. It retains shifted binder contexts and fully infers source evidence before reduction; opaque theorem bodies stay opaque. The unit-like data rule and fieldless neutral recursor reduction apply only to unindexed, fully applied one-constructor zero-field families. Indexed families receive neither unit nor K optimization because their fibres differ. No general user-inductive record eta with fields or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
@@ -146,8 +148,9 @@ resource limits, not a finite model of universe values.
 Guarded large elimination requires a proposition-valued motive whenever the
 family sort is zero, unless the empty/singleton-proof exception holds. Matching
 family and motive variables retain their correlation; independent levels must
-satisfy the condition for every assignment. Indexed, mutual, and nested
-inductives are still absent, as is a full FLT proof port.
+satisfy the condition for every assignment. Indexed families are supported,
+but mutual and nested inductives remain absent. This is not a full FLT proof
+port.
 
 Typed definitional proof irrelevance is now supported for well-typed proofs of
 the same proposition, following the concept in Lean 4.33.1's
@@ -180,14 +183,16 @@ unsupported. This is not full Lean eta or conversion parity. The implemented
 kernel is not formally verified, and these changes do not supply the missing
 FLT proof.
 
-A separate unit-like data rule now compares well-typed values of a fully
-applied user datatype with exactly one zero-field constructor, including
-neutral variables, neutral results, and constructor values. It is symmetric
+A separate unit-like data rule compares well-typed values of a fully applied,
+unindexed user datatype with exactly one zero-field constructor, including
+neutral variables, neutral results, and constructor values. Indexed families
+are excluded because their indices identify distinct fibres. The rule is symmetric
 and universe-polymorphic, with the same nominal family, checked parameters,
 and universe instantiation required. It does not equate datatype types,
 different families or parameter/level applications, data-bearing or recursive
-constructors, Nat, or False. Neutral recursors for qualifying data reduce to
-the sole branch, consistently with the existing fieldless singleton-Prop rule.
+constructors, Nat, or False. Neutral recursors for qualifying unindexed data
+reduce to the sole branch, consistently with the existing fieldless
+singleton-Prop rule; indexed families receive no such optimization.
 Pi and primitive Sigma eta compose with these value rules and proof irrelevance
 through proof or qualifying unit-like components, after source typing has been
 checked. This is not general record eta, a new syntax form, or full Lean parity;

@@ -249,12 +249,17 @@ all proof forms; the Neovim syntax tests also reject partial keyword matches.
 Mathematical definitions and datatypes are direct declarations:
 `(#math-definition name (universes...) TYPE VALUE)` and
 `(#math-inductive name (universes...) ((parameter Type)...) SORT
-((constructor ((field Type)...))...))`. Their names navigate to their own source
+((constructor ((field Type)...))...))`, with an indexed form that inserts
+`(#indices (#parameter name Type)...)` before `SORT` and gives each constructor
+an output index list after its fields. Their names navigate to their own source
 tokens. Universe parameters scope over the remaining declaration operands.
-Datatype parameters are sequential kernel term bindings, available in the sort
-and every constructor's field types. Each constructor gets a separate sequential
-field scope; earlier fields are visible in later types and fields never escape
-into another constructor. Constructor names navigate to their declaration tokens.
+Datatype parameters are sequential kernel term bindings. In indexed declarations,
+index binder types see datatype parameters and earlier indices, the sort sees all
+indices, and constructor fields see datatype parameters plus earlier fields.
+Declared index binders are deliberately unavailable in constructor field types.
+Constructor output indices see all constructor fields. Each constructor gets a
+separate sequential field scope; fields never escape into another constructor.
+Constructor names navigate to their declaration tokens in either form.
 
 A mathematical theorem uses shared explicit binders:
 
@@ -324,6 +329,11 @@ always occupy a list, including the empty list.
 
 `#pt-construct` and `#pt-induct` select a `#math-inductive` declaration. Explicit
 levels use the universe scope; parameter values use the current term scope.
+Indexed `#pt-induct` adds an index expression list after the parameter list;
+those expressions, the shifted motive, branches and subject use the current term
+scope. `(#pt-self-at (index-expr...))` gives its index expressions ordinary
+kernel term roles. The `#indices` and `#pt-self-at` tokens are metadata and have
+no definition.
 A construction's label resolves only to a unique constructor of that datatype,
 never an unrelated global or another datatype's same-spelled constructor.
 Field values, induction motives, branch terms and subjects use the current term

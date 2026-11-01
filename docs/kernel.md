@@ -356,11 +356,29 @@ symbolic value to `#pt-nat`.
 
 ## User inductives, constructors, and branches
 
-The initial user-inductive language supports parameters and direct recursive
-fields. It does not support indices, nested recursive occurrences, or mutual
-recursion. Write `#pt-self` only as the complete type of a direct recursive
-constructor field, not inside a Pi, Sigma, parameter application, or another
-type former. It is not a general reference to the enclosing declaration.
+User inductives support both the original regular form and an indexed form.
+The regular `#math-inductive` syntax and bare `#pt-self` behavior remain
+unchanged. An indexed declaration has a nonempty explicit `#indices` clause;
+its index telescope follows the datatype parameters, and each index type may
+refer to those parameters and earlier indices:
+
+```lisp
+(#math-inductive NAME (u...)
+  ((parameter Type)...)
+  (#indices (#parameter index TYPE)...)
+  SORT
+  ((constructor ((field TYPE)...) (result-index...))...))
+```
+
+Constructor fields may refer to datatype parameters and earlier fields. Each
+constructor supplies one result index per declared index, and those terms may
+refer to the parameters and all its fields. Field types and result indices are
+checked at exact arity and universe. `#pt-self-at` marks direct recursive
+fields in an indexed family and takes explicit index terms; datatype parameters
+are inherited implicitly from the declaration. Bare `#pt-self` remains for
+regular inductives only. Mutual recursion and nested self occurrences remain
+unsupported, as do negative occurrences and self occurrences in the current
+family's indices.
 
 A small datatype with no parameters is:
 
@@ -435,9 +453,68 @@ For `ticks`, counting constructors is:
       t)))
 ```
 
-The kernel checks constructor types, recursive positions, branch types, and
-universe constraints. A declaration is not accepted merely because its surface
-syntax resembles a familiar inductive datatype.
+An indexed vector family illustrates constructor result indices and recursive
+fields. The `cons` constructor returns a vector at the successor length:
+
+```lisp
+(#math-inductive vector
+  (u)
+  ((A (#pt-type u)))
+  (#indices (#parameter n #pt-nat))
+  (#pt-type u)
+  ((nil () (#pt-zero))
+   (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k))))
+         ((#pt-succ k)))))
+```
+
+Here the `k` field is the predecessor length, the recursive tail has that
+length, and the constructed vector has its successor length. A vector at
+length two has type
+`(#pt-app (#pt-app (#pt-use vector (0)) #pt-nat) (#pt-numeral 2))`.
+
+The indexed eliminator puts generic indices before the subject in the motive.
+The generic index binders are fresh, preventing the motive from freezing an
+index to the subject's particular index. The subject has the family at those
+generic indices:
+
+```text
+(#pt-induct family (levels...) (parameters...)
+  (#indices index-terms...) motive (branches...) subject)
+```
+
+Each branch follows constructor field order. A direct recursive field is
+immediately followed by an induction hypothesis at that child's indices. The
+branch result is checked at the constructor's declared result indices.
+Regular `#pt-induct` keeps its existing syntax and behavior.
+
+As a proposition-valued example, this family has evidence only at zero:
+
+```lisp
+(#math-inductive zero-index
+  ()
+  ()
+  (#indices (#parameter n #pt-nat))
+  #pt-prop
+  ((zero-index-proof () (#pt-zero))))
+
+(#math-definition zero-index-identity
+  ()
+  (#pt-pi ((n #pt-nat))
+    (#pt-pi ((h (#pt-app (#pt-use zero-index ()) n)))
+      (#pt-eq #pt-nat n #pt-zero)))
+  (#pt-lambda ((n #pt-nat) (h (#pt-app (#pt-use zero-index ()) n)))
+    (#pt-induct zero-index () () (#indices n)
+      (#pt-lambda
+        ((generic-n #pt-nat)
+         (generic-proof (#pt-app (#pt-use zero-index ()) generic-n)))
+        (#pt-eq #pt-nat generic-n #pt-zero))
+      ((#pt-refl #pt-nat #pt-zero))
+      h)))
+```
+
+The kernel checks constructor types, recursive positions, result indices,
+branch types, and universe constraints. It rejects nested, negative, or
+current-index occurrences of the family.
 
 ## Falsehood and elimination from propositions
 
@@ -465,8 +542,10 @@ This prevents arbitrary extraction of computational data from propositional
 witnesses. Definitional proof irrelevance identifies well-typed proofs of the
 same proposition; it does not waive this elimination restriction or identify
 data values. The restriction is a kernel rule, not a runtime representation
-or erasure promise. Indexed, mutual, and nested
-inductives remain unsupported.
+or erasure promise. Indexed families have no unit or K optimization: fieldless
+unit conversion and neutral recursor reduction for fieldless families apply
+only to unindexed families, since indexed families have distinct fibres.
+Mutual and nested inductives remain unsupported.
 
 ## Reuse evidence about native programs
 
@@ -640,8 +719,9 @@ retain the same proof-irrelevance behavior under type-directed comparison,
 without recursive re-expansion or collapse of distinct data components.
 
 A separate unit-like data conversion rule identifies any two well-typed values
-of the same fully applied user datatype when that datatype has exactly one
-constructor with zero fields. The rule covers neutral variables, neutral
+of the same fully applied, unindexed user datatype when that datatype has
+exactly one constructor with zero fields. Indexed families are excluded
+because their indices identify distinct fibres. The rule covers neutral variables, neutral
 function results, and the constructor value in either comparison orientation.
 It is universe-polymorphic, but both values must have the same checked nominal
 family, universe instantiation, and datatype parameters.
@@ -653,9 +733,10 @@ field or recursive field does not qualify. Neither Nat nor the empty proposition
 False qualifies. Such cases must still be checked by the other conversion
 rules; this rule supplies no shortcut for their distinct values.
 
-A recursor over qualifying fieldless data reduces to its sole branch even when
-the subject is neutral, just as for the existing fieldless singleton-Prop
-recursor. This preserves computation congruence with the value conversion;
+A recursor over qualifying unindexed fieldless data reduces to its sole branch
+even when the subject is neutral, just as for the existing fieldless
+singleton-Prop recursor. Indexed families receive no such optimization. This
+preserves computation congruence with the value conversion;
 it does not require unfolding an opaque theorem body or inventing an inhabitant.
 Source evidence and the shared fully applied type must be checked before the
 rule is used.

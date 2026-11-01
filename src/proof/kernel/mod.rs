@@ -19,8 +19,10 @@ enum Body {
     },
     Inductive {
         parameters: Vec<T>,
+        indices: Vec<T>,
         sort: Level,
         constructors: Vec<(String, Vec<T>)>,
+        indexed_constructors: Vec<(String, Vec<T>, Vec<T>)>,
     },
 }
 struct Pending {
@@ -86,9 +88,24 @@ pub(super) fn check(
             }
             Body::Inductive {
                 parameters,
+                indices,
                 sort,
                 constructors,
-            } => kernel.inductive(&p.name, p.universes, parameters, sort, constructors),
+                indexed_constructors,
+            } => {
+                if indices.is_empty() {
+                    kernel.inductive(&p.name, p.universes, parameters, sort, constructors)
+                } else {
+                    kernel.indexed_inductive(
+                        &p.name,
+                        p.universes,
+                        parameters,
+                        indices,
+                        sort,
+                        indexed_constructors,
+                    )
+                }
+            }
         };
         result.map_err(|why| (p.name, why))?;
     }
@@ -97,8 +114,16 @@ pub(super) fn check(
 
 fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result<Pending> {
     let (head, args) = form(expr)?;
-    let expected = if head == "#proof-inductive" { 4 } else { 3 };
-    arity(head, args, expected)?;
+    if head == "#proof-inductive" {
+        if !matches!(args.len(), 4 | 5) {
+            return Err(
+                "#proof-inductive requires four regular operands or five operands with #indices"
+                    .into(),
+            );
+        }
+    } else {
+        arity(head, args, 3)?;
+    }
     let mut universes = vec![];
     for u in list(&args[0])? {
         let u = symbol(u)?;
@@ -120,7 +145,39 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
     };
     let body = if head == "#proof-inductive" {
         let parameters = parser.bindings(&args[1], 0)?;
-        let sort = parser.expression(&args[2], 0)?;
+        let indexed = args.len() == 5;
+        let (indices, sort_arg, constructors_arg) = if indexed {
+            let clause = list(&args[2])?;
+            if clause.first().map(|e| symbol(e)).transpose()? != Some("#indices") {
+                return Err("indexed inductives require an explicit #indices clause".into());
+            }
+            if clause.len() < 2 || clause.len() > 65 {
+                return Err(
+                    "#indices requires between 1 and 64 explicit #parameter binders".into(),
+                );
+            }
+            let mut indices = Vec::new();
+            for entry in &clause[1..] {
+                let parts = list(entry)?;
+                if parts.len() != 3 || symbol(&parts[0])? != "#parameter" {
+                    return Err("#indices entries have the form (#parameter name Type)".into());
+                }
+                let name = symbol(&parts[1])?;
+                binder(name)?;
+                if parser.locals.iter().any(|n| n == name) || parser.universes.contains(name) {
+                    return Err(format!(
+                        "kernel binding '{name}' shadows an existing binding"
+                    ));
+                }
+                let ty = parser.expression(&parts[2], 1)?;
+                parser.locals.push(name.into());
+                indices.push(ty);
+            }
+            (indices, &args[3], &args[4])
+        } else {
+            (vec![], &args[2], &args[3])
+        };
+        let sort = parser.expression(sort_arg, 0)?;
         let Term::Sort(sort) = sort.as_ref() else {
             return Err(
                 "an inductive declaration requires an explicit #pt-type or #pt-prop sort".into(),
@@ -128,10 +185,16 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
         };
         let mut constructors = vec![];
         let mut labels = HashSet::new();
-        for constructor in list(&args[3])? {
+        let mut indexed_constructors = vec![];
+        for constructor in list(constructors_arg)? {
             let parts = list(constructor)?;
-            if parts.len() != 2 {
-                return Err("constructors have the form (name ((field Type)...))".into());
+            if parts.len() != if indexed { 3 } else { 2 } {
+                return Err(if indexed {
+                    "indexed constructors have the form (name ((field Type)...) (result-index...))"
+                } else {
+                    "constructors have the form (name ((field Type)...))"
+                }
+                .into());
             }
             let label = symbol(&parts[0])?;
             binder(label)?;
@@ -139,17 +202,34 @@ fn parse_declaration(name: &str, expr: &Expr, facts: &HashSet<String>) -> Result
                 return Err("duplicate inductive constructor".into());
             }
             let saved = parser.locals.clone();
+            parser.locals.truncate(parameters.len());
             let fields = parser.bindings(&parts[1], 0)?;
+            let result_indices = if indexed {
+                parser.terms(&parts[2], 0)?
+            } else {
+                vec![]
+            };
             parser.locals = saved;
-            constructors.push((label.into(), fields));
+            if indexed && result_indices.len() != indices.len() {
+                return Err(
+                    "constructor result-index count must match the family's index count".into(),
+                );
+            }
+            if indexed {
+                indexed_constructors.push((label.into(), fields, result_indices));
+            } else {
+                constructors.push((label.into(), fields));
+            }
         }
-        if constructors.len() > 64 {
+        if constructors.len().max(indexed_constructors.len()) > 64 {
             return Err("kernel constructor limit exceeded".into());
         }
         Body::Inductive {
             parameters,
+            indices: indices.to_vec(),
             sort: sort.clone(),
             constructors,
+            indexed_constructors,
         }
     } else {
         let ty = parser.expression(&args[1], 0)?;
@@ -322,9 +402,10 @@ impl Parser<'_> {
                 arity(head,args,1)?;let n=natural(&args[0])?;if n>128{return Err("kernel numeral abbreviation limit is 128; Nat itself is unbounded".into());}
                 let mut value=nat_constructor("zero",vec![]);for _ in 0..n {value=nat_constructor("succ",vec![value]);}Ok(value)
             }
-            "#pt-nat-induct"=>{arity(head,args,4)?;Ok(term(Term::Induct{family:"#pt-nat".into(),levels:vec![],parameters:vec![],motive:self.expression(&args[0],depth+1)?,branches:vec![self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?],subject:self.expression(&args[3],depth+1)?}))},
+            "#pt-nat-induct"=>{arity(head,args,4)?;Ok(term(Term::Induct{family:"#pt-nat".into(),levels:vec![],parameters:vec![],indices:vec![],motive:self.expression(&args[0],depth+1)?,branches:vec![self.expression(&args[1],depth+1)?,self.expression(&args[2],depth+1)?],subject:self.expression(&args[3],depth+1)?}))},
             "#pt-construct"=>{arity(head,args,5)?;let family=self.global(&args[0])?;Ok(term(Term::Ctor{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,constructor:symbol(&args[3])?.into(),fields:self.terms(&args[4],depth+1)?}))},
-            "#pt-induct"=>{arity(head,args,6)?;let family=self.global(&args[0])?;Ok(term(Term::Induct{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,motive:self.expression(&args[3],depth+1)?,branches:self.terms(&args[4],depth+1)?,subject:self.expression(&args[5],depth+1)?}))},
+            "#pt-self-at"=>{arity(head,args,1)?;Ok(term(Term::SelfAt(self.terms(&args[0],depth+1)?)))},
+            "#pt-induct"=>{if args.len()==6{let family=self.global(&args[0])?;Ok(term(Term::Induct{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,indices:vec![],motive:self.expression(&args[3],depth+1)?,branches:self.terms(&args[4],depth+1)?,subject:self.expression(&args[5],depth+1)?}))}else if args.len()==7{let clause=list(&args[3])?;if clause.first().map(|e|symbol(e)).transpose()?!=Some("#indices"){return Err("indexed #pt-induct requires an explicit #indices clause".into());}if clause.len()<2||clause.len()>65{return Err("#pt-induct #indices requires between 1 and 64 index values".into());}let indices=clause[1..].iter().map(|e|self.expression(e,depth+1)).collect::<Result<Vec<_>>>()?;let family=self.global(&args[0])?;Ok(term(Term::Induct{family,levels:self.levels(&args[1],depth+1)?,parameters:self.terms(&args[2],depth+1)?,indices,motive:self.expression(&args[4],depth+1)?,branches:self.terms(&args[5],depth+1)?,subject:self.expression(&args[6],depth+1)?}))}else{Err("#pt-induct requires six operands, or seven with an explicit #indices clause".into())}},
             _=>Err(format!("unknown proof-term form '{head}'; no axioms, holes, or unchecked tactics are accepted")),
         }
     }

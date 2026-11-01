@@ -504,6 +504,132 @@ fn inductive_constructor_labels_and_dependent_fields_are_scoped_to_the_datatype(
         ],
     );
 }
+
+#[test]
+fn indexed_inductive_roles_respect_index_and_constructor_visibility() {
+    run(
+        r#"
+      (#math-inductive [[datatype|vector]] () (([[parameter|A]] #pt-type 0) ([[parameter-value|a]] A))
+        (#[[indices-keyword|indices]]
+          (#parameter [[index|n]] (#pt-eq A a a))
+          (#parameter [[second-index|m]] (#pt-eq (#pt-eq A a a) [[prior-index|n]] [[prior-index-right|n]])))
+        (#pt-type 0)
+        (([[cons|cons]] (([[head|x]] (#pt-eq A a a))
+                         ([[tail|xs]] (#pt-eq (#pt-eq A a a) [[prior-field|x]] [[prior-field-right|x]])))
+          ([[first-field-output|x]] [[field-output|xs]]))))
+      (#math-definition eliminate () #pt-nat
+        (#pt-lambda (([[induct-param-binding|A]] #pt-type 0) ([[induct-value-binding|a]] A)
+                     ([[induct-index-binding|i]] (#pt-eq A a a))
+                     ([[induct-second-index-binding|j]] (#pt-eq (#pt-eq A a a) i i))
+                     ([[motive-binding|M]] #pt-nat) ([[branch-binding|B]] #pt-nat) ([[subject-binding|S]] #pt-nat))
+          (#pt-induct [[datatype-use|vector]] () ([[param-use|A]] a)
+            (#[[rec-indices-keyword|indices]] [[index-use|i]] [[second-index-use|j]])
+            [[motive|M]] ([[branch|B]]) [[subject|S]])))
+      (#math-definition self-index () #pt-nat (#pt-lambda (([[self-binding|i]] #pt-nat))
+        (#pt-self-at ([[self-index|i]]))))
+    "#,
+        &[
+            ("datatype", &["datatype"]),
+            ("index", &["index"]),
+            ("parameter-value", &["parameter-value"]),
+            ("second-index", &["second-index"]),
+            ("prior-index", &["index"]),
+            ("prior-index-right", &["index"]),
+            ("indices-keyword", &[]),
+            ("parameter", &["parameter"]),
+            ("head", &["head"]),
+            ("tail", &["tail"]),
+            ("prior-field", &["head"]),
+            ("prior-field-right", &["head"]),
+            ("field-output", &["tail"]),
+            ("first-field-output", &["head"]),
+            ("cons", &["cons"]),
+            ("datatype-use", &["datatype"]),
+            ("param-use", &["induct-param-binding"]),
+            ("rec-indices-keyword", &[]),
+            ("index-use", &["induct-index-binding"]),
+            ("second-index-use", &["induct-second-index-binding"]),
+            ("motive", &["motive-binding"]),
+            ("branch", &["branch-binding"]),
+            ("subject", &["subject-binding"]),
+            ("self-index", &["self-binding"]),
+        ],
+    );
+}
+
+#[test]
+fn indexed_forms_reject_malformed_clauses_arities_and_binders() {
+    run(
+        r#"
+      (#math-inductive BadClause () () (#indices (#parameter i #pt-nat) extra) (#pt-type 0) ((ctor () ())))
+      (#math-inductive BadBinder () () (#indices (#parameter [[bad-binder|bad.name]] #pt-nat)) (#pt-type 0) ((ctor () ())))
+      (#math-inductive Shadow () ((A #pt-nat)) (#indices (#parameter [[shadow|A]] #pt-nat)) (#pt-type 0) ((ctor () ())))
+      (#math-inductive Duplicate () () (#indices (#parameter [[duplicate-one|i]] #pt-nat) (#parameter [[duplicate-two|i]] #pt-nat)) (#pt-type 0) ((ctor () ())))
+      (#math-inductive EmptyIndices () () (#[[empty-indices|indices]]) (#pt-type 0) ((ctor () ())))
+      (#math-inductive OutputMismatch () () (#indices (#parameter i #pt-nat)) (#pt-type 0) (([[bad-output-ctor|ctor]] () ())))
+      (#math-inductive UniverseShadow (u) () (#indices (#parameter i #pt-nat)) (#pt-type 0) ((ctor (([[universe-shadow|u]] #pt-nat)) (#pt-zero))))
+      (#math-inductive good () () (#indices (#parameter i #pt-nat)) (#pt-type 0) ((ctor () ())))
+      (#math-definition bad-use () #pt-nat (#pt-induct good () () (#wrong-clause i) #pt-zero () #pt-zero))
+      (#math-definition short-use () #pt-nat (#pt-induct good () () (#indices i)))
+      (#math-definition wrong-head () #pt-nat (#pt-induct good () () (i) #pt-zero () #pt-zero))
+      (#math-definition metadata () #pt-nat (#[[indices-keyword|indices]]))
+      (#math-definition parameter-metadata () #pt-nat (#[[parameter-keyword|parameter]]))
+      (#math-definition malformed-self () #pt-nat (#pt-self-at i extra))
+    "#,
+        &[
+            ("bad-binder", &[]),
+            ("empty-indices", &[]),
+            ("bad-output-ctor", &[]),
+            ("universe-shadow", &[]),
+            ("shadow", &[]),
+            ("duplicate-one", &[]),
+            ("duplicate-two", &[]),
+            ("indices-keyword", &[]),
+            ("parameter-keyword", &[]),
+        ],
+    );
+    for term in [
+        "(#pt-induct good () () (#wrong-clause [[query|value]]) #pt-zero () #pt-zero)",
+        "(#pt-induct good () () ([[query|value]]) #pt-zero () #pt-zero)",
+        "(#pt-induct good () () (#indices [[query|value]]) #pt-zero)",
+        "(#pt-self-at [[query|value]] extra)",
+    ] {
+        let src = format!("(#math-inductive good () () (#indices (#parameter i #pt-nat)) (#pt-type 0) ((ctor () ()))) (#math-definition use () #pt-nat {term})");
+        run(&src, &[("query", &[])]);
+    }
+
+    let many_binders = (0..65)
+        .map(|i| {
+            if i == 32 {
+                "(#parameter [[over-index|i32]] #pt-nat)".to_owned()
+            } else {
+                format!("(#parameter i{i} #pt-nat)")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let many_outputs = std::iter::repeat("#pt-zero")
+        .take(65)
+        .collect::<Vec<_>>()
+        .join(" ");
+    run(
+        &format!("(#math-inductive many () () (#indices {many_binders}) (#pt-type 0) ((ctor () ({many_outputs}))))"),
+        &[("over-index", &[])],
+    );
+
+    let many_rec_indices = (0..65)
+        .map(|i| {
+            if i == 0 {
+                "[[over-rec-index|x]]".to_owned()
+            } else {
+                "x".to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let source = format!("(#math-inductive one () () (#indices (#parameter n #pt-nat)) (#pt-type 0) ((ctor () (#pt-zero)))) (#math-definition recursor () #pt-nat (#pt-lambda ((x #pt-nat)) (#pt-induct one () () (#indices {many_rec_indices}) #pt-zero () x)))");
+    run(&source, &[("over-rec-index", &[])]);
+}
 #[test]
 fn kernel_keywords_are_metadata_including_theorem_declarations() {
     for keyword in [
@@ -528,6 +654,7 @@ fn kernel_keywords_are_metadata_including_theorem_declarations() {
         "pt-nat-induct",
         "pt-construct",
         "pt-induct",
+        "pt-self-at",
         "pt-program",
         "pt-certificate",
     ] {
@@ -590,11 +717,11 @@ fn imported_proofs_aliases_levels_and_constructor_labels_keep_source_identity() 
     run_files(
         r#"
       (#alias Imported = ./facade.lim::Forward)
-      (#alias ImportedBox = ./library.lim::Box)
+      (#alias imported-box = ./library.lim::box)
       (#math-definition NatAlias () (#pt-type 0) #pt-nat)
       (#math-definition refs ([[level|v]]) (#pt-type 0) (#pt-app (#pt-use [[alias|Imported]] ([[level-use|v]]))
                  (#pt-use [[path|./library.lim::NatAlias]] ())))
-      (#math-definition constructed () #pt-nat (#pt-construct [[datatype|ImportedBox]] () () [[constructor|pack]] ()))
+      (#math-definition constructed () #pt-nat (#pt-construct [[datatype|imported-box]] () () [[constructor|pack]] ()))
       (#alias certificate = ./library.lim::checked)
       (#theorem bridge (#universes) (#parameters) (#statement #pt-prop) (#proof (#pt-certificate [[procedural|certificate]])))
     "#,
@@ -603,7 +730,7 @@ fn imported_proofs_aliases_levels_and_constructor_labels_keep_source_identity() 
                 "library.lim",
                 r#"
               (#math-definition [[original|NatAlias]] (u) (#pt-type 0) #pt-nat)
-              (#math-inductive [[box|Box]] () () (#pt-type 0) (([[pack|pack]] ())))
+              (#math-inductive [[box|box]] () () (#indices (#parameter n #pt-nat)) (#pt-type 0) (([[pack|pack]] () (#pt-zero))))
               (#theorem [[checked|checked]] (#proof-eq 0u64 0u64))
             "#,
             ),
@@ -625,11 +752,16 @@ fn generated_kernel_proofs_resolve_to_their_emitted_declarations() {
     run(
         r#"
       (#gn emit () `((#math-definition nat-alias () (#pt-type 0) #pt-nat)
+                    (#math-inductive vector () () (#indices (#parameter n #pt-nat)) (#pt-type 0) ((cons () (#pt-zero))))
                     (#math-definition zero () (#pt-use nat-alias ()) #pt-zero)))
       (#generate emit)
       (#math-definition use-generated () (#pt-type 0) (#pt-use [[use|nat-alias]] ()))
+      (#math-definition construct-generated () (#pt-app (#pt-use vector ()) #pt-zero) (#pt-construct vector () () [[generated-label|cons]] ()))
     "#,
-        &[("use", &["generated:nat-alias"])],
+        &[
+            ("use", &["generated:nat-alias"]),
+            ("generated-label", &["generated:cons"]),
+        ],
     );
 }
 
@@ -770,6 +902,7 @@ fn run_files(input: &str, files: &[(&str, &str)], expected: &[(&str, &[&str])]) 
                             text.find(&format!("{prefix}{token} "))
                                 .map(|start| start + prefix.len())
                         })
+                        .or_else(|| text.find(&format!("({token} ")).map(|start| start + 1))
                         .unwrap();
                     generated = (uri, text, start, start + token.len());
                     &generated

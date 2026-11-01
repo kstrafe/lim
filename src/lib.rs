@@ -4994,6 +4994,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "proof"
             | "math-definition"
             | "math-inductive"
+            | "indices"
+            | "pt-self-at"
             | "pt-prop"
             | "pt-type"
             | "pt-sort"

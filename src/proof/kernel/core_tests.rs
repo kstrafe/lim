@@ -76,6 +76,7 @@ fn explicit_negative_family_reference_must_not_prove_false() {
             family: "Bad".into(),
             levels: vec![],
             parameters: vec![],
+            indices: vec![],
             motive: lam(bad.clone(), falsity()),
             branches: vec![lam(
                 function.clone(),
@@ -201,6 +202,7 @@ fn polymorphic_datatype_at_prop_must_not_gain_large_elimination() {
         family: "Choice".into(),
         levels: vec![level(0)],
         parameters: vec![],
+        indices: vec![],
         motive: lam(prop_choice, nat()),
         branches: vec![zero(), succ(zero())],
         subject,
@@ -226,6 +228,7 @@ fn ordinary_multiconstructor_prop_cannot_eliminate_into_nat() {
         family: "ChoiceProp".into(),
         levels: vec![],
         parameters: vec![],
+        indices: vec![],
         motive: lam(global("ChoiceProp"), nat()),
         branches: vec![zero(), succ(zero())],
         subject: ctor("ChoiceProp", vec![], "left", vec![]),
@@ -297,6 +300,7 @@ fn parameterized_recursor_handles_ih_before_dependent_later_fields() {
         family: "Chain".into(),
         levels: vec![],
         parameters: vec![nat()],
+        indices: vec![],
         motive: lam(chain, nat()),
         branches: vec![lam(nat(), zero()), next],
         subject,
@@ -313,6 +317,7 @@ fn missing_recursive_ih_binder_is_rejected() {
         family: "#pt-nat".into(),
         levels: vec![],
         parameters: vec![],
+        indices: vec![],
         motive: lam(nat(), nat()),
         branches: vec![zero(), lam(nat(), zero())],
         subject: succ(zero()),
@@ -506,6 +511,7 @@ fn opaque_fieldless_singletons_have_the_constructor_computation_rule() {
         family: "ProofUnit".into(),
         levels: vec![],
         parameters: vec![],
+        indices: vec![],
         motive: lam(global("ProofUnit"), nat()),
         branches: vec![zero()],
         subject: var(0),
@@ -525,6 +531,7 @@ fn opaque_fieldless_singletons_have_the_constructor_computation_rule() {
         family: "DataUnit".into(),
         levels: vec![],
         parameters: vec![],
+        indices: vec![],
         motive: lam(global("DataUnit"), nat()),
         branches: vec![zero()],
         subject: var(0),
@@ -710,6 +717,219 @@ fn proof_lets_cannot_hide_negative_inductive_occurrences() {
         assert!(error.contains("strict positivity"), "{error}");
         assert!(!k.contains("BadLet"));
     }
+}
+
+fn indexed_counter(k: &mut Kernel) {
+    k.indexed_inductive(
+        "Counter",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(1),
+        vec![
+            ("zero".into(), vec![], vec![zero()]),
+            (
+                "step".into(),
+                vec![nat(), term(Term::SelfAt(vec![var(0)]))],
+                vec![succ(var(1))],
+            ),
+        ],
+    )
+    .unwrap();
+}
+fn counter(index: T) -> T {
+    app(global("Counter"), index)
+}
+fn counter_motive() -> T {
+    lam(nat(), lam(counter(var(0)), nat()))
+}
+
+#[test]
+fn indexed_reduction_constructs_a_well_typed_child_recursor() {
+    let mut k = Kernel::new();
+    indexed_counter(&mut k);
+    let motive = counter_motive();
+    let (family, _) = k.family("Counter", &[], 0).unwrap();
+    let branch = k
+        .branch_type(
+            &[],
+            "Counter",
+            &[],
+            &[],
+            &motive,
+            &family.constructors[1],
+            0,
+        )
+        .unwrap();
+    let ctx = vec![branch];
+    let child = ctor("Counter", vec![], "zero", vec![]);
+    let subject = ctor("Counter", vec![], "step", vec![zero(), child]);
+    let value = term(Term::Induct {
+        family: "Counter".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![succ(zero())],
+        motive,
+        branches: vec![zero(), var(0)],
+        subject,
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    let reduced = k.whnf(&ctx, &value, 0).unwrap();
+    // The neutral branch leaves its IH argument visible. Rechecking the
+    // result detects a child recursor accidentally given its parent's index.
+    k.check(&ctx, &reduced, &nat(), 0).unwrap();
+    let Term::App(_, ih) = reduced.as_ref() else {
+        panic!("expected the induction hypothesis argument")
+    };
+    let Term::Induct { indices, .. } = ih.as_ref() else {
+        panic!("expected a recursive eliminator")
+    };
+    assert!(k.convertible(&ctx, &indices[0], &zero(), 0).unwrap());
+}
+
+#[test]
+fn indexed_motives_must_use_fresh_generic_indices() {
+    let mut k = Kernel::new();
+    indexed_counter(&mut k);
+    let frozen = lam(nat(), lam(counter(zero()), nat()));
+    let value = term(Term::Induct {
+        family: "Counter".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![zero()],
+        motive: frozen,
+        branches: vec![zero(), zero()],
+        subject: ctor("Counter", vec![], "zero", vec![]),
+    });
+    let error = k.infer(&[], &value, 0).unwrap_err();
+    assert!(error.contains("generic subject"), "{error}");
+}
+
+#[test]
+fn indexed_constructor_results_reject_unbound_variables_without_installing_the_family() {
+    for fields in [vec![], vec![nat()]] {
+        let mut k = Kernel::new();
+        let invalid_index = var(fields.len());
+        let error = k
+            .indexed_inductive(
+                "BadIndex",
+                vec![],
+                vec![],
+                vec![nat()],
+                level(1),
+                vec![("make".into(), fields, vec![invalid_index])],
+            )
+            .unwrap_err();
+        assert!(error.contains("unbound kernel variable"), "{error}");
+        assert!(!k.contains("BadIndex"));
+    }
+}
+
+#[test]
+fn indexed_fieldless_families_do_not_gain_unit_conversion_or_neutral_computation() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "OnlyZero",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(1),
+        vec![("make".into(), vec![], vec![zero()])],
+    )
+    .unwrap();
+    let ty = app(global("OnlyZero"), zero());
+    let ctx = vec![ty.clone(), ty];
+    assert!(!k.convertible(&ctx, &var(0), &var(1), 0).unwrap());
+    let value = term(Term::Induct {
+        family: "OnlyZero".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![zero()],
+        motive: lam(nat(), lam(app(global("OnlyZero"), var(0)), nat())),
+        branches: vec![zero()],
+        subject: var(0),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    assert!(!k.convertible(&ctx, &value, &zero(), 0).unwrap());
+}
+
+#[test]
+fn indexed_elimination_checks_dependent_index_domains_and_result_types() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "Dependent",
+        vec![],
+        vec![],
+        vec![sort(1), var(0)],
+        level(2),
+        vec![("make".into(), vec![sort(1), var(0)], vec![var(1), var(0)])],
+    )
+    .unwrap();
+    let family = apps(global("Dependent"), &[var(1), var(0)]);
+    let motive = lam(sort(1), lam(var(0), lam(family, var(2))));
+    let value = term(Term::Induct {
+        family: "Dependent".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![nat(), zero()],
+        motive,
+        branches: vec![lam(sort(1), lam(var(0), var(0)))],
+        subject: ctor("Dependent", vec![], "make", vec![nat(), zero()]),
+    });
+    k.check(&[], &value, &nat(), 0).unwrap();
+    assert!(k.convertible(&[], &value, &zero(), 0).unwrap());
+}
+
+#[test]
+fn indexed_recursive_ih_insertion_preserves_later_index_dependent_fields() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "TaggedCounter",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(1),
+        vec![
+            ("zero".into(), vec![], vec![zero()]),
+            (
+                "step".into(),
+                vec![
+                    nat(),
+                    term(Term::SelfAt(vec![var(0)])),
+                    eq(nat(), var(1), var(1)),
+                ],
+                vec![succ(var(2))],
+            ),
+        ],
+    )
+    .unwrap();
+    let base = ctor("TaggedCounter", vec![], "zero", vec![]);
+    let subject = ctor(
+        "TaggedCounter",
+        vec![],
+        "step",
+        vec![zero(), base, refl(nat(), zero())],
+    );
+    // After the IH binder, n and child are shifted in the later proof field.
+    let branch = lam(
+        nat(),
+        lam(
+            app(global("TaggedCounter"), var(0)),
+            lam(nat(), lam(eq(nat(), var(2), var(2)), succ(var(1)))),
+        ),
+    );
+    let motive = lam(nat(), lam(app(global("TaggedCounter"), var(0)), nat()));
+    let value = term(Term::Induct {
+        family: "TaggedCounter".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![succ(zero())],
+        motive,
+        branches: vec![zero(), branch],
+        subject,
+    });
+    k.check(&[], &value, &nat(), 0).unwrap();
+    assert!(k.convertible(&[], &value, &succ(zero()), 0).unwrap());
 }
 
 #[test]
