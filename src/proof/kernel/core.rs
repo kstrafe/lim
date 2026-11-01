@@ -11,6 +11,8 @@ use std::sync::Arc;
 mod elimination;
 #[path = "export.rs"]
 pub(super) mod export;
+#[path = "foundation.rs"]
+pub(super) mod foundation;
 #[path = "inductive.rs"]
 mod inductive;
 #[path = "natural.rs"]
@@ -229,7 +231,9 @@ impl Kernel {
         result
     }
     pub fn contains(&self, name: &str) -> bool {
-        self.declarations.contains_key(name) || self.nested.contains_key(name)
+        self.declarations.contains_key(name)
+            || self.nested.contains_key(name)
+            || foundation::label(name).is_some()
     }
     fn scope(&mut self, universes: &[String], terms: &[T]) -> Result<()> {
         let map = universes
@@ -391,6 +395,7 @@ impl Kernel {
         depth: usize,
     ) -> Result<(Declaration, HashMap<String, Level>)> {
         self.tick(depth)?;
+        self.ensure_logical_foundation(name, depth + 1)?;
         let declaration = self
             .declarations
             .get(name)

@@ -6,12 +6,34 @@ use crate::{CompileConfig, Diagnostic, DiagnosticCode, Expr, Item, Program};
 /// Check every ordinary and mathematical obligation in the source graph, then
 /// resolve a root-file theorem name or alias. Returns its canonical identity.
 /// Does not emit native artifacts or invoke an external prover.
+/// Returning an identity does not claim an axiom-free proof. Use the details
+/// variant to inspect the selected theorem's logical foundation inventory.
 pub fn check_theorem_from_path_with_config(
     source: &str,
     path: &Path,
     config: &CompileConfig,
     name: &str,
 ) -> Result<String, Diagnostic> {
+    check_theorem_details_from_path_with_config(source, path, config, name)
+        .map(|checked| checked.name)
+}
+
+/// A checked target with its transitive logical assumptions. An empty basis
+/// means none of the explicit classical foundation constants is reachable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckedTheorem {
+    pub name: String,
+    pub foundations: Vec<String>,
+}
+
+/// Validate the complete program, select a theorem, and audit types and bodies
+/// reachable from it for the fixed logical foundation constants.
+pub fn check_theorem_details_from_path_with_config(
+    source: &str,
+    path: &Path,
+    config: &CompileConfig,
+    name: &str,
+) -> Result<CheckedTheorem, Diagnostic> {
     let prepare = crate::timing::stage("prepare_imports_parse_cfg");
     let prepared = crate::prepare_program_syntax(
         source,
@@ -67,7 +89,21 @@ pub fn check_theorem_from_path_with_config(
         ));
     }
     crate::warnings::record_program(program);
-    Ok(canonical.to_owned())
+    let _audit = crate::timing::stage("proof_foundation_audit");
+    let foundations =
+        crate::proof::checked_theorem_foundations(program, canonical).map_err(|message| {
+            crate::analysis_diagnostic(
+                message,
+                DiagnosticCode::Proof,
+                crate::proof::declaration_span(program, canonical),
+                Vec::new(),
+                program,
+            )
+        })?;
+    Ok(CheckedTheorem {
+        name: canonical.to_owned(),
+        foundations,
+    })
 }
 
 fn resolve_root_name<'a>(program: &'a Program, requested: &str) -> Option<&'a str> {

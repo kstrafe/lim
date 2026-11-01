@@ -240,7 +240,7 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, accelerated large-natural arithmetic, quotient soundness, classical axioms,
+String literals, accelerated large-natural arithmetic, axiom-declaration replay,
 Lean surface syntax/tactics and full-environment storage/replay are not
 implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe

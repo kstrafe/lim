@@ -11,6 +11,22 @@ fn quoted(s: &str) -> String {
 }
 
 #[test]
+fn logical_foundation_references_have_no_user_definition_target() {
+    run(
+        r#"
+      (#math-definition pt-foundation-propext () #pt-nat #pt-zero)
+      (#math-definition pt-foundation-choice () #pt-nat #pt-zero)
+      (#math-definition pt-foundation-quot-sound () #pt-nat #pt-zero)
+      (#math-definition use-foundations () #pt-nat
+        (#pt-app (#pt-use [[propext|#pt-foundation-propext]] ())
+          (#pt-app (#pt-use [[choice|#pt-foundation-choice]] (u))
+            (#pt-use [[quot-sound|#pt-foundation-quot-sound]] (u)))))
+    "#,
+        &[("propext", &[]), ("choice", &[]), ("quot-sound", &[])],
+    );
+}
+
+#[test]
 fn mutual_headers_recursive_targets_and_constructor_offsets_have_explicit_roles() {
     run(
         r#"

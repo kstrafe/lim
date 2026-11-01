@@ -843,9 +843,14 @@ fn check_command(arguments: &[String]) -> ExitCode {
     drop(_input_timing);
     let input_file = Path::new(input_path);
     if let Some(name) = theorem {
-        return match lim::check_theorem_from_path_with_config(&source, input_file, &config, name) {
-            Ok(_) => {
+        return match lim::check_theorem_details_from_path_with_config(
+            &source, input_file, &config, name,
+        ) {
+            Ok(checked) => {
                 println!("checked theorem {name}");
+                if !checked.foundations.is_empty() {
+                    println!("logical foundations: {}", checked.foundations.join(", "));
+                }
                 ExitCode::SUCCESS
             }
             Err(diagnostic) => {

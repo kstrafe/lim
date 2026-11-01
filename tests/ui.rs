@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "kernel-foundation-premise",
+            diagnostic_code: "E4400",
+            offending_line: "(#math-definition bad () #pt-nat (#pt-app (#pt-use #pt-foundation-choice (1)) #pt-nat #pt-zero))",
+            line_number: 1,
+        },
+        Case {
             name: "kernel-natural-literal",
             diagnostic_code: "E4400",
             offending_line: "(#math-definition bad () #pt-nat (#pt-nat-literal #pt-nat \"01\"))",
@@ -1473,6 +1479,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "local-name-type-error" => Some("flag"),
             "kernel-opaque-value" => Some(case.offending_line),
             "kernel-natural-literal" => Some(case.offending_line),
+            "kernel-foundation-premise" => Some(&case.offending_line[..80]),
             "kernel-quotient-relation" => Some(case.offending_line),
             "kernel-nested-case-index" => Some(&include_str!("ui/kernel-nested-case-index.lim").lines().nth(3).unwrap()[..80]),
             "shadowing" => Some("value"),

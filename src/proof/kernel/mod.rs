@@ -17,6 +17,56 @@ type Result<T> = std::result::Result<T, String>;
 pub(super) fn is_declaration(expr: &Expr) -> bool {
     matches!(expr,Expr::List(parts) if matches!(parts.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-opaque"|"#proof-theorem"|"#proof-inductive")))
 }
+
+/// Called only after complete program validation. Audit declaration types and
+/// bodies, including opaque/erased evidence, without treating comments as facts.
+pub(super) fn foundation_dependencies(
+    program: &crate::Program,
+    target: &str,
+) -> Result<Vec<String>> {
+    let facts = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Proof { name, proposition } if !is_declaration(proposition) => Some(name.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut graph = std::collections::HashMap::new();
+    for item in &program.items {
+        let Item::Proof { name, proposition } = item else {
+            continue;
+        };
+        if !is_declaration(proposition) {
+            continue;
+        }
+        let mut parsed = parse_declaration(name, proposition, &facts)?;
+        if let Body::Inductive { members, .. } = &parsed.body {
+            parsed
+                .dependencies
+                .extend(members.iter().filter(|member| *member != name).cloned());
+        }
+        if graph.insert(name.clone(), parsed.dependencies).is_some() {
+            return Err("duplicate declaration during foundation audit".into());
+        }
+    }
+    let mut pending = vec![target.to_owned()];
+    let mut visited = HashSet::new();
+    let mut foundations = BTreeSet::new();
+    while let Some(name) = pending.pop() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
+        if let Some(label) = core::foundation::label(&name) {
+            foundations.insert(label.to_owned());
+        } else if let Some(dependencies) = graph.get(&name) {
+            pending.extend(dependencies.iter().cloned());
+        } else if !facts.contains(&name) && !matches!(name.as_str(), "#pt-nat" | "#pt-false") {
+            return Err(format!("unknown declaration '{name}' in foundation audit"));
+        }
+    }
+    Ok(foundations.into_iter().collect())
+}
 enum Body {
     Definition {
         ty: T,

@@ -57,7 +57,10 @@ mod syntax_bundle;
 mod test_process;
 mod theorem;
 mod theorem_surface;
-pub use theorem::check_theorem_from_path_with_config;
+pub use theorem::{
+    check_theorem_details_from_path_with_config, check_theorem_from_path_with_config,
+    CheckedTheorem,
+};
 mod thread_contract;
 mod timing;
 mod typecheck;
@@ -5016,6 +5019,9 @@ fn is_builtin_form(name: &str) -> bool {
             | "pt-level-imax"
             | "pt-nat"
             | "pt-false"
+            | "pt-foundation-choice"
+            | "pt-foundation-propext"
+            | "pt-foundation-quot-sound"
             | "pt-self"
             | "pt-zero"
             | "pt-succ"

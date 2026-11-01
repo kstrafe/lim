@@ -1,9 +1,10 @@
-# Constructive proof kernel
+# Dependent proof kernel
 
 Lim has two compile-time proof layers. Procedural proofs check claims about the
 validated native program using structural analysis, bounded symbolic execution,
 and target-specific certificates. The mathematical kernel checks explicit terms
-in a constructive dependent type theory. Both expose named `#theorem`
+in a constructive dependent core, with three explicitly referenced optional
+logical axioms described below. Both expose named `#theorem`
 declarations, but their terms, types, and evidence are distinct. Mathematical
 data and datatype declarations use `#math-definition`, `#math-opaque`, and `#math-inductive`.
 
@@ -984,15 +985,26 @@ FLT translation and replay remain unfinished.
 The [tree/forest example](../examples/proof_mutual.lim) defines both count
 functions, checks their general defining equations, and computes a concrete
 count. The [functional example](../examples/proof_mutual_function.lim) checks
-pointwise sibling recursion at each child's index. Neither completes quotient
-soundness or full-environment proof-source translation and FLT replay work.
+pointwise sibling recursion at each child's index. Neither completes foundation
+axiom replay or full-environment proof-source translation and FLT replay work.
 
-The kernel has no cumulativity or quotient soundness,
-classical axioms, `admit`, general recursion,
+The kernel has no cumulativity, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
 normalization resources still apply; resource exhaustion must fail checking,
 not stand in for evidence. Unsupported features are not enabled by selecting a
 larger universe or reusing a cache entry.
+
+Three reserved global logical foundations are available only through explicit
+`#pt-use` references: propositional extensionality, Church-encoded choice, and
+quotient soundness. They are axioms rather than proved facts. Choice accepts
+propositional nonemptiness evidence and returns a value without exposing a
+data witness or adding a computation rule; quotient soundness does not create
+definitional equality between representatives. Application checks each
+premise by the ordinary kernel rules. These are exactly the logical foundations
+matching Lean's pinned FLT axiom basis; they are not an FLT proof or an
+axioms-free result. Raw Lean imports still reject axioms by default. The native
+theorem CLI reports the transitive foundation inventory, excluding unused
+foundations elsewhere in the environment. See the [language reference](language.md#compile-time-proofs).
 
 ## Resource bounds
 
@@ -1060,6 +1072,15 @@ as well as the surrounding validation machinery. Explicit evidence and
 rechecking reduce reliance on cached results; they do not establish the
 implementation's soundness by themselves.
 
+The three explicit logical foundations are additional mathematical assumptions,
+not proved lemmas. Their fixed signatures are constructed directly by the
+kernel, without parsing an input-supplied postulate, and checked before use.
+Checking a signature does not prove the axiom or the consistency of the theory.
+The selected theorem's inventory conservatively follows types and bodies,
+including opaque initializers and erased local values; it excludes unrelated
+declarations. The [example](../examples/proof_foundations.lim) shows each basis
+entry separately. There is no general axiom or proof-hole interface.
+
 The native certificate adapter additionally trusts the existing procedural
 checker and its program model, including the analyses, solver, or target-stack
 analysis used by the named obligation. A certificate proves only the
@@ -1081,8 +1102,8 @@ syntax or exact rules:
 - [Inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/)
   explains constructors, recursors, and elimination restrictions.
 
-Lean also has features absent here, including quotient soundness, classical
-axioms, and richer inductive families. Definitional proof irrelevance is supported, but does not establish
+Lean also has features absent here, including axiom-declaration replay and richer
+inductive families. Definitional proof irrelevance is supported, but does not establish
 full conversion parity. Use the rules in this guide for Lim, not an inference that a term
 accepted by Lean or a mathlib theorem is available in Lim. For the procedural
 layer and the complete builtin reference, see [the language reference](language.md#compile-time-proofs).
@@ -1097,6 +1118,7 @@ Universe levels are explicit. The lift checks its respect proof before computing
 on constructors, and induction is restricted to Prop. The pinned four-record
 quotient computation package also [replays and translates](lean-export.md)
 through independently checked wrappers, with an explicit primitive foundation
-inventory. Quotient soundness remains unsupported; no quotient soundness,
-equality, choice, or propext axiom is introduced. See the
+inventory. Quotient soundness is available only through the explicit opaque
+`#pt-foundation-quot-sound` logical foundation; no representative computation
+or definitional equality follows from it. See the
 [native quotient example](../examples/proof_quotient.lim).

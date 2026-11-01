@@ -21,6 +21,13 @@ pub use kernel::{
     LeanExportReport, LeanExportTranslation,
 };
 
+pub(crate) fn checked_theorem_foundations(
+    program: &crate::Program,
+    target: &str,
+) -> Result<Vec<String>> {
+    kernel::foundation_dependencies(program, target)
+}
+
 type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone)]

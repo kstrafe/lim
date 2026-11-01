@@ -2069,6 +2069,19 @@ Pi and lambda use explicit typed binder lists; Sigma requires exactly one
 binder. Application, equality, reflexivity, equality elimination, dependent
 pairs, projections, and inductive eliminators are explicit `#pt-` terms.
 
+Three reserved global logical foundations are available by explicit reference:
+`#pt-foundation-propext`, `#pt-foundation-choice`, and
+`#pt-foundation-quot-sound`. They are axioms, not proved facts, and source opts
+in by using them with `#pt-use` and explicit universe lists. Their premises
+still pass ordinary application type checking. Choice uses propositional
+nonemptiness evidence and returns a selected value; it does not expose a data
+witness from that evidence, and the choice constant is opaque with no
+computational rule. Quotient soundness is also opaque and does not make quotient
+representatives definitionally equal. These foundations are the pinned FLT
+logical foundation basis; their availability does not mean Lim contains the
+FLT proof or an axioms-free result. Raw Lean imports continue to reject axioms
+by default.
+
 `#pt-nat` and `#pt-zero` are symbols. `#pt-succ` constructs a successor, and
 `#pt-numeral` abbreviates a bounded source integer as a natural value. For larger
 values, `(#pt-nat-literal FAMILY "CANONICAL-DECIMAL")` checks a decimal string
@@ -2213,9 +2226,9 @@ Conversion supports beta, transparent delta, typed-local-let zeta, and
 constructor/eliminator iota computation, including pair projections and
 equality elimination J at reflexivity, with opaque theorems. J checks its
 motive at a fresh generic endpoint and equality, not only at the supplied
-endpoint. There is no
-cumulativity, quotient soundness or external quotient replay, classical axiom,
-admit, general recursion, or metavariable hole.
+endpoint. There is no cumulativity or external quotient replay, `admit`, general
+recursion, or metavariable hole. The three explicit opaque logical foundations
+are described above; they are axioms, not derived by this conversion system.
 
 `(#pt-let (#parameter NAME TYPE) VALUE BODY)` binds an explicitly typed local
 name only in `BODY`. `TYPE` and `VALUE` use the outer scope. Locals and universe
@@ -3273,6 +3286,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-eq-elim` | `(#pt-eq-elim Type lhs motive base rhs equality)` | `(#pt-eq-elim #pt-nat a (#pt-lambda ((x #pt-nat) (h (#pt-eq #pt-nat a x))) (#pt-eq #pt-nat x x)) (#pt-refl #pt-nat a) b e)` (mathematical term) | Dependent equality elimination; motive takes x and evidence of Eq(lhs,x), and base supplies its value at reflexivity. |
 | `#pt-false` | `#pt-false` | `(#pt-pi ((h #pt-false)) #pt-false)` (mathematical proposition) | Empty proposition with no introduction constructor; no admit or unchecked axiom creates an inhabitant. |
 | `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
+| `#pt-foundation-choice` | `(#pt-use #pt-foundation-choice (u))` | `(#pt-use #pt-foundation-choice (0))` (mathematical term) | Opaque Church-encoded choice: `forall (A : Sort u) (inhabited : forall (P : Prop) (continue : A -> P), P), A`. Evidence is propositional nonemptiness, not a data witness or implicit elimination; no computation selects a particular supplied witness. |
+| `#pt-foundation-propext` | `(#pt-use #pt-foundation-propext ())` | `(#pt-use #pt-foundation-propext ())` (mathematical term) | Propositional extensionality: `forall (P Q : Prop) (forward : P -> Q) (backward : Q -> P), builtinEq Prop P Q`. All premises are checked by ordinary application. |
+| `#pt-foundation-quot-sound` | `(#pt-use #pt-foundation-quot-sound (u))` | `(#pt-use #pt-foundation-quot-sound (0))` (mathematical term) | Opaque quotient soundness: `forall (A : Sort u) (r : A -> A -> Prop) (x y : A) (related : r x y), builtinEq (nativeQuot A r) (nativeQuotMake x) (nativeQuotMake y)`. It adds no definitional equality between representatives. |
 | `#pt-induct` | Regular: `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)`; indexed: `(#pt-induct family (levels...) (parameters...) (#indices index-terms...) motive (branches...) subject)` | `(#pt-induct vector (0) (#pt-nat) (#indices (#pt-numeral 2)) motive (nil-branch cons-branch) v)` (mathematical term; schematic) | Eliminates a user inductive in constructor order. Indexed motives bind fresh generic indices before the subject; each recursive field is followed by an IH at the child's indices. Prop-to-Type elimination is restricted. |
 | `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
 | `#pt-let` | `(#pt-let (#parameter NAME TYPE) VALUE BODY)` | `(#theorem zero-via-alias (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat (#pt-refl Alias #pt-zero))))` (mathematical theorem declaration) | Typed local binding with TYPE and VALUE in the outer scope and NAME only in BODY. Checks the annotation sort and value type before substitution and body inference; supports true aliases and zeta reduction. No local/universe shadowing, implicit typing, or recursion; unused bad values and exhausted budgets still fail. |
@@ -3291,7 +3307,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-project` | `(#pt-project FAMILY INDEX SUBJECT)` | `(#pt-project package 1 value)` (mathematical term; package is an unindexed nonrecursive record, value has its type) | Checked zero-based projection with dependent field types; parameters and universes come from the subject. Rejects hidden data extraction from Prop, wrong families or ordinals, and indexed or recursive records. |
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
 | `#pt-quot` | `(#pt-quot LEVEL TYPE RELATION)` | `(#pt-quot 1 #pt-nat relation)` (mathematical type) | Immutable quotient of TYPE by an arbitrary binary relation TYPE → TYPE → Prop; the relation need not be an equivalence. LEVEL is explicit universe syntax. Quotient soundness is not introduced. |
-| `#pt-quot-induct` | `(#pt-quot-induct LEVEL TYPE RELATION MOTIVE CONSTRUCTOR-PROOF SUBJECT)` | `(#pt-quot-induct u α relation motive constructor-proof subject)` (mathematical term; schematic) | Eliminates into Prop from a motive and constructor proof; computes on quotient constructors. Quotient soundness and external quotient replay remain unsupported; no choice or propext axiom is added. |
+| `#pt-quot-induct` | `(#pt-quot-induct LEVEL TYPE RELATION MOTIVE CONSTRUCTOR-PROOF SUBJECT)` | `(#pt-quot-induct u α relation motive constructor-proof subject)` (mathematical term; schematic) | Eliminates into Prop from a motive and constructor proof; computes on quotient constructors. Quotient soundness requires the explicit `#pt-foundation-quot-sound` reference; no choice or propext axiom is implicit. |
 | `#pt-quot-lift` | `(#pt-quot-lift (SOURCE-LEVEL TARGET-LEVEL) TYPE RELATION TARGET-TYPE FUNCTION RESPECT-PROOF SUBJECT)` | `(#pt-quot-lift (u v) α relation β f respects subject)` (mathematical term; schematic) | Checks the respect proof and every operand before lifting; computes on constructors. The two explicit levels form a list of exactly two universe expressions; levels are never inferred. |
 | `#pt-quot-make` | `(#pt-quot-make LEVEL TYPE RELATION VALUE)` | `(#pt-quot-make 1 #pt-nat relation value)` (mathematical term) | Constructs a quotient class from a value of TYPE; LEVEL is explicit and never inferred. |
 | `#pt-recur` | `(#pt-recur FAMILY (indices...))` | `(#math-inductive left () () (#mutual left right) (#pt-type 0) ((make ((child (#pt-recur right ()))))))` (mathematical declaration; right belongs to the same group) | Recursive field marker for an explicitly selected group family. Inherits uniform parameters and universes and supplies child indices; strictly positive Pi codomains are allowed. |
