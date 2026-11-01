@@ -1,0 +1,24 @@
+; Proofs of a single proposition are definitionally equal. The proposition
+; itself and ordinary data values retain their distinct identities.
+(#theorem proofs-agree
+  (#universes)
+  (#parameters
+    (#parameter proposition #pt-prop)
+    (#parameter first proposition)
+    (#parameter second proposition))
+  (#statement (#pt-eq proposition first second))
+  (#proof (#pt-refl proposition first)))
+; A type family indexed by a proof also sees the same proof-independent type.
+(#theorem proof-indexed-types-agree
+  (#universes)
+  (#parameters
+    (#parameter proposition #pt-prop)
+    (#parameter first proposition)
+    (#parameter second proposition)
+    (#parameter family (#pt-pi ((evidence proposition)) (#pt-type 0))))
+  (#statement (#pt-eq (#pt-type 0) (#pt-app family first) (#pt-app family second)))
+  (#proof (#pt-refl (#pt-type 0) (#pt-app family first))))
+; These declarations are checked and erased before native emission.
+
+(#fn main () #u64
+  (#return 42u64))

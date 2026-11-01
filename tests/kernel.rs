@@ -373,15 +373,15 @@ fn transparent_definitions_support_delta_beta_and_iota_conversion() {
 }
 
 #[test]
-fn theorem_bodies_remain_opaque_during_conversion() {
+fn opaque_theorem_proofs_compare_without_unfolding_their_bodies() {
     let witness = "(#theorem witness
   (#universes)
   (#parameters)
   (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
   (#proof (#pt-refl #pt-nat #pt-zero)))";
-    rejects(&format!(
+    accepts(&format!(
         "{witness}
-      (#theorem forbidden-unfolding
+      (#theorem opaque-evidence
         (#universes)
         (#parameters)
         (#statement (#pt-eq (#pt-eq #pt-nat #pt-zero #pt-zero)

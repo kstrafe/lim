@@ -362,7 +362,7 @@ impl Kernel {
     }
     fn arguments(&mut self, ctx: &[T], mut ty: T, args: &[T], depth: usize) -> Result<T> {
         for arg in args {
-            let reduced = self.whnf(&ty, depth + 1)?;
+            let reduced = self.whnf(ctx, &ty, depth + 1)?;
             let Term::Pi(domain, body) = reduced.as_ref() else {
                 return Err("too many arguments or non-function application".into());
             };
@@ -374,7 +374,7 @@ impl Kernel {
     fn check(&mut self, ctx: &[T], value: &T, expected: &T, depth: usize) -> Result<()> {
         self.tick(depth)?;
         let actual = self.infer(ctx, value, depth + 1)?;
-        if self.convertible(&actual, expected, depth + 1)? {
+        if self.convertible(ctx, &actual, expected, depth + 1)? {
             Ok(())
         } else {
             Err("kernel type mismatch: proof term does not establish its declared type".into())
@@ -382,7 +382,7 @@ impl Kernel {
     }
     fn sort(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<Level> {
         let ty = self.infer(ctx, value, depth + 1)?;
-        let ty = self.whnf(&ty, depth + 1)?;
+        let ty = self.whnf(ctx, &ty, depth + 1)?;
         if let Term::Sort(level) = ty.as_ref() {
             Ok(level.clone())
         } else {
@@ -433,7 +433,7 @@ impl Kernel {
             }
             Term::Pair(ty, first, second) => {
                 self.sort(ctx, ty, depth + 1)?;
-                let shape = self.whnf(ty, depth + 1)?;
+                let shape = self.whnf(ctx, ty, depth + 1)?;
                 let Term::Sigma(a, b) = shape.as_ref() else {
                     return Err("#pt-pair requires an explicit dependent-pair type".into());
                 };
@@ -444,7 +444,7 @@ impl Kernel {
             }
             Term::First(pair) | Term::Second(pair) => {
                 let ty = self.infer(ctx, pair, depth + 1)?;
-                let ty = self.whnf(&ty, depth + 1)?;
+                let ty = self.whnf(ctx, &ty, depth + 1)?;
                 let Term::Sigma(a, b) = ty.as_ref() else {
                     return Err("dependent-pair projection requires a Sigma value".into());
                 };
@@ -535,26 +535,33 @@ impl Kernel {
             depth + 1,
         )?;
         let mt = self.infer(ctx, motive, depth + 1)?;
-        let mt = self.whnf(&mt, depth + 1)?;
+        let mt = self.whnf(ctx, &mt, depth + 1)?;
         let Term::Pi(domain, rest) = mt.as_ref() else {
             return Err("equality motive requires an endpoint binder".into());
         };
-        if !self.convertible(domain, ty, depth + 1)? {
+        if !self.convertible(ctx, domain, ty, depth + 1)? {
             return Err("equality motive endpoint has the wrong type".into());
         }
-        let rest = self.whnf(rest, depth + 1)?;
+        let mut endpoint_context = ctx.to_vec();
+        endpoint_context.push(domain.clone());
+        let rest = self.whnf(&endpoint_context, rest, depth + 1)?;
         let Term::Pi(equality, range) = rest.as_ref() else {
             return Err("equality motive requires an equality-proof binder".into());
         };
         let shifted_type = self.shift(ty, 1, 0, depth + 1)?;
         let shifted_left = self.shift(left, 1, 0, depth + 1)?;
         let expected = term(Term::Eq(shifted_type, shifted_left, term(Term::Var(0))));
-        if !self.convertible(equality, &expected, depth + 1)? {
+        if !self.convertible(&endpoint_context, equality, &expected, depth + 1)? {
             return Err(
                 "equality motive proof binder must depend on its arbitrary endpoint".into(),
             );
         }
-        if !matches!(self.whnf(range, depth + 1)?.as_ref(), Term::Sort(_)) {
+        let mut motive_context = endpoint_context;
+        motive_context.push(equality.clone());
+        if !matches!(
+            self.whnf(&motive_context, range, depth + 1)?.as_ref(),
+            Term::Sort(_)
+        ) {
             return Err("equality motive must return a fixed universe sort".into());
         }
         let base_type = apps(
@@ -589,14 +596,19 @@ impl Kernel {
         let family_type = apps(term(Term::Global(name.into(), levels.to_vec())), parameters);
         self.check(ctx, subject, &family_type, depth + 1)?;
         let mt = self.infer(ctx, motive, depth + 1)?;
-        let mt = self.whnf(&mt, depth + 1)?;
+        let mt = self.whnf(ctx, &mt, depth + 1)?;
         let Term::Pi(domain, range) = mt.as_ref() else {
             return Err("induction motive must bind its subject".into());
         };
-        if !matches!(self.whnf(range, depth + 1)?.as_ref(), Term::Sort(_)) {
+        let mut motive_context = ctx.to_vec();
+        motive_context.push(domain.clone());
+        if !matches!(
+            self.whnf(&motive_context, range, depth + 1)?.as_ref(),
+            Term::Sort(_)
+        ) {
             return Err("induction motive must return a fixed universe sort".into());
         }
-        if !self.convertible(domain, &family_type, depth + 1)? {
+        if !self.convertible(ctx, domain, &family_type, depth + 1)? {
             return Err("induction motive has the wrong subject type".into());
         }
         let result = apps(motive.clone(), std::slice::from_ref(subject));
@@ -610,13 +622,16 @@ impl Kernel {
             return Err("large elimination from this proposition is forbidden".into());
         }
         for (ctor, branch) in desc.constructors.iter().zip(branches) {
-            let expected = self.branch_type(name, levels, parameters, motive, ctor, depth + 1)?;
+            let expected =
+                self.branch_type(ctx, name, levels, parameters, motive, ctor, depth + 1)?;
             self.check(ctx, branch, &expected, depth + 1)?;
         }
         Ok(result)
     }
+    #[expect(clippy::too_many_arguments)]
     fn branch_type(
         &mut self,
+        ctx: &[T],
         name: &str,
         levels: &[Level],
         parameters: &[T],
@@ -627,29 +642,33 @@ impl Kernel {
         let (mut ty, recursive) = self.constructor_type(name, levels, &ctor.name, depth + 1)?;
         // The parameter application was already checked by induction.
         for parameter in parameters {
-            let reduced = self.whnf(&ty, depth + 1)?;
+            let reduced = self.whnf(ctx, &ty, depth + 1)?;
             let Term::Pi(_, body) = reduced.as_ref() else {
                 return Err("invalid constructor telescope".into());
             };
             ty = self.instantiate(body, parameter, depth + 1)?;
         }
         let mut domains = vec![];
+        let mut inner = ctx.to_vec();
         let mut args: Vec<T> = vec![];
         let mut params = parameters.to_vec();
         let mut motive = motive.clone();
         for is_recursive in recursive {
-            let reduced = self.whnf(&ty, depth + 1)?;
+            let reduced = self.whnf(&inner, &ty, depth + 1)?;
             let Term::Pi(domain, body) = reduced.as_ref() else {
                 return Err("invalid constructor field telescope".into());
             };
             domains.push(domain.clone());
+            inner.push(domain.clone());
             ty = body.clone();
             args = self.shift_many(&args, 1, depth + 1)?;
             args.push(term(Term::Var(0)));
             params = self.shift_many(&params, 1, depth + 1)?;
             motive = self.shift(&motive, 1, 0, depth + 1)?;
             if is_recursive {
-                domains.push(term(Term::App(motive.clone(), term(Term::Var(0)))));
+                let ih = term(Term::App(motive.clone(), term(Term::Var(0))));
+                domains.push(ih.clone());
+                inner.push(ih);
                 ty = self.shift(&ty, 1, 0, depth + 1)?;
                 args = self.shift_many(&args, 1, depth + 1)?;
                 params = self.shift_many(&params, 1, depth + 1)?;
@@ -665,7 +684,7 @@ impl Kernel {
         });
         Ok(pis(&domains, term(Term::App(motive, value))))
     }
-    fn whnf(&mut self, value: &T, depth: usize) -> Result<T> {
+    fn whnf(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<T> {
         self.tick(depth)?;
         let mut value = value.clone();
         loop {
@@ -679,7 +698,7 @@ impl Kernel {
                     value = self.universes(&body, &map, depth + 1)?;
                 }
                 Term::App(function, arg) => {
-                    let f = self.whnf(function, depth + 1)?;
+                    let f = self.whnf(ctx, function, depth + 1)?;
                     if let Term::Lam(_, body) = f.as_ref() {
                         value = self.instantiate(body, arg, depth + 1)?;
                     } else {
@@ -687,7 +706,7 @@ impl Kernel {
                     }
                 }
                 Term::First(pair) | Term::Second(pair) => {
-                    let reduced = self.whnf(pair, depth + 1)?;
+                    let reduced = self.whnf(ctx, pair, depth + 1)?;
                     if let Term::Pair(_, a, b) = reduced.as_ref() {
                         value = if matches!(value.as_ref(), Term::First(_)) {
                             a.clone()
@@ -698,9 +717,17 @@ impl Kernel {
                         return Ok(value);
                     }
                 }
-                Term::EqElim { proof, base, .. } => {
-                    let reduced = self.whnf(proof, depth + 1)?;
-                    if matches!(reduced.as_ref(), Term::Refl(..)) {
+                Term::EqElim {
+                    proof,
+                    base,
+                    left,
+                    right,
+                    ..
+                } => {
+                    let reduced = self.whnf(ctx, proof, depth + 1)?;
+                    if matches!(reduced.as_ref(), Term::Refl(..))
+                        || self.convertible(ctx, left, right, depth + 1)?
+                    {
                         value = base.clone();
                     } else {
                         return Ok(value);
@@ -714,7 +741,8 @@ impl Kernel {
                     branches,
                     subject,
                 } => {
-                    let subject = self.whnf(subject, depth + 1)?;
+                    let subject = self.whnf(ctx, subject, depth + 1)?;
+                    let (desc, map) = self.family(family, levels, depth + 1)?;
                     let Term::Ctor {
                         family: actual,
                         constructor,
@@ -722,12 +750,24 @@ impl Kernel {
                         ..
                     } = subject.as_ref()
                     else {
+                        // A proof of a fieldless singleton proposition is
+                        // equal to its sole constructor, even when opaque.
+                        if desc.large
+                            && desc.sort.substitute(&map)?.zero()
+                            && desc.constructors.len() == 1
+                            && desc.constructors[0].fields.is_empty()
+                        {
+                            value = branches
+                                .first()
+                                .cloned()
+                                .ok_or("missing induction branch")?;
+                            continue;
+                        }
                         return Ok(value);
                     };
                     if actual != family {
                         return Err("induction subject belongs to a different family".into());
                     }
-                    let (desc, _) = self.family(family, levels, depth + 1)?;
                     let index = desc
                         .constructors
                         .iter()
@@ -760,34 +800,40 @@ impl Kernel {
             }
         }
     }
-    fn convertible(&mut self, a: &T, b: &T, depth: usize) -> Result<bool> {
+    fn convertible(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
         self.tick(depth)?;
         if Arc::ptr_eq(a, b) {
             return Ok(true);
         }
-        let a = self.whnf(a, depth + 1)?;
-        let b = self.whnf(b, depth + 1)?;
-        match (a.as_ref(), b.as_ref()) {
+        let a = self.whnf(ctx, a, depth + 1)?;
+        let b = self.whnf(ctx, b, depth + 1)?;
+        let structurally_equal = match (a.as_ref(), b.as_ref()) {
             (Term::Sort(a), Term::Sort(b)) => a.equivalent(b),
             (Term::Var(a), Term::Var(b)) => Ok(a == b),
             (Term::Global(a, u), Term::Global(b, v)) => Ok(a == b && same_levels(u, v)?),
             (Term::Pi(a, b), Term::Pi(c, d))
             | (Term::Lam(a, b), Term::Lam(c, d))
-            | (Term::Sigma(a, b), Term::Sigma(c, d))
-            | (Term::App(a, b), Term::App(c, d)) => {
-                Ok(self.convertible(a, c, depth + 1)? && self.convertible(b, d, depth + 1)?)
+            | (Term::Sigma(a, b), Term::Sigma(c, d)) => {
+                if self.convertible(ctx, a, c, depth + 1)? {
+                    let mut inner = ctx.to_vec();
+                    inner.push(a.clone());
+                    self.convertible(&inner, b, d, depth + 1)
+                } else {
+                    Ok(false)
+                }
             }
+            (Term::App(a, b), Term::App(c, d)) => Ok(self.convertible(ctx, a, c, depth + 1)?
+                && self.convertible(ctx, b, d, depth + 1)?),
             (Term::Pair(a, b, c), Term::Pair(d, e, f)) | (Term::Eq(a, b, c), Term::Eq(d, e, f)) => {
-                Ok(self.convertible(a, d, depth + 1)?
-                    && self.convertible(b, e, depth + 1)?
-                    && self.convertible(c, f, depth + 1)?)
+                Ok(self.convertible(ctx, a, d, depth + 1)?
+                    && self.convertible(ctx, b, e, depth + 1)?
+                    && self.convertible(ctx, c, f, depth + 1)?)
             }
             (Term::First(a), Term::First(b)) | (Term::Second(a), Term::Second(b)) => {
-                self.convertible(a, b, depth + 1)
+                self.convertible(ctx, a, b, depth + 1)
             }
-            (Term::Refl(a, b), Term::Refl(c, d)) => {
-                Ok(self.convertible(a, c, depth + 1)? && self.convertible(b, d, depth + 1)?)
-            }
+            (Term::Refl(a, b), Term::Refl(c, d)) => Ok(self.convertible(ctx, a, c, depth + 1)?
+                && self.convertible(ctx, b, d, depth + 1)?),
             (
                 Term::Ctor {
                     family: a,
@@ -806,8 +852,8 @@ impl Kernel {
             ) => Ok(a == b
                 && same_levels(u, v)?
                 && c == d
-                && self.same_many(p, q, depth + 1)?
-                && self.same_many(f, g, depth + 1)?),
+                && self.same_many(ctx, p, q, depth + 1)?
+                && self.same_many(ctx, f, g, depth + 1)?),
             (
                 Term::Induct {
                     family: a,
@@ -827,10 +873,10 @@ impl Kernel {
                 },
             ) => Ok(a == b
                 && same_levels(u, v)?
-                && self.same_many(p, q, depth + 1)?
-                && self.convertible(m, n, depth + 1)?
-                && self.same_many(r, t, depth + 1)?
-                && self.convertible(s, w, depth + 1)?),
+                && self.same_many(ctx, p, q, depth + 1)?
+                && self.convertible(ctx, m, n, depth + 1)?
+                && self.same_many(ctx, r, t, depth + 1)?
+                && self.convertible(ctx, s, w, depth + 1)?),
             (
                 Term::EqElim {
                     ty: a,
@@ -849,6 +895,7 @@ impl Kernel {
                     proof: l,
                 },
             ) => self.same_many(
+                ctx,
                 &[
                     a.clone(),
                     b.clone(),
@@ -868,14 +915,25 @@ impl Kernel {
                 depth + 1,
             ),
             _ => Ok(false),
+        }?;
+        if structurally_equal {
+            return Ok(true);
         }
+        // Classify the type of a term, not the term's syntax. Prop itself is a
+        // type, and arbitrary Sort-polymorphic data is not necessarily proof.
+        let proposition = self.infer(ctx, &a, depth + 1)?;
+        if !self.sort(ctx, &proposition, depth + 1)?.zero() {
+            return Ok(false);
+        }
+        let other_proposition = self.infer(ctx, &b, depth + 1)?;
+        self.convertible(ctx, &proposition, &other_proposition, depth + 1)
     }
-    fn same_many(&mut self, a: &[T], b: &[T], depth: usize) -> Result<bool> {
+    fn same_many(&mut self, ctx: &[T], a: &[T], b: &[T], depth: usize) -> Result<bool> {
         if a.len() != b.len() {
             return Ok(false);
         }
         for (a, b) in a.iter().zip(b) {
-            if !self.convertible(a, b, depth + 1)? {
+            if !self.convertible(ctx, a, b, depth + 1)? {
                 return Ok(false);
             }
         }

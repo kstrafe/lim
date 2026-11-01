@@ -2085,8 +2085,9 @@ exception applies, whenever a symbolic family sort could be zero the motive
 sort must also be zero. Correlated family and motive sorts using the same `u`
 can satisfy this condition; an independent data universe allowing a positive
 motive sort when the family is Prop cannot. `#pt-false` is an empty proposition.
-General Sort and guarded elimination do not add proof irrelevance,
-cumulativity, or type-in-type, and do not complete the FLT proof port.
+General Sort and guarded elimination do not add cumulativity or type-in-type,
+and do not complete the FLT proof port. Proof irrelevance is the separate typed
+conversion rule described below.
 
 `(#pt-program procedural-proof-name)` is a proposition atom;
 `(#pt-certificate procedural-proof-name)` is its evidence only after the existing
@@ -2097,8 +2098,30 @@ Conversion supports beta, transparent delta, and constructor/eliminator iota
 computation, including pair projections and equality elimination J at
 reflexivity, with opaque theorems. J checks its motive at a fresh generic
 endpoint and equality, not only at the supplied endpoint. There is no term let
-or zeta reduction, eta conversion, proof irrelevance, cumulativity, quotient,
-classical axiom, admit, general recursion, or metavariable hole.
+or zeta reduction, eta conversion, cumulativity, quotient, classical axiom,
+admit, general recursion, or metavariable hole.
+
+Definitional proof irrelevance identifies any two well-typed proofs of the same
+proposition. Typed conversion carries the local context through Pi, lambda, and
+Sigma binders and verifies the shared proposition type there; syntactic
+resemblance is insufficient. Proposition types themselves are not collapsed,
+and distinct native-program facts remain separate opaque atoms. Data values
+and generic `Sort u` values are not identified unless their type's sort is
+provably zero. Opaque theorem bodies remain opaque.
+
+```lisp library
+(#theorem proof-irrelevance
+  (#universes)
+  (#parameters (#parameter P #pt-prop) (#parameter p P) (#parameter q P))
+  (#statement (#pt-eq P p q))
+  (#proof (#pt-refl P p)))
+```
+
+Here existing reflexivity checks against equality of `p` and `q` because both
+are proofs of `P`. No new keywords, axiom, admit, or tactic is needed. See the
+[kernel guide](kernel.md#equality-and-dependent-transport) for the typed rule and
+its pinned Lean reference. This capability does not establish full Lean
+conversion parity, formal verification of the kernel, or a completed FLT port.
 
 Kernel checking allows 200,000 core steps per declaration and recursive depth
 96; mathematical parsing allows 50,000 nodes per declaration and depth 64.
@@ -3053,7 +3076,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
 | `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
-| `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using definitional conversion. |
+| `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
 | `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |

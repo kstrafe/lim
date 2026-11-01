@@ -174,7 +174,7 @@ fn valid_equality_elimination_reduces_on_refl() {
         base: base.clone(),
     });
     k.check(&[], &value, &eq(nat(), zero(), zero()), 0).unwrap();
-    assert!(k.convertible(&value, &base, 0).unwrap());
+    assert!(k.convertible(&[], &value, &base, 0).unwrap());
 }
 
 #[test]
@@ -239,10 +239,10 @@ fn substitution_shifts_argument_and_removes_only_the_eliminated_binder() {
     let body = lam(nat(), app(var(2), var(1)));
     let instantiated = k.instantiate(&body, &var(0), 0).unwrap();
     let expected = lam(nat(), app(var(1), var(1)));
-    assert!(k.convertible(&instantiated, &expected, 0).unwrap());
+    assert!(k.convertible(&[], &instantiated, &expected, 0).unwrap());
     let shifted = k.shift(&lam(nat(), app(var(1), var(0))), 2, 0, 0).unwrap();
     assert!(k
-        .convertible(&shifted, &lam(nat(), app(var(3), var(0))), 0)
+        .convertible(&[], &shifted, &lam(nat(), app(var(3), var(0))), 0)
         .unwrap());
 }
 
@@ -253,7 +253,7 @@ fn dependent_context_lookup_rebases_stored_types() {
     let ctx = vec![sort(1), var(0), eq(var(1), var(0), var(0))];
     let actual = k.infer(&ctx, &var(0), 0).unwrap();
     assert!(k
-        .convertible(&actual, &eq(var(2), var(1), var(1)), 0)
+        .convertible(&[], &actual, &eq(var(2), var(1), var(1)), 0)
         .unwrap());
 }
 
@@ -302,7 +302,7 @@ fn parameterized_recursor_handles_ih_before_dependent_later_fields() {
     });
     k.check(&[], &eliminate, &nat(), 0).unwrap();
     k.reset_budget();
-    assert!(k.convertible(&eliminate, &succ(zero()), 0).unwrap());
+    assert!(k.convertible(&[], &eliminate, &succ(zero()), 0).unwrap());
 }
 
 #[test]
@@ -334,14 +334,14 @@ fn levels_maximum_and_substitution_preserve_natural_offsets() {
 }
 
 #[test]
-fn conversion_has_no_eta_cumulativity_or_proof_irrelevance() {
+fn proof_irrelevance_preserves_data_distinctions_without_eta_or_cumulativity() {
     let mut k = Kernel::new();
     assert!(k.check(&[], &sort(0), &sort(2), 0).is_err());
     let function = pi(nat(), nat());
     let ctx = vec![function];
     let eta = lam(nat(), app(var(1), var(0)));
     k.infer(&ctx, &eta, 0).unwrap();
-    assert!(!k.convertible(&var(0), &eta, 0).unwrap());
+    assert!(!k.convertible(&ctx, &var(0), &eta, 0).unwrap());
     k.inductive(
         "TwoProofs",
         vec![],
@@ -354,7 +354,86 @@ fn conversion_has_no_eta_cumulativity_or_proof_irrelevance() {
     let b = ctor("TwoProofs", vec![], "b", vec![]);
     k.check(&[], &a, &global("TwoProofs"), 0).unwrap();
     k.check(&[], &b, &global("TwoProofs"), 0).unwrap();
-    assert!(!k.convertible(&a, &b, 0).unwrap());
+    assert!(k.convertible(&[], &a, &b, 0).unwrap());
+    k.definition(
+        "opaque-proof",
+        vec![],
+        eq(nat(), zero(), zero()),
+        refl(nat(), zero()),
+        true,
+    )
+    .unwrap();
+    let opaque = global("opaque-proof");
+    assert!(
+        matches!(k.whnf(&[], &opaque, 0).unwrap().as_ref(), Term::Global(name, _) if name == "opaque-proof")
+    );
+    assert!(k
+        .convertible(&[], &opaque, &refl(nat(), zero()), 0)
+        .unwrap());
+}
+
+#[test]
+fn opaque_loop_equality_proofs_compute_but_arbitrary_endpoints_do_not() {
+    let mut k = Kernel::new();
+    let motive = lam(nat(), lam(eq(nat(), zero(), var(0)), nat()));
+    for (right, computes) in [(zero(), true), (succ(zero()), false)] {
+        let ctx = vec![eq(nat(), zero(), right.clone())];
+        let value = term(Term::EqElim {
+            ty: nat(),
+            left: zero(),
+            right,
+            motive: motive.clone(),
+            base: zero(),
+            proof: var(0),
+        });
+        k.check(&ctx, &value, &nat(), 0).unwrap();
+        assert_eq!(k.convertible(&ctx, &value, &zero(), 0).unwrap(), computes);
+    }
+}
+
+#[test]
+fn opaque_fieldless_singleton_proofs_have_the_constructor_computation_rule() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "ProofUnit",
+        vec![],
+        vec![],
+        level(0),
+        vec![("unit".into(), vec![])],
+    )
+    .unwrap();
+    let ctx = vec![global("ProofUnit")];
+    let value = term(Term::Induct {
+        family: "ProofUnit".into(),
+        levels: vec![],
+        parameters: vec![],
+        motive: lam(global("ProofUnit"), nat()),
+        branches: vec![zero()],
+        subject: var(0),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    assert!(k.convertible(&ctx, &value, &zero(), 0).unwrap());
+    k.inductive(
+        "DataUnit",
+        vec![],
+        vec![],
+        level(1),
+        vec![("unit".into(), vec![])],
+    )
+    .unwrap();
+    let data_context = vec![global("DataUnit")];
+    let data_value = term(Term::Induct {
+        family: "DataUnit".into(),
+        levels: vec![],
+        parameters: vec![],
+        motive: lam(global("DataUnit"), nat()),
+        branches: vec![zero()],
+        subject: var(0),
+    });
+    k.check(&data_context, &data_value, &nat(), 0).unwrap();
+    assert!(!k
+        .convertible(&data_context, &data_value, &zero(), 0)
+        .unwrap());
 }
 
 #[test]

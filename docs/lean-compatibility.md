@@ -123,7 +123,7 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | --- | --- | --- |
 | Inductive families | Regular parameterized datatypes with direct recursive fields. No indices, mutual recursion, or nested self occurrences. | Implement and audit indexed, mutual, and nested inductives, their positivity conditions, recursors, and computation rules. |
 | Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
-| Conversion | Beta, transparent delta, iota, projections, and J; opaque theorem bodies. No proof irrelevance. | Account for Lean's definitional proof irrelevance and other conversion behavior actually used by the dependency closure. Adding a rule requires an explicit kernel and trust review. |
+| Conversion | Beta, transparent delta, iota, projections, J, and typed definitional proof irrelevance for well-typed proofs of the same proposition. The local context is retained through Pi/lambda/Sigma binders; opaque theorem bodies stay opaque. No eta or cumulativity. | Audit the implemented rules against imported elaborated terms and the full dependency closure; implement any remaining required conversion behavior explicitly. This capability is not full Lean conversion parity or an FLT proof port. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
@@ -146,8 +146,20 @@ resource limits, not a finite model of universe values.
 Guarded large elimination requires a proposition-valued motive whenever the
 family sort is zero, unless the empty/singleton-proof exception holds. Matching
 family and motive variables retain their correlation; independent levels must
-satisfy the condition for every assignment. Proof irrelevance and indexed,
-mutual, and nested inductives are still absent, as is a full FLT proof port.
+satisfy the condition for every assignment. Indexed, mutual, and nested
+inductives are still absent, as is a full FLT proof port.
+
+Typed definitional proof irrelevance is now supported for well-typed proofs of
+the same proposition, following the concept in Lean 4.33.1's
+[`is_def_eq_proof_irrel`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/type_checker.cpp#L870-L879).
+Conversion retains the local typing context through dependent Pi, lambda, and
+Sigma binders and checks the shared proposition, rather than relying on syntax
+alone. Proposition types and distinct opaque native-program fact atoms are not
+identified by this rule. Data and generic Sort-polymorphic values remain
+distinct unless their type's sort is provably zero. Opaque theorem bodies stay
+opaque, and the rule introduces no axiom, admit, or tactic. Eta, cumulativity,
+and quotients remain unsupported. The implemented kernel is not formally
+verified, and these changes do not supply the missing FLT proof.
 
 The pinned metadata lists `propext`, `Classical.choice`, and `Quot.sound` as the
 axioms used by the upstream full result. Lim currently supplies none of these

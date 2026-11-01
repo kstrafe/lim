@@ -248,8 +248,41 @@ explicit equality proof:
 
 Conversion and propositional equality are different. Conversion computes with
 transparent checked terms; an equality hypothesis requires elimination when
-its endpoints do not already convert. There is no proof-irrelevance conversion
-rule: arbitrary proofs of the same proposition are not automatically equal.
+its endpoints do not already convert. Definitional proof irrelevance also makes
+any two well-typed proofs of the same proposition definitionally equal.
+The checker verifies that both terms have the same proposition as their type.
+Their inferred proposition types must themselves pass typed conversion; merely
+being propositions, matching syntax, or looking like evidence is insufficient.
+
+```lisp
+(#theorem proof-irrelevance
+  (#universes)
+  (#parameters (#parameter P #pt-prop) (#parameter p P) (#parameter q P))
+  (#statement (#pt-eq P p q))
+  (#proof (#pt-refl P p)))
+```
+
+Reflexivity initially proves `(#pt-eq P p p)`. Typed conversion recognizes `p`
+and `q` as proofs of the same `P`, so it also checks against the stated equality.
+No new proof form, axiom, admission rule, or tactic is involved.
+
+This rule compares proofs, not arbitrary propositions. Distinct proposition
+types remain distinct unless another conversion rule already identifies them.
+In particular, native-program facts `(#pt-program first-law)` and
+`(#pt-program second-law)` are separate opaque atoms; their certificates cannot
+be substituted for each other merely because both facts have accepted proofs.
+Data values are not collapsed. Neither are arbitrary values of `A : Sort u`
+unless the sort of `A` is provably zero, rather than merely possibly zero.
+
+Conversion carries the local typing context, Gamma, through Pi, lambda, and
+Sigma binders. Dependent comparisons extend that context with each checked
+binder before comparing terms in its scope. It checks the shared proposition
+in that context, not just two syntactic annotations without their bindings.
+Opaque theorem bodies remain opaque: proof irrelevance does not unfold them
+or bypass checking their statements. The reference concept is Lean 4.33.1's
+[`is_def_eq_proof_irrel`](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/type_checker.cpp#L870-L879);
+Lim's implementation remains a checker whose correctness is trusted, not a
+formally verified kernel.
 
 ## Natural numbers and induction
 
@@ -397,9 +430,10 @@ some instantiations permit the elimination, and an ambiguous zero status alone
 does not cause rejection when the implication can be proved.
 
 This prevents arbitrary extraction of computational data from propositional
-witnesses. It does not add proof irrelevance: distinct proofs are still not
-automatically definitionally equal. The restriction is a kernel rule, not a
-runtime representation or erasure promise. Indexed, mutual, and nested
+witnesses. Definitional proof irrelevance identifies well-typed proofs of the
+same proposition; it does not waive this elimination restriction or identify
+data values. The restriction is a kernel rule, not a runtime representation
+or erasure promise. Indexed, mutual, and nested
 inductives remain unsupported.
 
 ## Reuse evidence about native programs
@@ -522,14 +556,22 @@ native emission. A cached native artifact is not proof authority.
 
 Definitional conversion supports beta reduction of lambda applications, delta
 unfolding of transparent definitions, and iota computation of eliminators on
-constructors. Pair projections compute on pairs, and equality elimination J
-computes at reflexivity. Theorems remain opaque. There is no zeta reduction
-for term lets, since term `let` is unsupported, and no eta conversion,
-cumulativity, or proof-irrelevance conversion. Conversion is not an unrestricted
+constructors. Pair projections compute on pairs. Equality elimination J
+reduces to its base when its endpoints are definitionally equal, even when the
+equality evidence is an opaque proof. Its motive must still pass the genuine
+fresh-endpoint check; agreement only at the supplied endpoint is insufficient.
+A recursor for a fieldless singleton proposition also reduces to its single
+branch when its proof subject is opaque. These proof-aware reductions do not
+unfold opaque theorem bodies, add data-unit eta, or provide full Lean eta.
+Theorems remain opaque. There is no zeta reduction
+for term lets, since term `let` is unsupported, and no eta conversion or
+cumulativity. Typed conversion also identifies well-typed proofs of the same
+proposition, carrying the local context through dependent binders; it does not
+identify arbitrary proposition types or data. Conversion is not an unrestricted
 simplifier or a tactic search engine.
 
-The initial kernel has no term `let`, eta conversion, proof irrelevance,
-cumulativity, quotients, classical axioms, `admit`, general recursion,
+The kernel has no term `let`, eta conversion, cumulativity, quotients,
+classical axioms, `admit`, general recursion,
 metavariable holes, or automatic proof synthesis. Finite source, checking, and
 normalization resources still apply; resource exhaustion must fail checking,
 not stand in for evidence. Unsupported features are not enabled by selecting a
@@ -610,7 +652,8 @@ syntax or exact rules:
 - [Inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/)
   explains constructors, recursors, and elimination restrictions.
 
-Lean also has features deliberately absent here, including definitional proof
-irrelevance. Use the rules in this guide for Lim, not an inference that a term
+Lean also has features absent here, including quotients and richer inductive
+families. Definitional proof irrelevance is supported, but does not establish
+full conversion parity. Use the rules in this guide for Lim, not an inference that a term
 accepted by Lean or a mathlib theorem is available in Lim. For the procedural
 layer and the complete builtin reference, see [the language reference](language.md#compile-time-proofs).
