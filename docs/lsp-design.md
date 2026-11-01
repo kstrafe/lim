@@ -285,10 +285,22 @@ the body. Navigation supports nested shadowing during editing, including terms
 that the semantic checker rejects. A definition's declared type and value have
 independent term scopes; neither scope escapes the declaration.
 
-Universe occurrences navigate in `#pt-type`, explicit level argument lists,
-and nested `#pt-level-succ`/`#pt-level-max` expressions. Integer levels and level
-keywords have no definition. Term binders cannot capture universe occurrences,
-and universes are not implicit term bindings.
+Universe occurrences navigate in `#pt-type`, `#pt-sort`, explicit level argument
+lists, and nested `#pt-level-succ`, `#pt-level-max`, and `#pt-level-imax`
+expressions. `(#pt-sort LEVEL)` names the sort directly: sort 0 is Prop and sort
+`(#pt-level-succ u)` is Type u. `(#pt-level-imax LEFT RIGHT)` is universe-level
+arithmetic metadata with exactly two operands: its value is 0 when RIGHT is 0,
+otherwise the maximum of LEFT and RIGHT. Both written operands retain universe
+navigation even when arithmetic makes one irrelevant. A malformed imax list
+or a sort with the wrong operand count has no navigation target.
+
+Integer levels and level/sort keywords have no definition. Term binders cannot
+capture universe occurrences, universes are not implicit term bindings, and
+same-spelled globals or aliases never supply a universe reference. File-access
+resolution leaves `#pt-sort` and `#pt-level-imax` operands untouched, just as it
+does for `#pt-type` and the other level operators. This preserves universe names
+in imported proofs and generated definition/invocation contexts; it does not
+change explicit global proof-reference roles.
 
 `(#pt-use declaration (levels...))` explicitly selects any mathematical
 `#math-definition`, `#math-inductive`, or structured `#theorem` declaration.

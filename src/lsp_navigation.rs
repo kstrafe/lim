@@ -774,8 +774,22 @@ impl<'a> Index<'a> {
     }
     // Kernel terms have their own namespaces. Their types are terms, not
     // runtime Types, and bare names never fall back to global declarations.
+    fn kernel_local_name<'n>(&self, node: &'n Node) -> Option<&'n str> {
+        let name = symbol(node)?;
+        // Source qualification may already have replaced @u with Symbol("u").
+        // Preserve the authored distinction for lexical term/universe roles.
+        let authored = self
+            .program
+            .and_then(|program| program.source_files.get(node.span.source_id as usize))
+            .and_then(|file| file.source.get(node.span.start..node.span.end));
+        if name.starts_with(['#', '@']) || authored.is_some_and(|text| text.starts_with(['#', '@']))
+        {
+            return None;
+        }
+        Some(name)
+    }
     fn kernel_bind(&self, node: &Node, scope: &mut Scope) -> Vec<Span> {
-        let Some(name) = symbol(node).filter(|name| !name.starts_with('#')) else {
+        let Some(name) = self.kernel_local_name(node) else {
             return vec![];
         };
         self.explicit_locals.borrow_mut().insert(node.span);
@@ -811,13 +825,20 @@ impl<'a> Index<'a> {
         if !self.contains(node) {
             return vec![];
         }
-        if let Some(name) = symbol(node) {
-            return levels
-                .get(name)
+        if symbol(node).is_some() {
+            return self
+                .kernel_local_name(node)
+                .and_then(|name| levels.get(name))
                 .map(|binding| binding.spans.clone())
                 .unwrap_or_default();
         }
-        if matches!(head(node), "pt-level-succ" | "pt-level-max") {
+        if head(node) == "pt-level-imax" && node.children.len() != 3 {
+            return vec![];
+        }
+        if matches!(
+            head(node),
+            "pt-level-succ" | "pt-level-max" | "pt-level-imax"
+        ) {
             for level in node
                 .children
                 .iter()
@@ -899,19 +920,19 @@ impl<'a> Index<'a> {
         if !self.contains(node) {
             return vec![];
         }
-        if let Some(name) = symbol(node) {
-            return if name.starts_with('#') {
-                vec![]
-            } else {
-                scope
-                    .get(name)
-                    .map(|binding| binding.spans.clone())
-                    .unwrap_or_default()
-            };
+        if symbol(node).is_some() {
+            return self
+                .kernel_local_name(node)
+                .and_then(|name| scope.get(name))
+                .map(|binding| binding.spans.clone())
+                .unwrap_or_default();
         }
         let xs = &node.children;
         match head(node) {
-            "pt-type" => {
+            "pt-type" | "pt-sort" => {
+                if head(node) == "pt-sort" && xs.len() != 2 {
+                    return vec![];
+                }
                 if let Some(level) = xs.get(1) {
                     return self.kernel_level(level, levels);
                 }

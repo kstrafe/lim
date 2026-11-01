@@ -89,10 +89,16 @@ functions, structs, enums, or runtime layouts.
 
 ## Propositions, types, and explicit universes
 
-`#pt-prop` denotes `Sort 0`, the sort of propositions. `(#pt-type L)` denotes
-`Sort (L + 1)`: `(#pt-type 0)` is the first data-type universe, not `Prop`.
-Thus `#pt-prop` is itself a term classified in a higher sort; a proposition
-such as `(#pt-eq #pt-nat n n)` is an inhabitant of `#pt-prop`.
+`(#pt-sort L)` denotes the general sort `Sort L`. `#pt-prop` is `Sort 0`,
+equivalently `(#pt-sort 0)`, and `(#pt-type L)` is
+`(#pt-sort (#pt-level-succ L))`. Thus `(#pt-type 0)` is `Sort 1`, the first
+data-type universe, not `Prop`. A sort at level `L` is itself classified in
+`Sort (L + 1)`; it does not inhabit itself. A proposition such as
+`(#pt-eq #pt-nat n n)` is an inhabitant of `#pt-prop`.
+
+Sort arguments are explicit: there is no missing-level inference. General
+Sort polymorphism permits a declared level parameter to range over both zero
+and positive levels; using `#pt-type` alone always selects a successor level.
 
 Levels are explicit syntax:
 
@@ -102,10 +108,28 @@ Levels are explicit syntax:
 | `u` | A universe parameter declared by this mathematical declaration. |
 | `(#pt-level-succ u)` | Successor of a level. |
 | `(#pt-level-max u v)` | Maximum of the listed levels. |
+| `(#pt-level-imax u v)` | Zero when `v` is zero; otherwise `max(u, v)`. Exactly two operands. |
 
 Level expressions are not arbitrary native or kernel term computations.
 There is no implicit universe inference or cumulativity: inhabiting one
 universe does not automatically coerce a term into a larger universe.
+
+Symbolic level equalities and inequalities must hold for every nonnegative
+assignment to the declared universe parameters, not just sampled levels or
+values below a fixed maximum. The same parameter retains its correlation in
+all occurrences. A symbolic level is not rejected simply because it might be
+zero or positive: the checker analyzes those guards exactly. Normalized level
+terms, guard analysis, and comparisons have finite resource budgets; exceeding
+a budget reports an error rather than guessing equality, inequality, or safety.
+
+```lisp
+(#math-definition sort-identity (u)
+  (#pt-pi ((A (#pt-sort u)) (x A)) A)
+  (#pt-lambda ((A (#pt-sort u)) (x A)) x))
+```
+
+This identity accepts a proposition at level zero as well as a type at a
+positive level, with explicit universe and term arguments at each use.
 
 A global mathematical reference is always `(#pt-use NAME (level...))`.
 The level list is required, including `()` for a monomorphic declaration.
@@ -125,7 +149,16 @@ generation and monomorphization rules.
 
 `(#pt-pi ((x A) (y B)...) C)` is a dependent function type. Later binder types
 and the result may mention earlier binders. When the result is a proposition,
-this expresses universal quantification or implication. A dependent function
+this expresses universal quantification or implication. For one binder, if
+`A : Sort u` and the result type has sort `Sort v`, the Pi type has sort
+`Sort (imax(u, v))`. In particular, a proposition-valued result stays in Prop
+even when the domain inhabits a higher sort. Multiple binders apply this rule
+from the innermost Pi outward. Symbolic zero/positive cases are checked without
+rejecting a declaration merely because a level's zero status is not fixed.
+These universe rules follow the concepts implemented in Lean 4.33.1's pinned
+[level operations](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/level.cpp)
+and [Pi type checking](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/type_checker.cpp);
+this does not import Lean's other conversion rules into Lim. A dependent function
 is introduced with `#pt-lambda` using the same explicit binder-list syntax:
 `(#pt-lambda ((P #pt-prop) (p P)) p)`. The equivalent theorem uses explicit
 parameter clauses, which bind `P` and `p` in its statement and evidence:
@@ -349,9 +382,25 @@ There is no `admit` or axiom declaration that supplies a proof of it.
 An inductive proposition normally eliminates into propositions. Elimination
 from `Prop` into a data-type universe is restricted to empty inductives or
 single-constructor inductives whose fields are all proofs. Merely having one
-constructor is insufficient if a field carries data. This prevents arbitrary
-extraction of computational data from propositional witnesses. The restriction
-is a kernel rule, not a runtime representation or erasure promise.
+constructor is insufficient if a field carries data. For a family with sort
+`Sort u`, the singleton exception requires every field to inhabit Prop whenever
+`u = 0`. Constructor field universes must also satisfy
+`imax(fieldSort, familySort) <= familySort` for all universe assignments.
+
+For families polymorphic over general Sort, large elimination is checked under
+the guard that the family sort is zero. Unless the empty/singleton-proof
+exception applies, the motive's result sort must also be zero under that guard.
+A family in `Sort u` with a motive in `Sort u` preserves the same-variable
+correlation and is permitted by this restriction. A motive in an independent
+`Sort v` is rejected when `u = 0` and `v > 0` is possible. It is not enough that
+some instantiations permit the elimination, and an ambiguous zero status alone
+does not cause rejection when the implication can be proved.
+
+This prevents arbitrary extraction of computational data from propositional
+witnesses. It does not add proof irrelevance: distinct proofs are still not
+automatically definitionally equal. The restriction is a kernel rule, not a
+runtime representation or erasure promise. Indexed, mutual, and nested
+inductives remain unsupported.
 
 ## Reuse evidence about native programs
 
@@ -499,12 +548,30 @@ mathematical meaning of a type:
 | Mathematical parser nesting depth | 64. |
 | Universe parameters and explicit universe arguments | At most 32 per list. |
 | Pi/lambda binders, term application arguments, and recursor branches | At most 64 per list. |
-| Constant universe level | At most 65,535. |
+| Source universe constants and normalized affine offsets | At most 65,535; not a bound on level-variable values. |
+| Normalized level monomials | At most 256 per term. |
+| Nonzero guard variables | At most 64 per term. |
+| Level normalization work | 200,000 work units per normalization operation. |
+| Symbolic level comparison work | 50,000 work units per inequality. |
 | Inductive parameters | At most 64. |
 | Constructors | At most 64 per datatype. |
 | Constructor fields | At most 64 per constructor. |
 | Mathematical declarations | At most 4,096. |
 | `#pt-numeral` abbreviation | Source integers from 0 through 128. |
+
+Universe normalization, zero-status guard analysis, and level comparisons have
+separate bounded work budgets in addition to the 200,000-step core checking
+budget per term declaration. These budgets are independent: a normalization
+operation has its own 200,000-work limit, and an inequality has its own
+50,000-work limit. Exhaustion returns an error, never a successful comparison,
+an accepted elimination, or a theorem.
+
+The source constant and affine-offset bound of 65,535 is a representation and
+resource bound, not a finite model of universe parameters. Level variables
+still range over all natural numbers without an upper bound. Symbolic order is
+checked exactly over those assignments; no sampling checker substitutes a
+finite collection of universe values. The existing limit of 32 source universe
+parameters is unchanged.
 
 Parser limits and kernel limits are separate checks. A term that parses may
 still exceed checking or conversion resources. Exhaustion rejects the

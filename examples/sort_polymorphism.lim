@@ -1,0 +1,28 @@
+; One identity definition works for propositions and data. Sort 0 is Prop;
+; Sort 1 is Type 0. Every universe argument and theorem binding is explicit.
+(#math-definition sort-identity (u)
+  (#pt-pi ((a (#pt-sort u)) (value a)) a)
+  (#pt-lambda ((a (#pt-sort u)) (value a)) value))
+(#theorem identity-on-proofs
+  (#universes)
+  (#parameters
+    (#parameter proposition #pt-prop)
+    (#parameter evidence proposition))
+  (#statement
+    (#pt-eq proposition (#pt-app (#pt-use sort-identity (0)) proposition evidence) evidence))
+  (#proof (#pt-refl proposition evidence)))
+(#theorem identity-on-naturals
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement (#pt-eq #pt-nat (#pt-app (#pt-use sort-identity (1)) #pt-nat number) number))
+  (#proof (#pt-refl #pt-nat number)))
+; The codomain decides whether an arrow is a proposition. imax(u,0)=0;
+; for a positive codomain universe it is the maximum of both universes.
+(#math-definition arrow (u v)
+  (#pt-pi ((a (#pt-sort u)) (b (#pt-sort v))) (#pt-sort (#pt-level-imax u v)))
+  (#pt-lambda ((a (#pt-sort u)) (b (#pt-sort v))) (#pt-pi ((argument a)) b)))
+; Mathematical declarations emit no native instructions.
+
+(#fn main () #u64
+  (#return 42u64))

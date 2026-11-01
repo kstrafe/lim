@@ -2045,9 +2045,21 @@ retains the existing procedural claim forms. Parameter clauses lower to closed
 Pi/lambda terms that the kernel checks independently.
 
 The theorem's type must inhabit `#pt-prop`. Definitions are transparent to
-conversion; checked theorem bodies are opaque. `#pt-prop` is `Sort 0` and
-`(#pt-type LEVEL)` is `Sort (LEVEL + 1)`. Universe levels are explicit
-nonnegative integers, declared universe parameters, successors, or maxima.
+conversion; checked theorem bodies are opaque. `(#pt-sort LEVEL)` is
+`Sort LEVEL`, `#pt-prop` is `Sort 0`, and `(#pt-type LEVEL)` is
+`Sort (LEVEL + 1)`, equivalently Sort at the explicit successor level. A sort
+inhabits its successor sort, not itself. Universe levels are explicit
+nonnegative integers, declared universe parameters, successors, maxima, or
+`(#pt-level-imax LEFT RIGHT)`. The latter is zero if RIGHT is zero and otherwise
+`max(LEFT, RIGHT)`. There is no implicit sort or universe inference.
+
+For a Pi with domain type in `Sort u` and result type in `Sort v`, its sort is
+`Sort (imax(u, v))`; proposition-valued functions therefore stay in Prop.
+Symbolic level relationships are checked exactly for all nonnegative universe
+assignments, retaining correlations between repeated variables. A level that
+could be zero or positive is not rejected merely for that ambiguity. Bounded
+term, guard-analysis, comparison, and execution budgets fail with errors rather
+than treating sampled or unfinished checks as universal evidence.
 `(#pt-use proof-name (levels...))` requires its level list, including `()`.
 Pi and lambda use explicit typed binder lists; Sigma requires exactly one
 binder. Application, equality, reflexivity, equality elimination, dependent
@@ -2067,7 +2079,14 @@ and parameter lists, a motive, constructor branches in declaration order, and
 a subject. Each recursive field is immediately followed by its induction
 hypothesis in the branch arguments. Elimination of inductive propositions into
 data-type universes is restricted to empty inductives or a single constructor
-whose fields are all proofs. `#pt-false` is an empty proposition.
+whose fields are all proofs whenever the family sort is zero. For every field,
+`imax(fieldSort, familySort) <= familySort` must hold. Unless that elimination
+exception applies, whenever a symbolic family sort could be zero the motive
+sort must also be zero. Correlated family and motive sorts using the same `u`
+can satisfy this condition; an independent data universe allowing a positive
+motive sort when the family is Prop cannot. `#pt-false` is an empty proposition.
+General Sort and guarded elimination do not add proof irrelevance,
+cumulativity, or type-in-type, and do not complete the FLT proof port.
 
 `(#pt-program procedural-proof-name)` is a proposition atom;
 `(#pt-certificate procedural-proof-name)` is its evidence only after the existing
@@ -2088,6 +2107,15 @@ Other limits are 32 universe parameters, constant universe levels at most 65,535
 and 4,096 mathematical declarations. `#pt-numeral` accepts source integers from
 0 through 128; Nat and natural-number quantification remain unbounded. Limits
 fail closed and are separate from the procedural symbolic checker's budgets.
+
+Universe normalization permits at most 256 normalized monomials and 64 nonzero
+guard variables per term. Constants and normalized affine offsets are bounded
+by 65,535. Normalization has a 200,000-work budget per operation; comparison has
+a 50,000-work budget per inequality. These are separate from the existing
+200,000-step core budget per term declaration and the 32-source-universe-parameter
+limit. Exhaustion returns an error and establishes no theorem. Level variables
+retain unbounded natural-number semantics: source and work limits do not turn
+symbolic order checking into a finite model or sampling procedure.
 
 The kernel is inspired by Lean 4 but is not full Lean 4, does not include mathlib,
 and claims neither feature parity nor formal verification. Acceptance trusts
@@ -3015,6 +3043,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
 | `#pt-induct` | `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)` | `(#pt-induct ticks () () (#pt-lambda ((x (#pt-use ticks ()))) #pt-nat) (#pt-zero (#pt-lambda ((p (#pt-use ticks ())) (ih #pt-nat)) (#pt-succ ih))) t)` (mathematical term) | Eliminates a user inductive with branches in constructor order; an induction hypothesis follows each recursive field. Prop-to-Type elimination is restricted. |
 | `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
+| `#pt-level-imax` | `(#pt-level-imax LEFT RIGHT)` | `(#math-definition prop-imax () (#pt-type 0) (#pt-sort (#pt-level-imax 2 0)))` (mathematical definition) | Explicit two-operand universe operation: zero if RIGHT is zero, otherwise max(LEFT, RIGHT). Pi sorts use imax(domainLevel, rangeLevel); symbolic relationships are checked for all nonnegative assignments within resource budgets. |
 | `#pt-level-max` | `(#pt-level-max LEVEL...)` | `(#pt-type (#pt-level-max u v))` (mathematical universe) | Maximum of explicit universe levels; does not infer missing universe arguments. |
 | `#pt-level-succ` | `(#pt-level-succ LEVEL)` | `(#pt-type (#pt-level-succ u))` (mathematical universe) | Successor of an explicit universe level; this is level syntax, not term arithmetic. |
 | `#pt-nat` | `#pt-nat` | `(#pt-pi ((n #pt-nat)) #pt-nat)` (mathematical type) | Unbounded Peano natural-number type, distinct from native machine integers; symbol, not an empty application. |
@@ -3028,6 +3057,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
 | `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Permitted only as the entire type of a direct recursive constructor field; nested occurrences are unsupported. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
+| `#pt-sort` | `(#pt-sort LEVEL)` | `(#math-definition prop-sort () (#pt-type 0) (#pt-sort 0))` (mathematical definition) | General Sort LEVEL with an explicit universe expression; level zero is Prop and Type u is Sort (succ u). A sort inhabits its successor sort, without inference, cumulativity, or type-in-type. |
 | `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |
 | `#pt-type` | `(#pt-type LEVEL)` | `(#pt-type 0)` (mathematical sort) | Sort (LEVEL + 1), with an explicit nonnegative universe expression; no cumulativity or native generic instantiation. |
 | `#pt-use` | `(#pt-use global-proof-name (LEVEL...))` | `(#pt-use nat-reflexive ())` (mathematical term) | References a global mathematical declaration at explicit universe arguments; the list is required even when empty. |

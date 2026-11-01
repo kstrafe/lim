@@ -1,7 +1,11 @@
 //! Explicit dependent type checking, independent of parsing and proof search.
 //! There is no native execution or cache bypass. The external-evidence rule
 //! installs opaque program atoms supplied by the validated certificate adapter.
-use std::collections::{BTreeMap, HashMap};
+use super::level::same_levels;
+pub(super) use super::level::Level;
+#[cfg(test)]
+use super::level::LEVEL;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub(super) type Result<T> = std::result::Result<T, String>;
@@ -11,95 +15,6 @@ pub(super) fn term(t: Term) -> T {
 }
 const WORK: usize = 200_000;
 const DEPTH: usize = 96;
-const LEVEL: u32 = 65_535;
-
-/// Normal form max(c, u+a, v+b, ...), for natural universe parameters.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Level {
-    constant: u32,
-    variables: BTreeMap<String, u32>,
-}
-impl Level {
-    pub fn number(n: u32) -> Result<Self> {
-        if n > LEVEL {
-            return Err("universe level limit exceeded".into());
-        }
-        Ok(Self {
-            constant: n,
-            variables: BTreeMap::new(),
-        })
-    }
-    pub fn variable(name: String) -> Self {
-        Self {
-            constant: 0,
-            variables: BTreeMap::from([(name, 0)]),
-        }
-    }
-    fn canonical(mut self) -> Self {
-        if self.variables.values().any(|n| *n >= self.constant) {
-            self.constant = 0;
-        }
-        self
-    }
-    pub fn successor(&self) -> Result<Self> {
-        self.offset(1)
-    }
-    fn offset(&self, amount: u32) -> Result<Self> {
-        let add = |n: u32| {
-            n.checked_add(amount)
-                .filter(|n| *n <= LEVEL)
-                .ok_or_else(|| "universe level limit exceeded".to_owned())
-        };
-        Ok(Self {
-            constant: add(self.constant)?,
-            variables: self
-                .variables
-                .iter()
-                .map(|(p, n)| Ok((p.clone(), add(*n)?)))
-                .collect::<Result<_>>()?,
-        }
-        .canonical())
-    }
-    pub fn maximum(&self, other: &Self) -> Self {
-        let mut result = self.clone();
-        result.constant = result.constant.max(other.constant);
-        for (p, n) in &other.variables {
-            result
-                .variables
-                .entry(p.clone())
-                .and_modify(|a| *a = (*a).max(*n))
-                .or_insert(*n);
-        }
-        result.canonical()
-    }
-    pub fn zero(&self) -> bool {
-        self.constant == 0 && self.variables.is_empty()
-    }
-    fn positive(&self) -> bool {
-        self.constant > 0 || self.variables.values().any(|offset| *offset > 0)
-    }
-    pub fn at_most(&self, other: &Self) -> bool {
-        let constant = self.constant <= other.constant
-            || other.variables.values().any(|n| self.constant <= *n);
-        constant
-            && self
-                .variables
-                .iter()
-                .all(|(p, n)| other.variables.get(p).is_some_and(|m| n <= m))
-    }
-    fn substitute(&self, values: &HashMap<String, Level>) -> Result<Self> {
-        let mut result = Self::number(self.constant)?;
-        for (p, n) in &self.variables {
-            let value = values
-                .get(p)
-                .ok_or_else(|| format!("undeclared universe parameter '{p}'"))?
-                .offset(*n)?;
-            result = result.maximum(&value);
-        }
-        Ok(result)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(super) enum Term {
     Sort(Level),
@@ -354,10 +269,10 @@ impl Kernel {
                         field
                     };
                     let field_sort = self.sort(&ctx, &field, 0)?;
-                    if !sort.zero() && !field_sort.at_most(&sort) {
+                    if !field_sort.imax(&sort)?.at_most(&sort)? {
                         return Err("inductive field exceeds the datatype's universe".into());
                     }
-                    family.large &= field_sort.zero();
+                    family.large &= sort.zero_implies_zero(&field_sort)?;
                     ctx.push(field.clone());
                     checked.push(field);
                     recursive.push(direct);
@@ -498,18 +413,10 @@ impl Kernel {
                 let mut inner = ctx.to_vec();
                 inner.push(domain.clone());
                 let b = self.sort(&inner, body, depth + 1)?;
-                if matches!(value.as_ref(), Term::Pi(..)) && !b.zero() && !b.positive() {
-                    return Err("ambiguous proof/data universe; use #pt-prop or #pt-type".into());
-                }
-                let result = if matches!(value.as_ref(), Term::Pi(..)) && b.zero() {
-                    b
+                let result = if matches!(value.as_ref(), Term::Pi(..)) {
+                    a.imax(&b)?
                 } else {
-                    a.maximum(&b)
-                };
-                let result = if matches!(value.as_ref(), Term::Sigma(..)) {
-                    result.maximum(&Level::number(1)?)
-                } else {
-                    result
+                    a.maximum(&b)?.maximum(&Level::number(1)?)?
                 };
                 Ok(term(Term::Sort(result)))
             }
@@ -694,7 +601,12 @@ impl Kernel {
         }
         let result = apps(motive.clone(), std::slice::from_ref(subject));
         let target_sort = self.sort(ctx, &result, depth + 1)?;
-        if desc.sort.substitute(&map)?.zero() && !desc.large && !target_sort.zero() {
+        if !desc.large
+            && !desc
+                .sort
+                .substitute(&map)?
+                .zero_implies_zero(&target_sort)?
+        {
             return Err("large elimination from this proposition is forbidden".into());
         }
         for (ctor, branch) in desc.constructors.iter().zip(branches) {
@@ -856,9 +768,9 @@ impl Kernel {
         let a = self.whnf(a, depth + 1)?;
         let b = self.whnf(b, depth + 1)?;
         match (a.as_ref(), b.as_ref()) {
-            (Term::Sort(a), Term::Sort(b)) => Ok(a == b),
+            (Term::Sort(a), Term::Sort(b)) => a.equivalent(b),
             (Term::Var(a), Term::Var(b)) => Ok(a == b),
-            (Term::Global(a, u), Term::Global(b, v)) => Ok(a == b && u == v),
+            (Term::Global(a, u), Term::Global(b, v)) => Ok(a == b && same_levels(u, v)?),
             (Term::Pi(a, b), Term::Pi(c, d))
             | (Term::Lam(a, b), Term::Lam(c, d))
             | (Term::Sigma(a, b), Term::Sigma(c, d))
@@ -892,7 +804,7 @@ impl Kernel {
                     fields: g,
                 },
             ) => Ok(a == b
-                && u == v
+                && same_levels(u, v)?
                 && c == d
                 && self.same_many(p, q, depth + 1)?
                 && self.same_many(f, g, depth + 1)?),
@@ -914,7 +826,7 @@ impl Kernel {
                     subject: w,
                 },
             ) => Ok(a == b
-                && u == v
+                && same_levels(u, v)?
                 && self.same_many(p, q, depth + 1)?
                 && self.convertible(m, n, depth + 1)?
                 && self.same_many(r, t, depth + 1)?

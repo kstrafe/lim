@@ -408,7 +408,7 @@ impl Resolver<'_> {
             self.proof_term_child(node, body_index, file, &inner)?;
         } else if matches!(
             kind.as_str(),
-            "#pt-type" | "#pt-level-succ" | "#pt-level-max"
+            "#pt-type" | "#pt-sort" | "#pt-level-succ" | "#pt-level-max" | "#pt-level-imax"
         ) {
             // Universe levels are metadata and never participate in file-name lookup.
         } else if kind == "#pt-use" || kind == "#pt-program" || kind == "#pt-certificate" {

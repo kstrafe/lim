@@ -64,8 +64,8 @@ call s:check('#math-definition', 'limDeclaration')
 call s:check('#math-inductive', 'limDeclaration')
 for s:proof in [
       \ 'universes', 'parameters', 'parameter', 'parameter-of', 'statement', 'proof',
-      \ 'pt-prop', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-sigma', 'pt-app', 'pt-use',
-      \ 'pt-level-succ', 'pt-level-max', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
+      \ 'pt-prop', 'pt-sort', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-sigma', 'pt-app', 'pt-use',
+      \ 'pt-level-succ', 'pt-level-max', 'pt-level-imax', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
       \ 'pt-succ', 'pt-numeral', 'pt-construct', 'pt-induct', 'pt-nat-induct',
       \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second',
       \ 'pt-program', 'pt-certificate',
@@ -125,6 +125,8 @@ for [s:token, s:group] in [['#theorem', 'limDeclaration'],
 endfor
 call s:check('#proof-requires-validation-unknown', 'limKeyword')
 call s:check('#parameter-of-unknown', 'limKeyword')
+call s:check('#pt-sort-unknown', 'limKeyword')
+call s:check('#pt-level-imax-unknown', 'limKeyword')
 
 call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64::add-wrap value 1)))')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],

@@ -122,13 +122,32 @@ compatibility, elaboration, tactics, or Mathlib declarations.
 | Required area | Current boundary | Work needed for a full port |
 | --- | --- | --- |
 | Inductive families | Regular parameterized datatypes with direct recursive fields. No indices, mutual recursion, or nested self occurrences. | Implement and audit indexed, mutual, and nested inductives, their positivity conditions, recursors, and computation rules. |
-| Universe theory | Explicit Prop and Type levels, successor and maximum; no general Lean Sort-polymorphic environment. | Model the required Sort polymorphism and `imax` behavior, substitution, and constraints, with checked conversion rules. |
+| Universe theory | Explicit general Sort via #pt-sort, Prop and Type aliases, successor, max, and imax; Pi sorts use imax and symbolic level relationships are checked for all nonnegative assignments under bounded work budgets. Prop elimination and singleton-field conditions retain shared-variable guards. No universe inference, cumulativity, or type-in-type. | Integrate these rules into a version-pinned importer and audit them against the complete elaborated dependency closure. Full-environment translation, resource scaling, and replay remain open; these universe features alone do not complete the FLT port. |
 | Conversion | Beta, transparent delta, iota, projections, and J; opaque theorem bodies. No proof irrelevance. | Account for Lean's definitional proof irrelevance and other conversion behavior actually used by the dependency closure. Adding a rule requires an explicit kernel and trust review. |
 | Quotients and axioms | Constructive subset without quotients or an axiom-admission mechanism. | Decide and document the required quotient support and trusted-axiom policy rather than silently replacing unsupported evidence. |
 | Mathematical environment | Small explicit definitions and theorem terms; no Mathlib import. | Translate the full dependency closure, preserving declaration identity, types, universes, bodies, constructors, and recursors. |
 | Source and elaboration | Explicit Lim theorem terms, without a Lean elaborator or tactic engine. | Export already elaborated Lean proof terms, then implement a version-pinned translator and term checker; parsing Lean surface syntax alone is insufficient. |
 | Dependency and axiom audit | Local dependency ordering and checked procedural adapters. | Produce a complete source-to-target declaration map, dependency graph, axiom closure, and reproducible replay report for the actual FLT target. |
 | Storage and checking scale | Small per-declaration and global budgets documented in the kernel guide. | Design streaming import, bounded working sets, dependency storage, conversion caching, and measured resource budgets without trusting unchecked cached declarations. |
+
+General Sort and `imax` cover a universe prerequisite, not all of Lean's
+kernel. The mathematical level and Pi rules are referenced against the pinned
+Lean 4.33.1 [level implementation](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/level.cpp)
+and [type checker](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/type_checker.cpp).
+Level variables have unbounded natural-number semantics and exact symbolic
+order checks, not sampled instantiations. Representation limits are 65,535 for
+constants and affine offsets, 256 normalized monomials and 64 nonzero guard
+variables per term. Normalization permits 200,000 work units per operation;
+comparison permits 50,000 per inequality, independently of the 200,000-step
+core budget per term declaration and the unchanged 32-source-parameter limit.
+Exhaustion returns an error, never an accepted theorem. These bounds are
+resource limits, not a finite model of universe values.
+
+Guarded large elimination requires a proposition-valued motive whenever the
+family sort is zero, unless the empty/singleton-proof exception holds. Matching
+family and motive variables retain their correlation; independent levels must
+satisfy the condition for every assignment. Proof irrelevance and indexed,
+mutual, and nested inductives are still absent, as is a full FLT proof port.
 
 The pinned metadata lists `propext`, `Classical.choice`, and `Quot.sound` as the
 axioms used by the upstream full result. Lim currently supplies none of these

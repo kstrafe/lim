@@ -2,6 +2,7 @@
 //! Program facts are admitted here only after the ordinary program verifier
 //! succeeds. They remain opaque propositions, never equations about Nat.
 mod core;
+mod level;
 use crate::{Expr, Item};
 use core::{apps, term, Kernel, Level, Term, T};
 use std::collections::{BTreeSet, HashSet};
@@ -199,7 +200,8 @@ impl Parser<'_> {
                 let (head, args) = form(expr)?;
                 match head {
                 "#pt-level-succ"=>{arity(head,args,1)?;self.level(&args[0],depth+1)?.successor()},
-                "#pt-level-max"=>{if args.is_empty(){return Err("#pt-level-max requires explicit operands".into());}let mut level=Level::number(0)?;for arg in args {level=level.maximum(&self.level(arg,depth+1)?);}Ok(level)},
+                "#pt-level-max"=>{if args.is_empty(){return Err("#pt-level-max requires explicit operands".into());}let mut level=Level::number(0)?;for arg in args {level=level.maximum(&self.level(arg,depth+1)?)?;}Ok(level)},
+                "#pt-level-imax"=>{arity(head,args,2)?;self.level(&args[0],depth+1)?.imax(&self.level(&args[1],depth+1)?)},
                 _=>Err("universe levels require nonnegative integers or declared universe parameters".into())}
             }
             _ => Err(
@@ -281,6 +283,7 @@ impl Parser<'_> {
         }
         let (head, args) = form(expr)?;
         match head {
+            "#pt-sort"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?)))},
             "#pt-type"=>{arity(head,args,1)?;Ok(term(Term::Sort(self.level(&args[0],depth+1)?.successor()?)))},
             "#pt-use"=>{arity(head,args,2)?;let name=self.global(&args[0])?;let levels=self.levels(&args[1],depth+1)?;Ok(term(Term::Global(name,levels)))},
             "#pt-program"|"#pt-certificate"=>{arity(head,args,1)?;let name=symbol(&args[0])?;if !self.facts.contains(name){return Err(format!("'{name}' is not a checked procedural program proof"));}Ok(term(Term::Global(format!("{}:{name}",if head=="#pt-program"{"$program"}else{"$certificate"}),vec![])))},

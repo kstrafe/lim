@@ -462,27 +462,41 @@ pub(crate) fn qualify(
         tree: &mut SpannedExpr,
         visibility: &Visibility,
         qualified: &mut std::collections::HashSet<Span>,
+        mathematical: bool,
+        global_reference: bool,
     ) -> Result<bool, SourceError> {
         if crate::generator_authority::is_header(&tree.expr) {
             return Err(SourceError::from("#generated-context is compiler-owned and cannot appear in source or generator input").at(tree.span));
         }
         let mut changed = false;
         if let Expr::Symbol(name) = &mut tree.expr {
-            if let Some(absolute) = name.strip_prefix('@') {
-                if absolute.is_empty() || absolute.starts_with('@') || absolute.contains("@@") {
-                    return Err(SourceError::from(
-                        "@ must prefix a non-empty context-relative identifier",
-                    )
-                    .at(tree.span));
+            if !mathematical || global_reference {
+                if let Some(absolute) = name.strip_prefix('@') {
+                    if absolute.is_empty() || absolute.starts_with('@') || absolute.contains("@@") {
+                        return Err(SourceError::from(
+                            "@ must prefix a non-empty context-relative identifier",
+                        )
+                        .at(tree.span));
+                    }
+                    visibility.qualified_access(absolute, tree.span)?;
+                    qualified.insert(tree.span);
+                    *name = absolute.to_owned();
+                    changed = true;
                 }
-                visibility.qualified_access(absolute, tree.span)?;
-                qualified.insert(tree.span);
-                *name = absolute.to_owned();
-                changed = true;
             }
         }
-        for child in &mut tree.children {
-            changed |= walk(child, visibility, qualified)?;
+        let selects_global = matches!(&tree.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),
+                "#math-definition" | "#math-inductive" | "#theorem" | "#pt-use"
+                | "#pt-program" | "#pt-certificate" | "#pt-construct" | "#pt-induct")));
+        for (index, child) in tree.children.iter_mut().enumerate() {
+            changed |= walk(
+                child,
+                visibility,
+                qualified,
+                mathematical,
+                selects_global && index == 1,
+            )?;
         }
         if changed {
             match &mut tree.expr {
@@ -506,7 +520,16 @@ pub(crate) fn qualify(
     }
     let mut qualified = std::collections::HashSet::new();
     for form in forms {
-        walk(form, visibility, &mut qualified).map_err(|error| error.attach(files))?;
+        let mathematical = matches!(&form.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#math-definition" | "#math-inductive")
+                || head == "#theorem" && items.len() != 3));
+        // Mathematical names are global only in explicit global-reference
+        // operands. Preserve @ on binders, levels and labels so their grammar
+        // rejects it instead of silently capturing a local name. Generator
+        // inputs/templates still use the ordinary eager qualification pass.
+        walk(form, visibility, &mut qualified, mathematical, false)
+            .map_err(|error| error.attach(files))?;
     }
     Ok(qualified)
 }

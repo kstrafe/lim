@@ -324,10 +324,10 @@ fn levels_maximum_and_substitution_preserve_natural_offsets() {
     let u = Level::variable("u".into());
     let v = Level::variable("v".into());
     let u2 = u.successor().unwrap().successor().unwrap();
-    let level_expr = level(3).maximum(&u2).maximum(&v);
-    assert!(!level_expr.at_most(&u2));
-    assert!(u.at_most(&u2));
-    assert!(!u2.at_most(&u));
+    let level_expr = level(3).maximum(&u2).unwrap().maximum(&v).unwrap();
+    assert!(!level_expr.at_most(&u2).unwrap());
+    assert!(u.at_most(&u2).unwrap());
+    assert!(!u2.at_most(&u).unwrap());
     let values = HashMap::from([("u".into(), level(4)), ("v".into(), level(1))]);
     assert_eq!(level_expr.substitute(&values).unwrap(), level(6));
     assert!(Level::number(LEVEL).unwrap().successor().is_err());
@@ -401,18 +401,18 @@ fn universe_ordering_never_accepts_a_false_concrete_inequality() {
     levels.extend([
         u.successor().unwrap(),
         v.successor().unwrap(),
-        u.maximum(&v),
-        u.maximum(&level(2)),
-        u.maximum(&v.successor().unwrap()),
+        u.maximum(&v).unwrap(),
+        u.maximum(&level(2)).unwrap(),
+        u.maximum(&v.successor().unwrap()).unwrap(),
     ]);
     for a in &levels {
         for b in &levels {
-            if a.at_most(b) {
+            if a.at_most(b).unwrap() {
                 for x in 0..6 {
                     for y in 0..6 {
                         let map = HashMap::from([("u".into(), level(x)), ("v".into(), level(y))]);
-                        let lhs = a.substitute(&map).unwrap().constant;
-                        let rhs = b.substitute(&map).unwrap().constant;
+                        let lhs = a.substitute(&map).unwrap().numeral().unwrap();
+                        let rhs = b.substitute(&map).unwrap().numeral().unwrap();
                         assert!(lhs <= rhs, "{a:?} <= {b:?}, u={x}, v={y}");
                     }
                 }

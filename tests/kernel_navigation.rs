@@ -11,6 +11,147 @@ fn quoted(s: &str) -> String {
 }
 
 #[test]
+fn sort_and_imax_operands_navigate_only_their_universe_binders() {
+    run(
+        r#"
+      (#math-definition u () #pt-nat #pt-zero)
+      (#math-definition missing () #pt-nat #pt-zero)
+      (#math-definition levels ([[universe|u]] [[other|v]])
+        (#[[sort-keyword|pt-sort]]
+          (#[[imax-keyword|pt-level-imax]] [[left|u]] (#pt-level-succ [[right|v]])))
+        (#pt-lambda (([[term|u]] #pt-nat))
+          (#pt-pair (#pt-sort (#pt-level-imax [[level-under-term|u]] [[zero|0]]))
+            [[term-use|u]] (#pt-sort (#pt-level-max v (#pt-level-imax [[nested-left|u]] [[nested-right|v]]))))))
+      (#math-definition unknown () (#pt-sort (#pt-level-imax [[unknown|missing]] 0)) #pt-zero)
+    "#,
+        &[
+            ("sort-keyword", &[]),
+            ("imax-keyword", &[]),
+            ("left", &["universe"]),
+            ("right", &["other"]),
+            ("level-under-term", &["universe"]),
+            ("zero", &[]),
+            ("term-use", &["term"]),
+            ("nested-left", &["universe"]),
+            ("nested-right", &["other"]),
+            ("unknown", &[]),
+        ],
+    );
+}
+
+#[test]
+fn theorem_sort_parameters_use_the_shared_universe_scope() {
+    run(
+        r#"
+      (#theorem reflexive (#universes [[universe|u]] [[other|v]])
+        (#parameters
+          (#parameter [[type-parameter|A]]
+            (#[[sort-keyword|pt-sort]] (#[[imax-keyword|pt-level-imax]] [[left|u]] [[right|v]])))
+          (#parameter [[value-parameter|x]] [[parameter-type|A]]))
+        (#statement (#pt-eq [[statement-type|A]] [[statement-value|x]] x))
+        (#proof (#pt-refl [[evidence-type|A]] [[evidence-value|x]])))
+    "#,
+        &[
+            ("sort-keyword", &[]),
+            ("imax-keyword", &[]),
+            ("left", &["universe"]),
+            ("right", &["other"]),
+            ("parameter-type", &["type-parameter"]),
+            ("statement-type", &["type-parameter"]),
+            ("statement-value", &["value-parameter"]),
+            ("evidence-type", &["type-parameter"]),
+            ("evidence-value", &["value-parameter"]),
+        ],
+    );
+}
+
+#[test]
+fn sort_and_imax_malformed_operands_and_keyword_clicks_have_no_fallback() {
+    for expression in [
+        "(#[[query|pt-sort]] 0)",
+        "(#pt-sort (#[[query|pt-level-imax]] u v))",
+        "(#pt-sort (#pt-level-imax [[query|u]]))",
+        "(#pt-sort (#pt-level-imax [[query|u]] v 0))",
+        "(#pt-sort [[query|u]] v)",
+        "(#pt-sort [[query|@u]])",
+        "(#pt-sort (#pt-level-imax v [[query|@u]]))",
+        "(#pt-type (#pt-level-imax v [[query|@u]]))",
+        "(#pt-use u ([[query|@u]]))",
+        "(#pt-level-imax [[query|u]] v)",
+    ] {
+        run(
+            &format!("(#math-definition u () #pt-nat #pt-zero) (#math-definition editing (u v) (#pt-sort 1) {expression})"),
+            &[("query", &[])],
+        );
+    }
+}
+
+#[test]
+fn imported_sort_definitions_keep_colliding_level_aliases_out_of_universe_metadata() {
+    run_files(
+        r#"
+      (#alias u = ./levels.lim::global-u)
+      (#alias v = ./levels.lim::global-v)
+      (#alias sort-value = ./levels.lim::sort-value)
+      (#math-definition instantiate ([[universe|u]] [[other|v]])
+        (#pt-sort (#pt-level-succ (#pt-level-imax [[left|u]] [[right|v]])))
+        (#pt-use [[reference|sort-value]] ([[argument-left|u]] [[argument-right|v]])))
+      (#math-definition nested ([[nested-u|u]] [[nested-v|v]])
+        (#pt-sort (#pt-level-succ (#pt-level-imax (#pt-level-imax u v) v)))
+        (#pt-use sort-value ((#pt-level-imax [[nested-argument-left|u]] [[nested-argument-right|v]]) v)))
+    "#,
+        &[(
+            "levels.lim",
+            r#"
+          (#math-definition global-u () #pt-nat #pt-zero)
+          (#math-definition global-v () #pt-nat #pt-zero)
+          (#math-definition [[original|sort-value]] (a b)
+            (#pt-sort (#pt-level-succ (#pt-level-imax a b)))
+            (#pt-sort (#pt-level-imax a b)))
+        "#,
+        )],
+        &[
+            ("left", &["universe"]),
+            ("right", &["other"]),
+            ("reference", &["original"]),
+            ("argument-left", &["universe"]),
+            ("argument-right", &["other"]),
+            ("nested-argument-left", &["nested-u"]),
+            ("nested-argument-right", &["nested-v"]),
+        ],
+    );
+}
+
+#[test]
+fn generated_sort_definitions_keep_universes_distinct_from_definition_context_names() {
+    run_files(
+        r#"
+      (#alias emit = ./generator.lim::emit)
+      (#generate emit)
+      (#math-definition instantiate ([[universe|u]] [[other|v]])
+        (#pt-sort (#pt-level-succ (#pt-level-imax [[left|u]] [[right|v]])))
+        (#pt-use [[reference|sort-value]] ([[argument-left|u]] [[argument-right|v]])))
+    "#,
+        &[(
+            "generator.lim",
+            r#"
+          (#math-definition u () #pt-nat #pt-zero)
+          (#gn emit () `((#math-definition sort-value (u v)
+            (#pt-sort (#pt-level-succ (#pt-level-imax u v)))
+            (#pt-sort (#pt-level-imax u v)))))
+        "#,
+        )],
+        &[
+            ("left", &["universe"]),
+            ("right", &["other"]),
+            ("reference", &["generated:sort-value"]),
+            ("argument-left", &["universe"]),
+            ("argument-right", &["other"]),
+        ],
+    );
+}
+
+#[test]
 fn theorem_parameters_share_their_source_binders_across_statement_and_evidence() {
     run(
         r#"
@@ -302,6 +443,7 @@ fn inductive_constructor_labels_and_dependent_fields_are_scoped_to_the_datatype(
 fn kernel_keywords_are_metadata_including_theorem_declarations() {
     for keyword in [
         "pt-type",
+        "pt-sort",
         "pt-pi",
         "pt-lambda",
         "pt-sigma",
@@ -309,6 +451,7 @@ fn kernel_keywords_are_metadata_including_theorem_declarations() {
         "pt-app",
         "pt-level-succ",
         "pt-level-max",
+        "pt-level-imax",
         "pt-eq",
         "pt-refl",
         "pt-eq-elim",
