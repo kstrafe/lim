@@ -1,5 +1,21 @@
+(#alias String = ./string.lim::String)
+(#alias String::byte-at = ./string.lim::String::byte-at)
+(#alias String::data-pointer = ./string.lim::String::data-pointer)
+(#alias String::free = ./string.lim::String::free)
+(#alias String::len = ./string.lim::String::len)
+(#alias String::push-char = ./string.lim::String::push-char)
+(#alias String::try-clone = ./string.lim::String::try-clone)
+(#alias StringByteResult = ./string.lim::StringByteResult)
+(#alias StringCreateResult = ./string.lim::StringCreateResult)
+(#alias StringError = ./string.lim::StringError)
+(#alias StringStatus = ./string.lim::StringStatus)
+(#alias SystemAllocationError = ./system_allocator.lim::SystemAllocationError)
+(#alias SystemAllocationResult = ./system_allocator.lim::SystemAllocationResult)
+(#alias system-allocate = ./system_allocator.lim::system-allocate)
+(#alias system-deallocate = ./system_allocator.lim::system-deallocate)
+
 ; Safe descriptor ownership and explicitly allocated buffered byte input.
-(#import "string.lim")
+
 (#struct File (#linear) (: descriptor #i64))
 (#opaque File)
 

@@ -1,4 +1,19 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-RT-SIGPROCMASK = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-RT-SIGPROCMASK)
+(#alias lINUX-SYS-RT-SIGRETURN = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-RT-SIGRETURN)
+(#alias lINUX-SYS-SIGALTSTACK = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-SIGALTSTACK)
+(#alias lINUX-SYS-WRITE = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WRITE)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid)
+(#alias linux-getuid = ../library/linux_x86_64.lim::linux-getuid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-rt-sigaction = ../library/linux_x86_64.lim::linux-rt-sigaction)
+(#alias linux-rt-sigpending = ../library/linux_x86_64.lim::linux-rt-sigpending)
+(#alias linux-rt-sigprocmask = ../library/linux_x86_64.lim::linux-rt-sigprocmask)
+(#alias linux-rt-sigsuspend = ../library/linux_x86_64.lim::linux-rt-sigsuspend)
+(#alias linux-sigaltstack = ../library/linux_x86_64.lim::linux-sigaltstack)
+(#alias linux-tkill = ../library/linux_x86_64.lim::linux-tkill)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; SAFETY: memory is this example's live 69632-byte mapping. The first page
 ; contains records; the following 64 KiB is the installed alternate stack.

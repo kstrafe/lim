@@ -1675,7 +1675,7 @@ mod tests {
         let input = directory.join("src/main.lim");
         fs::write(
             &input,
-            "(#import \"shared.lim\") (#fn main () #u64 (#return 0u64))",
+            "(#alias Shared = //modules/shared.lim::Shared) (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
         let arguments = vec![input.to_string_lossy().into_owned()];
@@ -1695,7 +1695,7 @@ mod tests {
         .unwrap();
         assert!(program.items.iter().any(|item| matches!(
             item,
-            lim::Item::TypeAlias { name, .. } if name == "Shared"
+            lim::Item::TypeAlias { name, .. } if name.ends_with("shared.lim::Shared")
         )));
         let _ = fs::remove_dir_all(directory);
     }

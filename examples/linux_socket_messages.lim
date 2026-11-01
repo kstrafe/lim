@@ -1,4 +1,12 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-recvmmsg = ../library/linux_x86_64.lim::linux-recvmmsg)
+(#alias linux-recvmsg = ../library/linux_x86_64.lim::linux-recvmsg)
+(#alias linux-sendmmsg = ../library/linux_x86_64.lim::linux-sendmmsg)
+(#alias linux-sendmsg = ../library/linux_x86_64.lim::linux-sendmsg)
+(#alias linux-socketpair = ../library/linux_x86_64.lim::linux-socketpair)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Linux x86-64: msghdr is 56 bytes, followed by #u32 msg_len and padding
 ; in a 64-byte mmsghdr. Each message here uses one 16-byte iovec.

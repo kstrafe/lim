@@ -555,7 +555,7 @@ fn main() {
             black_box(lim::parse(black_box(source)).unwrap());
         });
         let project_source = format!(
-            "(#import \"shared.lim\")\n(#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64)))\n{source}"
+            "(#alias SharedMarker = ./shared.lim::SharedMarker)\n(#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64)))\n{source}"
         );
         let path = root.join(format!("{label}.lim"));
         fs::write(&path, &project_source).unwrap();

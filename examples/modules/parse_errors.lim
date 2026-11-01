@@ -1,2 +1,3 @@
-(#import "error_collection.lim")
+(#alias ApplicationError = ./error_collection.lim::ApplicationError)
+
 (#enum-contribute ApplicationError (ApplicationError.ParseFailure #u64))

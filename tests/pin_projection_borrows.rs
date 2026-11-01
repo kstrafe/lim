@@ -3,12 +3,13 @@ mod support;
 
 fn prefix() -> String {
     format!(
-        r#"(#import "{}/library/pin.lim")
+        r#"(#alias lim-gen-pin = "{0}/library/pin.lim::#pin")
+(#alias lim-gen-pin-scope = "{0}/library/pin.lim::#pin-scope")
       (#struct Inner (#linear) (: value #u64))
       (#struct Outer (#linear) (: left Inner : right Inner))
-      (#generate #pin (: type Inner : name PinnedInner : fields (: value #u64)))
-      (#generate #pin (: type Outer : name PinnedOuter : projections (: left PinnedInner : right PinnedInner)))
-      (#generate #pin-scope (: type Outer : pin PinnedOuter : name with-outer
+      (#generate lim-gen-pin (: type Inner : name PinnedInner : fields (: value #u64)))
+      (#generate lim-gen-pin (: type Outer : name PinnedOuter : projections (: left PinnedInner : right PinnedInner)))
+      (#generate lim-gen-pin-scope (: type Outer : pin PinnedOuter : name with-outer
         : run drive : destroy destroy : result #u64))
       (#fn destroy (: pin PinnedOuter) () (#forget pin) (#return ()))
       (#fn main () #u64 (#return (#call with-outer
@@ -185,7 +186,7 @@ fn void_helpers_cannot_touch_a_retained_exclusive_child() {
 #[test]
 fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
     let prefix = prefix();
-    let declarations = prefix.split("(#generate #pin-scope").next().unwrap();
+    let declarations = prefix.split_once("(#generate lim-gen-pin-scope").unwrap().0;
     let source = format!(
         r#"{declarations}
       (#fn destroy-heap (: owner (#pin-own Outer)) ()

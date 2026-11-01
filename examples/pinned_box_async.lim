@@ -1,5 +1,6 @@
-(#import "../library/linux_x86_64.lim")
-(#import "../library/pin_box.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lim-gen-pin-box = ../library/pin_box.lim::#pin-box)
 
 (#struct Arena () ())
 (#enum ArenaError () (ArenaError.OutOfMemory))
@@ -8,7 +9,7 @@
 (#enum Arena::Allocator::Allocation ()
   ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
    (Arena::Allocator::Allocation.AllocationFailed ArenaError)))
-(#import "../library/pin.lim")
+
 (#struct StepWaiting () (: value #u64 : remaining #u64))
 (#enum Step (#linear) (: Step.Step-waiting StepWaiting))
 
@@ -42,7 +43,7 @@
   (#let status #i64 (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))))
   (#assert (#i64::eq status 0i64)) (#return ()))
 
-(#generate #pin-box (: type Work::Frame : allocator Arena::Allocator : name PinnedFrameBox : destroy destroy-frame))
+(#generate lim-gen-pin-box (: type Work::Frame : allocator Arena::Allocator : name PinnedFrameBox : destroy destroy-frame))
 
 (#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work::Frame)) ()
   (#call cancel-work (: task (#call Work::Poll::cleanup (: task pin))))

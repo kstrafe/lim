@@ -18,10 +18,10 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
         : function (#fn work (: amount Amount) Amount (#return amount))))",
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" Ext)
+    let source = "(#alias Ext@Work::Frame = ./module.lim::Work::Frame)\n(#alias Ext::work = ./module.lim::work)\n(#alias Ext@Work::poll = ./module.lim::Work::poll)\n(#alias Ext@Work::Poll = ./module.lim::Work::Poll)
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Ext@Work::Frame (#call Ext::work (: Ext::amount 42u64)))
+        (#let-mut frame Ext@Work::Frame (#call Ext::work (: amount 42u64)))
         (#let result #u64 (#match (#call Ext@Work::poll
           (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
           (#case (Ext@Work::Poll.Ready value) value)
@@ -61,7 +61,7 @@ fn external_graph_source_preserves_the_original_borrow_violation_span() {
           (#set local 99u64)
           (#return (#deref alias)))))";
     fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let source = "(#import-external \"module.lim\" Ext) (#fn main () #u64 (#return 0u64))";
+    let source = "(#alias Amount = ./module.lim::Amount) (#fn main () #u64 (#return 0u64))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -74,7 +74,7 @@ fn external_graph_source_preserves_the_original_borrow_violation_span() {
     let span = error.span.unwrap();
     assert_eq!(span.source_id, 1, "{error:?}");
     assert_eq!(&module[span.start..span.end], "#set", "{error:?}");
-    assert!(error.message.contains("Ext::local"), "{error:?}");
+    assert!(error.message.contains("local"), "{error:?}");
     assert!(
         error.labels.iter().any(|label| label.span.source_id == 1
             && &module[label.span.start..label.span.end] == "#borrow"),

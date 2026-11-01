@@ -1,2 +1,2 @@
-(#import "missing-module.lim")
+(#alias missing = ./missing-module.lim::missing)
 (#fn main () #u64 (#return 0u64))

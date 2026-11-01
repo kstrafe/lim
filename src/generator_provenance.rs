@@ -13,6 +13,7 @@ pub(crate) struct Origin {
 #[derive(Clone, Default)]
 pub(crate) struct Registry {
     declarations: HashMap<String, HashSet<Origin>>,
+    source_declarations: HashMap<(u32, String), HashSet<Origin>>,
     builtin_parents: HashMap<String, HashSet<Origin>>,
 }
 
@@ -93,6 +94,7 @@ impl Registry {
         for records in self
             .declarations
             .values_mut()
+            .chain(self.source_declarations.values_mut())
             .chain(self.builtin_parents.values_mut())
         {
             if records
@@ -114,6 +116,37 @@ impl Registry {
                 .or_default()
                 .extend(origins.iter().cloned());
         }
+    }
+
+    pub(crate) fn record_in_source(&mut self, expr: &Expr, origins: &[Origin], source: u32) {
+        self.record(expr, origins);
+        if origins.is_empty() {
+            return;
+        }
+        for name in declared_names(expr) {
+            self.source_declarations
+                .entry((source, name.into()))
+                .or_default()
+                .extend(origins.iter().cloned());
+        }
+    }
+
+    pub(crate) fn resolve_declarations(
+        &mut self,
+        names: impl IntoIterator<Item = (u32, String, String)>,
+    ) {
+        let mut declarations: HashMap<String, HashSet<Origin>> = HashMap::new();
+        // Raw names can coincide across files. Only transfer the claims from
+        // the actual declaration's invocation file, never their global union.
+        for (source, previous, resolved) in names {
+            if let Some(origins) = self.source_declarations.get(&(source, previous)) {
+                declarations
+                    .entry(resolved)
+                    .or_default()
+                    .extend(origins.iter().cloned());
+            }
+        }
+        self.declarations = declarations;
     }
 
     pub(crate) fn record_builtin_parents(
@@ -284,6 +317,33 @@ mod tests {
 
     fn requirements(source: &str) -> Vec<Requirement> {
         extract(crate::parse(source).unwrap()).unwrap().1
+    }
+
+    #[test]
+    fn file_resolution_does_not_merge_same_spelled_generation_claims() {
+        let form = crate::parse("(#struct Thing () ())").unwrap().remove(0);
+        let mut registry = Registry::default();
+        registry.record_in_source(&form.expr, &[origin("first", "one")], 1);
+        registry.record_in_source(&form.expr, &[origin("second", "two")], 2);
+        registry.resolve_declarations([
+            (1, "Thing".into(), "./a.lim::Thing".into()),
+            (2, "Thing".into(), "./b.lim::Thing".into()),
+        ]);
+        registry
+            .validate(&requirements("(#require-generated ./a.lim::Thing first)"))
+            .unwrap();
+        registry
+            .validate(&requirements("(#require-generated ./b.lim::Thing second)"))
+            .unwrap();
+        assert!(registry
+            .validate(&requirements("(#require-generated ./b.lim::Thing first)"))
+            .is_err());
+        assert!(registry
+            .validate(&requirements("(#require-generated ./a.lim::Thing second)"))
+            .is_err());
+        assert!(registry
+            .validate(&requirements("(#require-generated Thing first)"))
+            .is_err());
     }
 
     #[test]

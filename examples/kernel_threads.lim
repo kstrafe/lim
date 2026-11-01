@@ -1,4 +1,7 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid)
+(#alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ;; Both participants must run: the worker announces readiness, and the parent
 ;; releases it before joining. PID is shared; TID and stack are per-thread.

@@ -1,4 +1,12 @@
-(#import "../library/wake_ready4.lim")
+(#alias WakeReady4 = ../library/wake_ready4.lim::WakeReady4)
+(#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ../library/wake_tokens.lim::WakeRetire4)
+(#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4)
+(#alias wake-ready4-create = ../library/wake_ready4.lim::wake-ready4-create)
+(#alias wake-ready4-notify = ../library/wake_ready4.lim::wake-ready4-notify)
+(#alias wake-ready4-register = ../library/wake_ready4.lim::wake-ready4-register)
+(#alias wake-ready4-retire = ../library/wake_ready4.lim::wake-ready4-retire)
+(#alias wake-ready4-take = ../library/wake_ready4.lim::wake-ready4-take)
 
 (#fn main () #u64
   (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))

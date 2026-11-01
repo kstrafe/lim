@@ -1,6 +1,7 @@
-(#import "../library/local_waker.lim")
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+(#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 
 (#struct WakeCounter () ((count CellU64)))
 (#struct WakeMetadata (#linear) ((amount #u64)))
@@ -22,7 +23,7 @@
   (#forget metadata)
   (#return ()))
 
-(#generate #local-waker
+(#generate lim-gen-local-waker
   (CounterWaker counter-waker-create counter-waker-wake
     counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
   (WakeCounter WakeMetadata)

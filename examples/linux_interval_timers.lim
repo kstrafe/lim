@@ -1,4 +1,7 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-getitimer = ../library/linux_x86_64.lim::linux-getitimer)
+(#alias linux-setitimer = ../library/linux_x86_64.lim::linux-setitimer)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)

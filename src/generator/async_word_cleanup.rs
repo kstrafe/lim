@@ -15,13 +15,14 @@ impl Layout {
         declarations: &crate::typed_ir::Declarations,
     ) -> Result<Self, String> {
         let parsed = crate::parse(source).map_err(|error| error.to_string())?;
-        let layouts = parsed.iter().filter(|value| matches!(&value.expr, Expr::List(parts)
-            if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#struct" || head == "#enum")))
-            .map(|value| crate::expression_source(&value.expr)).collect::<Result<Vec<_>, _>>()?.join("\n");
-        let program = crate::parse_program(&layouts).map_err(|error| error.to_string())?;
         let mut structs = declarations.structs.clone();
         let mut enums = declarations.enums.clone();
-        for item in program.items {
+        // These are already-resolved compiler layouts, not a new source graph.
+        // Parsing them through the public loader would reinterpret their file
+        // identities as dependencies and lose the original declaration owner.
+        for layout in parsed.iter().filter(|value| matches!(&value.expr, Expr::List(parts)
+            if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#struct" || head == "#enum"))) {
+            let item = crate::parse_item(&crate::normalize_keywords(layout.expr.clone()))?;
             match item {
                 Item::Struct { name, fields, .. } => {
                     structs.insert(name, fields);

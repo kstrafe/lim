@@ -45,18 +45,44 @@ fn assert_origins(source: &str, expected: &[String]) {
     assert_eq!(actual, expected);
 }
 
+fn assert_origin_groups(sources: &[&str], expected: &[Vec<String>]) {
+    let mut actual = sources
+        .iter()
+        .map(|source| {
+            let origins = source
+                .split_once("\n\n")
+                .unwrap()
+                .0
+                .lines()
+                .skip(1)
+                .map(|line| line.strip_prefix("; ").unwrap().to_owned())
+                .collect::<Vec<_>>();
+            assert_origins(source, &origins);
+            origins
+        })
+        .collect::<Vec<_>>();
+    let mut expected = expected.to_vec();
+    for origins in &mut expected {
+        origins.sort();
+        origins.dedup();
+    }
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+}
+
 fn absolute_origin(root: &Path, file: &str, line: usize) -> String {
     format!("{}:{line}", root.join(file).display())
 }
 
 #[test]
-fn identical_builtin_invocations_from_imports_share_an_artifact_and_keep_both_origins() {
+fn identical_builtin_invocations_deduplicate_within_each_file_and_keep_origins() {
     let scratch = support::Scratch::new("generated-origins-builtin");
     let root = scratch.path();
     write_module(
         root,
         "a.lim",
-        "(#generate #optional (: type #u64 : name Shared?))\n",
+        "(#generate #optional (: type #u64 : name Shared?))\n(#generate #optional (: type #u64 : name Shared?))\n",
     );
     write_module(
         root,
@@ -66,30 +92,27 @@ fn identical_builtin_invocations_from_imports_share_an_artifact_and_keep_both_or
     write_module(
         root,
         "main.lim",
-        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+        "(#alias FirstValue = ./a.lim::Shared?)\n(#alias SecondValue = ./b.lim::Shared?)\n",
     );
 
     let generated = materialize(root, "main.lim", "generated", "cache");
-    let artifact = generated
+    assert!(generated
         .iter()
-        .find(|source| source.contains("Shared?::construct"))
-        .expect("optional expansion was materialized");
-    assert_eq!(
-        generated.len(),
-        1,
-        "identical expansions share one artifact"
-    );
-    assert_origins(
-        artifact,
+        .all(|source| source.contains("Shared?::construct")));
+    assert_origin_groups(
+        &generated.iter().map(String::as_str).collect::<Vec<_>>(),
         &[
-            absolute_origin(root, "a.lim", 1),
-            absolute_origin(root, "b.lim", 1),
+            vec![
+                absolute_origin(root, "a.lim", 1),
+                absolute_origin(root, "a.lim", 2),
+            ],
+            vec![absolute_origin(root, "b.lim", 1)],
         ],
     );
 }
 
 #[test]
-fn identical_user_generator_calls_from_imports_keep_both_origins() {
+fn identical_user_generator_calls_keep_per_file_artifacts_and_origins() {
     let scratch = support::Scratch::new("generated-origins-user");
     let root = scratch.path();
     write_module(
@@ -100,34 +123,31 @@ fn identical_user_generator_calls_from_imports_keep_both_origins() {
     write_module(
         root,
         "a.lim",
-        "(#import \"defs.lim\")\n(#generate emit-shared)\n",
+        "(#alias emit-shared = ./defs.lim::emit-shared)\n(#generate emit-shared)\n(#generate emit-shared)\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#import \"defs.lim\")\n(#generate emit-shared)\n",
+        "(#alias emit-shared = ./defs.lim::emit-shared)\n(#generate emit-shared)\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+        "(#alias FirstValue = ./a.lim::Shared)\n(#alias SecondValue = ./b.lim::Shared)\n",
     );
 
     let generated = materialize(root, "main.lim", "generated", "cache");
-    let artifact = generated
+    assert!(generated
         .iter()
-        .find(|source| source.contains("(#type Shared #u64)"))
-        .expect("user generator output was materialized");
-    assert_eq!(
-        generated.len(),
-        1,
-        "identical expansions share one artifact"
-    );
-    assert_origins(
-        artifact,
+        .all(|source| source.contains("(#type Shared #u64)")));
+    assert_origin_groups(
+        &generated.iter().map(String::as_str).collect::<Vec<_>>(),
         &[
-            absolute_origin(root, "a.lim", 2),
-            absolute_origin(root, "b.lim", 2),
+            vec![
+                absolute_origin(root, "a.lim", 2),
+                absolute_origin(root, "a.lim", 3),
+            ],
+            vec![absolute_origin(root, "b.lim", 2)],
         ],
     );
 }
@@ -144,34 +164,48 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
     write_module(
         root,
         "a.lim",
-        "(#import \"defs.lim\")\n(#generate parent First)\n(#generate child Second)\n",
+        "(#alias parent = ./defs.lim::parent) (#alias child = ./defs.lim::child)\n(#generate parent First)\n(#generate child Second)\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#import \"defs.lim\")\n(#generate parent First)\n",
+        "(#alias parent = ./defs.lim::parent)\n(#generate parent First)\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+        "(#alias FirstValue = ./a.lim::First)\n(#alias SecondValue = ./b.lim::First)\n",
     );
     let mut cold = materialize(root, "main.lim", "generated", "cache");
     assert_eq!(
         cold.len(),
-        3,
-        "parent and two child invocations have separate payloads"
+        5,
+        "each file has its own parent/child payloads, plus the second child in a.lim"
     );
-    for source in &cold {
-        if source.contains("First") {
-            assert_origins(
-                source,
-                &[
-                    absolute_origin(root, "a.lim", 2),
-                    absolute_origin(root, "b.lim", 2),
-                ],
-            );
-        }
+    for marker in ["(#type First #u64)", "#generate", "(#type Second #u64)"] {
+        let matching = cold
+            .iter()
+            .filter(|source| {
+                if marker == "#generate" {
+                    lim::parse(source).unwrap().iter().any(|node| {
+                        matches!(&node.expr, lim::Expr::List(items)
+                            if matches!(items.first(), Some(lim::Expr::Generate)))
+                    })
+                } else {
+                    source.contains(marker)
+                }
+            })
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let expected = if marker == "(#type Second #u64)" {
+            vec![vec![absolute_origin(root, "a.lim", 3)]]
+        } else {
+            vec![
+                vec![absolute_origin(root, "a.lim", 2)],
+                vec![absolute_origin(root, "b.lim", 2)],
+            ]
+        };
+        assert_origin_groups(&matching, &expected);
     }
     assert!(fs::read_dir(root.join("cache")).unwrap().all(|entry| entry
         .unwrap()
@@ -324,25 +358,26 @@ fn repeated_builtin_materialization_uses_one_cache_lookup() {
 fn nested_generator_builtin_origins_include_both_source_invocations() {
     let scratch = support::Scratch::new("generated-origins-nested");
     let root = scratch.path();
+    // Each file owns a fresh generated type, including through nested cache hits.
     write_module(
         root,
         "defs.lim",
-        "(#gn wrap-shared () `((#generate #optional (: type #u64 : name Nested?))))\n",
+        "(#gn wrap-shared () `((#generate #optional (: type #u64 : name ,(#gn-gensym \"Nested\")))))\n",
     );
     write_module(
         root,
         "a.lim",
-        "(#import \"defs.lim\")\n(#generate wrap-shared)\n",
+        "(#alias wrap-shared = ./defs.lim::wrap-shared)\n(#generate wrap-shared)\n(#generate wrap-shared)\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#import \"defs.lim\")\n(#generate wrap-shared)\n",
+        "(#alias wrap-shared = ./defs.lim::wrap-shared)\n(#generate wrap-shared)\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+        "(#alias first-generator = ./a.lim::wrap-shared)\n(#alias second-generator = ./b.lim::wrap-shared)\n",
     );
 
     let cold = materialize(root, "main.lim", "generated", "cache");
@@ -350,29 +385,28 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     assert_eq!(cold, warm);
     assert_eq!(
         warm.len(),
-        2,
-        "nested generation emits invocation and builtin artifacts"
+        4,
+        "each file emits invocation and builtin artifacts"
     );
     let origins = [
-        absolute_origin(root, "a.lim", 2),
-        absolute_origin(root, "b.lim", 2),
+        vec![
+            absolute_origin(root, "a.lim", 2),
+            absolute_origin(root, "a.lim", 3),
+        ],
+        vec![absolute_origin(root, "b.lim", 2)],
     ];
-    let artifact = warm
-        .iter()
-        .find(|source| source.contains("Nested?::construct"))
-        .expect("nested optional expansion was materialized");
-    assert_origins(artifact, &origins);
-    let invocation = warm
-        .iter()
-        .find(|source| {
-            source.contains("(#generate #optional") && !source.contains("Nested?::construct")
-        })
-        .expect("nested user-generator invocation was materialized");
-    assert_origins(invocation, &origins);
+    for builtin in [true, false] {
+        let artifacts = warm
+            .iter()
+            .filter(|source| source.contains("Nested::construct") == builtin)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        assert_origin_groups(&artifacts, &origins);
+    }
 }
 
 #[test]
-fn warm_generation_retains_one_artifact_and_its_deduplicated_origins() {
+fn warm_generation_retains_per_file_artifacts_and_origins() {
     let scratch = support::Scratch::new("generated-origins-warm");
     let root = scratch.path();
     write_module(
@@ -388,18 +422,17 @@ fn warm_generation_retains_one_artifact_and_its_deduplicated_origins() {
     write_module(
         root,
         "main.lim",
-        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+        "(#alias FirstValue = ./a.lim::Warm?)\n(#alias SecondValue = ./b.lim::Warm?)\n",
     );
 
     let cold = materialize(root, "main.lim", "generated", "cache");
     let warm = materialize(root, "main.lim", "generated", "cache");
     assert_eq!(cold, warm);
-    assert_eq!(warm.len(), 1);
-    assert_origins(
-        &warm[0],
+    assert_origin_groups(
+        &warm.iter().map(String::as_str).collect::<Vec<_>>(),
         &[
-            absolute_origin(root, "a.lim", 1),
-            absolute_origin(root, "b.lim", 1),
+            vec![absolute_origin(root, "a.lim", 1)],
+            vec![absolute_origin(root, "b.lim", 1)],
         ],
     );
 }
@@ -430,15 +463,22 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         &root.join("cache"),
     )
     .unwrap();
+    let has_work_protocol = |source: &str| {
+        lim::parse(source).unwrap().iter().any(|node| {
+            matches!(&node.expr, lim::Expr::List(items)
+                if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#syntax")
+                    && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name.ends_with(".lim::WorkAwait")))
+        })
+    };
     let generated = fs::read_dir(output)
         .unwrap()
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .find(|source| source.contains("(#syntax WorkAwait"))
+        .find(|source| has_work_protocol(source))
         .expect("async protocol source was materialized");
     lim::parse(&generated).expect("async generated source parses");
     assert!(generated.starts_with("; Generated from:\n; "));
     assert!(!generated.contains("#await"), "{generated}");
-    assert!(generated.contains("(#syntax WorkAwait"), "{generated}");
+    assert!(has_work_protocol(&generated), "{generated}");
     assert!(generated.contains("Work::poll"), "{generated}");
     assert!(generated.contains("Work::Poll"), "{generated}");
     assert_origins(

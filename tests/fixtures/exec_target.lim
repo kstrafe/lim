@@ -1,4 +1,4 @@
-(#import "../../library/linux_x86_64.lim")
+(#alias linux-write-byte = ../../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let letter #u8 88u8)

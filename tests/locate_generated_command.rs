@@ -71,7 +71,7 @@ fn imported_selection_uses_cfg_target_module_paths_and_writes_lsp_context() {
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "(#import \"selected.lim\")\n(#fn main () First (#return 0u64))\n",
+        "(#alias First = ./modules/selected.lim::First)\n(#fn main () First (#return 0u64))\n",
     )
     .unwrap();
     let context = scratch.path().join("context.lsp");

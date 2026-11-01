@@ -1,8 +1,9 @@
-(#import "../library/tasks.lim")
-(#import "../library/local_waker.lim")
-(#import "../library/cell.lim")
-(#import "../library/linux_x86_64.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+(#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker)
+(#alias lim-gen-task = ../library/tasks.lim::#task)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
@@ -27,7 +28,7 @@
   (#forget metadata)
   (#return ()))
 
-(#generate #local-waker
+(#generate lim-gen-local-waker
   (LocalWaker
     local-waker-create
     local-waker-wake
@@ -36,7 +37,7 @@
     local-waker-destroy)
   (Executor WakeMetadata)
   (notify clone-metadata destroy-metadata))
-(#generate #task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
+(#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return

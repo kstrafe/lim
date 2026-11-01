@@ -7266,9 +7266,9 @@ impl<'a> Emitter<'a> {
                 == Type::Unit
             {
                 definitions.push(format!(
-                    "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                    "(#fn {name}::replace (: task (#pin-ref-mut {}) : value {ty}) ()
                     {guards} (#forget value) (#return ()))
-                    (#fn {name}-read (: task (#pin-ref {})) {ty} {guards} (#return ()))",
+                    (#fn {name}::read (: task (#pin-ref {})) {ty} {guards} (#return ()))",
                     self.frame, self.frame
                 ));
                 continue;
@@ -7284,9 +7284,9 @@ impl<'a> Emitter<'a> {
             }
             if let Some(region) = &slot.words {
                 definitions.push(format!(
-                    "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                    "(#fn {name}::replace (: task (#pin-ref-mut {}) : value {ty}) ()
                   {guards} (#unsafe (#word-write {ty} {} value)) (#return ()))
-                  (#fn {name}-read (: task (#pin-ref {})) {ty}
+                  (#fn {name}::read (: task (#pin-ref {})) {ty}
                   {guards} (#return (#unsafe (#word-read {ty} {}))))",
                     self.frame,
                     self.word_slice(region, true),
@@ -7299,13 +7299,13 @@ impl<'a> Emitter<'a> {
             let occupied = self.fresh("previous-parameter-value");
             let target = Self::slot_ref(slot, true);
             definitions.push(format!(
-                "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                "(#fn {name}::replace (: task (#pin-ref-mut {}) : value {ty}) ()
                 {guards}
                 (#let {previous} {} (#unsafe (#pin-read {target})))
                 (#match {previous} (#case {} ()) (#case ({} {occupied}) (#forget {occupied})))
                 (#unsafe (#pin-write {target} ({} value)))
                 (#return ()))
-                (#fn {name}-read (: task (#pin-ref {})) {ty}
+                (#fn {name}::read (: task (#pin-ref {})) {ty}
                 {guards}
                 (#return (#deref (#unsafe (#pin-get-payload-unchecked {} {})))))",
                 self.frame,
@@ -7698,7 +7698,6 @@ pub(crate) fn program(
             .map_err(|_| "too many async generated source files")?;
         program.source_files.push(crate::SourceFile {
             file_scope: None,
-            import_prefix: String::new(),
             path: format!("<async graph {}>", generated.frame).into(),
             source: generated.source.clone(),
         });

@@ -13,17 +13,19 @@ fn generated_file_access_is_exactly_definition_plus_invocation_not_dependencies(
     let scratch = support::Scratch::new("generator-context-matrix");
     write(scratch.path(), "producer/lib.lim", "(#export make visible) (#fn hidden () #u64 (#return 42u64)) (#fn visible () #u64 (#return 42u64)) (#gn make (name text) `((#fn ,name () #u64 (#return (#call ,(#gn-symbol text) ())))))");
     write(scratch.path(), "third/lib.lim", "(#export visible) (#fn hidden () #u64 (#return 42u64)) (#fn visible () #u64 (#return 42u64))");
-    for prefix in ["one", "two"] {
-        for (target, allowed) in [
-            (format!("{prefix}@producer@hidden"), true),
-            (format!("{prefix}@producer@visible"), true),
-            (format!("{prefix}@hidden"), true),
-            (format!("{prefix}@visible"), true),
-            (format!("{prefix}@third@visible"), true),
-            (format!("{prefix}@third@hidden"), false),
+    for alias in ["one", "two"] {
+        for (file, name, allowed) in [
+            ("producer/lib.lim", "hidden", true),
+            ("producer/lib.lim", "visible", true),
+            ("caller/lib.lim", "hidden", true),
+            ("caller/lib.lim", "visible", true),
+            ("third/lib.lim", "visible", true),
+            ("third/lib.lim", "hidden", false),
         ] {
-            write(scratch.path(), "caller/lib.lim", &format!("(#export read visible) (#import-external \"../producer/lib.lim\" producer) (#import-external \"../third/lib.lim\" third) (#fn hidden () #u64 (#return 42u64)) (#fn visible () #u64 (#return 42u64)) (#generate producer@make read \"{target}\")"));
-            let source = format!("(#import-external \"caller/lib.lim\" {prefix}) (#fn main () #u64 (#return (#call {prefix}@read ())))");
+            // Strings are literal data: manufacture the canonical target explicitly.
+            let target = format!("{}::{name}", scratch.path().join(file).display());
+            write(scratch.path(), "caller/lib.lim", &format!("(#export read visible) (#alias make = ../producer/lib.lim::make) (#alias third-visible = ../third/lib.lim::visible) (#fn hidden () #u64 (#return 42u64)) (#fn visible () #u64 (#return 42u64)) (#generate make read {target:?})"));
+            let source = format!("(#alias {alias} = ./caller/lib.lim::read) (#fn main () #u64 (#return (#call {alias} ())))");
             for mode in 0..3 {
                 let result = if mode == 0 {
                     lim::parse_program_from_path(&source, &scratch.path().join("main.lim"))
@@ -52,25 +54,43 @@ fn generated_file_access_is_exactly_definition_plus_invocation_not_dependencies(
 }
 
 #[test]
-fn same_physical_caller_under_two_prefixes_does_not_share_private_access() {
-    let scratch = support::Scratch::new("generator-context-prefix-matrix");
+fn aliases_share_canonical_caller_authority_but_distinct_files_do_not() {
+    let scratch = support::Scratch::new("generator-context-alias-matrix");
     write(scratch.path(), "producer/lib.lim", "(#export make) (#gn make (name text) `((#fn ,name () #u64 (#return (#call ,(#gn-symbol text) ())))))");
-    write(scratch.path(), "caller/lib.lim", "(#export read) (#import-external \"../producer/lib.lim\" producer) (#fn hidden () #u64 (#return 42u64)) (#generate producer@make read \"one@hidden\")");
-    for order in [["one", "two"], ["two", "one"]] {
-        let source = format!("(#import-external \"caller/lib.lim\" {}) (#import-external \"caller/lib.lim\" {}) (#fn main () #u64 (#return 0u64))", order[0], order[1]);
-        for _ in 0..2 {
-            let error = lim::parse_program_from_path_with_config_and_cache(
-                &source,
-                &scratch.path().join("main.lim"),
-                &lim::CompileConfig::default(),
-                &scratch.path().join(".lim/cache"),
-            )
-            .and_then(|program| lim::check_types(&program))
-            .expect_err("the second instance cannot use the first instance's private function");
-            assert!(
-                error.contains("private") && error.contains("one@hidden"),
-                "{error}"
-            );
+    let target = format!(
+        "{}::hidden",
+        scratch.path().join("caller/lib.lim").display()
+    );
+    let caller = format!("(#export read) (#alias make = ../producer/lib.lim::make) (#fn hidden () #u64 (#return 42u64)) (#generate make read {target:?})");
+    write(scratch.path(), "caller/lib.lim", &caller);
+    write(scratch.path(), "other/lib.lim", &caller);
+    for (second_file, allowed) in [("caller/lib.lim", true), ("other/lib.lim", false)] {
+        for order in [["one", "two"], ["two", "one"]] {
+            let source = format!("(#alias {} = ./caller/lib.lim::read) (#alias {} = ./{second_file}::read) (#fn main () #u64 (#return (#u64::add-wrap (#call one ()) (#call two ()))))", order[0], order[1]);
+            for mode in 0..3 {
+                let result = if mode == 0 {
+                    lim::parse_program_from_path(&source, &scratch.path().join("main.lim"))
+                } else {
+                    lim::parse_program_from_path_with_config_and_cache(
+                        &source,
+                        &scratch.path().join("main.lim"),
+                        &lim::CompileConfig::default(),
+                        &scratch.path().join(".lim/cache"),
+                    )
+                }
+                .and_then(|program| lim::check_types(&program));
+                if allowed {
+                    result.unwrap_or_else(|error| panic!("{order:?}, cache mode {mode}: {error}"));
+                } else {
+                    let error = result.expect_err(
+                        "a distinct caller cannot use the first caller's private function",
+                    );
+                    assert!(
+                        error.contains("private") && error.contains(&target),
+                        "{error}"
+                    );
+                }
+            }
         }
     }
 }

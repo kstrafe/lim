@@ -1,12 +1,13 @@
-(#import "../library/tasks.lim")
+(#alias lim-gen-task = ../library/tasks.lim::#task)
+(#alias lim-gen-threaded-executor = ../library/tasks.lim::#threaded-executor)
 
-(#generate #task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
+(#generate lim-gen-task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
   ((NumberTask.Number #u64)))
 
 (#fn number-poll ((task NumberTask)) NumberPoll
   (#return (#match task (#case (NumberTask.Number value) (NumberPoll.NumberReady value)))))
 
-(#generate #threaded-executor run-worker WorkerResults
+(#generate lim-gen-threaded-executor run-worker WorkerResults
   ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input))
   Worker)
 

@@ -235,12 +235,12 @@ fn external_imports_and_generated_declarations_preserve_safety() {
     .unwrap();
     for (declarations, unsafe_names, safe_name) in [
         (
-            "(#import \"module.lim\")",
+            "(#alias answer = ./module.lim::answer)\n(#alias foreign-answer = ./module.lim::foreign-answer)\n(#alias safe-answer = ./module.lim::safe-answer)",
             &["answer", "foreign-answer"][..],
             "safe-answer",
         ),
         (
-            "(#import-external \"module.lim\" ext)",
+            "(#alias ext@answer = ./module.lim::answer)\n(#alias ext@foreign-answer = ./module.lim::foreign-answer)\n(#alias ext@safe-answer = ./module.lim::safe-answer)",
             &["ext@answer", "ext@foreign-answer"][..],
             "ext@safe-answer",
         ),
@@ -345,7 +345,7 @@ fn implicit_entry_points_cannot_bypass_unsafe_calls() {
 fn io_uring_raw_pointer_contracts_are_enforced() {
     let scratch = support::Scratch::new("unsafe-syscall");
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
-    let source = format!("(#import {:?}) (#fn main () #i64 (#return (#unsafe-call linux-io-uring-setup (: entries 2u32 : parameters (#ptr-null (#ptr-mut #u8))))))", library.to_str().unwrap());
+    let source = format!("(#alias linux-io-uring-setup = \"{}::linux-io-uring-setup\") (#fn main () #i64 (#return (#unsafe-call linux-io-uring-setup (: entries 2u32 : parameters (#ptr-null (#ptr-mut #u8))))))", library.to_str().unwrap());
     let error = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -402,7 +402,30 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
         collect(&node, &contents, &mut probes);
     }
     assert!(probes.len() >= 201);
-    let import = format!("(#import {:?})\n", library.to_str().unwrap());
+    let mut import = String::new();
+    for node in lim::parse(&contents).unwrap() {
+        fn types(node: &lim::SpannedExpr, path: &Path, output: &mut String) {
+            if matches!(node.children.first().map(|n| &n.expr), Some(lim::Expr::Symbol(head)) if matches!(head.as_str(), "#struct" | "#enum" | "#type"))
+            {
+                if let lim::Expr::Symbol(name) = &node.children[1].expr {
+                    let line = format!("(#alias {name} = \"{}::{name}\")\n", path.display());
+                    if !output.contains(&line) {
+                        output.push_str(&line);
+                    }
+                }
+            }
+            for child in &node.children {
+                types(child, path, output);
+            }
+        }
+        types(&node, &library, &mut import);
+    }
+    for name in probes.keys() {
+        import.push_str(&format!(
+            "(#alias {name} = \"{}::{name}\")\n",
+            library.display()
+        ));
+    }
     let path = scratch.path().join("main.lim");
     let cache = scratch.path().join("cache");
     for os in ["linux", "unsupported"] {
@@ -427,9 +450,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 error.message
             );
             assert!(
-                error
-                    .message
-                    .contains(&format!("call to unsafe function '{name}'")),
+                error.message.contains("call to unsafe function") && error.message.contains(name),
                 "{}",
                 error.message
             );

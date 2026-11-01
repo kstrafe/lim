@@ -1,4 +1,8 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-sched-getaffinity = ../library/linux_x86_64.lim::linux-sched-getaffinity)
+(#alias linux-sched-setaffinity = ../library/linux_x86_64.lim::linux-sched-setaffinity)
+(#alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield)
 
 (#fn main () #u64
   (#let before (#ptr-mut #u64)

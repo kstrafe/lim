@@ -610,33 +610,6 @@ impl Server<'_> {
         }
         if let Some(name) = crate::parse(&doc.text)
             .ok()
-            .and_then(|tree| import_reference(&tree, byte))
-        {
-            let overlays = self
-                .documents
-                .values()
-                .map(|d| (d.path.clone(), d.text.clone()))
-                .collect();
-            let target = crate::editor::import_target(
-                &doc.path,
-                &name,
-                self.config,
-                &overlays,
-                self.context_file(doc).as_deref(),
-            );
-            return Ok(target
-                .and_then(|path| path_to_uri(&path))
-                .map(|uri| {
-                    format!(
-                        "{{\"uri\":{},\"range\":{}}}",
-                        quoted(&uri),
-                        range(0, 0, 0, 0)
-                    )
-                })
-                .unwrap_or_else(|| "null".into()));
-        }
-        if let Some(name) = crate::parse(&doc.text)
-            .ok()
             .and_then(|tree| case_variant_reference(&tree, byte))
         {
             return Ok(self
@@ -1010,42 +983,6 @@ pub(crate) fn semantic_symbol(
             if let Some(name) = semantic_symbol(child, value, byte) {
                 return Some(name);
             }
-        }
-    }
-    None
-}
-
-fn import_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
-    for expression in expressions {
-        if byte < expression.span.start || byte >= expression.span.end {
-            continue;
-        }
-        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
-            continue;
-        }
-        let head = expression.children.first().map(|e| &e.expr);
-        if matches!(head, Some(Expr::Generate))
-            || matches!(head, Some(Expr::Symbol(name)) if name == "#gn" || name == "#gn-fn")
-        {
-            continue;
-        }
-        if matches!(head, Some(Expr::Symbol(name)) if name == "#import" || name == "#import-external")
-        {
-            let path = expression.children.get(1)?;
-            if (path.span.start <= byte && byte < path.span.end)
-                || expression
-                    .children
-                    .first()
-                    .is_some_and(|head| head.span.start <= byte && byte < head.span.end)
-            {
-                if let Expr::String(name) = &path.expr {
-                    return Some(name.clone());
-                }
-            }
-            continue;
-        }
-        if let Some(name) = import_reference(&expression.children, byte) {
-            return Some(name);
         }
     }
     None

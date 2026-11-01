@@ -1,6 +1,8 @@
+(#alias lim-gen-ready-queue = ../library/ready_queue.lim::#ready-queue)
+
 ; Queue operations update Copy fields in place; main consumes the linear owner.
-(#import "../library/ready_queue.lim")
-(#generate #ready-queue ReadyQueue ReadyQueueEnqueueResult ReadyQueueDequeueResult
+
+(#generate lim-gen-ready-queue ReadyQueue ReadyQueueEnqueueResult ReadyQueueDequeueResult
   ready-queue-create ready-queue-enqueue ready-queue-dequeue
   ReadyQueueEnqueueResult.QueueEnqueued ReadyQueueEnqueueResult.QueueFull ReadyQueueDequeueResult.QueueItem ReadyQueueDequeueResult.QueueEmpty
   (worker-a worker-b worker-c))

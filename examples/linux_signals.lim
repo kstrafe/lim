@@ -1,4 +1,8 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-rt-sigaction = ../library/linux_x86_64.lim::linux-rt-sigaction)
+(#alias linux-rt-sigpending = ../library/linux_x86_64.lim::linux-rt-sigpending)
+(#alias linux-rt-sigprocmask = ../library/linux_x86_64.lim::linux-rt-sigprocmask)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)

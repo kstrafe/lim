@@ -1,1 +1,1 @@
-(#import "missing-dependency.lim")
+(#alias missing = ../missing-dependency.lim::missing)

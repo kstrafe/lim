@@ -31,7 +31,7 @@ For example, this allocates fresh storage through the documented null-input
 reallocation path, then releases the successful allocation:
 
 ```lisp run=42
-(#import "../library/system_allocator.lim")
+(#std)
 (#fn main () #u64
   (#let allocation SystemAllocationResult
     (#unsafe (#unsafe-call system-reallocate
@@ -154,8 +154,8 @@ An allocator is an ordinary user-defined value with a stable concrete type.
 Collections store an immutable reference to that value:
 
 ```lisp library
-(#import "../library/cell.lim")
-(#generate #cell #usize CellUsize CellUsize::create CellUsize::get CellUsize::set)
+(#alias cell-generator = ../library/cell.lim::#cell)
+(#generate cell-generator #usize CellUsize CellUsize::create CellUsize::get CellUsize::set)
 (#struct AllocatorU64 () ((cursor CellUsize)))
 (#struct VecU64 () ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut #u64))

@@ -100,8 +100,6 @@ mod tests {
         "i8",
         "if",
         "if-let",
-        "import",
-        "import-external",
         "index",
         "isize",
         "label",

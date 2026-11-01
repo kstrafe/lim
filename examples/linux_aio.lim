@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-RT-SIGPROCMASK = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-RT-SIGPROCMASK)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-eventfd2 = ../library/linux_x86_64.lim::linux-eventfd2)
+(#alias linux-io-cancel = ../library/linux_x86_64.lim::linux-io-cancel)
+(#alias linux-io-destroy = ../library/linux_x86_64.lim::linux-io-destroy)
+(#alias linux-io-getevents = ../library/linux_x86_64.lim::linux-io-getevents)
+(#alias linux-io-pgetevents = ../library/linux_x86_64.lim::linux-io-pgetevents)
+(#alias linux-io-setup = ../library/linux_x86_64.lim::linux-io-setup)
+(#alias linux-io-submit = ../library/linux_x86_64.lim::linux-io-submit)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))

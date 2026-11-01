@@ -4,7 +4,7 @@ use lim::{CompileConfig, TargetDescription};
 use std::{fs, path::Path};
 
 const LIB: &str = "(#fn identity (: value (#ref #u64)) (#ref #u64) (#return value))";
-const MAIN: &str = "(#import \"lib.lim\")
+const MAIN: &str = "(#alias identity = ./lib.lim::identity)
   (#fn main () #u64 (#let value #u64 42u64)
     (#return (#deref (#call identity (: value (#borrow value))))))";
 
@@ -60,7 +60,7 @@ fn scalar_reader_reachability_is_preserved_and_invalidated_on_cache_hits() {
             (#forget restored) amount))
           (#case 1 42u64) (#case _ 0u64))))";
     fs::write(directory.join("lib.lim"), library).unwrap();
-    let source = "(#import \"lib.lim\") (#fn main () #u64
+    let source = "(#alias answer = ./lib.lim::answer) (#fn main () #u64
       (#let words (#array #u64 1) (#array-repeat 0u64))
       (#let amount #u64 (#call answer (: words (#borrow-slice words))))
       (#forget words) (#return amount))";
@@ -101,7 +101,7 @@ fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
         (#return (#call restore (: storage storage))))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias Words = ./lib.lim::Words) (#alias forward = ./lib.lim::forward)
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
         (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
@@ -139,7 +139,7 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
       (#fn forward (: storage (#ref-mut Words)) Output
         (#return (#call convert (: storage storage))))
       ").unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Input = ./lib.lim::Input) (#alias Output = ./lib.lim::Output) (#alias Words = ./lib.lim::Words) (#alias forward = ./lib.lim::forward)
       (#fn main () #u64
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
         (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
@@ -181,7 +181,7 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
         (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput view) (Output.HasOutput view)))))
       (#fn forward (: storage (#ref-mut Words)) Output
         (#return (#call convert (: storage storage))))").unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Input = ./lib.lim::Input) (#alias Output = ./lib.lim::Output) (#alias Words = ./lib.lim::Words) (#alias forward = ./lib.lim::forward)
       (#fn main () #u64
         (#let-mut amount #u64 42u64)
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
@@ -232,7 +232,7 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
         (#return ()))
       (#fn forward (: storage (#ref-mut Storage)) ()
         (#call clear-storage (: storage storage)) (#return ()))").unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Cell = ./lib.lim::Cell) (#alias Storage = ./lib.lim::Storage) (#alias forward = ./lib.lim::forward)
       (#fn main () #u64
         (#let-mut amount #u64 40u64)
         (#let-mut storage Storage (#struct-literal Storage (: words (#array-repeat 0u64))))
@@ -274,7 +274,7 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
     )
     .unwrap();
     let config = CompileConfig::default();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Cell = ./lib.lim::Cell) (#alias forward = ./lib.lim::forward)
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
@@ -313,7 +313,7 @@ fn imported_word_constructor_facts_survive_cache_hits() {
     )
     .unwrap();
     let config = CompileConfig::default();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Cell = ./lib.lim::Cell) (#alias initialize = ./lib.lim::initialize) (#alias initialize-and-read = ./lib.lim::initialize-and-read)
       (#fn main () #u64
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
         (#call initialize (: words (#borrow-slice-mut words 1usize 3usize)))
@@ -352,7 +352,7 @@ fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
            (#call clear (: slot (#pin-borrow-mut (#get buffer slot)))) (#return ()))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Token = ./lib.lim::Token) (#alias Slot = ./lib.lim::Slot) (#alias Buffer = ./lib.lim::Buffer) (#alias clear-buffer = ./lib.lim::clear-buffer)
       (#fn main () #u64
         (#let-mut words (#array #u64 4) (#array-repeat 0u64))
         (#unsafe (#word-write Buffer (#borrow-slice-mut words)
@@ -377,7 +377,7 @@ fn imported_word_forget_retires_numeric_slot_loans_on_cache_hits() {
           (#unsafe (#word-forget (#array #u64 1) words)) (#return ()))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias retire = ./lib.lim::retire)
       (#fn main () #u64
         (#let-mut seed #u64 0u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -426,7 +426,7 @@ fn imported_word_writer_retains_real_loans_on_cache_hits() {
            (#return ()))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias store = ./lib.lim::store)
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
@@ -462,7 +462,7 @@ fn imported_word_reader_checks_required_loans_after_cache_hits() {
            (#forget restored) (#return answer))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias read = ./lib.lim::read)
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -502,7 +502,7 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
            (#forget restored) (#forget extracted) (#return answer))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias Storage = ./lib.lim::Storage) (#alias read = ./lib.lim::read)
       (#fn main () #u64
         (#let seed #u64 42u64)
         (#let-mut stored Storage (#struct-literal Storage
@@ -539,7 +539,7 @@ fn imported_word_take_preserves_transferred_loans_and_source_retirement() {
            (#return (#unsafe (#word-take Holder words))))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias take = ./lib.lim::take)
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -582,7 +582,7 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
            (#return (#pin-borrow (#get owner inner))))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\")
+    let source = "(#alias Inner = ./lib.lim::Inner) (#alias Outer = ./lib.lim::Outer) (#alias read = ./lib.lim::read) (#alias field = ./lib.lim::field)
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -624,7 +624,11 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
 fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     let scratch = support::Scratch::new("semantic-invalidation");
     let dir = scratch.path();
-    fs::write(dir.join("lib.lim"), "(#import \"dep.lim\")").unwrap();
+    fs::write(
+        dir.join("lib.lim"),
+        "(#alias identity = ./dep.lim::identity)",
+    )
+    .unwrap();
     fs::write(dir.join("dep.lim"), LIB).unwrap();
     let config = CompileConfig::default();
     compile(dir, MAIN, &config).0.unwrap();
@@ -721,7 +725,7 @@ fn aggregate_outcomes_and_mutable_reference_stores_match_cold_analysis() {
         (#deref-set slot value) (#return ()))",
     )
     .unwrap();
-    let source = "(#import \"lib.lim\") (#fn main () #u64
+    let source = "(#alias Holder = ./lib.lim::Holder) (#alias Choice = ./lib.lim::Choice) (#alias choose = ./lib.lim::choose) (#alias replace = ./lib.lim::replace) (#fn main () #u64
       (#let-mut first #u64 1u64) (#let second #u64 42u64)
       (#let-mut holder Holder (#struct-literal Holder (: value (#borrow first))))
       (#call replace (: slot (#borrow-mut (#get holder value)) : value (#borrow second)))
@@ -743,7 +747,7 @@ fn generated_dependency_changes_invalidate_semantic_summaries() {
     let library =
         "(#gn functions () `((#fn generated () #u64 (#return 7u64)))) (#generate functions)";
     fs::write(dir.join("lib.lim"), library).unwrap();
-    let source = "(#import \"lib.lim\") (#fn main () #u64 (#return (#call generated ())))";
+    let source = "(#alias generated = ./lib.lim::generated) (#fn main () #u64 (#return (#call generated ())))";
     let cold = compile(dir, source, &CompileConfig::default()).0.unwrap();
     let (warm, report) = compile(dir, source, &CompileConfig::default());
     assert_eq!(warm.unwrap(), cold);

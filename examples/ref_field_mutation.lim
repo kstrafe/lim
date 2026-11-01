@@ -1,5 +1,6 @@
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 (#struct Point () ((x #u64) (y #u64)))
 (#struct CellState () ((prefix #u64) (counter CellU64)))
 (#static origin Point (#struct-literal Point ((x 19) (y 23))))

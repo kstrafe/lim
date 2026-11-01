@@ -1,5 +1,7 @@
+(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)
+
 ; A pinned async frame may retain a reference into an active enum payload.
-(#import "/<lim-std>/enum_project.lim")
+
 (#enum Child (#linear) ((Child.Waiting #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
@@ -14,7 +16,7 @@
 (#struct NumberPayload () ((value #u64)))
 (#enum Choice () ((Choice.Number NumberPayload) (Choice.Other #u64)))
 (#struct Owner () ((choice Choice)))
-(#generate #enum-project
+(#generate lim-gen-enum-project
   (: enum Choice : variant Choice.Number : payload NumberPayload : mode #pin-ref : name NumberView))
 
 (#generate #async-fn-pinned ( : protocol ReadAfterAwaitAwait

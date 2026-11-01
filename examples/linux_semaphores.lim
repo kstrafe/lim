@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-semctl = ../library/linux_x86_64.lim::linux-semctl)
+(#alias linux-semget = ../library/linux_x86_64.lim::linux-semget)
+(#alias linux-semop = ../library/linux_x86_64.lim::linux-semop)
+(#alias linux-semtimedop = ../library/linux_x86_64.lim::linux-semtimedop)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#assert (#i64::eq (#call linux-semget (: key 0i32 : count 0i32 : flags 384i32)) -22i64))

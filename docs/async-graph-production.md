@@ -131,11 +131,11 @@ parameters after Ready or public cleanup:
 
 ```lim
 (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-  : access (: amount amount-access)
+  : access (: amount AmountAccess)
   : function (#fn work (: amount #u64) #u64 (#return amount))))
 ```
 
-This emits ordinary `amount-access-read` and `amount-access-replace` functions.
+This emits ordinary `AmountAccess::read` and `AmountAccess::replace` functions.
 Read takes `(: task (#pin-ref Work::Frame))` and returns `#u64`. Replace takes
 `(: task (#pin-ref-mut Work::Frame) : value #u64)` and returns `()`. Accessor
 names are literal inputs, so external imports prefix them exactly once. No

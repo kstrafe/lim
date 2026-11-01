@@ -40,45 +40,6 @@ pub(crate) fn source(path: &Path) -> Option<String> {
     })
 }
 
-pub(crate) fn import_target(
-    path: &Path,
-    name: &str,
-    config: &crate::CompileConfig,
-    overlays: &HashMap<PathBuf, String>,
-    context_file: Option<&Path>,
-) -> Option<PathBuf> {
-    let overlays = overlays
-        .iter()
-        .map(|(p, s)| (path_key(p), s.clone()))
-        .collect();
-    let _restore = Restore(SOURCES.with(|sources| sources.replace(overlays)));
-    let mut config = config.clone();
-    if let Some(context) = context_file
-        .map(Path::to_owned)
-        .or_else(|| crate::lsp_context::discover(path))
-    {
-        config = crate::lsp_context::selected(&context).ok()?.config;
-    } else {
-        for directory in path.parent()?.ancestors() {
-            let manifest = directory.join("lim.project");
-            if manifest.is_file() {
-                let project = crate::read_project(&manifest).ok()?;
-                config.add_module_path(project.source_root);
-                for module in project.module_paths {
-                    config.add_module_path(module);
-                }
-                break;
-            }
-        }
-    }
-    let candidate = crate::import_candidate(path.parent()?, name, &config);
-    if candidate.is_file() || self::source(&candidate).is_some() {
-        Some(path_key(&candidate))
-    } else {
-        None
-    }
-}
-
 struct Restore(HashMap<PathBuf, String>);
 impl Drop for Restore {
     fn drop(&mut self) {
@@ -246,10 +207,7 @@ pub(crate) fn navigation_context(
                         program
                             .source_files
                             .iter()
-                            .position(|candidate| {
-                                path_key(&candidate.path) == path_key(&file.path)
-                                    && candidate.import_prefix == file.import_prefix
-                            })
+                            .position(|candidate| path_key(&candidate.path) == path_key(&file.path))
                             .map(|id| id as u32)
                     })
                     .collect::<Option<Vec<_>>>();
@@ -532,7 +490,8 @@ mod tests {
         let root = base.join("main.lim");
         let imported = base.join("values.lim");
         assert!(!base.exists());
-        let source = "(#import \"values.lim\") (#fn main () #u64 (#return (#call value ())))";
+        let source =
+            "(#alias value = ./values.lim::value) (#fn main () #u64 (#return (#call value ())))";
         let overlays = HashMap::from([(imported, "(#fn value () #u64 (#return 42u64))".into())]);
         check_source_for_editor(source, &root, &crate::CompileConfig::default(), &overlays)
             .unwrap();
@@ -567,7 +526,7 @@ mod tests {
             "(#fn value () #u64 (#return 42u64))".into(),
         )]);
         let result = check_source_for_editor(
-            "(#import \"value.lim\") (#fn main () #u64 (#return (#call value ())))",
+            "(#alias value = //modules/value.lim::value) (#fn main () #u64 (#return (#call value ())))",
             &root,
             &crate::CompileConfig::default(),
             &overlays,
@@ -585,7 +544,7 @@ mod tests {
         let invalid = "(#fn wrong () #u64 (#return true))";
         let overlays = HashMap::from([(imported.clone(), invalid.into())]);
         let error = check_source_for_editor(
-            "(#import \"bad.lim\")",
+            "(#alias wrong = ./bad.lim::wrong)",
             &root,
             &crate::CompileConfig::default(),
             &overlays,

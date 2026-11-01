@@ -220,7 +220,6 @@ mod tests {
         runtime.generator_validation = Some(Ok(std::sync::Arc::new(witness)));
         runtime.source_files.push(crate::SourceFile {
             file_scope: None,
-            import_prefix: String::new(),
             path: "later-runtime.lim".into(),
             source: "; not the witness source\n".into(),
         });
@@ -247,7 +246,6 @@ mod tests {
         runtime.items.extend(extra.items);
         runtime.source_files.push(crate::SourceFile {
             file_scope: None,
-            import_prefix: String::new(),
             path: "extra.lim".into(),
             source: extra_source.into(),
         });

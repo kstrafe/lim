@@ -1,4 +1,15 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-exit = ../library/linux_x86_64.lim::linux-exit)
+(#alias linux-exit-group = ../library/linux_x86_64.lim::linux-exit-group)
+(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
+(#alias linux-getpgid = ../library/linux_x86_64.lim::linux-getpgid)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-getsid = ../library/linux_x86_64.lim::linux-getsid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-setpgid = ../library/linux_x86_64.lim::linux-setpgid)
+(#alias linux-setsid = ../library/linux_x86_64.lim::linux-setsid)
+(#alias linux-waitid = ../library/linux_x86_64.lim::linux-waitid)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; SAFETY: run only in the isolated, single-threaded fork child; this routine
 ; changes process-group state and exits without returning to its caller.

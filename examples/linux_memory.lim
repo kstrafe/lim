@@ -1,4 +1,9 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-membarrier = ../library/linux_x86_64.lim::linux-membarrier)
+(#alias linux-mincore = ../library/linux_x86_64.lim::linux-mincore)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-mprotect = ../library/linux_x86_64.lim::linux-mprotect)
+(#alias linux-msync = ../library/linux_x86_64.lim::linux-msync)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)

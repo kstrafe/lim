@@ -176,22 +176,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
 
 fn projection_source() -> String {
     format!(
-        "(#import \"{}/library/pin.lim\")
-      (#struct Inner (#linear) (: value #u64))
-      (#struct Outer (#linear) (: child Inner))
-      (#generate #pin (: type Inner : name PinnedInner : fields (: value #u64)))
-      (#generate #pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
-      (#generate #pin-scope (: type Outer : pin PinnedOuter : name with-outer
-        : run drive-outer : destroy destroy-outer : result #u64))
-      (#fn drive-outer (: pin PinnedOuter) #u64
-        (#let-mut handle PinnedOuter pin)
-        (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle)))
-        (#call PinnedInner::Write::value (: pin (#borrow-mut child) : value 42u64))
-        (#let result #u64 (#call PinnedInner::Read::value (: pin (#borrow child))))
-        (#forget child) (#return result))
-      (#fn destroy-outer (: pin PinnedOuter) () (#forget pin) (#return ()))
-      (#fn main () #u64 (#return (#call with-outer
-        (: value (#struct-literal Outer (: child (#struct-literal Inner (: value 0u64))))))))",
+        "(#alias lim-gen-pin = \"{0}/library/pin.lim::#pin\")\n(#alias lim-gen-pin-scope = \"{0}/library/pin.lim::#pin-scope\")\n      (#struct Inner (#linear) (: value #u64))\n      (#struct Outer (#linear) (: child Inner))\n      (#generate lim-gen-pin (: type Inner : name PinnedInner : fields (: value #u64)))\n      (#generate lim-gen-pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))\n      (#generate lim-gen-pin-scope (: type Outer : pin PinnedOuter : name with-outer\n        : run drive-outer : destroy destroy-outer : result #u64))\n      (#fn drive-outer (: pin PinnedOuter) #u64\n        (#let-mut handle PinnedOuter pin)\n        (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle)))\n        (#call PinnedInner::Write::value (: pin (#borrow-mut child) : value 42u64))\n        (#let result #u64 (#call PinnedInner::Read::value (: pin (#borrow child))))\n        (#forget child) (#return result))\n      (#fn destroy-outer (: pin PinnedOuter) () (#forget pin) (#return ()))\n      (#fn main () #u64 (#return (#call with-outer\n        (: value (#struct-literal Outer (: child (#struct-literal Inner (: value 0u64))))))))",
         env!("CARGO_MANIFEST_DIR")
     )
 }

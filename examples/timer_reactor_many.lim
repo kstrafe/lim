@@ -1,5 +1,14 @@
+(#alias TimerCreate1 = ../library/timer_reactor1.lim::TimerCreate1)
+(#alias TimerManyWait = ../library/timer_reactor1.lim::TimerManyWait)
+(#alias TimerPoll1 = ../library/timer_reactor1.lim::TimerPoll1)
+(#alias TimerReactor1 = ../library/timer_reactor1.lim::TimerReactor1)
+(#alias timer-reactor-many-wait = ../library/timer_reactor1.lim::timer-reactor-many-wait)
+(#alias timer-reactor1-cancel = ../library/timer_reactor1.lim::timer-reactor1-cancel)
+(#alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create)
+(#alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll)
+
 ; A bounded slice of borrowed timer owners can share one blocking poll call.
-(#import "../library/timer_reactor1.lim")
+
 (
   #fn
   main

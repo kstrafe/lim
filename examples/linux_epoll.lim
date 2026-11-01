@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-epoll-create1 = ../library/linux_x86_64.lim::linux-epoll-create1)
+(#alias linux-epoll-ctl = ../library/linux_x86_64.lim::linux-epoll-ctl)
+(#alias linux-epoll-pwait = ../library/linux_x86_64.lim::linux-epoll-pwait)
+(#alias linux-epoll-pwait2 = ../library/linux_x86_64.lim::linux-epoll-pwait2)
+(#alias linux-epoll-wait = ../library/linux_x86_64.lim::linux-epoll-wait)
+(#alias linux-eventfd2 = ../library/linux_x86_64.lim::linux-eventfd2)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-poll = ../library/linux_x86_64.lim::linux-poll)
+(#alias linux-ppoll = ../library/linux_x86_64.lim::linux-ppoll)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let event-memory (#ptr-mut #u8)

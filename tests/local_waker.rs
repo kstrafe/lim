@@ -4,20 +4,7 @@ use std::{fs, process::Command, time::Duration};
 
 fn source(body: &str) -> String {
     format!(
-        "(#import \"{}/library/local_waker.lim\")
-         (#struct WakeExecutor () ((count #u64)))
-         (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()
-           (#return ()))
-         (#fn clone-metadata ((metadata (#ref #u64))) #u64
-           (#return (#deref metadata)))
-         (#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()
-           (#return ()))
-         (#generate #local-waker
-           (LocalWake local-wake-create local-wake local-wake-by-ref
-             local-wake-clone local-wake-destroy)
-           (WakeExecutor #u64)
-           (notify clone-metadata destroy-metadata))
-         {body}",
+        "(#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\")\n         (#struct WakeExecutor () ((count #u64)))\n         (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()\n           (#return ()))\n         (#fn clone-metadata ((metadata (#ref #u64))) #u64\n           (#return (#deref metadata)))\n         (#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()\n           (#return ()))\n         (#generate lim-gen-local-waker\n           (LocalWake local-wake-create local-wake local-wake-by-ref\n             local-wake-clone local-wake-destroy)\n           (WakeExecutor #u64)\n           (notify clone-metadata destroy-metadata))\n         {body}",
         env!("CARGO_MANIFEST_DIR")
     )
 }
@@ -97,10 +84,17 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(generated.contains("(#struct CounterWaker ()"));
+    assert!(lim::parse(&generated).unwrap().iter().any(|form| {
+        matches!(&form.expr, lim::Expr::List(items)
+            if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#struct")
+                && matches!(items.get(1), Some(lim::Expr::Symbol(name))
+                    if name.split_once(".lim::").map_or(name.as_str(), |(_, local)| local) == "CounterWaker")
+                && matches!(items.get(2), Some(lim::Expr::List(properties))
+                    if matches!(properties.as_slice(), [lim::Expr::Symbol(property)] if property == "#linear")))
+    }), "{generated}");
     assert!(generated.contains("counter-waker-wake-by-ref"));
     assert!(generated.contains("(#ptr #u8)"));
 
-    let error = compile_error("(#generate #local-waker (Pipeline.Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)) (#fn main () #u64 (#return 0u64))");
+    let error = compile_error("(#generate lim-gen-local-waker (Pipeline.Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)) (#fn main () #u64 (#return 0u64))");
     assert!(error.contains("names must be"), "{error}");
 }

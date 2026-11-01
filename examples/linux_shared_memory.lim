@@ -1,4 +1,8 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-shmat = ../library/linux_x86_64.lim::linux-shmat)
+(#alias linux-shmctl = ../library/linux_x86_64.lim::linux-shmctl)
+(#alias linux-shmdt = ../library/linux_x86_64.lim::linux-shmdt)
+(#alias linux-shmget = ../library/linux_x86_64.lim::linux-shmget)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Raw pointer-returning syscalls retain negative errno bit patterns.
 (#fn valid-mapping ((address (#ptr-mut #u8))) #bool

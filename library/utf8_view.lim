@@ -1,7 +1,12 @@
+(#alias String = ./string.lim::String)
+(#alias String::byte-at = ./string.lim::String::byte-at)
+(#alias String::len = ./string.lim::String::len)
+(#alias StringByteResult = ./string.lim::StringByteResult)
+
 ; Allocation::free validated UTF-8 views. The two source layouts are deliberately
 ; distinct: String uses packed allocation bytes; (#slice #u8) is word-backed.
 ; Shared String/slice borrows make safe source mutation impossible while live.
-(#import "string.lim")
+
 (#fn Utf8Source::string-len (: owner (#ref String)) #usize
   (#return (#call String::len (: string owner))))
 (#fn Utf8Source::string-byte (: owner (#ref String) : index #usize) #u8

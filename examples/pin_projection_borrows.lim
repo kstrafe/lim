@@ -1,14 +1,15 @@
-(#import "../library/pin.lim")
+(#alias lim-gen-pin = ../library/pin.lim::#pin)
+(#alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope)
 
 (#struct Number (#linear) (: value #u64))
 
 (#struct Pair (#linear) (: left Number : right Number))
 
 
-(#generate #pin (: type Number : name PinnedNumber : fields (: value #u64)))
-(#generate #pin (: type Pair : name PinnedPair
+(#generate lim-gen-pin (: type Number : name PinnedNumber : fields (: value #u64)))
+(#generate lim-gen-pin (: type Pair : name PinnedPair
   : projections (: left PinnedNumber : right PinnedNumber)))
-(#generate #pin-scope (: type Pair : pin PinnedPair : name with-pair
+(#generate lim-gen-pin-scope (: type Pair : pin PinnedPair : name with-pair
   : run sum-pair : destroy destroy-pair : result #u64))
 
 (#fn sum-pair (: pin PinnedPair) #u64

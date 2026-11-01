@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-msgctl = ../library/linux_x86_64.lim::linux-msgctl)
+(#alias linux-msgget = ../library/linux_x86_64.lim::linux-msgget)
+(#alias linux-msgrcv = ../library/linux_x86_64.lim::linux-msgrcv)
+(#alias linux-msgsnd = ../library/linux_x86_64.lim::linux-msgsnd)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)

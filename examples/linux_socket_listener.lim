@@ -1,4 +1,18 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-accept = ../library/linux_x86_64.lim::linux-accept)
+(#alias linux-accept4 = ../library/linux_x86_64.lim::linux-accept4)
+(#alias linux-bind = ../library/linux_x86_64.lim::linux-bind)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-connect = ../library/linux_x86_64.lim::linux-connect)
+(#alias linux-fcntl = ../library/linux_x86_64.lim::linux-fcntl)
+(#alias linux-getsockname = ../library/linux_x86_64.lim::linux-getsockname)
+(#alias linux-listen = ../library/linux_x86_64.lim::linux-listen)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-recvfrom = ../library/linux_x86_64.lim::linux-recvfrom)
+(#alias linux-sendto = ../library/linux_x86_64.lim::linux-sendto)
+(#alias linux-socket = ../library/linux_x86_64.lim::linux-socket)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; Establish a fresh connection and verify the accepted descriptor's flags,
 ; peer address, and data transfer. All socket IO is nonblocking.

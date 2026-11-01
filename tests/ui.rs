@@ -1,5 +1,15 @@
 use std::process::Command;
 
+#[test]
+fn direct_file_dependency_cycles_reach_recursive_call_validation() {
+    let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ui/cycle-a.lim");
+    let source = std::fs::read_to_string(&entry).unwrap();
+    let program = lim::parse_program_from_path(&source, &entry).unwrap();
+    let error = lim::check_types(&program).unwrap_err();
+    assert!(error.contains("recursive calls are not allowed"), "{error}");
+    assert!(error.contains("cycle-b.lim::cycle"), "{error}");
+}
+
 struct Case {
     name: &'static str,
     diagnostic_code: &'static str,
@@ -157,8 +167,8 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "string-borrow-mutation",
             diagnostic_code: "E4100",
-            offending_line: "  (#call String::clear (: string (#borrow-mut text)))",
-            line_number: 6,
+            offending_line: "  (#call string-clear (: string (#borrow-mut text)))",
+            line_number: 12,
         },
         Case {
             name: "call-builtin-name-type",
@@ -343,19 +353,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "import",
             diagnostic_code: "E4000",
-            offending_line: "(#import \"missing-module.lim\")",
+            offending_line: "(#alias missing = ./missing-module.lim::missing)",
             line_number: 1,
         },
         Case {
             name: "imported",
             diagnostic_code: "E4000",
-            offending_line: "(#import \"missing-dependency.lim\")",
-            line_number: 1,
-        },
-        Case {
-            name: "cycle-a",
-            diagnostic_code: "E4000",
-            offending_line: "(#import \"cycle-a.lim\")",
+            offending_line: "(#alias missing = ../missing-dependency.lim::missing)",
             line_number: 1,
         },
         Case {
@@ -1170,10 +1174,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             let expected_source = match case.name {
                 "imported" => format!("{source_path}imported/broken-module.lim"),
-                "cycle-a" => format!("{source_path}cycle-b.lim"),
-                "generator-imported" => {
-                    format!("{source_path}generator-imported/module.lim")
-                }
+                "generator-imported" => format!("{source_path}generator-imported/module.lim"),
                 _ => input.clone(),
             };
             assert!(
@@ -1310,9 +1311,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "array-element-type-mismatch" => Some("false"),
             "tuple-constructor-extra-element" => Some("false"),
             "array-constructor-missing-element" => Some("#array"),
-            "import" => Some("\"missing-module.lim\""),
-            "imported" => Some("\"missing-dependency.lim\""),
-            "cycle-a" => Some("\"cycle-a.lim\""),
+            "import" => Some("./missing-module.lim::missing"),
+            "imported" => Some("../missing-dependency.lim::missing"),
             "cfg" => Some("#platfrom"),
             "operator-arity" => Some("#u64::add-wrap"),
             "call-graph-arity" => Some("#call-graph"),
@@ -1581,7 +1581,7 @@ fn compilation_errors_render_the_offending_source_line() {
                 assert_eq!(
                     source_row.find("(#generate fail)"),
                     underline_row.find('^'),
-                    "imported generator underline is not aligned under its invocation:\n{stderr}"
+                    "file dependency generator underline is not aligned under its invocation:\n{stderr}"
                 );
             }
             if case.name == "type" {

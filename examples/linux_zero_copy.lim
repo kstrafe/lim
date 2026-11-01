@@ -1,4 +1,14 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lINUX-SYS-READ = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-READ)
+(#alias lINUX-SYS-WRITE = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WRITE)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-lseek = ../library/linux_x86_64.lim::linux-lseek)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-pipe2 = ../library/linux_x86_64.lim::linux-pipe2)
+(#alias linux-sendfile = ../library/linux_x86_64.lim::linux-sendfile)
+(#alias linux-splice = ../library/linux_x86_64.lim::linux-splice)
+(#alias linux-tee = ../library/linux_x86_64.lim::linux-tee)
 
 (#fn main () #u64
   (#let name-memory (#ptr-mut #u8)

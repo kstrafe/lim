@@ -4,7 +4,7 @@
 (#generate
   #async-fn-pinned
   (: protocol WorkAwait : waker #u64
-  : access (: amount amount-access)
+  : access (: amount AmountAccess)
   : function (#fn work (: amount #u64) #u64
     (#return amount))))
 (#fn main () #u64
@@ -21,7 +21,7 @@
           (#forget unexpected)
           (#unreachable)))))
   (#assert (#u64::eq result 40u64))
-  (#call amount-access-replace (: task (#pin-borrow-mut frame) : value 42u64))
-  (#let restored #u64 (#call amount-access-read (: task (#pin-borrow frame))))
+  (#call AmountAccess::replace (: task (#pin-borrow-mut frame) : value 42u64))
+  (#let restored #u64 (#call AmountAccess::read (: task (#pin-borrow frame))))
   (#forget frame)
   (#return restored))

@@ -1,4 +1,7 @@
-(#import-external "encapsulation/lib.lim" counters)
+(#alias counters@Counter = ./encapsulation/lib.lim::Counter)
+(#alias counters@counter-destroy = ./encapsulation/lib.lim::counter-destroy)
+(#alias counters@counter-new = ./encapsulation/lib.lim::counter-new)
+(#alias counters@counter-reader = ./encapsulation/lib.lim::counter-reader)
 
 ; The generated file's definition context permits counters@counter-value.
 ; Ordinary consumer code still cannot call that private helper directly.
@@ -6,8 +9,8 @@
 
 (#fn main () #u64
   (#let counter counters@Counter
-    (#call counters@counter-new (: counters@value 42u64)))
+    (#call counters@counter-new (: value 42u64)))
   (#let answer #u64
-    (#call read-generated-counter (: counters@counter (#borrow counter))))
-  (#call counters@counter-destroy (: counters@counter counter))
+    (#call read-generated-counter (: counter (#borrow counter))))
+  (#call counters@counter-destroy (: counter counter))
   (#return answer))

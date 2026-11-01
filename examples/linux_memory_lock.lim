@@ -1,4 +1,11 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-mlock = ../library/linux_x86_64.lim::linux-mlock)
+(#alias linux-mlock2 = ../library/linux_x86_64.lim::linux-mlock2)
+(#alias linux-mlockall = ../library/linux_x86_64.lim::linux-mlockall)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munlock = ../library/linux_x86_64.lim::linux-munlock)
+(#alias linux-munlockall = ../library/linux_x86_64.lim::linux-munlockall)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)

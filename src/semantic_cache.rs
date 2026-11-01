@@ -160,7 +160,6 @@ fn context_key(program: &Program, config: &CompileConfig, target: &str) -> Vec<u
         for file in &program.source_files {
             put_bytes(bytes, file.path.as_os_str().as_encoded_bytes());
             put_bytes(bytes, file.source.as_bytes());
-            put_bytes(bytes, file.import_prefix.as_bytes());
         }
         let mut authorities = program
             .generated_definition_contexts
@@ -810,7 +809,6 @@ mod tests {
         assert_ne!(key, context_key(&program, &b, "target"));
         program.source_files.push(crate::SourceFile {
             file_scope: None,
-            import_prefix: String::new(),
             path: "dep.lim".into(),
             source: "dependency".into(),
         });
@@ -819,7 +817,7 @@ mod tests {
         program.source_files[0].source.push_str(" changed");
         assert_ne!(dependency_key, context_key(&program, &a, "target"));
         let before_instance = context_key(&program, &a, "target");
-        program.source_files[0].import_prefix = "different-instance".into();
+        program.source_files[0].path = "different-instance.lim".into();
         assert_ne!(before_instance, context_key(&program, &a, "target"));
         let before_authority = context_key(&program, &a, "target");
         let reference = crate::Span::new(0, 1, 1, 1);

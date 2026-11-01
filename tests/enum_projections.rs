@@ -59,14 +59,21 @@ fn every_mode_generates_only_the_selected_signature_and_handles_both_variants() 
                 .items
                 .iter()
                 .filter_map(|item| match item {
-                    lim::Item::Function(function) if function.name.starts_with("Projection::") => {
+                    lim::Item::Function(function)
+                        if function
+                            .name
+                            .rsplit(".lim::")
+                            .next()
+                            .unwrap()
+                            .starts_with("Projection::") =>
+                    {
                         Some(function)
                     }
                     _ => None,
                 })
                 .collect::<Vec<_>>();
             assert_eq!(functions.len(), 1);
-            assert_eq!(functions[0].name, "Projection::project");
+            assert!(functions[0].name.ends_with("Projection::project"));
             run(&source, answer);
         }
     }
@@ -116,14 +123,7 @@ fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_re
             error.contains("borrow") || error.contains("pinned"),
             "{mode}: {error}"
         );
-        let error = check(&format!("(#import \"/<lim-std>/enum_project.lim\")
-          (#enum Choice () ((HasUnit ()) Choice.Empty))
-          (#generate #enum-project (: enum Choice : variant HasUnit : payload () : mode #{mode} : name Projection))
-          (#fn main () #u64 (#let-mut owner Choice (HasUnit ()))
-            (#let-else (Projection.Some payload)
-              (#call Projection::project (: source (#{borrow} owner))) (#else (#return 0u64)))
-            (#let value () (#deref payload)) (#forget value)
-            (#return 42u64))")).unwrap_err();
+        let error = check(&format!("(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#enum Choice () ((Choice.HasUnit ()) Choice.Empty))\n          (#generate lim-gen-enum-project (: enum Choice : variant Choice.HasUnit : payload () : mode #{mode} : name Projection))\n          (#fn main () #u64 (#let-mut owner Choice (Choice.HasUnit ()))\n            (#let-else (Projection.Some payload)\n              (#call Projection::project (: source (#{borrow} owner))) (#else (#return 0u64)))\n            (#let value () (#deref payload)) (#forget value)\n            (#return 42u64))")).unwrap_err();
         assert!(
             error.contains("reference target other than () or #never"),
             "{error}"
@@ -181,17 +181,11 @@ fn a_mismatch_can_project_the_other_variant_and_destroy_the_linear_owner() {
 #[test]
 fn aliases_generated_declarations_and_external_prefixes_obey_normal_checking() {
     let scratch = support::Scratch::new("projection-import");
-    fs::write(scratch.path().join("library.lim"), "(#import \"/<lim-std>/enum_project.lim\")
-      (#gn declare () `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice))))
-      (#generate declare)
-      (#generate #enum-project (: enum Choice : variant Choice.Full : payload #u64 : mode #pin-ref : name Projection))
-      (#fn read (: input View) #u64
-        (#let-else (Projection.Some value)
-          (#call Projection::project (: source input)) (#else (#return 0u64)))
-        (#return (#deref value)))").unwrap();
-    let source = "(#import-external \"library.lim\" ext)
-      (#fn main () #u64 (#let owner ext@Choice (ext@Full 42u64))
-        (#return (#call ext@read (: ext@input (#pin-borrow owner)))))";
+    fs::write(scratch.path().join("library.lim"), "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n      (#gn declare () `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice))))\n      (#generate declare)\n      (#generate lim-gen-enum-project (: enum Choice : variant Choice.Full : payload #u64 : mode #pin-ref : name Projection))\n      (#fn read (: input View) #u64\n        (#let-else (Projection.Some value)\n          (#call Projection::project (: source input)) (#else (#return 0u64)))\n        (#return (#deref value)))").unwrap();
+    let source =
+        "(#alias ExtChoice = ./library.lim::Choice)\n(#alias ext@read = ./library.lim::read)
+      (#fn main () #u64 (#let owner ExtChoice (ExtChoice.Full 42u64))
+        (#return (#call ext@read (: input (#pin-borrow owner)))))";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
 }

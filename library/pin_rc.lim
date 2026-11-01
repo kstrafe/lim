@@ -1,10 +1,12 @@
+(#alias lim-gen-allocator-for = /<lim-std>/allocator.lim::#allocator-for)
+
 ;; Concrete, single-threaded reference-counted pinned allocations.
 ;; No weak handles or ordinary mutable pointee references are exposed.
 ;; -borrow-mut succeeds only with one strong owner. Destroy all borrowed
 ;; views before dropping a handle; final destruction runs in place.
 ;; The allocator adapter allocates the complete reference-counted block.
 ;; destroy takes (: allocator (#ref ROOT::State) : pin (#pin-ref-mut Element)).
-(#import "/<lim-std>/allocator.lim")
+
 (#gn-fn pin-rc-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-rc-check (option)
   (#gn-if (#gn-equal (#gn-length option) 2)
@@ -18,7 +20,7 @@
 (#gn-fn pin-rc-build (element allocator name block adapter destroy checked)
     `((#struct ,block () (: value ,element : strong (#atomic #usize)))
       (#opaque ,block)
-      (#generate #allocator-for (: allocator ,allocator : type ,block : name ,adapter : operations (allocate deallocate)))
+      (#generate lim-gen-allocator-for (: allocator ,allocator : type ,block : name ,adapter : operations (allocate deallocate)))
       (#struct ,name () (: allocator (#ref ,(#gn-call pin-rc-name allocator "State")) : pointer (#pin-shared-own ,block)))
       (#opaque ,name)
       (#enum ,(#gn-call pin-rc-name name "CreateResult") (#linear)

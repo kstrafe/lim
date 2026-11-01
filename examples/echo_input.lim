@@ -1,4 +1,5 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-read-byte = ../library/linux_x86_64.lim::linux-read-byte)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#fn main () #i32

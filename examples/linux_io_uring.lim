@@ -1,4 +1,11 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-io-uring-enter = ../library/linux_x86_64.lim::linux-io-uring-enter)
+(#alias linux-io-uring-register = ../library/linux_x86_64.lim::linux-io-uring-register)
+(#alias linux-io-uring-setup = ../library/linux_x86_64.lim::linux-io-uring-setup)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; This example is the native x86-64 ABI, not Lim's aggregate representation.
 ; Loads/stores use assembly so the shared ring accesses and barriers remain

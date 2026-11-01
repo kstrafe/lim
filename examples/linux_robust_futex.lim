@@ -1,4 +1,21 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-WAIT4 = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WAIT4)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-exit = ../library/linux_x86_64.lim::linux-exit)
+(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
+(#alias linux-futex = ../library/linux_x86_64.lim::linux-futex)
+(#alias linux-futex-cmp-requeue = ../library/linux_x86_64.lim::linux-futex-cmp-requeue)
+(#alias linux-get-robust-list = ../library/linux_x86_64.lim::linux-get-robust-list)
+(#alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-open = ../library/linux_x86_64.lim::linux-open)
+(#alias linux-pipe2 = ../library/linux_x86_64.lim::linux-pipe2)
+(#alias linux-pread64 = ../library/linux_x86_64.lim::linux-pread64)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield)
+(#alias linux-set-robust-list = ../library/linux_x86_64.lim::linux-set-robust-list)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; SAFETY: memory is the initialized, shared 4096-byte mapping owned by main.
 ; No unrelated task accesses its test slots; the process is single-threaded

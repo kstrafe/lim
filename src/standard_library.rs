@@ -4,46 +4,6 @@ use std::path::Path;
 
 pub(crate) const ROOT: &str = "/<lim-std>/std.lim";
 
-/// Concrete names provided by the single #std instance. Generated APIs share
-/// their explicitly named root, so e.g. StringView::new stays global too.
-pub(crate) fn shared_names() -> &'static std::collections::HashSet<String> {
-    static NAMES: std::sync::OnceLock<std::collections::HashSet<String>> =
-        std::sync::OnceLock::new();
-    NAMES.get_or_init(|| {
-        let mut names = std::collections::HashSet::new();
-        for text in [
-            include_str!("../library/allocator.lim"),
-            include_str!("../library/string.lim"),
-            include_str!("../library/utf8_view.lim"),
-            include_str!("../library/system_allocator.lim"),
-            include_str!("../library/stdio.lim"),
-            include_str!("../library/stdin.lim"),
-            include_str!("../library/file.lim"),
-            include_str!("../library/enum_project.lim"),
-        ] {
-            for form in crate::parse(text).expect("valid standard library syntax") {
-                names.extend(crate::generator_provenance::declared_names(&form.expr).into_iter().map(str::to_owned));
-                if let crate::Expr::List(items) = &form.expr {
-                    if matches!(items.first(), Some(crate::Expr::Generate)) {
-                        if let Some(crate::Expr::List(arguments)) = items.get(2) {
-                            for argument in arguments {
-                                if let crate::Expr::List(pair) = argument {
-                                    if matches!(pair.first(), Some(crate::Expr::Symbol(key)) if key == "name") {
-                                        if let Some(crate::Expr::Symbol(name)) = pair.get(1) {
-                                            names.insert(name.clone());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        names
-    })
-}
-
 /// Reserved generator definitions are immutable shipped declarations, even
 /// when imported from a checkout rather than the embedded standard library.
 /// Comparing syntax prevents a caller-controlled filename granting privileges.

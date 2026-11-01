@@ -1,4 +1,13 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-pipe2 = ../library/linux_x86_64.lim::linux-pipe2)
+(#alias linux-process-vm-readv = ../library/linux_x86_64.lim::linux-process-vm-readv)
+(#alias linux-process-vm-writev = ../library/linux_x86_64.lim::linux-process-vm-writev)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-vmsplice = ../library/linux_x86_64.lim::linux-vmsplice)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let pid #i32 (#as (#call linux-getpid (:)) #i32))

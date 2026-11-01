@@ -1,7 +1,9 @@
-(#import "../library/tasks.lim")
-(#import "../library/local_waker.lim")
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-async-wake = ../library/tasks.lim::#async-wake)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+(#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker)
+(#alias lim-gen-task = ../library/tasks.lim::#task)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 
 (#struct WakeExecutor () ((notifications CellU64)))
 (#struct WakeMetadata (#linear) ((amount #u64)))
@@ -21,13 +23,13 @@
   (#forget metadata)
   (#return ()))
 
-(#generate #local-waker
+(#generate lim-gen-local-waker
   (LocalWaker local-waker-create local-waker-wake
     local-waker-wake-by-ref local-waker-clone local-waker-destroy)
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(#generate #task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
+(#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return (#match task
@@ -38,7 +40,7 @@
           (#call local-waker-wake-by-ref (: waker waker))
           (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))))))))
 
-(#generate #async-wake
+(#generate lim-gen-async-wake
   (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
   ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
   LocalWaker)

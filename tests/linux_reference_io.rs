@@ -44,7 +44,13 @@ fn run(source: &str, input: &[u8], expected_stdout: &[u8]) {
 #[test]
 fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
     run(
-        r#"(#import "@LINUX@")
+        r#"(#alias LinuxTimespec = "@LINUX@::LinuxTimespec")
+(#alias linux-mmap = "@LINUX@::linux-mmap")
+(#alias linux-munmap = "@LINUX@::linux-munmap")
+(#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from")
+(#alias linux-write-byte = "@LINUX@::linux-write-byte")
+(#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime")
+(#alias linux-nanosleep = "@LINUX@::linux-nanosleep")
         (#fn main () #u64
           (#let base (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
           (#let odd (#ptr-mut #u8) (#unsafe (#ptr-offset base 1usize)))
@@ -70,7 +76,13 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
 #[test]
 fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
     run(
-        r#"(#import "@LINUX@")
+        r#"(#alias LinuxTimespec = "@LINUX@::LinuxTimespec")
+(#alias linux-mmap = "@LINUX@::linux-mmap")
+(#alias linux-munmap = "@LINUX@::linux-munmap")
+(#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from")
+(#alias linux-write-byte = "@LINUX@::linux-write-byte")
+(#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime")
+(#alias linux-nanosleep = "@LINUX@::linux-nanosleep")
         (#fn main () #u64
           (#let-mut stack-time LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
           (#assert (#i64::eq (#call linux-clock-gettime (: clock-id 1i64 : time (#borrow-mut stack-time))) 0i64))

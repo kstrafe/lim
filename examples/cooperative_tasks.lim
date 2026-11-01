@@ -1,6 +1,7 @@
-(#import "../library/tasks.lim")
+(#alias lim-gen-executor = ../library/tasks.lim::#executor)
+(#alias lim-gen-task = ../library/tasks.lim::#task)
 
-(#generate #task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
+(#generate lim-gen-task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
   ((CountTask.Counting #u64)))
 
 (#fn count-poll ((task CountTask)) CountPoll
@@ -11,7 +12,7 @@
           (#block (#forget remaining) (CountPoll.CountReady 21u64))
           (CountPoll.CountPending (CountTask.Counting (#u64::sub-wrap remaining 1u64))))))))
 
-(#generate #executor run-counts Counts
+(#generate lim-gen-executor run-counts Counts
   ((first CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 first-input)
    (second CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input)))
 

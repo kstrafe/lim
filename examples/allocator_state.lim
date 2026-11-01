@@ -1,5 +1,6 @@
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 (#struct Arena () ((cursor CellU64)))
 (#struct VecU64Arena () ((allocator (#ref Arena)) (length #u64)))
 

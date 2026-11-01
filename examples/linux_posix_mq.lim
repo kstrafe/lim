@@ -1,4 +1,17 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-getuid = ../library/linux_x86_64.lim::linux-getuid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-mq-getsetattr = ../library/linux_x86_64.lim::linux-mq-getsetattr)
+(#alias linux-mq-notify = ../library/linux_x86_64.lim::linux-mq-notify)
+(#alias linux-mq-open = ../library/linux_x86_64.lim::linux-mq-open)
+(#alias linux-mq-timedreceive = ../library/linux_x86_64.lim::linux-mq-timedreceive)
+(#alias linux-mq-timedsend = ../library/linux_x86_64.lim::linux-mq-timedsend)
+(#alias linux-mq-unlink = ../library/linux_x86_64.lim::linux-mq-unlink)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-rt-sigprocmask = ../library/linux_x86_64.lim::linux-rt-sigprocmask)
+(#alias linux-rt-sigtimedwait = ../library/linux_x86_64.lim::linux-rt-sigtimedwait)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))

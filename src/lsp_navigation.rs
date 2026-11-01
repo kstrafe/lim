@@ -13,7 +13,7 @@ struct Binding {
 type Scope = HashMap<String, Binding>;
 
 fn symbol(node: &Node) -> Option<&str> {
-    if let Expr::Symbol(name) = &node.expr {
+    if let Expr::Symbol(name) | Expr::Function(name) = &node.expr {
         Some(name)
     } else {
         None
@@ -133,8 +133,15 @@ impl<'a> Index<'a> {
             && node.span.start <= self.byte
             && self.byte < node.span.end
     }
+    fn scoped_name<'b>(&'b self, name: &'b str) -> &'b str {
+        self.program
+            .and_then(|program| program.source_files.get(self.file as usize))
+            .and_then(|file| file.file_scope.as_ref())
+            .and_then(|scope| scope.names.get(name))
+            .map_or(name, String::as_str)
+    }
     fn declaration(&self, name: &str) -> Option<&'a Node> {
-        let nodes = self.globals.get(name)?;
+        let nodes = self.globals.get(self.scoped_name(name))?;
         (nodes.len() == 1).then_some(nodes[0])
     }
     fn global(&self, name: &str) -> Vec<Span> {
@@ -144,7 +151,7 @@ impl<'a> Index<'a> {
             .unwrap_or_default()
     }
     fn variant(&self, name: &str) -> Option<(&'a Node, &'a Node)> {
-        let nodes = self.variants.get(name)?;
+        let nodes = self.variants.get(self.scoped_name(name))?;
         (nodes.len() == 1).then_some(nodes[0])
     }
     fn variant_target(&self, name: &str) -> Vec<Span> {
@@ -1032,7 +1039,7 @@ impl<'a> Index<'a> {
                 }
                 return vec![];
             }
-            "cfg-is" | "import" | "import-external" => return vec![],
+            "cfg-is" => return vec![],
             "capability" => {
                 if xs.get(1).is_some_and(|node| self.contains(node)) {
                     return vec![xs[1].span];

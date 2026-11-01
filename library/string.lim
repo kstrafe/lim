@@ -1,8 +1,15 @@
+(#alias SystemAllocationError = ./system_allocator.lim::SystemAllocationError)
+(#alias SystemAllocationResult = ./system_allocator.lim::SystemAllocationResult)
+(#alias sYSTEM-ALLOCATION-MAX = ./system_allocator.lim::sYSTEM-ALLOCATION-MAX)
+(#alias system-allocate = ./system_allocator.lim::system-allocate)
+(#alias system-deallocate = ./system_allocator.lim::system-deallocate)
+(#alias system-reallocate = ./system_allocator.lim::system-reallocate)
+
 ; Opaque, linear UTF-8 text backed by the native Lim process heap (no libc).
 ; Length/capacity are bytes, not characters. Strings are not NUL::terminated;
 ; embedded NUL is valid text. No safe mutable byte access or shallow clone exists.
 ; Allocation is fallible, moves do not allocate, and String::free is explicit.
-(#import "system_allocator.lim")
+
 (
   #struct
   String (#linear)

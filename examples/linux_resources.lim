@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-getrlimit = ../library/linux_x86_64.lim::linux-getrlimit)
+(#alias linux-getrusage = ../library/linux_x86_64.lim::linux-getrusage)
+(#alias linux-prlimit64 = ../library/linux_x86_64.lim::linux-prlimit64)
+(#alias linux-setrlimit = ../library/linux_x86_64.lim::linux-setrlimit)
+(#alias linux-umask = ../library/linux_x86_64.lim::linux-umask)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)

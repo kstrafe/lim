@@ -17,19 +17,17 @@ pub(crate) fn owner(path: &Path) -> Option<PathBuf> {
         })
 }
 
-pub(crate) fn check_import(from: &Path, to: &Path, external: bool) -> Result<(), String> {
-    let from_owner = owner(from);
-    let to_owner = owner(to);
-    if external {
-        if let Some(root) = to_owner {
+pub(crate) fn check_entry(from: &Path, to: &Path) -> Result<(), String> {
+    if owner(from) != owner(to) {
+        if let Some(root) = owner(to) {
             if crate::editor::path_key(to) != root {
-                return Err(format!("cannot externally import private library implementation '{}'; import '{}' instead", to.display(), root.display()));
+                return Err(format!(
+                    "cannot reference private library implementation '{}'; use '{}' instead",
+                    to.display(),
+                    root.display()
+                ));
             }
         }
-    } else if from_owner != to_owner {
-        return Err(format!("internal import crosses a library boundary: '{}'; use #import-external with the library's lib.lim entry point", to.display()));
-    } else if to.file_name().is_some_and(|name| name == "lib.lim") {
-        return Err("lib.lim is a library entry point and requires #import-external".into());
     }
     Ok(())
 }
@@ -55,7 +53,7 @@ pub(crate) fn export_names(form: &SpannedExpr) -> Result<Option<Vec<String>>, So
             return Err(SourceError::from("#export lists enum types, not individual variants; exporting an enum exposes every variant")
                 .at(form.children.get(index).map_or(form.span, |child| child.span)));
         }
-        if name.starts_with('#') || name.contains('@') || names.contains(name) {
+        if name.starts_with('#') || name.starts_with('@') || names.contains(name) {
             return Err(
                 SourceError::from("#export expects unique, locally declared identifiers").at(form
                     .children
@@ -96,14 +94,12 @@ pub(crate) fn validate_metadata(forms: &[SpannedExpr]) -> Result<(), SourceError
 pub(crate) struct Visibility {
     authorities: HashMap<u32, Span>,
     owners: Vec<Option<PathBuf>>,
-    prefixes: Vec<String>,
     file_contexts: Vec<Option<PathBuf>>,
     exports: HashMap<PathBuf, Vec<String>>,
     resolved_exports: HashMap<PathBuf, std::collections::HashSet<String>>,
     unstable: Vec<std::collections::HashSet<String>>,
     declarations: HashMap<String, Span>,
     struct_owners: HashMap<String, String>,
-    import_roots: HashMap<String, Option<PathBuf>>,
 }
 
 impl Visibility {
@@ -113,7 +109,6 @@ impl Visibility {
         declarations: HashMap<String, Span>,
     ) -> Result<Self, SourceError> {
         let mut owners = Vec::with_capacity(files.len());
-        let mut prefixes = Vec::with_capacity(files.len());
         let mut file_contexts = Vec::with_capacity(files.len());
         let mut directories = HashMap::new();
         let mut unstable = Vec::with_capacity(files.len());
@@ -128,25 +123,13 @@ impl Visibility {
                 }
             }
             let path = &files.get(source as usize).unwrap_or(file).path;
-            file_contexts.push(
-                files
-                    .get(source as usize)
-                    .filter(|file| file.file_scope.is_some())
-                    .map(|file| file.path.clone()),
-            );
+            file_contexts.push(Some(path.clone()));
             unstable.push(
                 files
                     .get(source as usize)
                     .and_then(|file| file.file_scope.as_ref())
                     .map(|scope| scope.declaration_access.clone())
                     .unwrap_or_default(),
-            );
-            prefixes.push(
-                files
-                    .get(source as usize)
-                    .unwrap_or(file)
-                    .import_prefix
-                    .clone(),
             );
             let directory = path.parent().unwrap_or(Path::new(".")).to_path_buf();
             owners.push(
@@ -202,49 +185,25 @@ impl Visibility {
             }
             exports.insert(root.clone(), names);
         }
-        let mut import_roots = HashMap::new();
-        // Import ancestry comes from loader metadata, never from whichever
-        // declarations happened to survive expansion. A library may consist
-        // entirely of imports and generator invocations.
-        for (index, prefix) in prefixes.iter().enumerate() {
-            if let Some(Some(root)) = owners.get(index).filter(|_| !prefix.is_empty()) {
-                let entry = import_roots
-                    .entry(prefix.clone())
-                    .or_insert_with(|| Some(root.clone()));
-                if entry.as_ref() != Some(root) {
-                    *entry = None;
-                }
-            }
-        }
         Ok(Self {
             authorities: HashMap::new(),
             owners,
-            prefixes,
             file_contexts,
             exports,
             resolved_exports,
             unstable,
             declarations,
             struct_owners: HashMap::new(),
-            import_roots,
         })
     }
 
-    /// Internal files share an instance; distinct external prefixes never do.
+    /// File-local generator declarations never merge across source files.
     pub(crate) fn expansion_context(&self, span: Span) -> String {
         let index = span.source_id as usize;
-        if let Some(Some(file)) = self.file_contexts.get(index) {
-            return format!(
-                "{:?}:{:?}:file={}",
-                self.owners.get(index),
-                self.prefixes.get(index),
-                file.display()
-            );
-        }
         format!(
-            "{:?}:{:?}",
+            "{:?}:file={:?}",
             self.owners.get(index),
-            self.prefixes.get(index)
+            self.file_contexts.get(index)
         )
     }
 
@@ -253,7 +212,10 @@ impl Visibility {
         let root = self.owners.get(index).and_then(Option::as_ref);
         (
             root.map_or_else(|| "<global>".into(), |root| root.display().to_string()),
-            self.prefixes.get(index).cloned().unwrap_or_default(),
+            self.file_contexts
+                .get(index)
+                .and_then(Option::as_ref)
+                .map_or_else(|| "<memory>".into(), |file| file.display().to_string()),
         )
     }
 
@@ -268,43 +230,13 @@ impl Visibility {
             // A file-qualified forward name is checked again after expansion.
             return Ok(());
         }
-        // A forward/generated declaration may not exist yet. Its import
-        // instance and literal export list still establish the privacy boundary.
-        let Some((prefix, _)) = name.rsplit_once('@') else {
-            return Err(SourceError::from(format!(
-                "cannot qualify undeclared global name '{name}'; @ never refers to a local binding"
-            ))
-            .at(span));
-        };
-        let Some(Some(root)) = self.import_roots.get(prefix) else {
-            return Err(SourceError::from(format!(
-                "cannot qualify undeclared global name '{name}'"
-            ))
-            .at(span));
-        };
-        let caller = span.source_id as usize;
-        if self.exported(name, root) {
-            // Preserve the intermediate-import boundary even for forward names.
-            let same_instance = self.owners.get(caller).and_then(Option::as_ref) == Some(root)
-                && self.prefixes.get(caller).map(String::as_str) == Some(prefix);
-            if !same_instance {
-                if let Some((parent, _)) = prefix.rsplit_once('@') {
-                    if self.prefixes.get(caller).map(String::as_str) != Some(parent)
-                        || self.import_roots.get(parent).and_then(Option::as_ref)
-                            != self.owners.get(caller).and_then(Option::as_ref)
-                    {
-                        return Err(SourceError::from(format!(
-                            "'{name}' is private behind an intermediate library import"
-                        ))
-                        .at(span));
-                    }
-                }
+        if let Some((root, _)) = name.split_once("::") {
+            if self.declarations.contains_key(root) {
+                return self.access(root, span, false);
             }
-            return Ok(());
         }
         Err(SourceError::from(format!(
-            "cannot qualify private declaration '{name}' outside library '{}'",
-            root.display()
+            "cannot qualify undeclared file-local name '{name}'; @ never refers to a local binding"
         ))
         .at(span))
     }
@@ -320,7 +252,7 @@ impl Visibility {
                 .get(root)
                 .is_some_and(|names| names.contains(owner));
         }
-        let original = name.rsplit_once('@').map_or(name, |(_, name)| name);
+        let original = name;
         // Variant names are not separately exported. Their representation is
         // transparent exactly when the owning enum declaration is exported.
         let original = original
@@ -380,33 +312,10 @@ impl Visibility {
             .get(use_span.source_id as usize)
             .and_then(Option::as_ref)
             == Some(root)
-            && self.prefixes.get(use_span.source_id as usize)
-                == self.prefixes.get(declaration.source_id as usize)
         {
             return Ok(());
         }
         if !representation && self.exported(name, root) {
-            // A dependency's exports are not automatically re-exported by an
-            // importing library. Every intermediate boundary must be accessible
-            // from this implementation, not merely guessable in a flat name.
-            if let Some((prefix, _)) = name.rsplit_once('@') {
-                if let Some((parent, _)) = prefix.rsplit_once('@') {
-                    let caller = self
-                        .owners
-                        .get(use_span.source_id as usize)
-                        .and_then(Option::as_ref);
-                    if self.import_roots.get(parent).and_then(Option::as_ref) != caller
-                        || caller.is_none()
-                        || self
-                            .prefixes
-                            .get(use_span.source_id as usize)
-                            .map(String::as_str)
-                            != Some(parent)
-                    {
-                        return Err(SourceError::from(format!("'{name}' is private behind an intermediate library import; dependencies are not automatically re-exported")).at(use_span));
-                    }
-                }
-            }
             return Ok(());
         }
         Err(SourceError::from(format!(

@@ -1,4 +1,9 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-madvise = ../library/linux_x86_64.lim::linux-madvise)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-mprotect = ../library/linux_x86_64.lim::linux-mprotect)
+(#alias linux-mseal = ../library/linux_x86_64.lim::linux-mseal)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Requires mseal support. Pipeline.Only this short-lived program's mapping is sealed.
 (#fn main () #u64

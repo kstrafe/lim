@@ -1,8 +1,18 @@
+(#alias WakeRegister4 = ./wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ./wake_tokens.lim::WakeRetire4)
+(#alias WakeTable4 = ./wake_tokens.lim::WakeTable4)
+(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
+(#alias wake-table4-create = ./wake_tokens.lim::wake-table4-create)
+(#alias wake-table4-register = ./wake_tokens.lim::wake-table4-register)
+(#alias wake-table4-retire = ./wake_tokens.lim::wake-table4-retire)
+(#alias wake-table4-valid = ./wake_tokens.lim::wake-table4-valid)
+(#alias wake-token4-slot = ./wake_tokens.lim::wake-token4-slot)
+
 ;; A bounded, single-threaded ready set. Register before polling. A wake
 ;; records one bit even if it occurs before the poll returns Pending; duplicate
 ;; wakes coalesce. The raw-pointer marker prevents sharing the non-atomic
 ;; read/modify/write protocol between threads.
-(#import "wake_tokens.lim")
+
 
 (#struct WakeReady4 (#linear)
   ((table WakeTable4) (ready (#atomic #u64)) (local-marker (#ptr #u8))))

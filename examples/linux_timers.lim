@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lINUX-SYS-POLL = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-POLL)
+(#alias lINUX-SYS-READ = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-READ)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-timer-create = ../library/linux_x86_64.lim::linux-timer-create)
+(#alias linux-timer-delete = ../library/linux_x86_64.lim::linux-timer-delete)
+(#alias linux-timer-getoverrun = ../library/linux_x86_64.lim::linux-timer-getoverrun)
+(#alias linux-timer-gettime = ../library/linux_x86_64.lim::linux-timer-gettime)
+(#alias linux-timer-settime = ../library/linux_x86_64.lim::linux-timer-settime)
+(#alias linux-timerfd-create = ../library/linux_x86_64.lim::linux-timerfd-create)
+(#alias linux-timerfd-gettime = ../library/linux_x86_64.lim::linux-timerfd-gettime)
+(#alias linux-timerfd-settime = ../library/linux_x86_64.lim::linux-timerfd-settime)
 
 (#fn main () #u64
   (#let event-memory (#ptr-mut #i64)

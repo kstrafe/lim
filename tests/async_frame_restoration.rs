@@ -39,11 +39,11 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     .unwrap();
     let artifact = fs::read_dir(&output)
         .unwrap()
-        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+        .map(|entry| without_context(&fs::read_to_string(entry.unwrap().path()).unwrap()))
         .find(|text| text.contains("(#fn Work::poll "))
         .unwrap();
-    assert!(artifact.contains("(#fn work-owner-read "));
-    assert!(artifact.contains("(#fn work-owner-replace "));
+    assert!(artifact.contains("(#fn OwnerAccess::read "));
+    assert!(artifact.contains("(#fn OwnerAccess::replace "));
     // The same ordinary helper must work with the source actually reused from
     // disk, not only the first emission's in-memory analysis identities.
     lim::write_generated_sources_from_path_with_config_and_cache(
@@ -56,7 +56,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     .unwrap();
     let warm_artifact = fs::read_dir(&output)
         .unwrap()
-        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+        .map(|entry| without_context(&fs::read_to_string(entry.unwrap().path()).unwrap()))
         .find(|text| text.contains("(#fn Work::poll "))
         .unwrap();
     assert_eq!(warm_artifact, artifact);
@@ -67,6 +67,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
             source[node.span.start..node.span.end].starts_with("(#generate #async-fn-pinned")
         })
         .unwrap();
+    let artifact = without_context(&artifact);
     let standalone = format!(
         "{}\n{artifact}\n{}",
         &source[..invocation.span.start],
@@ -94,8 +95,8 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     };
     let helpers = format!(
         "{}\n{}",
-        helper("work-owner-replace", "replace-owner"),
-        helper("work-owner-read", "read-owner")
+        helper("OwnerAccess::replace", "replace-owner"),
+        helper("OwnerAccess::read", "read-owner")
     );
     assert!(helpers.contains("#word-write"));
     assert!(helpers.contains("#word-read"));
@@ -198,10 +199,10 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         .replace("read-after-await", "work")
         .replace("Read::after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
-        .replace(": access (: owner work-owner)", "")
+        .replace(": access (: owner OwnerAccess)", "")
         .replace(
             ": protocol WorkAwait",
-            ": protocol WorkAwait : access (: owner work-owner)",
+            ": protocol WorkAwait : access (: owner OwnerAccess)",
         );
     let source = format!("{prefix}
       (#fn main () #u64
@@ -213,9 +214,9 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
         (#let answer #u64 (#match second (#case (Work::Poll.Ready value) value)
           (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-        (#call work-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
+        (#call OwnerAccess::replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 41u64 : right 5u64))))))
-        (#let completed-owner Owner (#call work-owner-read (: task (#pin-borrow frame))))
+        (#let completed-owner Owner (#call OwnerAccess::read (: task (#pin-borrow frame))))
         (#assert (#u64::eq (#get (#get completed-owner payload) left) 41u64))
         (#forget frame)
         (#let-mut cancelled Work::Frame (#call work (: owner (#struct-literal Owner
@@ -227,9 +228,9 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
           (#match (#get cleanup await-0) (#case Work::Frame::Cleanup::Await-0.Empty ())
             (#case (Work::Frame::Cleanup::Await-0.Full child) (#call cancel-child (: task child))))
           (#forget cleanup) ())
-        (#call work-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner
+        (#call OwnerAccess::replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner
           (: payload (#struct-literal Payload (: left 11u64 : right 7u64))))))
-        (#let cancelled-owner Owner (#call work-owner-read (: task (#pin-borrow cancelled))))
+        (#let cancelled-owner Owner (#call OwnerAccess::read (: task (#pin-borrow cancelled))))
         (#let cancelled-left #u64 (#get (#get cancelled-owner payload) left))
         (#forget cancelled) (#return (#u64::add-wrap answer cancelled-left)))");
     let scratch = support::Scratch::new("async-public-parameter-access");
@@ -267,11 +268,11 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         .unwrap();
         let artifact = fs::read_dir(&output)
             .unwrap()
-            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .map(|entry| without_context(&fs::read_to_string(entry.unwrap().path()).unwrap()))
             .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
-        assert!(artifact.contains("(#fn work-owner-read "));
-        assert!(artifact.contains("(#fn work-owner-replace "));
+        assert!(artifact.contains("(#fn OwnerAccess::read "));
+        assert!(artifact.contains("(#fn OwnerAccess::replace "));
         if let Some(previous) = previous.replace(artifact.clone()) {
             assert_eq!(artifact, previous);
         }
@@ -284,6 +285,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
             source[node.span.start..node.span.end].starts_with("(#generate #async-fn-pinned")
         })
         .unwrap();
+    let artifact = without_context(&artifact);
     let standalone = format!(
         "{}\n{artifact}\n{}",
         &source[..invocation.span.start],
@@ -321,7 +323,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn-pinned",
             "(: amount #u64)",
-            "(missing work-amount)",
+            "(missing AmountAccess)",
             "",
             "unknown parameter 'missing'",
         ),
@@ -329,7 +331,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn-pinned",
             "(: amount #u64)",
-            "(amount work-amount) (amount other)",
+            "(amount AmountAccess) (amount other)",
             "",
             "repeats parameter",
         ),
@@ -337,7 +339,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "(#struct Token (#linear) (: amount #u64)) ",
             "#async-fn-pinned",
             "(: amount Token)",
-            "(amount work-amount)",
+            "(amount AmountAccess)",
             "",
             "reference-free Copy",
         ),
@@ -345,7 +347,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn-pinned",
             "(: amount (#ref #u64))",
-            "(amount work-amount)",
+            "(amount AmountAccess)",
             "",
             "reference-free Copy",
         ),
@@ -353,7 +355,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "(#struct Holder () (: value (#ref #u64)))",
             "#async-fn-pinned",
             "(: amount Holder)",
-            "(amount work-amount)",
+            "(amount AmountAccess)",
             "",
             "reference-free Copy",
         ),
@@ -361,7 +363,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn-pinned",
             "(: amount (#ref-mut #u64))",
-            "(amount work-amount)",
+            "(amount AmountAccess)",
             "",
             "reference-free Copy",
         ),
@@ -369,7 +371,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn",
             "(: amount #u64)",
-            "(amount work-amount)",
+            "(amount AmountAccess)",
             "",
             "requires #generate #async-fn-pinned",
         ),
@@ -377,16 +379,16 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "",
             "#async-fn-pinned",
             "(: amount #u64)",
-            "(amount work-amount)",
-            "(#fn work-amount-read () #u64 (#return 0u64))",
+            "(amount AmountAccess)",
+            "(#fn AmountAccess::read () #u64 (#return 0u64))",
             "conflicts with an existing declaration",
         ),
         (
             "",
             "#async-fn-pinned",
             "(: amount #u64)",
-            "(amount work-amount)",
-            "(#fn work-amount-replace () () (#return ()))",
+            "(amount AmountAccess)",
+            "(#fn AmountAccess::replace () () (#return ()))",
             "conflicts with an existing declaration",
         ),
     ]
@@ -428,34 +430,33 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
 
 #[test]
 fn access_handles_unit_aliases_multiple_parameters_and_imports() {
-    for (import, prefix, frame) in [
-        ("#import", "", "Work::Frame"),
-        ("#import-external", "Ext-", "Ext-Work::Frame"),
-    ] {
+    for path in ["./library.lim", "//library.lim"] {
+        let prefix = "";
+        let frame = "Work::Frame";
         let scratch = support::Scratch::new("async-access-import");
         let library = "(#type Amount #u64) (#type Nothing ())
           (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-            : access (: empty unit-access : amount amount-access : other other-access)
+            : access (: empty UnitAccess : amount AmountAccess : other OtherAccess)
             : function (#fn work (: empty Nothing : amount Amount : other #u64) #u64
               (#return amount))))";
         // Test fixture data, not a workspace source edit.
         fs::write(scratch.path().join("library.lim"), library).unwrap();
-        let source = format!("({import} \"library.lim\" {prefix})
+        let source = format!("(#alias Amount = {path}::Amount)\n(#alias Nothing = {path}::Nothing)\n(#alias work = {path}::work)\n(#alias Work::Frame = {path}::Work::Frame)\n(#alias Work::poll = {path}::Work::poll)\n(#alias Work::Poll = {path}::Work::Poll)\n(#alias UnitAccess::replace = {path}::UnitAccess::replace)\n(#alias UnitAccess::read = {path}::UnitAccess::read)\n(#alias AmountAccess::replace = {path}::AmountAccess::replace)\n(#alias AmountAccess::read = {path}::AmountAccess::read)\n(#alias OtherAccess::replace = {path}::OtherAccess::replace)\n(#alias OtherAccess::read = {path}::OtherAccess::read)
           (#fn main () #u64
             (#let waker #u64 0u64)
             (#let-mut frame {frame} (#call {prefix}work (: {prefix}empty () : {prefix}amount 40u64 : {prefix}other 5u64)))
             (#let poll-result #u64 (#match
               (#call {prefix}Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
-              (#case ({prefix}Work::Ready answer) answer)
-              (#case ({prefix}Work::Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+              (#case ({prefix}Work::Poll.Ready answer) answer)
+              (#case ({prefix}Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
             (#assert (#u64::eq poll-result 40u64))
-            (#call {prefix}unit-access-replace (: task (#pin-borrow-mut frame) : value ()))
-            (#let empty {prefix}Nothing (#call {prefix}unit-access-read (: task (#pin-borrow frame))))
-            (#call {prefix}amount-access-replace (: task (#pin-borrow-mut frame) : value 42u64))
-            (#call {prefix}other-access-replace (: task (#pin-borrow-mut frame) : value 7u64))
-            (#let other #u64 (#call {prefix}other-access-read (: task (#pin-borrow frame))))
+            (#call {prefix}UnitAccess::replace (: task (#pin-borrow-mut frame) : value ()))
+            (#let empty {prefix}Nothing (#call {prefix}UnitAccess::read (: task (#pin-borrow frame))))
+            (#call {prefix}AmountAccess::replace (: task (#pin-borrow-mut frame) : value 42u64))
+            (#call {prefix}OtherAccess::replace (: task (#pin-borrow-mut frame) : value 7u64))
+            (#let other #u64 (#call {prefix}OtherAccess::read (: task (#pin-borrow frame))))
             (#assert (#u64::eq other 7u64))
-            (#let answer {prefix}Amount (#call {prefix}amount-access-read (: task (#pin-borrow frame))))
+            (#let answer {prefix}Amount (#call {prefix}AmountAccess::read (: task (#pin-borrow frame))))
             (#forget frame) (#return answer))");
         let mut config = lim::CompileConfig::default();
         config.set("async-lowering", "graph");
@@ -492,7 +493,7 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
               (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
                 (#return (#match task (#case (Child.Waiting count)
                   (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady 42u64))))))
-              (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : access (: amount amount-access)
+              (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : access (: amount AmountAccess)
                 : function (#fn work (: amount #u64) #u64
                   (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64))))))";
             let suspend = if pending {
@@ -504,9 +505,9 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
                 ""
             };
             let call = if replace {
-                "(#call amount-access-replace (: task (#pin-borrow-mut frame) : value 99u64))"
+                "(#call AmountAccess::replace (: task (#pin-borrow-mut frame) : value 99u64))"
             } else {
-                "(#let ignored #u64 (#call amount-access-read (: task (#pin-borrow frame))))"
+                "(#let ignored #u64 (#call AmountAccess::read (: task (#pin-borrow frame))))"
             };
             let source = format!(
                 "{prefix} (#fn main () #u64 (#let waker #u64 0u64)
@@ -542,4 +543,15 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
             );
         }
     }
+}
+
+fn without_context(source: &str) -> String {
+    let mut result = source.to_owned();
+    for node in lim::parse(source).unwrap().into_iter().rev() {
+        if matches!(node.children.first().map(|n| &n.expr), Some(lim::Expr::Symbol(head)) if head == "#generated-context")
+        {
+            result.replace_range(node.span.start..node.span.end, "");
+        }
+    }
+    result
 }

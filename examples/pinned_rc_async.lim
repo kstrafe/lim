@@ -1,4 +1,4 @@
-(#import "../library/pin_rc.lim")
+(#alias lim-gen-pin-rc = ../library/pin_rc.lim::#pin-rc)
 
 (#struct Arena () ())
 (#enum ArenaError () (ArenaError.OutOfMemory))
@@ -26,7 +26,7 @@
       (Step.Step-waiting (#struct-literal StepWaiting (: value 42u64 : remaining 1u64)))))
     (#return value))))
 
-(#generate #pin-rc (: type Work::Frame : allocator Arena::Allocator : name PinnedFrameRc : destroy destroy-frame))
+(#generate lim-gen-pin-rc (: type Work::Frame : allocator Arena::Allocator : name PinnedFrameRc : destroy destroy-frame))
 (#fn Arena::Allocator::allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) Arena::Allocator::Allocation
   (#let pointer (#ptr-mut #u8)
     (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize

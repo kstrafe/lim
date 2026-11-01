@@ -22,21 +22,22 @@ same-named definitions in different files, and generated definitions. `#alias`,
 the selected declaration's visibility, never the navigation identity or struct
 representation access. File-reference paths resolve against their authored
 source, including unsaved overlays and generator definition/caller contexts.
+Source navigation consults the final file scope for names introduced during
+generation, including enum variants used in `#let-else` patterns.
 New resolution forms require positive and negative end-to-end tests.
 
 Directory libraries use the nearest enclosing `lib.lim` as their boundary.
 `#export` operands navigate to declaration tokens; individual enum variants are
 not export operands. Exporting an enum makes its construction and pattern
 variant references navigable without separate variant exports. The keyword has
-no definition. External prefixes form complete identifiers (`prefix@Name`),
-not namespace syntax. `#generate` opens the generated artifact, while its
+no definition. File paths select declarations; aliases retain their original identity. `#generate` opens the generated artifact, while its
 generator-name operand navigates to the generator declaration. Literal inputs
 remain data. New syntax must preserve compiler visibility checks in diagnostics
 and cover these roles in navigation tests, including unsaved library roots.
-The same physical file can have distinct source IDs under different effective
-external prefixes. Keep those declaration instances separate during resolution;
-their locations still navigate to the same physical source. Generated ownership
-follows the invocation's instance, not the cached artifact's path.
+Canonical paths identify one source file. Alias chains and symlinks resolve to
+the same declaration; different dependency files can carry identical spellings.
+Project-root `//` paths use the selected principal entry context, including
+multi-entry `lim.lsp` configurations.
 Generated-file access is distinct from declaration ownership. Validated
 `#generated-context` headers describe definition and invocation module instances;
 they never change which declaration a fully qualified identifier denotes.
@@ -122,8 +123,8 @@ Every syntax addition or change must include all of the following:
   lifetime. Distinguish runtime expressions from templates and literal inputs.
 - Add positive and negative LSP tests with exact target ranges. Include names
   reused in different scopes/types, out-of-scope uses, unsaved buffers and
-  unrelated errors. For generated/imported syntax include provenance, external
-  prefixes, cfg and multiple entry points as applicable.
+  unrelated errors. For generated and cross-file syntax include provenance,
+  aliases, relative and project-root paths, cfg and multiple entry points as applicable.
 - Preserve read-only diagnostics, generated publication safeguards and UTF-16
   source mapping; update formatter/highlighting/documentation as appropriate.
 - Update this design, the local implementation checklist, the user-facing LSP

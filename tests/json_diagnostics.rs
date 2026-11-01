@@ -124,7 +124,7 @@ fn errors_are_json_from_frontend_through_linker() {
     }
     let imported = directory.join("module.lim");
     fs::write(&imported, "(#fn broken () #u64 (#return false))").unwrap();
-    fs::write(&path, "(#import \"module.lim\")").unwrap();
+    fs::write(&path, "(#alias broken = ./module.lim::broken)").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg("--diagnostic-format=json")
         .arg(&path)

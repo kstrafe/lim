@@ -155,6 +155,7 @@ pub(crate) fn merge(forms: Vec<SpannedExpr>) -> Result<Vec<SpannedExpr>, SourceE
             child(&form, 1).clone(),
             child(&form, 2).clone(),
         ];
+        result_children[0].expr = Expr::Symbol("#enum".into());
         let mut variant_exprs = Vec::with_capacity(merged.len());
         let mut variant_children = Vec::with_capacity(merged.len());
         for (_, (expr, source)) in merged {

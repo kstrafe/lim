@@ -1,4 +1,7 @@
-(#import "string.lim")
+(#alias String = ./string.lim::String)
+(#alias String::push-char = ./string.lim::String::push-char)
+(#alias StringError = ./string.lim::StringError)
+(#alias StringStatus = ./string.lim::StringStatus)
 
 (#enum StdReadError () ((StdReadError.StdIoError #i64) (StdReadError.StdTextError StringError)))
 (#enum StdReadResult () ((StdReadResult.StdLineRead #usize) StdReadResult.StdEndOfInput (StdReadResult.StdReadFailed StdReadError)))

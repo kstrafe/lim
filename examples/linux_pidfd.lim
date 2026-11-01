@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-fcntl = ../library/linux_x86_64.lim::linux-fcntl)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-pidfd-getfd = ../library/linux_x86_64.lim::linux-pidfd-getfd)
+(#alias linux-pidfd-open = ../library/linux_x86_64.lim::linux-pidfd-open)
+(#alias linux-pidfd-send-signal = ../library/linux_x86_64.lim::linux-pidfd-send-signal)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let pid #i64 (#call linux-getpid (:)))

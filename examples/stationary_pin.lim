@@ -1,10 +1,13 @@
+(#alias lim-gen-pin = ../library/pin.lim::#pin)
+(#alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope)
+
 ;; The generated scope privately owns the storage. User functions only see
 ;; an opaque handle, never the movable Frame itself.
-(#import "../library/pin.lim")
+
 (#struct Frame (#linear) (: value #u64))
 
-(#generate #pin (: type Frame : name PinnedFrame : fields (: value #u64)))
-(#generate #pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
+(#generate lim-gen-pin (: type Frame : name PinnedFrame : fields (: value #u64)))
+(#generate lim-gen-pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))
 
 (#fn drive-frame (: pin PinnedFrame) #u64

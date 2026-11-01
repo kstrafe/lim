@@ -9,8 +9,8 @@ const PROGRAM: &str = r#"
 (#fn clone ((value #u64)) #u64 (#return value))
 (#fn forget ((value #u64)) #u64 (#return value))
 (#fn pin-read ((value #u64)) #u64 (#return value))
-(#fn u64.+.wrap ((left #u64) (right #u64)) #u64 (#return left))
-(#fn u64.< ((left #u64) (right #u64)) #bool (#return true))
+(#fn u64-add-wrap ((left #u64) (right #u64)) #u64 (#return left))
+(#fn u64-lt ((left #u64) (right #u64)) #bool (#return true))
 (#fn main () #u64
   (#let value #u64 42u64)
   (#assert (#u64::eq (#call panic (: value (#borrow value))) 42u64))
@@ -19,8 +19,8 @@ const PROGRAM: &str = r#"
   (#assert (#u64::eq (#call clone (: value 42u64)) 42u64))
   (#assert (#u64::eq (#call forget (: value 42u64)) 42u64))
   (#assert (#u64::eq (#call pin-read (: value 42u64)) 42u64))
-  (#assert (#u64::eq (#call u64.+.wrap (: left 42u64 : right 99u64)) 42u64))
-  (#assert (#call u64.< (: left 99u64 : right 42u64)))
+  (#assert (#u64::eq (#call u64-add-wrap (: left 42u64 : right 99u64)) 42u64))
+  (#assert (#call u64-lt (: left 99u64 : right 42u64)))
   (#assert (#bool::not (#u64::lt 99u64 42u64)))
   (#let copied #u64 (#clone value))
   (#forget copied)
@@ -286,8 +286,8 @@ fn external_import_prefixes_colliding_function_and_argument_names() {
         "(#fn panic ((clone #u64)) #u64 (#return clone))",
     )
     .unwrap();
-    let source = "(#import-external \"library.lim\" ext)
-      (#fn main () #u64 (#return (#call ext@panic (: ext@clone 42u64))))";
+    let source = "(#alias ext@panic = ./library.lim::panic)
+      (#fn main () #u64 (#return (#call ext@panic (: clone 42u64))))";
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
     let assembly = lim::compile_source_to_assembly(
         source,
@@ -308,13 +308,13 @@ fn colliding_calls_keep_aggregate_abi_and_eager_boolean_arguments() {
     let source = "
       (#fn clone () (#array #u64 8)
         (#return (#array-of (#array #u64 8) 42u64 1u64 2u64 3u64 4u64 5u64 6u64 7u64)))
-      (#fn bool.&& ((left #bool) (right #bool)) #bool (#return right))
+      (#fn bool-and ((left #bool) (right #bool)) #bool (#return right))
       (#fn effect ((counter (#ref-mut #u64))) #bool
         (#deref-set counter 42u64) (#return true))
       (#fn main () #u64
         (#let values (#array #u64 8) (#call clone (:)))
         (#let-mut counter #u64 0u64)
-        (#assert (#call bool.&& (: left false : right (#call effect (: counter (#borrow-mut counter))))))
+        (#assert (#call bool-and (: left false : right (#call effect (: counter (#borrow-mut counter))))))
         (#assert (#u64::eq counter 42u64))
         (#return (#index values 0u64)))";
     let target = lim::TargetDescription::X86_64_SYSTEM_V;

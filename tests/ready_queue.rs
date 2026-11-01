@@ -7,10 +7,13 @@ fn bounded_ready_queue_runs_natively_and_reports_full_and_empty() {
     let scratch = support::Scratch::new("ready-queue");
     let root = env!("CARGO_MANIFEST_DIR");
     let source = format!(
-        "(#import \"{root}/library/ready_queue.lim\")\n{}",
+        "(#alias lim-gen-ready-queue = \"{root}/library/ready_queue.lim::#ready-queue\")\n{0}",
         fs::read_to_string(format!("{root}/examples/ready_queue.lim"))
             .unwrap()
-            .replace("(#import \"../library/ready_queue.lim\")", "")
+            .replace(
+                "(#alias lim-gen-ready-queue = ../library/ready_queue.lim::#ready-queue)",
+                ""
+            )
     );
     fs::write(scratch.path().join("main.lim"), source).unwrap();
     let build = support::run(
@@ -35,7 +38,7 @@ fn bounded_ready_queue_runs_natively_and_reports_full_and_empty() {
 #[test]
 fn ready_queue_rejects_zero_capacity() {
     let source = format!(
-        "(#import \"{}/library/ready_queue.lim\")\n(#generate #ready-queue EmptyQueue EmptyEnqueue EmptyDequeue empty-create empty-enqueue empty-dequeue EmptyEnqueue.EmptyEnqueued EmptyEnqueue.EmptyFull EmptyDequeue.EmptyItem EmptyDequeue.EmptyEmpty ())\n(#fn main () #u64 (#return 0u64))",
+        "(#alias lim-gen-ready-queue = \"{0}/library/ready_queue.lim::#ready-queue\")\n(#generate lim-gen-ready-queue EmptyQueue EmptyEnqueue EmptyDequeue empty-create empty-enqueue empty-dequeue EmptyEnqueue.EmptyEnqueued EmptyEnqueue.EmptyFull EmptyDequeue.EmptyItem EmptyDequeue.EmptyEmpty ())\n(#fn main () #u64 (#return 0u64))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("ready-queue-zero");
@@ -57,13 +60,7 @@ fn ready_queue_rejects_zero_capacity() {
 #[test]
 fn distinct_ready_queue_instantiations_have_disjoint_generated_names() {
     let source = format!(
-        "(#import \"{}/library/ready_queue.lim\")
-         (#generate #ready-queue First FirstEnqueue FirstDequeue first-create first-enqueue first-dequeue FirstEnqueue.FirstEnqueued FirstEnqueue.FirstFull FirstDequeue.FirstItem FirstDequeue.FirstEmpty (a))
-         (#generate #ready-queue Second SecondEnqueue SecondDequeue second-create second-enqueue second-dequeue SecondEnqueue.SecondEnqueued SecondEnqueue.SecondFull SecondDequeue.SecondItem SecondDequeue.SecondEmpty (b c))
-         (#fn main () #u64
-           (#let first First (#call first-create (:)))
-           (#let second Second (#call second-create (:)))
-           (#forget first) (#forget second) (#return 42u64))",
+        "(#alias lim-gen-ready-queue = \"{0}/library/ready_queue.lim::#ready-queue\")\n         (#generate lim-gen-ready-queue First FirstEnqueue FirstDequeue first-create first-enqueue first-dequeue FirstEnqueue.FirstEnqueued FirstEnqueue.FirstFull FirstDequeue.FirstItem FirstDequeue.FirstEmpty (a))\n         (#generate lim-gen-ready-queue Second SecondEnqueue SecondDequeue second-create second-enqueue second-dequeue SecondEnqueue.SecondEnqueued SecondEnqueue.SecondFull SecondDequeue.SecondItem SecondDequeue.SecondEmpty (b c))\n         (#fn main () #u64\n           (#let first First (#call first-create (:)))\n           (#let second Second (#call second-create (:)))\n           (#forget first) (#forget second) (#return 42u64))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("ready-queue-pair");
@@ -80,12 +77,7 @@ fn distinct_ready_queue_instantiations_have_disjoint_generated_names() {
 #[test]
 fn ready_queue_state_cannot_be_implicitly_copied() {
     let source = format!(
-        "(#import \"{}/library/ready_queue.lim\")
-         (#generate #ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue QueueEnqueue.Enqueued QueueEnqueue.Full QueueDequeue.Item QueueDequeue.Empty (a))
-         (#fn main () #u64
-           (#let queue Queue (#call queue-create (:)))
-           (#let moved Queue queue)
-           (#forget queue) (#forget moved) (#return 0u64))",
+        "(#alias lim-gen-ready-queue = \"{0}/library/ready_queue.lim::#ready-queue\")\n         (#generate lim-gen-ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue QueueEnqueue.Enqueued QueueEnqueue.Full QueueDequeue.Item QueueDequeue.Empty (a))\n         (#fn main () #u64\n           (#let queue Queue (#call queue-create (:)))\n           (#let moved Queue queue)\n           (#forget queue) (#forget moved) (#return 0u64))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("ready-queue-linear");
@@ -108,25 +100,7 @@ fn ready_queue_state_cannot_be_implicitly_copied() {
 #[test]
 fn queue_field_can_be_used_through_a_mutable_owner_reference() {
     let source = format!(
-        "(#import \"{}/library/ready_queue.lim\")
-         (#generate #ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue QueueEnqueue.Enqueued QueueEnqueue.Full QueueDequeue.Item QueueDequeue.Empty (a b))
-         (#struct Holder (#linear) ((ready Queue)))
-
-         (#fn push ((holder (#ref-mut Holder))) ()
-           (#let result QueueEnqueue
-             (#call queue-enqueue (: queue (#borrow-mut (#get holder ready)) : task-id 42u64)))
-           (#forget result) (#return ()))
-         (#fn pop ((holder (#ref-mut Holder))) #u64
-           (#let result QueueDequeue
-             (#call queue-dequeue (: queue (#borrow-mut (#get holder ready)))))
-           (#return (#match result
-             (#case (QueueDequeue.Item value) value) (#case QueueDequeue.Empty 0u64))))
-         (#fn main () #u64
-           (#let-mut holder Holder (#struct-literal Holder
-             ((ready (#call queue-create (:))))))
-           (#call push (: holder (#borrow-mut holder)))
-           (#let value #u64 (#call pop (: holder (#borrow-mut holder))))
-           (#forget holder) (#return value))",
+        "(#alias lim-gen-ready-queue = \"{0}/library/ready_queue.lim::#ready-queue\")\n         (#generate lim-gen-ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue QueueEnqueue.Enqueued QueueEnqueue.Full QueueDequeue.Item QueueDequeue.Empty (a b))\n         (#struct Holder (#linear) ((ready Queue)))\n\n         (#fn push ((holder (#ref-mut Holder))) ()\n           (#let result QueueEnqueue\n             (#call queue-enqueue (: queue (#borrow-mut (#get holder ready)) : task-id 42u64)))\n           (#forget result) (#return ()))\n         (#fn pop ((holder (#ref-mut Holder))) #u64\n           (#let result QueueDequeue\n             (#call queue-dequeue (: queue (#borrow-mut (#get holder ready)))))\n           (#return (#match result\n             (#case (QueueDequeue.Item value) value) (#case QueueDequeue.Empty 0u64))))\n         (#fn main () #u64\n           (#let-mut holder Holder (#struct-literal Holder\n             ((ready (#call queue-create (:))))))\n           (#call push (: holder (#borrow-mut holder)))\n           (#let value #u64 (#call pop (: holder (#borrow-mut holder))))\n           (#forget holder) (#return value))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("ready-queue-field");

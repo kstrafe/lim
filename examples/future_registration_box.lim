@@ -1,10 +1,15 @@
+(#alias SystemAllocationError = /<lim-std>/system_allocator.lim::SystemAllocationError)
+(#alias SystemAllocator = /<lim-std>/system_allocator.lim::SystemAllocator)
+(#alias lim-gen-pin = ../library/pin.lim::#pin)
+(#alias lim-gen-pin-box = ../library/pin_box.lim::#pin-box)
+
 (#std)
-(#import "../library/pin_box.lim")
-(#import "../library/pin.lim")
+
+
 ; Registration consumes only literal names. It never inspects unfinished enums.
 (#distributed-enum ExecutorTask ())
 
-(#gn register-future (executor future)
+(#gn register-future (executor future variant)
   `(
     (#require-generated
       ,(#gn-symbol-append future "Frame")
@@ -16,9 +21,9 @@
         ,(#gn-symbol-append future "poll")))
     (#enum-contribute
       ,executor
-      (,(#gn-variant executor future) ,(#gn-symbol-append future "Frame")))))
+      (,(#gn-variant executor variant) ,(#gn-symbol-append future "Frame")))))
 
-(#generate register-future ExecutorTask Work)
+(#generate register-future @ExecutorTask @Work Work)
 (#generate #async-fn-pinned
   (: protocol Work::Await
    : waker #u64
@@ -33,7 +38,7 @@
   (#forget pin)
   (#return ()))
 
-(#generate #pin-box
+(#generate lim-gen-pin-box
   (: type ExecutorTask
    : allocator SystemAllocator::Allocator
    : name PinnedExecutorTaskBox

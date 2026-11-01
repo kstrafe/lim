@@ -1,5 +1,6 @@
-(#import "modules/file_errors.lim")
-(#import "modules/parse_errors.lim")
+(#alias ApplicationError.FileFailure = ./modules/file_errors.lim::ApplicationError.FileFailure)
+(#alias ApplicationError.ParseFailure = ./modules/parse_errors.lim::ApplicationError.ParseFailure)
+(#alias ApplicationError = ./modules/error_collection.lim::ApplicationError)
 
 (#fn code ((error ApplicationError)) #u64
   (#return

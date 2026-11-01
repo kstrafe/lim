@@ -1,10 +1,28 @@
+(#alias AsyncPoll4Result = ./async_poll4.lim::AsyncPoll4Result)
+(#alias AsyncPollSource4 = ./async_poll4.lim::AsyncPollSource4)
+(#alias WakeReady4 = ./wake_ready4.lim::WakeReady4)
+(#alias WakeRegister4 = ./wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ./wake_tokens.lim::WakeRetire4)
+(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
+(#alias async-poll4-source = ./async_poll4.lim::async-poll4-source)
+(#alias async-poll4-wait = ./async_poll4.lim::async-poll4-wait)
+(#alias linux-close = ./linux_x86_64.lim::linux-close)
+(#alias linux-fcntl = ./linux_x86_64.lim::linux-fcntl)
+(#alias linux-mmap = ./linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ./linux_x86_64.lim::linux-munmap)
+(#alias linux-read-byte-from = ./linux_x86_64.lim::linux-read-byte-from)
+(#alias wake-ready4-create = ./wake_ready4.lim::wake-ready4-create)
+(#alias wake-ready4-register = ./wake_ready4.lim::wake-ready4-register)
+(#alias wake-ready4-retire = ./wake_ready4.lim::wake-ready4-retire)
+(#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
+
 ;; One::shot, poll-based asynchronous read of one byte from a Linux descriptor.
 ;; Polling only observes readiness; the destination reference is used only by
 ;; the synchronous one-byte read after a registered wake. The kernel never
 ;; retains the destination across Pending or cancellation.
-(#import "linux_x86_64.lim")
-(#import "wake_ready4.lim")
-(#import "async_poll4.lim")
+
+
+
 
 (#const lINUX-FCNTL-F_GETFL #i32 3i32)
 (#const lINUX-FCNTL-F_SETFL #i32 4i32)

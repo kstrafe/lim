@@ -83,7 +83,7 @@ fn imported_bundles_are_prefixed_and_checked_at_the_use() {
         "(#syntax value (42u64)) (#fn answer () #u64 (#return (#syntax-splice value)))",
     )
     .unwrap();
-    let source = "(#import-external \"library.lim\" ext)\n(#fn main () #u64 (#return (#syntax-splice ext@value)))";
+    let source = "(#alias ext@value = ./library.lim::value)\n(#fn main () #u64 (#return (#syntax-splice ext@value)))";
     lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let source = "(#syntax Bad (false))\n(#fn main () #u64 (#return (#syntax-splice Bad)))";
     let error = lim::compile_source_to_assembly(

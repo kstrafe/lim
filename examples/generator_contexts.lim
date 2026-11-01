@@ -1,4 +1,4 @@
-(#import-external "generator_contexts/lib.lim" library)
+(#alias library@make-reader = ./generator_contexts/lib.lim::make-reader)
 
 (#fn read-input () #u64
   (#return 40u64))

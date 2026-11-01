@@ -1,4 +1,14 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-fchmodat2 = ../library/linux_x86_64.lim::linux-fchmodat2)
+(#alias linux-mknod = ../library/linux_x86_64.lim::linux-mknod)
+(#alias linux-mknodat = ../library/linux_x86_64.lim::linux-mknodat)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-openat = ../library/linux_x86_64.lim::linux-openat)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-stat = ../library/linux_x86_64.lim::linux-stat)
+(#alias linux-unlink = ../library/linux_x86_64.lim::linux-unlink)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Run in a private scratch directory: creates and removes FIFOs a and b.
 (#fn main () #u64

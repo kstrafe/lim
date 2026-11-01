@@ -1,4 +1,12 @@
-(#import "../library/wake_tokens.lim")
+(#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ../library/wake_tokens.lim::WakeRetire4)
+(#alias WakeTable4 = ../library/wake_tokens.lim::WakeTable4)
+(#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4)
+(#alias wake-table4-create = ../library/wake_tokens.lim::wake-table4-create)
+(#alias wake-table4-register = ../library/wake_tokens.lim::wake-table4-register)
+(#alias wake-table4-retire = ../library/wake_tokens.lim::wake-table4-retire)
+(#alias wake-table4-valid = ../library/wake_tokens.lim::wake-table4-valid)
+(#alias wake-token4-generation = ../library/wake_tokens.lim::wake-token4-generation)
 
 (#fn main () #u64
   (#let-mut table WakeTable4 (#call wake-table4-create (:)))

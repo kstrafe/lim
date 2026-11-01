@@ -196,7 +196,7 @@ mod tests {
         let temp = StagingDirectory::beside(&std::env::temp_dir().join("unused")).unwrap();
         let input = temp.0.join("input.lim");
         let imported = temp.0.join("types.lim");
-        let source = "(#import \"types.lim\") (#fn main () #u64 (#return 42u64))";
+        let source = "(#alias Number = ./types.lim::Number) (#fn main () #u64 (#return 42u64))";
         fs::write(&input, source).unwrap();
         fs::write(&imported, "(#type Number #u64)").unwrap();
         let alias = temp.0.join("alias");

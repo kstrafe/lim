@@ -1,6 +1,18 @@
+(#alias AsyncByteRead1 = ../library/async_stdin_byte.lim::AsyncByteRead1)
+(#alias AsyncByteReadCreate1 = ../library/async_stdin_byte.lim::AsyncByteReadCreate1)
+(#alias AsyncByteReadPoll1 = ../library/async_stdin_byte.lim::AsyncByteReadPoll1)
+(#alias AsyncByteReadWait1 = ../library/async_stdin_byte.lim::AsyncByteReadWait1)
+(#alias async-byte-read1-create = ../library/async_stdin_byte.lim::async-byte-read1-create)
+(#alias async-byte-read1-destroy = ../library/async_stdin_byte.lim::async-byte-read1-destroy)
+(#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking)
+(#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll)
+(#alias async-byte-read1-wait = ../library/async_stdin_byte.lim::async-byte-read1-wait)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+
 ; Work.Read and echo one stdin byte using readiness polling. The task borrows the
 ; destination only while it is pending; poll never leaves the buffer in flight.
-(#import "../library/async_stdin_byte.lim")
+
 
 (#fn main () #i32
   (#let-mut byte #u8 0u8)

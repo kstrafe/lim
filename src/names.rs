@@ -232,7 +232,3 @@ fn pattern(expression: &crate::Expr) -> Result<(), String> {
         _ => Ok(()),
     }
 }
-
-pub(crate) fn imported(prefix: &str, name: &str) -> String {
-    format!("{prefix}@{name}")
-}

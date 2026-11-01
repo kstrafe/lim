@@ -141,7 +141,8 @@ fn imported_and_user_generated_enum_literals_keep_concrete_variant_identity() {
       (#fn make () Answer (#return (#enum-literal Answer.Value 42u64)))",
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" Ext)
+    let source =
+        "(#alias Ext@make = ./module.lim::make)\n(#alias Ext@Answer = ./module.lim::Answer)
       (#fn main () #u64 (#return (#match (#call Ext@make (:))
         (#case (Ext@Answer.Value value) value) (#case Ext@Answer.Empty 0u64))))";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();

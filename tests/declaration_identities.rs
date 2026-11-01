@@ -112,11 +112,11 @@ fn global_and_local_references_have_distinct_declaration_kinds() {
         .next()
         .unwrap();
     assert!(
-        parameter_dump.contains("Symbol { name: \"argument\", binding: Maybe.Some(BindingId("),
+        parameter_dump.contains("Symbol { name: \"argument\", binding: Some(BindingId("),
         "parameter should resolve as a local binding: {parameter_dump}"
     );
     assert!(
-        !parameter_dump.contains("Declaration(global("),
+        !parameter_dump.contains("Declaration(Global("),
         "parameter must not resolve to a global: {parameter_dump}"
     );
     for function in ["local", "pattern"] {
@@ -125,12 +125,12 @@ fn global_and_local_references_have_distinct_declaration_kinds() {
             .unwrap()
             .1;
         let body = body.split("\nfunction ").next().unwrap();
-        assert!(body.contains("binding: Maybe.Some(BindingId("), "{body}");
-        assert!(!body.contains("Declaration(global("), "{body}");
+        assert!(body.contains("binding: Some(BindingId("), "{body}");
+        assert!(!body.contains("Declaration(Global("), "{body}");
     }
     let main_dump = dump.split_once("function main\n").unwrap().1;
     assert!(
-        main_dump.contains("Declaration(global(GlobalId(0)))"),
+        main_dump.contains("Declaration(Global(GlobalId(0)))"),
         "main's unshadowed reference must resolve to the global: {main_dump}"
     );
 }
@@ -266,7 +266,7 @@ fn imported_static_access_retains_its_imported_source_location() {
     let scratch = support::Scratch::new("imported-static-unsafe");
     let module = "(#static tOTAL #u64 40u64)\n(#fn read () #u64 (#return tOTAL))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () #u64 (#return (#call read (:))))";
+    let root = "(#alias read = ./module.lim::read)\n(#fn main () #u64 (#return (#call read (:))))";
     let error = lim::compile_source_to_assembly(
         root,
         &scratch.path().join("main.lim"),
@@ -275,7 +275,13 @@ fn imported_static_access_retains_its_imported_source_location() {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .unwrap_err();
-    assert!(error.message.contains("access to static 'tOTAL' requires"));
+    let canonical = format!("{}::tOTAL", scratch.path().join("module.lim").display());
+    assert!(
+        error
+            .message
+            .contains(&format!("access to static '{canonical}' requires")),
+        "{error:?}"
+    );
     let span = error.span.expect("imported static diagnostic source span");
     assert_eq!(span.source_id, 1);
     assert_eq!(&module[span.start..span.end], "tOTAL");
@@ -326,7 +332,7 @@ fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
       (#fn imported () #u64\n\
         (#return (#u64::add-wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe bASE))))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () #u64 (#return (#call imported (:))))";
+    let root = "(#alias imported = ./module.lim::imported)\n(#fn main () #u64 (#return (#call imported (:))))";
     let path = scratch.path().join("main.lim");
     let parse_dump = || {
         let program = lim::parse_program_from_path(root, &path).expect("parse imported source");
@@ -348,7 +354,7 @@ fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
     );
     assert!(
         first.lines().any(|line| {
-            line.contains("Declaration(global(GlobalId(0)))")
+            line.contains("Declaration(Global(GlobalId(0)))")
                 && line.contains(&format!("start: {global_start},"))
         }),
         "imported global identity should retain its source span at {global_start}: {first}"

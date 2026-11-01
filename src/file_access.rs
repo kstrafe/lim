@@ -4,6 +4,7 @@ use crate::{Expr, SourceError, SourceFile, Span, SpannedExpr as Node};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -13,6 +14,44 @@ pub(crate) struct FileScope {
     pub declaration_access: HashSet<String>,
     pub declared: HashSet<String>,
     pub required: HashMap<String, Span>,
+}
+
+pub(crate) fn project_root(entry: &Path) -> PathBuf {
+    let entry = crate::editor::path_key(entry);
+    let base = if entry.is_dir() {
+        entry.as_path()
+    } else {
+        entry.parent().unwrap_or(Path::new("."))
+    };
+    base.ancestors()
+        .find(|directory| {
+            directory.join("lim.project").is_file()
+                || crate::editor::source(&directory.join("lim.project")).is_some()
+        })
+        .unwrap_or(base)
+        .to_owned()
+}
+
+pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
+    if let Some(relative) = name.strip_prefix("//") {
+        root.join(relative)
+    } else {
+        base.join(name)
+    }
+}
+
+pub(crate) fn validate_path(name: &str) -> Result<(), String> {
+    if let Some(relative) = name.strip_prefix("//") {
+        if Path::new(relative).components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        }) {
+            return Err("project-root references cannot contain '..' or another root".into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn split(name: &str) -> Option<(&str, &str)> {
@@ -71,6 +110,11 @@ fn alias(node: &Node) -> Result<Option<(&str, &Node)>, SourceError> {
         )
         .at(node.span));
     }
+    if let (Expr::Symbol(name), Expr::Function(_)) =
+        (&node.children[1].expr, &node.children[3].expr)
+    {
+        return Ok(Some((name, &node.children[3])));
+    }
     let name = match &node.children[1].expr {
         Expr::Symbol(name) if !name.starts_with(['#', '@']) && name != "_" && name != "=" => {
             name.as_str()
@@ -82,7 +126,7 @@ fn alias(node: &Node) -> Result<Option<(&str, &Node)>, SourceError> {
             )
         }
     };
-    if target(&node.children[3])?.is_none() {
+    if !matches!(node.children[3].expr, Expr::Function(_)) && target(&node.children[3])?.is_none() {
         return Err(SourceError::from(
             "#alias target must be path.lim::declaration, optionally wrapped in #unstable",
         )
@@ -93,7 +137,7 @@ fn alias(node: &Node) -> Result<Option<(&str, &Node)>, SourceError> {
 
 pub(crate) fn check_path(from: &Path, to: &Path) -> Result<(), String> {
     if crate::library::owner(from) != crate::library::owner(to) {
-        crate::library::check_import(from, to, true)?;
+        crate::library::check_entry(from, to)?;
     }
     Ok(())
 }
@@ -176,6 +220,9 @@ pub(crate) fn with_dependencies(forms: Vec<Node>) -> Result<Vec<Node>, SourceErr
 }
 
 fn identity(file: &SourceFile, name: &str, root: bool) -> String {
+    if crate::standard_library::source(&file.path).is_some() {
+        return name.into();
+    }
     if root && name == "main" || name.starts_with('#') || crate::gensym::reserved(name) {
         return name.into();
     }
@@ -214,10 +261,18 @@ struct Resolver<'a> {
     exports: Vec<Vec<String>>,
     declared: Vec<HashSet<String>>,
     memo: RefCell<HashMap<(usize, String), Option<String>>>,
+    root: PathBuf,
 }
 
 impl Resolver<'_> {
     fn file(&self, from: usize, path: &str) -> Result<usize, String> {
+        if let Some(id) = self
+            .files
+            .iter()
+            .position(|file| identity(file, "", false).strip_suffix("::") == Some(path))
+        {
+            return Ok(id);
+        }
         let mut decoded = Vec::new();
         let bytes = path.as_bytes();
         let mut at = 0;
@@ -237,23 +292,17 @@ impl Resolver<'_> {
         }
         let decoded = String::from_utf8(decoded).unwrap_or_else(|_| path.into());
         for path in [path, decoded.as_str()] {
-            let candidate = crate::editor::path_key(
-                &self.files[from]
-                    .path
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .join(path),
-            );
-            let same_library =
-                crate::library::owner(&candidate) == crate::library::owner(&self.files[from].path);
-            let prefix = if same_library {
-                self.files[from].import_prefix.as_str()
-            } else {
-                ""
-            };
-            if let Some(id) = self.files.iter().position(|file| {
-                crate::editor::path_key(&file.path) == candidate && file.import_prefix == prefix
-            }) {
+            validate_path(path)?;
+            let candidate = crate::editor::path_key(&reference_path(
+                self.files[from].path.parent().unwrap_or(Path::new(".")),
+                path,
+                &self.root,
+            ));
+            if let Some(id) = self
+                .files
+                .iter()
+                .position(|file| crate::editor::path_key(&file.path) == candidate)
+            {
                 return Ok(id);
             }
         }
@@ -402,7 +451,7 @@ impl Resolver<'_> {
             return rebuild(node);
         }
         if let Some((name, value)) = alias(node)? {
-            if split(name).is_some() {
+            if split(name).is_some() || matches!(value.expr, Expr::Function(_)) {
                 return Ok(());
             }
             let value = self.reference(file, value)?.unwrap();
@@ -414,7 +463,7 @@ impl Resolver<'_> {
             if head(&target) == "#unstable" {
                 target.span = target.children[1].span;
             }
-            target.expr = Expr::Symbol(value);
+            target.expr = Expr::Function(value);
             target.children.clear();
             node.children[1] = key;
             node.children[3] = target;
@@ -428,6 +477,11 @@ impl Resolver<'_> {
         ) {
             if matches!(kind.as_str(), "#gn" | "#gn-fn") {
                 inner.insert("#file-template".into());
+                // Explicit definition-site references remain resolvable even
+                // inside syntax that constructs signatures or nested calls.
+                for body in node.children.iter_mut().skip(3) {
+                    self.marked(body, file, &inner)?;
+                }
             }
             let args = if kind == "#extern-fn" { 3 } else { 2 };
             if let Some(arguments) = node.children.get_mut(args) {
@@ -538,6 +592,11 @@ impl Resolver<'_> {
         file: usize,
         locals: &HashSet<String>,
     ) -> Result<(), SourceError> {
+        // Unquoted expressions execute in the generator's definition context,
+        // even when the surrounding template constructs another invocation.
+        if matches!(node.expr, Expr::Unquote(_) | Expr::UnquoteSplicing(_)) {
+            return self.rewrite(node, file, locals);
+        }
         if matches!(&node.expr, Expr::Symbol(name) if name.starts_with('@')) {
             return self.rewrite(node, file, locals);
         }
@@ -608,6 +667,10 @@ pub(crate) fn resolve(
         exports: vec![vec![]; files.len()],
         declared: vec![HashSet::new(); files.len()],
         memo: RefCell::new(HashMap::new()),
+        root: config
+            .project_root
+            .clone()
+            .unwrap_or_else(|| project_root(&files[0].path)),
     };
     for (id, file) in files.iter().enumerate() {
         if let Some(scope) = &file.file_scope {
@@ -624,17 +687,8 @@ pub(crate) fn resolve(
                     spec.path,
                     config,
                 );
-                let prefix = match spec.prefix {
-                    Some(prefix) if !file.import_prefix.is_empty() => {
-                        crate::names::imported(&file.import_prefix, prefix)
-                    }
-                    Some(prefix) => prefix.into(),
-                    None if crate::standard_library::source(&candidate).is_some() => String::new(),
-                    None => file.import_prefix.clone(),
-                };
                 if let Some(to) = files.iter().position(|other| {
                     crate::editor::path_key(&other.path) == crate::editor::path_key(&candidate)
-                        && other.import_prefix == prefix
                 }) {
                     resolver.imports[id].push(to);
                 }
@@ -646,7 +700,11 @@ pub(crate) fn resolve(
         if id >= files.len() {
             continue;
         }
-        let mut declarations = crate::generator_provenance::declared_names(&form.expr);
+        let mut declarations = if head(form) == "#enum-contribute" {
+            Vec::new()
+        } else {
+            crate::generator_provenance::declared_names(&form.expr)
+        };
         if matches!(head(form), "#gn" | "#gn-fn" | "#capability") {
             declarations.extend(form.children.get(1).and_then(symbol));
         }
@@ -680,6 +738,19 @@ pub(crate) fn resolve(
                 if crate::generator::builtins::named_builtin_keys(kind).is_some() {
                     if let Some(arguments) = form.children.get(2) {
                         for argument in &arguments.children {
+                            if argument.children.first().and_then(symbol) == Some("access") {
+                                if let Some(accessors) = argument.children.get(1) {
+                                    for accessor in &accessors.children {
+                                        if let Some(name) =
+                                            accessor.children.get(1).and_then(symbol)
+                                        {
+                                            resolver.names[id].entry(name.into()).or_insert_with(
+                                                || identity(&files[id], name, id == 0),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                             if argument.children.first().and_then(symbol) == Some("cancel") {
                                 if let Some(name) = argument
                                     .children
@@ -729,7 +800,7 @@ pub(crate) fn resolve(
             }
         }
         if let Some((name, value)) = alias(form)? {
-            if split(name).is_some() {
+            if split(name).is_some() || matches!(value.expr, Expr::Function(_)) {
                 continue;
             }
             let (path, target, unstable) = target(value)?.unwrap();
@@ -770,16 +841,19 @@ pub(crate) fn resolve(
                 } else {
                     "value"
                 };
-                crate::names::require(key, kind)
-                    .map_err(|message| SourceError::from(message).at(*span))?;
+                crate::names::require(
+                    key,
+                    if crate::names::variant_name(target) && crate::names::variant_name(key) {
+                        "variant"
+                    } else {
+                        kind
+                    },
+                )
+                .map_err(|message| SourceError::from(message).at(*span))?;
             }
         }
         for name in &resolver.exports[id] {
-            let name = if files[id].import_prefix.is_empty() {
-                name.clone()
-            } else {
-                crate::names::imported(&files[id].import_prefix, name)
-            };
+            let name = name.clone();
             scope.exports.insert(
                 resolver
                     .lookup(id, &name, &mut Vec::new())
@@ -859,7 +933,7 @@ pub(crate) fn resolve(
             references(form, id, &resolver, &mut scopes[id])?;
         }
         if let Some((name, value)) = alias(form)? {
-            if split(name).is_none() {
+            if split(name).is_none() && !matches!(value.expr, Expr::Function(_)) {
                 if form.span.source_id as usize != id {
                     let (path, _, unstable) = target(value)?.unwrap();
                     let to = resolver.file(id, &path).map_err(SourceError::from)?;
@@ -868,15 +942,13 @@ pub(crate) fn resolve(
                     let author_access =
                         definitions.get(&form.span.source_id).is_some_and(|author| {
                             let author = &files[original_id(author.source_id, origins) as usize];
-                            (crate::library::owner(&author.path) == owner
-                                && author.import_prefix == files[to].import_prefix)
+                            (crate::library::owner(&author.path) == owner)
                                 || author
                                     .file_scope
                                     .as_ref()
                                     .is_some_and(|scope| scope.declaration_access.contains(&target))
                         });
-                    let caller_access = crate::library::owner(&files[id].path) == owner
-                        && files[id].import_prefix == files[to].import_prefix;
+                    let caller_access = crate::library::owner(&files[id].path) == owner;
                     let public = owner.as_ref().is_none_or(|owner| {
                         files.iter().zip(&scopes).any(|(file, scope)| {
                             crate::editor::path_key(&file.path) == *owner
@@ -897,7 +969,7 @@ pub(crate) fn resolve(
     for form in forms.iter() {
         let id = original_id(form.span.source_id, origins) as usize;
         if let Some((name, value)) = alias(form)? {
-            if split(name).is_none() {
+            if split(name).is_none() && !matches!(value.expr, Expr::Function(_)) {
                 resolver
                     .reference(id, value)
                     .map_err(|error| error.attach(files))?;
@@ -934,6 +1006,17 @@ pub(crate) fn validate(program: &crate::Program) -> Result<(), SourceError> {
         declared.extend(crate::item_declared_names(item));
         if let crate::Item::Enum { variants, .. } = item {
             declared.extend(variants.iter().map(|variant| variant.name.clone()));
+        }
+        if let crate::Item::ThreadTask {
+            generated_functions,
+            ..
+        } = item
+        {
+            declared.extend(
+                generated_functions
+                    .iter()
+                    .map(|function| function.name.clone()),
+            );
         }
     }
     for file in &program.source_files {

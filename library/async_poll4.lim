@@ -1,7 +1,15 @@
+(#alias WakeReady4 = ./wake_ready4.lim::WakeReady4)
+(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
+(#alias linux-mmap = ./linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ./linux_x86_64.lim::linux-munmap)
+(#alias linux-poll = ./linux_x86_64.lim::linux-poll)
+(#alias wake-ready4-notify = ./wake_ready4.lim::wake-ready4-notify)
+(#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
+
 ;; Choice.One blocking Linux poll over at most four borrowed readiness sources.
 ;; The source references keep each wake queue alive until the wait returns.
-(#import "linux_x86_64.lim")
-(#import "wake_ready4.lim")
+
+
 
 (#struct AsyncPollSource4 ()
   ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)))

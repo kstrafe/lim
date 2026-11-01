@@ -1,5 +1,8 @@
+(#alias Counter = ./storage.lim::Counter)
+(#alias counter-destroy = ./storage.lim::counter-destroy)
+
 ; A separately compiled white-box test belongs to the same library.
-(#import "storage.lim")
+
 
 (#fn main () #u64
   (#let counter Counter (#struct-literal Counter (: value 42u64)))

@@ -1,4 +1,11 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-arch-prctl = ../library/linux_x86_64.lim::linux-arch-prctl)
+(#alias linux-capget = ../library/linux_x86_64.lim::linux-capget)
+(#alias linux-capset = ../library/linux_x86_64.lim::linux-capset)
+(#alias linux-prctl = ../library/linux_x86_64.lim::linux-prctl)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn pointer-word ((pointer (#ptr-mut #u32))) #usize
   (#return (#unsafe (#asm #usize ((rdi pointer)) "mov rax, rdi"))))

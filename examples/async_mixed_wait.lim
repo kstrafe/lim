@@ -1,7 +1,25 @@
+(#alias AsyncByteRead1 = ../library/async_stdin_byte.lim::AsyncByteRead1)
+(#alias AsyncByteReadCreate1 = ../library/async_stdin_byte.lim::AsyncByteReadCreate1)
+(#alias AsyncByteReadPoll1 = ../library/async_stdin_byte.lim::AsyncByteReadPoll1)
+(#alias AsyncPoll4Result = ../library/async_poll4.lim::AsyncPoll4Result)
+(#alias AsyncPollSource4 = ../library/async_poll4.lim::AsyncPollSource4)
+(#alias TimerCreate1 = ../library/timer_reactor1.lim::TimerCreate1)
+(#alias TimerPoll1 = ../library/timer_reactor1.lim::TimerPoll1)
+(#alias async-byte-read1-create = ../library/async_stdin_byte.lim::async-byte-read1-create)
+(#alias async-byte-read1-destroy = ../library/async_stdin_byte.lim::async-byte-read1-destroy)
+(#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking)
+(#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll)
+(#alias async-byte-read1-source = ../library/async_stdin_byte.lim::async-byte-read1-source)
+(#alias async-poll4-wait = ../library/async_poll4.lim::async-poll4-wait)
+(#alias timer-reactor1-cancel = ../library/timer_reactor1.lim::timer-reactor1-cancel)
+(#alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create)
+(#alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll)
+(#alias timer-reactor1-source = ../library/timer_reactor1.lim::timer-reactor1-source)
+
 ; A timer and a borrowed stdin read share one bounded blocking poll set.
-(#import "../library/timer_reactor1.lim")
-(#import "../library/async_stdin_byte.lim")
-(#import "../library/async_poll4.lim")
+
+
+
 
 (#fn main () #i32
   (#let timer-created TimerCreate1

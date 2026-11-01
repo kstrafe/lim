@@ -1,4 +1,6 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-futex = ../library/linux_x86_64.lim::linux-futex)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u32)

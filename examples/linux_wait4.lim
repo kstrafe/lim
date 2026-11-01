@@ -1,4 +1,8 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-EXIT = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-EXIT)
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
+(#alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4)
 
 (#fn main () #u64
   (#let status-memory (#ptr-mut #i32)

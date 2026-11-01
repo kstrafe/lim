@@ -591,12 +591,12 @@ fn linux_aio_builds_and_runs_without_external_tools() {
     let input = scratch.path().join("linux_aio.lim");
     let binary = scratch.path().join("linux_aio");
     let library = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("library/linux_x86_64.lim")
+        .join("library")
         .to_string_lossy()
         .into_owned();
     fs::write(
         &input,
-        include_str!("../examples/linux_aio.lim").replace("../library/linux_x86_64.lim", &library),
+        include_str!("../examples/linux_aio.lim").replace("../library/", &format!("{library}/")),
     )
     .unwrap();
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -677,11 +677,11 @@ fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
     let scratch = support::Scratch::new("syscall-static-link");
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
     let source = format!(
-        "(#import {:?}) (#fn main () #u64
+        "(#alias linux-write-byte = {}::linux-write-byte) (#fn main () #u64
           (#let letter #u8 83u8)
           (#assert (#i64::eq (#call linux-write-byte (: source (#borrow letter))) 1i64))
           (#return 42u64))",
-        library.to_str().unwrap()
+        library.display()
     );
     let binary = compile(&source, scratch.path(), &[]);
     assert_static(&binary);
@@ -791,7 +791,7 @@ fn missing_foreign_symbol_preserves_existing_binary() {
     let diagnostic = String::from_utf8_lossy(&compilation.stderr);
     assert!(diagnostic.contains("missing.lim:2:"), "{diagnostic}");
     assert!(
-        diagnostic.contains("#call lim_symbol_that_does_not_exist"),
+        diagnostic.contains("#unsafe-call lim_symbol_that_does_not_exist"),
         "{diagnostic}"
     );
     assert!(diagnostic.contains('^'), "{diagnostic}");

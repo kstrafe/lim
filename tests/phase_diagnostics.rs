@@ -9,7 +9,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     let cache = directory.join("cache");
     let config = lim::CompileConfig::default();
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
-    let root = "(#import \"module: with spaces.lim\")";
+    let root = "(#alias Byte = \"./module: with spaces.lim::Byte\")";
     fs::write(&path, root).unwrap();
     let source =
         "(#cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #unknown yes)) (#type Byte #u8))";

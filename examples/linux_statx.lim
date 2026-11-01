@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-faccessat = ../library/linux_x86_64.lim::linux-faccessat)
+(#alias linux-faccessat2 = ../library/linux_x86_64.lim::linux-faccessat2)
+(#alias linux-fstatfs = ../library/linux_x86_64.lim::linux-fstatfs)
+(#alias linux-lstat = ../library/linux_x86_64.lim::linux-lstat)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-newfstatat = ../library/linux_x86_64.lim::linux-newfstatat)
+(#alias linux-stat = ../library/linux_x86_64.lim::linux-stat)
+(#alias linux-statfs = ../library/linux_x86_64.lim::linux-statfs)
+(#alias linux-statx = ../library/linux_x86_64.lim::linux-statx)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)

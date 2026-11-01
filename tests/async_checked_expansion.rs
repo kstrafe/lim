@@ -129,6 +129,16 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
+        // Context metadata is compiler authority, not ordinary handwritten
+        // source. Independently check only the emitted runtime declarations.
+        let mut ordinary = artifact.clone();
+        for node in lim::parse(&artifact).unwrap().into_iter().rev() {
+            if matches!(node.children.first().map(|node| &node.expr), Some(lim::Expr::Symbol(head)) if head == "#generated-context")
+            {
+                ordinary.replace_range(node.span.start..node.span.end, "");
+            }
+        }
+        let artifact = ordinary;
         let module = format!("{}\n{artifact}", &SOURCE[..invocation.span.start]);
         assert!(lim::parse_program(&module).unwrap().items.iter().any(|item|
             matches!(item, lim::Item::OpaqueAnnotation { type_name } if type_name == "Work::Task")
@@ -136,7 +146,7 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
         assert!(artifact.contains("#word-read"), "{artifact}");
         fs::write(scratch.path().join("frame.lim"), module).unwrap();
         let caller = format!(
-            "(#import \"frame.lim\")\n{}",
+            "(#alias work = ./frame.lim::work)\n(#alias Work::Poll = ./frame.lim::Work::Poll)\n(#alias Work::poll = ./frame.lim::Work::poll)\n(#alias Work::Task = ./frame.lim::Work::Task)\n{}",
             &SOURCE[invocation.span.end..]
         );
         compile(&caller).unwrap();

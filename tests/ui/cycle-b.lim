@@ -1,1 +1,1 @@
-(#import "cycle-a.lim")
+(#fn cycle () #u64 (#return (#call ./cycle-a.lim::main ())))

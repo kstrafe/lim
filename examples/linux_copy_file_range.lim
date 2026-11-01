@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-copy-file-range = ../library/linux_x86_64.lim::linux-copy-file-range)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)

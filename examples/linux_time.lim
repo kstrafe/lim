@@ -1,4 +1,11 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-CLOCK-GETTIME = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-CLOCK-GETTIME)
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-clock-getres = ../library/linux_x86_64.lim::linux-clock-getres)
+(#alias linux-clock-nanosleep = ../library/linux_x86_64.lim::linux-clock-nanosleep)
+(#alias linux-gettimeofday = ../library/linux_x86_64.lim::linux-gettimeofday)
+(#alias linux-time = ../library/linux_x86_64.lim::linux-time)
+(#alias linux-times = ../library/linux_x86_64.lim::linux-times)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #i64)

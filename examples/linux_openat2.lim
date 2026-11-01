@@ -1,4 +1,9 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-openat = ../library/linux_x86_64.lim::linux-openat)
+(#alias linux-openat2 = ../library/linux_x86_64.lim::linux-openat2)
+(#alias linux-unlinkat = ../library/linux_x86_64.lim::linux-unlinkat)
 
 (#fn main () #u64
   (#let paths (#ptr-mut #u8)

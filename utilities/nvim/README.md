@@ -70,17 +70,20 @@ canonical style determines the result.
 
 Document symbols cover direct top-level function, struct, enum, and global
 declarations. Goto definition resolves explicit `#call` callee symbols to a
-unique function declaration across internal and external imports, and declaration
+unique function declaration across explicit file dependencies, and declaration
 names to their own span. Explicit type annotations, aggregate field types and
-struct-literal types also navigate to their declarations. External prefixes are
-resolved even when navigating an unprefixed call inside the imported source.
+struct-literal types also navigate to their declarations. Aliases preserve the
+original file's declaration identity and parameter labels.
 Enum variant names in all five `#case` forms also navigate to their exact
 declaration token, including fieldless variants, `#or` patterns, generated
 enums, and distributed-enum contributions. Payload bindings and `_` do not
 navigate as enum variants. Compilation contexts remain independent, so one
 variant use can have multiple definitions supplied by different entry points.
-Import path strings and import keywords open the resolved module; local files
-take precedence over configured module directories, including unsaved buffers.
+Alias names and their file targets open the selected declaration, including
+unsaved buffers. `./` paths resolve relative to their source file; `//` paths
+resolve from the selected entry's nearest `lim.project` directory, or its own
+directory when no manifest exists. File references use exact paths without
+module-directory search. There are no import keywords.
 Unrelated type errors do not block ordinary declaration navigation. Generated
 calls and types resolve through the checked expansion, including unsaved imports.
 Navigation publishes the selected expanded source as a content-addressed
@@ -123,7 +126,7 @@ nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end --
 
 The end-to-end suite launches the actual `lim lsp` executable and exercises
 complete editing sessions with bounded response waits. It covers transitive
-and prefixed imports, conditional compilation, exact UTF-16 ranges and Unicode
+file aliases and project-root paths, conditional compilation, exact UTF-16 ranges and Unicode
 paths, FFI/type navigation, unsaved edits and versioning, context reloads,
 generated snapshot reuse and protection, diagnostics, formatting, document
 symbols, malformed protocol recovery, ambiguous definitions, and shutdown.

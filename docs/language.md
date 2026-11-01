@@ -85,8 +85,8 @@ shared reference to the concrete cell and never return a reference to its
 contents:
 
 ```lisp library
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias cell-generator = ../library/cell.lim::#cell)
+(#generate cell-generator #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 (#struct Arena () ((cursor CellU64)))
 (#fn advance ((cursor (#ref CellU64))) #u64
   (#let next #u64 (#u64::add-wrap
@@ -650,7 +650,7 @@ this unsafe forwarding function passes its caller's buffer contract through
 to the low-level read wrapper:
 
 ```lisp library
-(#import "../library/linux_x86_64.lim")
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
 (#unsafe-fn read-buffer ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
   (#return (#unsafe
     (#unsafe-call linux-read (: fd fd : destination destination : count count)))))
@@ -925,8 +925,8 @@ Ordinary expressions exceeding a target width of 100 columns wrap between
 arguments. Form headers may exceed that width. Comments and parser shorthand
 retain their source spelling.
 
-`lim fmt INPUT` formats the file in place and follows internal `#import`s
-transitively. `#import-external` files are skipped. The read-only `--format`
+`lim fmt INPUT` formats the file and its transitive explicit file dependencies
+within the same library boundary. Dependencies across a boundary are skipped. The read-only `--format`
 form remains available to print one formatted file or write it to a separate
 output path.
 
@@ -1087,8 +1087,8 @@ This shorthand supplies types explicitly; it adds neither type inference nor
 implicit pinning, allocation or cancellation.
 
 On the graph route, pinned functions can request post-terminal access to
-reference-free Copy parameters with `: access (: amount amount-access)`.
-This emits `amount-access-read` and `amount-access-replace` ordinary functions
+reference-free Copy parameters with `: access (: amount AmountAccess)`.
+This emits `AmountAccess::read` and `AmountAccess::replace` ordinary functions
 with pinned frame receivers; the latter also takes a named `value` argument.
 They assert completion/cancellation and cleared loans before accessing the
 same stationary storage. They do not restart the future, infer lifetimes, or
@@ -1107,8 +1107,8 @@ Bundles can also supply function parameters or named call arguments. Definitions
 are top-level, may refer forward to other bundles, and may contain nested
 splices. Names must be unique across declarations; cycles, unknown names,
 malformed definitions, and splices outside a surrounding list are errors.
-Imports and cfg selection happen first; external imports prefix bundle names
-and referenced identifiers normally. Quoted syntax and generator templates stay
+File dependencies and cfg selection happen first; aliases resolve bundle names
+and referenced identifiers to their defining files. Quoted syntax and generator templates stay
 literal until emitted. Generated bundle declarations are supported, and ordinary
 type, borrow, and linearity checking still applies to their expanded code.
 
@@ -1304,32 +1304,28 @@ containing aggregate linear because they do not own their referents. Explicit
 payloads are plain data. It does not change layout or Send/Sync. Generated
 task state types use this property.
 
-Imports load Lim source relative to the importing file. Internal imports keep
-identifiers unchanged. External imports join a required, non-empty prefix and
-each user identifier with `#generate` (including types, functions, fields, variants, and
-local bindings); builtin forms and primitive types are unchanged:
+File references identify declarations directly, without copying source or
+prepending prefixes. Aliases give those declarations explicit local spellings:
 
 ```lisp syntax
-(#import "shared.lim")
-(#import-external "compat.lim" compat)
+(#alias read = ./shared.lim::read)
+(#alias Widget = //compat/lib.lim::Widget)
 ```
 
-For example, prefix `compat` produces `compat@Widget` and `compat@read`.
-Prefixes cannot contain `@`; nested external imports produce names such as
-`outer@inner@Widget`. Imports
-are expanded before generator expansion and ordinary type checking. Repeated
-imports of the same canonical path with the same mode and prefix are
-deduplicated; cycles are rejected. Imported declarations participate in the
-same compilation and duplicate-name checks as declarations in the root file.
-See `examples/imports.lim`.
-A directory containing `lib.lim` establishes a library boundary. Each source
-belongs to its nearest enclosing boundary, including a separately compiled
-white-box test. `#import` cannot cross that boundary or target `lib.lim`.
-Cross-boundary imports must use `#import-external` and target the library's
-`lib.lim`, never one of its implementation files. Nested library directories
-establish independent boundaries in both directions. Canonical paths prevent
-symlink and `..` bypasses. Sources outside library directories may still be
-externally imported for identifier prefixing, but have no library privacy.
+`./` paths resolve relative to the source containing the reference. `//` paths
+resolve from the nearest `lim.project` ancestor of the principal source; when
+there is no manifest, its directory is the project root. All dependencies use
+that same root. `/` retains filesystem-absolute meaning. Rooted paths cannot
+contain `..`; direct references do not search module-path lists. Files are loaded
+once by canonical identity, and alias cycles and runtime recursion are rejected.
+
+A directory containing `lib.lim` establishes a library permission boundary.
+Each source belongs to its nearest boundary, including a separately compiled
+white-box test. References within that library may name implementation files;
+references from outside must target `lib.lim` and select an exported declaration.
+Nested library directories establish independent boundaries. Canonical paths
+prevent symlink and `..` privacy bypasses. `#unstable` explicitly bypasses the
+entry-point/export restrictions for a selected declaration, not its struct fields.
 
 Only `lib.lim` may contain `(#export Type function ...)`, listing the declarations
 available outside the library. Other declarations remain library-internal.
@@ -1350,13 +1346,13 @@ Generated declarations belong to their invocation's library, not the physical
 definition library and its invocation library, including private functions,
 types, and representations. A nested generator gets its own definition library
 and the original invocation library; it does not accumulate its ancestors'
-definition-library privileges. Different external prefixes remain distinct
-library instances even when their physical source paths are identical.
+definition-library privileges. A canonical file has one declaration identity, regardless of which alias
+reaches it. Separate source paths can carry different library versions.
 
-Write `@name` to qualify a name before generator execution. Inside a generator
-definition it uses that definition's import prefix; in supplied arguments it
-uses the invocation source's prefix. Qualification produces the actual flat
-identifier (for example, `@Helper` in the `lib` instance becomes `lib@Helper`),
+Write `@name` to resolve a name before generator execution. Inside a generator
+definition it uses that definition's file scope; in supplied arguments it
+uses the invocation source's file scope. Qualification produces the actual flat
+file-qualified identifier (for example, `/project/library/helper.lim::Helper`),
 not a hidden binding or a runtime expression. Forwarding and substitution never
 qualify it again. Literal strings, generator parameters, and unmarked local
 bindings are not interpreted by this operation. Handwritten forward declarations
@@ -1381,9 +1377,9 @@ Inspectable generated files record permissions as reader syntax, for example:
 (#generated-context
   ((producer "lib@make")
    (definition-module "/project/library/lib.lim")
-   (definition-prefix "lib")
+   (definition-file "lib")
    (invocation-module "/project/app/lib.lim")
-   (invocation-prefix "")))
+   (invocation-file "")))
 ```
 
 This compiler-owned header is checked against the current generator and
@@ -1399,21 +1395,18 @@ For example, an exported `counter-reader` generator can emit a call to a private
 `counter-value` helper. The consumer still cannot invoke that helper directly:
 
 ```lisp syntax
-(#import-external "encapsulation/lib.lim" counters)
-(#generate counters@counter-reader read-generated-counter)
+(#alias counter-reader = ./encapsulation/lib.lim::counter-reader)
+(#generate counter-reader read-generated-counter)
 ```
 
 See `examples/generator_private_helpers.lim` for a complete executable example.
 
-An expansion instance is identified by its
-owning library and effective external-import prefix, in addition to the generator
-and literal arguments. Identical invocations deduplicate across internal files
-of the same instance, but never merge declaration ownership across boundaries or
-different prefixes. Conflicting concrete names from separate instances are
-duplicate-declaration errors, not implicit sharing. Cache keys include the
-instance identity so compiler-generated hygienic names remain distinct on cache
-hits. The same library imported under two prefixes retains both copies of its
-internal imports and transitive dependencies; private access is instance-local.
+An expansion instance includes the invoking file's identity, generator, and
+literal arguments. Identical calls in one file can reuse a generated declaration;
+calls in different files retain separate declaration identities. Cache keys also
+include resolved references, dependency contents, and validated definition/caller
+contexts. Multiple aliases to one source share that source; separate dependency
+versions occupy different source paths.
 
 An exported generator may invoke its library-private generator helpers,
 including nested generators. Syntax equality and argument deduplication compare
@@ -1422,20 +1415,19 @@ producing definition contexts. Cache keys include definition/invocation context
 headers as well as generator/dependency identities, and digests cover the complete
 generated file. Cached authority is reconstructed from the current expansion,
 not accepted from a file's self-asserted claims.
-`#std` remains one shared compiler-provided instance, regardless of which library
-first imports it; its names and argument labels are not library-prefixed.
+`#std` remains one compiler-provided prelude. Its facade explicitly lists its
+declarations; parameter labels retain their original source spelling.
 See `examples/library_boundary.lim` and `examples/encapsulation/test.lim`.
 
 To bound compiler resource use, a project is limited to 128 simultaneously
-nested source files, 4096 non-deduplicated imports, and 64 MiB of cumulative
-source text (including the root file). Import-limit errors identify the import
+nested source files, 4096 unique source dependencies, and 64 MiB of cumulative
+source text (including the root file). Dependency-limit errors identify the reference
 that crosses the limit; an oversized root file is rejected before import
 traversal.
 
-The compiler first resolves an import relative to the importing file, then
-searches module roots added with `CompileConfig::add_module_path` or the
-command-line `--module-path DIRECTORY` option. Search order is deterministic;
-the first existing file wins.
+The compiler resolves each file reference exactly: `./` is relative to its
+source file, `//` is relative to the compilation's project root, and `/` is an
+absolute filesystem path. There is no fallback search through module directories.
 
 Projects may add a `lim.project` manifest beside the root source:
 
@@ -1450,9 +1442,11 @@ link-lib = "m"
 link-object = "native/support.o"
 ```
 
-All paths are relative to the manifest. The CLI adds the source root and
-module paths to import search, defaults binary output into the output
-directory, and applies the manifest target unless `--target` overrides it.
+Manifest paths are relative to the manifest. The nearest manifest above the
+principal source defines the `//` root, including for dependencies outside that
+directory. Without a manifest, the principal source's directory defines it.
+The CLI defaults binary output into the output directory and applies the
+manifest target unless `--target` overrides it.
 Repeated `link-lib` and `link-object` entries add linker inputs. Schema version
 1 validates required name/version, supported target names, existing source and
 module directories, duplicate module roots, and existing object files; unknown
@@ -1581,7 +1575,7 @@ uses Linux memory-mapping syscalls for backing storage, without libc or FFI.
 This is an ordinary library, not a new builtin or an implicit allocation.
 
 ```lisp run=42
-(#import "../library/string.lim")
+(#std)
 (#fn main () #u64
   (#let text (#array #char 3) "Aé🙂")
   (#return
@@ -2529,7 +2523,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64::add-wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
 | `#generate` | `(#generate generator arguments...)` | `(#generate #optional (: type #u64 : name Number))` (top level) | Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators. |
-| `#generated-context` | `(#generated-context ((producer "name") (definition-module "path") (definition-prefix "prefix") (invocation-module "path") (invocation-prefix "prefix")))` | `(#generated-context ((producer "lib@make") (definition-module "/lib/lib.lim") (definition-prefix "lib") (invocation-module "/app/main.lim") (invocation-prefix "")))` (compiler-generated file header) | Records definition and invocation module instances for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
+| `#generated-context` | `(#generated-context ((producer "name") (definition-module "path") (definition-file "path") (invocation-module "path") (invocation-file "path")))` | `(#generated-context ((producer "/lib/lib.lim::make") (definition-module "/lib/lib.lim") (definition-file "/lib/lib.lim") (invocation-module "<global>") (invocation-file "/app/main.lim")))` (compiler-generated file header) | Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
 | `#gn` | `(#gn name (name-or-(name capability...)...) body)` | ``(#gn make-alias (name) `((#type ,name #u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
@@ -2557,8 +2551,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#i8` | `#i8` | `(#fn identity ((value #i8)) #i8 (#return value))` (function signature) | Signed 8-bit integer scalar type. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
-| `#import` | `(#import "relative/path.lim")` | `(#import "types.lim")` (top level) | Imports internal declarations without renaming their symbols. |
-| `#import-external` | `(#import-external "path.lim" prefix)` | `(#import-external "math.lim" math)` (top level) | Imports declarations while prefixing their symbols. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
@@ -3080,8 +3072,8 @@ Calls may use an alias or a direct reference. Named argument labels keep the
 callee's declared spelling. Aliases preserve type and function identity and
 cannot shadow declarations, other aliases, or local bindings. Unused aliases
 are checked too. Cyclic aliases and conflicting imported spellings are errors.
-The existing import forms remain available; explicit aliases provide selective
-file access without introducing another source-level prefix.
+There are no wildcard or prefixing import forms. Every dependency is an explicit
+file reference or alias; `#std` selects the compiler-provided standard prelude.
 
 Files in the same nearest `lib.lim` boundary may refer to implementation files.
 Cross-library references must target `lib.lim` and select an exported name.

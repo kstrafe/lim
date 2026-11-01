@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-alarm = ../library/linux_x86_64.lim::linux-alarm)
+(#alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-sigaltstack = ../library/linux_x86_64.lim::linux-sigaltstack)
+(#alias linux-tkill = ../library/linux_x86_64.lim::linux-tkill)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 69632usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))

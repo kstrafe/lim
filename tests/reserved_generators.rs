@@ -60,15 +60,15 @@ fn users_and_generated_output_cannot_declare_reserved_names() {
 }
 
 #[test]
-fn standard_generators_keep_reserved_names_through_internal_and_external_imports() {
+fn standard_generators_can_be_explicitly_aliased() {
     let library = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("library/cell.lim");
     for import in [
-        format!("(#import \"{}\")", library.display()),
-        format!("(#import-external \"{}\" lib)", library.display()),
+        format!("(#alias cell-generator = \"{}::#cell\")", library.display()),
+        format!("(#alias cell-generator = \"{}::#cell\")", library.display()),
     ] {
         compile(&format!(
             "{import}
-          (#generate #cell #u64 Cell create-cell get-cell set-cell)
+          (#generate cell-generator #u64 Cell create-cell get-cell set-cell)
           (#fn main () #u64 (#return 42u64))"
         ))
         .unwrap();

@@ -672,7 +672,6 @@ pub(crate) fn prepare_program_syntax(
             );
             source_files.push(SourceFile {
                 file_scope: None,
-                import_prefix: String::new(),
                 path: format!("<generated from {path}:{}:{}>", origin.line, origin.column).into(),
                 source: text,
             });
@@ -686,11 +685,49 @@ pub(crate) fn prepare_program_syntax(
         &generated_source_invocations,
         &generator_origins.definitions,
     )?;
-    let expressions = crate::distributed_enum::merge(expressions)
+    let mut expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
-    let (mut expressions, generation_requirements) =
-        crate::generator_provenance::extract(expressions)
-            .map_err(|error| attach_generator_source(error, &source_files))?;
+    let invocation_keys = expressions.iter().map(|form| {
+        if matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate))) {
+            expression_source(&form.expr).map(Some)
+        } else { Ok(None) }
+    }).collect::<Result<Vec<_>, String>>()?;
+    let declaration_keys = expressions
+        .iter()
+        .map(|form| {
+            fn locations<'a>(
+                node: &'a SpannedExpr,
+                wanted: &HashSet<&str>,
+                found: &mut HashMap<&'a str, Span>,
+            ) {
+                if found.len() == wanted.len() {
+                    return;
+                }
+                if let Expr::Symbol(name) = &node.expr {
+                    if wanted.contains(name.as_str()) {
+                        found.entry(name).or_insert(node.span);
+                    }
+                }
+                for child in &node.children {
+                    locations(child, wanted, found);
+                }
+            }
+            let names = crate::generator_provenance::declared_names(&form.expr);
+            let wanted = names.iter().copied().collect::<HashSet<_>>();
+            let mut found = HashMap::new();
+            locations(form, &wanted, &mut found);
+            names
+                .into_iter()
+                .map(|name| {
+                    let mut source = found.get(name).copied().unwrap_or(form.span).source_id;
+                    while let Some(origin) = generated_source_invocations.get(&source) {
+                        source = origin.source_id;
+                    }
+                    (source, name.to_owned())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
     crate::file_access::resolve(
         &mut expressions,
         &mut source_files,
@@ -699,6 +736,40 @@ pub(crate) fn prepare_program_syntax(
         config,
     )
     .map_err(|error| error.attach(&source_files))?;
+    let resolved_declarations =
+        expressions
+            .iter()
+            .zip(declaration_keys)
+            .flat_map(|(form, names)| {
+                names
+                    .into_iter()
+                    .zip(crate::generator_provenance::declared_names(&form.expr))
+                    .map(|((source, old), resolved)| (source, old, resolved.to_owned()))
+            });
+    generator_origins
+        .generation
+        .resolve_declarations(resolved_declarations);
+    // File resolution changes literal invocation identities. Keep provenance,
+    // cache origins and generated-file lookup indexed by that same spelling.
+    for (form, old) in expressions.iter().zip(invocation_keys) {
+        if let Some(old) = old {
+            let resolved = expression_source(&form.expr)?;
+            if resolved != old {
+                generator_origins
+                    .generation
+                    .rewrite_builtin(&old, &resolved);
+                if let Some(origins) = generator_origins.builtins.remove(&old) {
+                    generator_origins
+                        .builtins
+                        .entry(resolved)
+                        .or_default()
+                        .extend(origins);
+                }
+            }
+        }
+    }
+    let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
+        .map_err(|error| attach_generator_source(error, &source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if is_async_invocation(&expression) {
@@ -942,7 +1013,6 @@ pub(crate) fn parse_prepared_program_items(
             set_source_id(&mut generated_expression, source_id);
             source_files.push(SourceFile {
                 file_scope: None,
-                import_prefix: String::new(),
                 path: PathBuf::from(format!(
                     "<generated from {}:{}:{}>",
                     source_files.get(form_span.source_id as usize).map_or_else(
@@ -1055,7 +1125,6 @@ pub(crate) fn parse_prepared_program_items(
                         }
                         source_files.push(SourceFile {
                             file_scope: None,
-                            import_prefix: String::new(),
                             path: PathBuf::from(source_path),
                             source: generated_text,
                         });
@@ -1438,15 +1507,14 @@ fn write_prepared_generated_sources_reusing_graph(
         if !written_builtin_keys.insert(key.clone()) {
             continue;
         }
-        generator::cached_generated_source_with_origins(
-            &generated_cache,
-            &key,
-            &builtin_origins[&invocation],
-            || {
-                materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
-                    .map(|source| contextual_generated_source(prepared, expression, &source))
-            },
-        )?;
+        let origins = builtin_origins
+            .get(&invocation)
+            .cloned()
+            .unwrap_or_else(|| vec![location(expression.span)]);
+        generator::cached_generated_source_with_origins(&generated_cache, &key, &origins, || {
+            materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
+                .map(|source| contextual_generated_source(prepared, expression, &source))
+        })?;
         record_generated_artifact(prepared, expression, &generated_cache, &key)?;
     }
     Ok(())
@@ -1706,7 +1774,7 @@ mod async_migration_tests {
     }
 
     #[test]
-    fn graph_cache_deduplicates_locations_and_names_retained_source_expressions() {
+    fn graph_cache_separates_files_and_reuses_locations_within_each_file() {
         let scratch = Scratch::new();
         let text = format!("{CONTEXT}
           (#struct Source (#linear) (: amount #u64))
@@ -1719,7 +1787,11 @@ mod async_migration_tests {
                  : amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))))))");
         let count = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let mut bodies = Vec::new();
-        for (name, padding) in [("first.lim", ""), ("second.lim", "\n\n\n")] {
+        for (name, padding) in [
+            ("first.lim", ""),
+            ("second.lim", "\n\n\n"),
+            ("first.lim", "\n"),
+        ] {
             let path = scratch.0.join(name);
             let prepared = prepare_program_syntax(
                 &format!("{padding}{text}"),
@@ -1735,19 +1807,25 @@ mod async_migration_tests {
                 output.contains("Work::Frame::Cleanup::Source-expression-"),
                 "{output}"
             );
-            bodies.push(output.split_once("\n\n").unwrap().1.to_owned());
+            bodies.push(output[output.find("(#struct Work::Frame ").unwrap()..].to_owned());
         }
         assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(bodies[0], bodies[2]);
         assert_eq!(
             super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
-            count + 1
+            count + 2
         );
         let artifacts = fs::read_dir(generator::generated_source_directory(&scratch.0))
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(artifacts.len(), 1);
-        assert!(artifacts[0].contains("first.lim:") && artifacts[0].contains("second.lim:"));
+        assert_eq!(artifacts.len(), 2);
+        assert!(artifacts
+            .iter()
+            .any(|text| text.contains("first.lim:") && !text.contains("second.lim:")));
+        assert!(artifacts
+            .iter()
+            .any(|text| text.contains("second.lim:") && !text.contains("first.lim:")));
     }
 
     #[test]

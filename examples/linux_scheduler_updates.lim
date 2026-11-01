@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-getpriority = ../library/linux_x86_64.lim::linux-getpriority)
+(#alias linux-ioprio-get = ../library/linux_x86_64.lim::linux-ioprio-get)
+(#alias linux-ioprio-set = ../library/linux_x86_64.lim::linux-ioprio-set)
+(#alias linux-sched-getattr = ../library/linux_x86_64.lim::linux-sched-getattr)
+(#alias linux-sched-getparam = ../library/linux_x86_64.lim::linux-sched-getparam)
+(#alias linux-sched-getscheduler = ../library/linux_x86_64.lim::linux-sched-getscheduler)
+(#alias linux-sched-setattr = ../library/linux_x86_64.lim::linux-sched-setattr)
+(#alias linux-sched-setparam = ../library/linux_x86_64.lim::linux-sched-setparam)
+(#alias linux-sched-setscheduler = ../library/linux_x86_64.lim::linux-sched-setscheduler)
+(#alias linux-setpriority = ../library/linux_x86_64.lim::linux-setpriority)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u64)

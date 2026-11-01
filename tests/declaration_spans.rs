@@ -38,9 +38,9 @@ fn declaration_failures_select_occurrences_deterministically() {
             error.message
         );
         let root = directory.join("root.lim");
-        let root_source = "(#import \"input.lim\")";
-        fs::write(&root, root_source).unwrap();
-        let error = diagnostic(root_source, &root, &cache);
+        let root_source = format!("(#alias {expected} = ./input.lim::{expected})");
+        fs::write(&root, &root_source).unwrap();
+        let error = diagnostic(&root_source, &root, &cache);
         assert_eq!(error.span.unwrap().start, expected_start);
         assert!(error.source_name.unwrap().ends_with("input.lim"));
         let mut previous = None;
@@ -65,8 +65,8 @@ fn declaration_failures_select_occurrences_deterministically() {
         source.match_indices("Value").nth(3).unwrap().0
     );
 
-    let source = "(#fn worker () #u64 (#return 0u64))\n(#generate #thread-spawn (: task first : worker worker))\n(#generate #thread-spawn (: task second : worker worker))\n(#struct Invalid () ((second first) (first second)))";
-    let expected = source.find("second first").unwrap() + "second ".len();
+    let source = "(#fn worker () #u64 (#return 0u64))\n(#generate #thread-spawn (: task First : worker worker))\n(#generate #thread-spawn (: task Second : worker worker))\n(#struct Invalid () ((second First) (first Second)))";
+    let expected = source.find("second First").unwrap() + "second ".len();
     for _ in 0..4 {
         let error = diagnostic(source, &path, &cache);
         assert_eq!(error.span.unwrap().start, expected, "{}", error.message);

@@ -75,7 +75,7 @@ fn imported_and_generated_unused_payload_errors_keep_exact_sources() {
     let module = scratch.path().join("types.lim");
     let declaration = "(#enum Broken () ((Broken.Bad MissingType)))";
     fs::write(&module, declaration).unwrap();
-    let source = "(#import \"types.lim\") (#fn main () #u64 (#return 0u64))";
+    let source = "(#alias Broken = ./types.lim::Broken) (#fn main () #u64 (#return 0u64))";
     let error = lim::check_source_with_generated_sources(
         source,
         &entry,

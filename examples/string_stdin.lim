@@ -1,3 +1,10 @@
+(#alias StdReadResult = /<lim-std>/stdin.lim::StdReadResult)
+(#alias String = /<lim-std>/string.lim::String)
+(#alias String::clear = /<lim-std>/string.lim::String::clear)
+(#alias String::free = /<lim-std>/string.lim::String::free)
+(#alias String::new = /<lim-std>/string.lim::String::new)
+(#alias std-read-line = /<lim-std>/stdin.lim::std-read-line)
+
 (#std)
 
 (#fn main () #u64

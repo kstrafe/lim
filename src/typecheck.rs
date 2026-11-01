@@ -11518,6 +11518,28 @@ mod generation_planning_tests {
 mod typed_ownership_tests {
     use super::*;
 
+    fn local_function_id(
+        program: &crate::Program,
+        declarations: &crate::typed_ir::Declarations,
+        local_name: &str,
+    ) -> crate::typed_ir::FunctionId {
+        let mut names = program.items.iter().filter_map(|item| match item {
+            crate::Item::Function(function)
+                if crate::file_access::local_name(&function.name) == local_name =>
+            {
+                Some(function.name.as_str())
+            }
+            _ => None,
+        });
+        let name = names
+            .next()
+            .unwrap_or_else(|| panic!("missing function '{local_name}'"));
+        assert!(names.next().is_none(), "ambiguous function '{local_name}'");
+        declarations
+            .function_id(name)
+            .unwrap_or_else(|| panic!("missing declaration for '{name}'"))
+    }
+
     fn graph_reference_program(root: &std::path::Path, name: &str) -> crate::Program {
         let path = root.join("examples").join(format!("{name}.lim"));
         let source = std::fs::read_to_string(&path).unwrap();
@@ -24284,7 +24306,7 @@ mod typed_ownership_tests {
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
         for name in ["malloc", "realloc", "free"] {
-            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            let summary = &summaries[&local_function_id(&program, &declarations, name)];
             assert!(summary.has_normal_return);
             assert!(summary.effects.is_empty());
             assert!(summary.reads.is_empty());
@@ -24307,7 +24329,7 @@ mod typed_ownership_tests {
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
         for name in ["ready-queue-enqueue", "ready-queue-dequeue"] {
-            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            let summary = &summaries[&local_function_id(&program, &declarations, name)];
             assert!(summary.consumed_entry.is_empty(), "{name}");
             assert!(summary.effects.is_empty(), "{name}");
             assert!(summary.consuming_accesses.is_empty(), "{name}");
@@ -24436,7 +24458,7 @@ mod typed_ownership_tests {
                 poll.to_owned(),
                 format!("{}::cleanup", poll.replace("::poll", "::Poll")),
             ] {
-                let id = declarations.function_id(&function).unwrap();
+                let id = local_function_id(&program, &declarations, &function);
                 assert!(
                     matches!(
                         declarations.function(id).signature.parameters[0],

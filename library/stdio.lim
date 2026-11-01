@@ -1,6 +1,10 @@
+(#alias String = ./string.lim::String)
+(#alias String::data-pointer = ./string.lim::String::data-pointer)
+(#alias String::len = ./string.lim::String::len)
+
 ; UTF-8 stdout IO. Errors are returned as negative errno values; success is
 ; 0i64. Printing borrows text, never consumes it or adds a heap allocation.
-(#import "string.lim")
+
 (
   #cfg-if
   (

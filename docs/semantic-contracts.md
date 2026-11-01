@@ -9,10 +9,11 @@ cross-feature behavior explicit. Changes to them require regression tests.
 
 ## Names, generation, and libraries
 
-Identifiers are flat. `.` and `::` are spelling conventions, not dynamic lookup
-or namespaces. External imports deterministically transform identifiers using
-their complete accumulated `@` prefix. Different instances have different
-identifiers and private access contexts, even for the same physical source.
+Declaration identities are flat lookup keys, built from a canonical source file
+and declared name. Aliases are explicit local spellings for the same identity.
+Different dependency versions coexist through different paths, without source
+copies or identifier prefixing. `.` denotes enum variants and `::` names generated
+families; neither introduces dynamic namespace lookup.
 
 Explicit file references identify declarations by canonical source file and
 declared name. File-local aliases preserve that identity without copying library

@@ -89,7 +89,7 @@ fn std_is_deduplicated_across_imports_and_cannot_be_shadowed_by_local_files() {
     )
     .unwrap();
     compile(
-        "(#std) (#std) (#import \"a.lim\") (#import \"b.lim\")
+        "(#std) (#std) (#alias a = ./a.lim::a) (#alias b = ./b.lim::b)
       (#fn main () #u64 (#let text String (#call String::new ()))
         (#call String::free (: string text))
         (#return (#u64::add-wrap (#call a ()) (#call b ()))))",
@@ -106,7 +106,7 @@ fn formatting_skips_embedded_std_but_formats_internal_imports() {
     let child = scratch.path().join("child.lim");
     fs::write(
         &root,
-        "(#std) (#import \"child.lim\") (#fn main () #u64 (#return 42u64))",
+        "(#std) (#alias helper = ./child.lim::helper) (#fn main () #u64 (#return 42u64))",
     )
     .unwrap();
     fs::write(&child, "(#std) (#fn helper () () (#return ()))").unwrap();
@@ -307,13 +307,17 @@ fn write_all_retries_eintr_and_short_writes_and_stops_on_zero_progress() {
         )
         .unwrap();
         let source = format!(
-            r#"(#import {:?}) (#fn main () #u64
+            r#"(#alias String = "{root}/string.lim::String")
+          (#alias StringCreateResult = "{root}/string.lim::StringCreateResult")
+          (#alias String::from-chars = "{root}/string.lim::String::from-chars")
+          (#alias String::free = "{root}/string.lim::String::free")
+          (#alias emit = "{root}/stdio.lim::std-println") (#fn main () #u64
           (#let chars (#array #char 3) "abc")
           (#let text String (#match (#call String::from-chars (: text (#slice-of (#borrow chars))))
             (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
-          (#assert (#i64::eq (#println (#borrow text)) {result}))
+          (#assert (#i64::eq (#call emit (: text (#borrow text))) {result}))
           (#call String::free (: string text)) (#return 42u64))"#,
-            scratch.path().join("stdio.lim")
+            root = scratch.path().display()
         );
         execute(&source, label, &lim::CompileConfig::default(), expected);
     }

@@ -66,7 +66,7 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
         (#let copied Alias (#clone original))
         (#return (#get copied number)))";
     let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
-    assert!(pruned.contains(".globl Value_x2d_clone\n"), "{pruned}");
+    assert!(pruned.contains(".globl Value_x3a__x3a_clone\n"), "{pruned}");
     assert!(pruned.contains(".globl increment\n"), "{pruned}");
     assert!(!pruned.contains(".globl unused\n"), "{pruned}");
     let binary = scratch.path().join("program");
@@ -128,7 +128,7 @@ fn unused_imported_functions_are_still_checked() {
         "(#fn unused () #u64 (#return false))",
     )
     .unwrap();
-    let source = "(#import \"unused.lim\") (#fn main () #u64 (#return 42u64))";
+    let source = "(#alias unused = ./unused.lim::unused) (#fn main () #u64 (#return 42u64))";
     let error = assembly(source, &scratch.path().join("main.lim"), true).unwrap_err();
     let text = error.message.to_ascii_lowercase();
     assert!(text.contains("u64") && text.contains("bool"), "{text}");

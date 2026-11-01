@@ -1,6 +1,14 @@
+(#alias AsyncByteRead1 = ../library/async_stdin_byte.lim::AsyncByteRead1)
+(#alias AsyncByteReadCreate1 = ../library/async_stdin_byte.lim::AsyncByteReadCreate1)
+(#alias AsyncByteReadPoll1 = ../library/async_stdin_byte.lim::AsyncByteReadPoll1)
+(#alias async-byte-read1-create = ../library/async_stdin_byte.lim::async-byte-read1-create)
+(#alias async-byte-read1-destroy = ../library/async_stdin_byte.lim::async-byte-read1-destroy)
+(#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking)
+(#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll)
+
 ; Destroying a pending operation releases its exclusive buffer borrow without
 ; leaving any kernel operation that could still access the destination.
-(#import "../library/async_stdin_byte.lim")
+
 
 (#fn main () #i32
   (#let-mut byte #u8 0u8)

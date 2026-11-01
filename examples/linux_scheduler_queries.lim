@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-getpriority = ../library/linux_x86_64.lim::linux-getpriority)
+(#alias linux-sched-get-priority-max = ../library/linux_x86_64.lim::linux-sched-get-priority-max)
+(#alias linux-sched-get-priority-min = ../library/linux_x86_64.lim::linux-sched-get-priority-min)
+(#alias linux-sched-getparam = ../library/linux_x86_64.lim::linux-sched-getparam)
+(#alias linux-sched-getscheduler = ../library/linux_x86_64.lim::linux-sched-getscheduler)
 
 (#fn main () #u64
   (#let scheduler-memory (#ptr-mut #i32)

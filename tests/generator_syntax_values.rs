@@ -174,8 +174,8 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
     };
     std::fs::write(&imported, "(#type lim.gensym.fake #u64)").unwrap();
     for source in [
-        "(#import \"module.lim\")",
-        "(#import-external \"module.lim\" lib)",
+        "(#alias Value = ./module.lim::lim.gensym.fake)",
+        "(#alias Value = ./module.lim::lim.gensym.fake)",
     ] {
         let error = compile(source);
         assert!(error.message.contains("reserved"), "{error:?}");
@@ -186,10 +186,10 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
         );
     }
     std::fs::write(&imported, "(#fn gensym.fake () #u64 (#return 42u64))").unwrap();
-    let source = "(#import-external \"module.lim\" lim.gensym.)";
+    let source = "(#alias lim.gensym.fake = ./module.lim::gensym.fake)";
     let error = compile(source);
     let span = error.span.unwrap();
-    assert_eq!(&source[span.start..span.end], "lim.gensym.");
+    assert_eq!(&source[span.start..span.end], "lim.gensym.fake");
     assert!(error.message.contains("reserved"), "{error:?}");
 }
 
@@ -313,8 +313,8 @@ fn external_imported_generators_keep_fresh_locals_and_explicit_prefixed_api_keys
       (#gn make (name) (#gn-call emit name (#gn-gensym \"task\"))) (#generate make first)",
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" lib)
-      (#fn main () #u64 (#return (#call lib@first (: lib@task 42u64))))";
+    let source = "(#alias lib@first = ./module.lim::first)
+      (#fn main () #u64 (#return (#call lib@first (: task 42u64))))";
     lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

@@ -1141,11 +1141,12 @@ pub fn format_source(source: &str) -> Result<String, String> {
     Ok(output)
 }
 
-/// Format a source file and every transitively imported internal source file.
-/// External imports are deliberately not opened or modified.
+/// Format a source and its direct-file dependencies in the same library boundary.
+/// Dependencies across a library boundary and embedded sources are skipped.
 pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, String> {
     fn discover(
         path: &Path,
+        root: &Path,
         visited: &mut HashSet<PathBuf>,
         files: &mut Vec<(PathBuf, String)>,
     ) -> Result<(), String> {
@@ -1156,71 +1157,39 @@ pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, Stri
         }
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
-        let expressions = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-        let mut imports = Vec::new();
-        for expression in &expressions {
-            collect_internal_imports(&expression.expr, &mut imports)?;
-            let mut references = Vec::new();
-            file_access::dependencies(expression, &mut references)
+        let forms = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        let mut dependencies = Vec::new();
+        for form in &forms {
+            file_access::dependencies(form, &mut dependencies)
                 .map_err(|error| error.to_string())?;
-            for (reference, _, _) in references {
-                let target = path.parent().unwrap_or(Path::new(".")).join(&reference);
-                if library::owner(&path) == library::owner(&target) {
-                    imports.push(reference);
-                }
-            }
         }
         files.push((path.clone(), source));
-        for import in imports {
-            let imported = path.parent().unwrap_or_else(|| Path::new(".")).join(import);
-            discover(&imported, visited, files)?;
-        }
-        Ok(())
-    }
-
-    fn collect_internal_imports(
-        expression: &Expr,
-        imports: &mut Vec<String>,
-    ) -> Result<(), String> {
-        let Expr::List(items) = expression else {
-            return Ok(());
-        };
-        if let Some(specification) = import_form(expression)? {
-            if !specification.external
-                && standard_library::source(Path::new(specification.path)).is_none()
+        for (name, _, _) in dependencies {
+            file_access::validate_path(&name)?;
+            let target =
+                file_access::reference_path(path.parent().unwrap_or(Path::new(".")), &name, root);
+            if standard_library::source(&target).is_none()
+                && library::owner(&target) == library::owner(&path)
             {
-                imports.push(specification.path.to_owned());
-            }
-            return Ok(());
-        }
-        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#cfg-if" || keyword == "#cfg-else")
-        {
-            for branch in items.iter().skip(
-                if items.first().is_some_and(
-                    |item| matches!(item, Expr::Symbol(keyword) if keyword == "#cfg-if"),
-                ) {
-                    2
-                } else {
-                    1
-                },
-            ) {
-                collect_internal_imports(branch, imports)?;
+                discover(&target, root, visited, files)?;
             }
         }
         Ok(())
     }
-
+    let root = file_access::project_root(source_path);
     let mut files = Vec::new();
-    discover(source_path, &mut HashSet::new(), &mut files)?;
-    let mut formatted_files = Vec::with_capacity(files.len());
-    for (path, source) in files {
-        let formatted =
-            format_source(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-        formatted_files.push((path, formatted));
-    }
-    let mut paths = Vec::with_capacity(formatted_files.len());
-    for (path, formatted) in formatted_files {
-        write_output_atomic(&path, formatted.as_bytes())
+    discover(source_path, &root, &mut HashSet::new(), &mut files)?;
+    let formatted = files
+        .into_iter()
+        .map(|(path, source)| {
+            format_source(&source)
+                .map(|text| (path.clone(), text))
+                .map_err(|error| format!("{}: {error}", path.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut paths = Vec::new();
+    for (path, source) in formatted {
+        write_output_atomic(&path, source.as_bytes())
             .map_err(|error| format!("cannot write '{}': {error}", path.display()))?;
         paths.push(path);
     }
@@ -1891,8 +1860,7 @@ impl Program {
 pub(crate) struct SourceFile {
     pub path: PathBuf,
     pub source: String,
-    /// Effective external-import instance; generated sources inherit via origins.
-    pub import_prefix: String,
+    /// File-local declarations, aliases and permissions after name resolution.
     pub file_scope: Option<std::sync::Arc<file_access::FileScope>>,
 }
 
@@ -1902,6 +1870,7 @@ pub struct CompileConfig {
     values: HashMap<String, String>,
     module_paths: Vec<PathBuf>,
     explicit_keys: HashSet<String>,
+    project_root: Option<PathBuf>,
 }
 
 impl PartialEq for CompileConfig {
@@ -2077,6 +2046,7 @@ impl Default for CompileConfig {
             ]),
             module_paths: Vec::new(),
             explicit_keys: HashSet::new(),
+            project_root: None,
         }
     }
 }
@@ -2111,7 +2081,8 @@ impl CompileConfig {
         config
     }
 
-    /// Add a stable search root for string paths in `#import` forms.
+    /// Record a project module directory in compilation settings.
+    /// Direct file references always resolve their exact authored path.
     pub fn add_module_path(&mut self, path: impl Into<PathBuf>) {
         self.module_paths.push(path.into());
     }
@@ -5139,8 +5110,6 @@ fn is_builtin_form(name: &str) -> bool {
             | "enum-contribute"
             | "require-generated"
             | "capability"
-            | "import"
-            | "import-external"
             | "alias"
             | "unstable"
             | "std"
@@ -5311,19 +5280,21 @@ fn load_imports_with_sources(
     source_path: Option<&Path>,
     config: &CompileConfig,
 ) -> Result<(Vec<SpannedExpr>, Vec<SourceFile>), SourceError> {
+    let mut rooted_config = config.clone();
+    rooted_config
+        .project_root
+        .get_or_insert_with(|| file_access::project_root(source_path.unwrap_or(base)));
+    let config = &rooted_config;
     let mut active = Vec::new();
     let mut loaded = HashSet::new();
-    let root_path = source_path.map_or_else(
-        || base.join("<memory>"),
-        |path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
-    );
+    let root_path =
+        source_path.map_or_else(|| base.join("<memory>"), |path| editor::path_key(path));
     active.push(root_path.clone());
     let mut source_ids = HashMap::from([((root_path.clone(), String::new()), 0u32)]);
     let mut source_files = vec![SourceFile {
         file_scope: None,
         path: root_path,
         source: source.to_owned(),
-        import_prefix: String::new(),
     }];
     if source.len() > MAX_IMPORTED_SOURCE_BYTES {
         return Err(format!(
@@ -5567,8 +5538,13 @@ fn load_imports_inner(
             result.push(expression);
             continue;
         };
+        file_access::validate_path(specification.path).map_err(|message| {
+            attach_span_to_source_error(message, expression.span, source_files)
+        })?;
         let unresolved_path = import_candidate(base, specification.path, config);
-        let path = if editor::source(&unresolved_path).is_some() {
+        let path = if source_files.iter().any(|file| file.path == unresolved_path)
+            || editor::source(&unresolved_path).is_some()
+        {
             Ok(editor::path_key(&unresolved_path))
         } else if standard_library::source(&unresolved_path).is_some() {
             Ok(unresolved_path.clone())
@@ -5593,15 +5569,6 @@ fn load_imports_inner(
             file_access::check_path(&source_files[source_id as usize].path, &path).map_err(
                 |message| attach_span_to_source_error(message, expression.span, source_files),
             )?;
-        } else if !specification.direct && specification.path != standard_library::ROOT {
-            library::check_import(
-                &source_files[source_id as usize].path,
-                &path,
-                specification.external,
-            )
-            .map_err(|message| {
-                attach_span_to_source_error(message, expression.span, source_files)
-            })?;
         }
         if active.contains(&path) {
             if specification.direct {
@@ -5636,20 +5603,7 @@ fn load_imports_inner(
                 source_files,
             ));
         }
-        let parent_prefix = &source_files[source_id as usize].import_prefix;
-        let instance_prefix = match specification.prefix {
-            None if specification.direct
-                && library::owner(&path)
-                    != library::owner(&source_files[source_id as usize].path) =>
-            {
-                String::new()
-            }
-            None if standard_library::source(&path).is_some() => String::new(),
-            Some(prefix) if !parent_prefix.is_empty() => names::imported(parent_prefix, prefix),
-            Some(prefix) => prefix.to_owned(),
-            None => parent_prefix.clone(),
-        };
-        let key = (path.clone(), false, instance_prefix.clone());
+        let key = (path.clone(), false, String::new());
         if !loaded.insert(key) {
             continue;
         }
@@ -5706,19 +5660,18 @@ fn load_imports_inner(
         budget.import_count += 1;
         budget.total_source_bytes = next_total;
         let imported_source_id = *source_ids
-            .entry((path.clone(), instance_prefix.clone()))
+            .entry((path.clone(), String::new()))
             .or_insert_with(|| {
                 let id = source_files.len() as u32;
                 source_files.push(SourceFile {
                     file_scope: None,
                     path: path.clone(),
                     source: imported_source.clone(),
-                    import_prefix: instance_prefix,
                 });
                 id
             });
         active.push(path.clone());
-        let mut imported = load_imports_inner(
+        let imported = load_imports_inner(
             &imported_source,
             path.parent().unwrap_or_else(|| Path::new(".")),
             imported_source_id,
@@ -5730,285 +5683,116 @@ fn load_imports_inner(
             config,
         )?;
         active.pop();
-        if let Some(prefix) = specification.prefix {
-            let mut shared_names = if source_files
-                .iter()
-                .any(|file| file.path == Path::new(standard_library::ROOT))
-            {
-                standard_library::shared_names().clone()
-            } else {
-                HashSet::new()
-            };
-            // A library's own explicit declaration takes precedence over a
-            // same-spelled shared name; only its std references stay global.
-            for form in &imported {
-                if standard_library::source(&source_files[form.span.source_id as usize].path)
-                    .is_none()
-                {
-                    for name in generator_provenance::declared_names(&form.expr) {
-                        shared_names.remove(name);
-                    }
-                }
-            }
-            let generator_names = imported
-                .iter()
-                .filter_map(|form| match &form.expr {
-                    Expr::List(items)
-                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#gn" || keyword == "#gn-fn") =>
-                    {
-                        items.get(1).and_then(|name| match name {
-                            Expr::Symbol(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                    }
-                    _ => None,
-                })
-                .collect::<HashSet<_>>();
-            for form in &mut imported {
-                // #std is one compiler-owned instance, even when first reached
-                // through a prefixed library. Its argument labels and helper
-                // bodies must not acquire that library's prefix either.
-                if standard_library::source(&source_files[form.span.source_id as usize].path)
-                    .is_some()
-                {
-                    continue;
-                }
-                prefix_expression(&mut form.expr, prefix, &generator_names, &shared_names);
-                synchronize_source_children(form);
-                if gensym::contains_reserved(&form.expr) {
-                    let prefix_span = expression
-                        .children
-                        .get(2)
-                        .map_or(expression.span, |node| node.span);
-                    return Err(attach_span_to_source_error_kind(
-                        "external import prefix cannot create compiler-reserved 'lim.gensym.' identifiers".into(),
-                        prefix_span,
-                        source_files,
-                        "parse error: ",
-                    ));
-                }
-            }
-        }
         result.extend(imported);
     }
     Ok(result)
 }
 
-/// Collect every cfg key referenced by a source file and all of its imports.
-/// Imports and cfg branches are scanned regardless of which branch is active.
+/// Collect cfg keys from a source and every explicit file dependency, including
+/// inactive branches. No generators are executed and no artifacts are written.
 pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, String> {
-    fn scan_file(
+    fn walk(node: &SpannedExpr, keys: &mut BTreeSet<String>) -> Result<(), String> {
+        if matches!(node.children.first().map(|node| &node.expr), Some(Expr::Symbol(head)) if head == "#cfg-is")
+        {
+            if node.children.len() != 3 {
+                return Err("#cfg-is requires a key and a value".into());
+            }
+            let Some(Expr::Symbol(key)) = node.children.get(1).map(|node| &node.expr) else {
+                return Err("#cfg-is requires a keyword key".into());
+            };
+            keys.insert(format!("#{}", key.trim_start_matches('#')));
+        }
+        for child in &node.children {
+            walk(child, keys)?;
+        }
+        Ok(())
+    }
+    fn scan(
         path: &Path,
+        root: &Path,
         visited: &mut HashSet<PathBuf>,
         keys: &mut BTreeSet<String>,
     ) -> Result<(), String> {
-        let path = if standard_library::source(path).is_some() {
-            Ok(path.to_owned())
+        let candidate = editor::path_key(path);
+        let path = if standard_library::source(&candidate).is_some() {
+            candidate.clone()
         } else {
-            fs::canonicalize(path)
-        }
-        .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?;
+            fs::canonicalize(&candidate)
+                .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?
+        };
         if !visited.insert(path.clone()) {
             return Ok(());
+        }
+        if visited.len() > MAX_IMPORT_COUNT {
+            return Err("cfg collection exceeds maximum dependency count".into());
         }
         let source = standard_library::source(&path)
             .map(|source| Ok(source.to_owned()))
             .unwrap_or_else(|| fs::read_to_string(&path))
             .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
-        let expressions = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-        for expression in expressions {
-            scan_expr(&expression.expr, &path, visited, keys)?;
-        }
-        Ok(())
-    }
-
-    fn scan_expr(
-        expression: &Expr,
-        source_path: &Path,
-        visited: &mut HashSet<PathBuf>,
-        keys: &mut BTreeSet<String>,
-    ) -> Result<(), String> {
-        if let Expr::Symbol(name) = expression {
-            if let Some((path, _)) = file_access::split(name.trim_start_matches('@')) {
-                scan_file(
-                    &source_path.parent().unwrap_or(Path::new(".")).join(path),
+        let forms = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        for form in &forms {
+            walk(form, keys)?;
+            let mut dependencies = Vec::new();
+            file_access::dependencies(form, &mut dependencies)
+                .map_err(|error| error.to_string())?;
+            if matches!(&form.expr, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#std"))
+            {
+                dependencies.push((standard_library::ROOT.into(), false, form.span));
+            }
+            for (name, _, _) in dependencies {
+                file_access::validate_path(&name)?;
+                scan(
+                    &file_access::reference_path(
+                        path.parent().unwrap_or(Path::new(".")),
+                        &name,
+                        root,
+                    ),
+                    root,
                     visited,
                     keys,
                 )?;
             }
         }
-        let Expr::List(items) = expression else {
-            match expression {
-                Expr::Block(statements) | Expr::Loop(statements) => {
-                    for statement in statements {
-                        scan_statement(statement, source_path, visited, keys)?;
-                    }
-                }
-                Expr::Labeled { expression, .. }
-                | Expr::Quote(expression)
-                | Expr::QuasiQuote(expression)
-                | Expr::Unquote(expression)
-                | Expr::UnquoteSplicing(expression) => {
-                    scan_expr(expression, source_path, visited, keys)?;
-                }
-                _ => {}
-            }
-            return Ok(());
-        };
-        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#alias") {
-            let target = match items.get(3) {
-                Some(Expr::List(parts)) if matches!(parts.first(), Some(Expr::Symbol(name)) if name == "#unstable") => {
-                    parts.get(1)
-                }
-                value => value,
-            };
-            if let Some(Expr::Symbol(name) | Expr::String(name)) = target {
-                if let Some((path, _)) = file_access::split(name.trim_start_matches('@')) {
-                    scan_file(
-                        &source_path.parent().unwrap_or(Path::new(".")).join(path),
-                        visited,
-                        keys,
-                    )?;
-                }
-            }
-        }
-        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#cfg-is") {
-            if items.len() != 3 {
-                return Err(format!(
-                    "{}: #cfg-is requires a key and a value",
-                    source_path.display()
-                ));
-            }
-            let Some(Expr::Symbol(key)) = items.get(1) else {
-                return Err(format!(
-                    "{}: #cfg-is key must be a keyword such as #platform",
-                    source_path.display()
-                ));
-            };
-            keys.insert(format!("#{}", key.strip_prefix('#').unwrap_or(key)));
-        }
-        if let Some(specification) = import_form(expression)? {
-            let imported = source_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(specification.path);
-            scan_file(&imported, visited, keys)?;
-        }
-        for item in items {
-            scan_expr(item, source_path, visited, keys)?;
-        }
         Ok(())
     }
-
-    fn scan_statement(
-        statement: &Statement,
-        source_path: &Path,
-        visited: &mut HashSet<PathBuf>,
-        keys: &mut BTreeSet<String>,
-    ) -> Result<(), String> {
-        match statement {
-            Statement::Let { value, .. }
-            | Statement::Destructure { value, .. }
-            | Statement::Assign { value, .. }
-            | Statement::FieldAssign { value, .. }
-            | Statement::TupleAssign { value, .. }
-            | Statement::EnumPayloadAssign { value, .. }
-            | Statement::BreakValue(value)
-            | Statement::BreakToValue { value, .. }
-            | Statement::Return(Some(value))
-            | Statement::Expr(value) => scan_expr(value, source_path, visited, keys)?,
-            Statement::ArrayAssign { index, value, .. } => {
-                scan_expr(index, source_path, visited, keys)?;
-                scan_expr(value, source_path, visited, keys)?;
-            }
-            Statement::While { condition, body } => {
-                scan_expr(condition, source_path, visited, keys)?;
-                for statement in body {
-                    scan_statement(statement, source_path, visited, keys)?;
-                }
-            }
-            Statement::Loop { body } => {
-                for statement in body {
-                    scan_statement(statement, source_path, visited, keys)?;
-                }
-            }
-            Statement::For {
-                init,
-                condition,
-                step,
-                body,
-            } => {
-                scan_statement(init, source_path, visited, keys)?;
-                scan_expr(condition, source_path, visited, keys)?;
-                scan_statement(step, source_path, visited, keys)?;
-                for statement in body {
-                    scan_statement(statement, source_path, visited, keys)?;
-                }
-            }
-            Statement::Labeled { statement, .. } => {
-                scan_statement(statement, source_path, visited, keys)?
-            }
-            Statement::LetElse {
-                value, else_body, ..
-            } => {
-                scan_expr(value, source_path, visited, keys)?;
-                for statement in else_body {
-                    scan_statement(statement, source_path, visited, keys)?;
-                }
-            }
-            Statement::Break
-            | Statement::BreakTo(_)
-            | Statement::Continue
-            | Statement::ContinueTo(_)
-            | Statement::Return(None) => {}
-        }
-        Ok(())
-    }
-
-    let mut visited = HashSet::new();
     let mut keys = BTreeSet::new();
-    scan_file(source_path, &mut visited, &mut keys)?;
+    scan(
+        source_path,
+        &file_access::project_root(source_path),
+        &mut HashSet::new(),
+        &mut keys,
+    )?;
     Ok(keys.into_iter().collect())
 }
 
 struct ImportSpec<'a> {
-    external: bool,
     path: &'a str,
-    prefix: Option<&'a str>,
     direct: bool,
     unstable: bool,
 }
 
 pub(crate) fn import_candidate(base: &Path, name: &str, config: &CompileConfig) -> PathBuf {
-    let paths = std::iter::once(base.join(name))
-        .chain(config.module_paths.iter().map(|root| root.join(name)))
-        .collect::<Vec<_>>();
-    paths
-        .iter()
-        .find(|candidate| {
-            standard_library::source(candidate).is_some()
-                || candidate.is_file()
-                || editor::source(candidate).is_some()
-        })
-        .cloned()
-        .unwrap_or_else(|| paths[0].clone())
+    let root = config
+        .project_root
+        .clone()
+        .unwrap_or_else(|| file_access::project_root(base));
+    editor::path_key(&file_access::reference_path(base, name, &root))
 }
 
 fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
     let Expr::List(items) = expression else {
         return Ok(None);
     };
-    let Some(Expr::Symbol(operator)) = items.first() else {
+    let Some(Expr::Symbol(head)) = items.first() else {
         return Ok(None);
     };
-    match operator.as_str() {
+    match head.as_str() {
         "$lim-file-import" => Ok(Some(ImportSpec {
-            external: true,
             path: match items.get(1) {
                 Some(Expr::String(path)) => path,
                 _ => return Err("invalid file dependency".into()),
             },
-            prefix: None,
             direct: true,
             unstable: items.len() == 3,
         })),
@@ -6017,252 +5801,13 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
                 return Err("#std takes no arguments".into());
             }
             Ok(Some(ImportSpec {
-                direct: false,
-                unstable: false,
-                external: false,
                 path: standard_library::ROOT,
-                prefix: None,
-            }))
-        }
-        "#import" => {
-            if items.len() != 2 {
-                return Err("#import requires one string path".into());
-            }
-            match items.get(1) {
-                Some(Expr::String(path)) => Ok(Some(ImportSpec {
-                    direct: false,
-                    unstable: false,
-                    external: false,
-                    path,
-                    prefix: None,
-                })),
-                _ => Err("#import path must be a string literal".into()),
-            }
-        }
-        "#import-external" => {
-            if items.len() != 3 {
-                return Err("#import-external requires a string path and symbol prefix".into());
-            }
-            let path = match items.get(1) {
-                Some(Expr::String(path)) => path,
-                _ => return Err("#import-external path must be a string literal".into()),
-            };
-            let prefix = match items.get(2) {
-                Some(Expr::Symbol(prefix))
-                    if !prefix.is_empty()
-                        && !prefix.starts_with('#')
-                        && !prefix.contains('@')
-                        && prefix != ":" =>
-                {
-                    prefix.as_str()
-                }
-                _ => {
-                    return Err(
-                        "#import-external prefix must be a non-empty identifier without '@'".into(),
-                    )
-                }
-            };
-            Ok(Some(ImportSpec {
                 direct: false,
                 unstable: false,
-                external: true,
-                path,
-                prefix: Some(prefix),
             }))
         }
         _ => Ok(None),
     }
-}
-
-/// Prefixing changes identifiers, never expression shape or physical source
-/// spans. Keep the retained source tree semantically identical to its parent
-/// syntax so analyses of original bodies do not resurrect pre-import names.
-fn synchronize_source_children(expression: &mut SpannedExpr) {
-    match &expression.expr {
-        Expr::List(items) => {
-            for (child, value) in expression.children.iter_mut().zip(items) {
-                child.expr = value.clone();
-                synchronize_source_children(child);
-            }
-        }
-        Expr::Quote(value)
-        | Expr::QuasiQuote(value)
-        | Expr::Unquote(value)
-        | Expr::UnquoteSplicing(value) => {
-            if let Some(child) = expression.children.first_mut() {
-                child.expr = value.as_ref().clone();
-                synchronize_source_children(child);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn prefix_expression(
-    expression: &mut Expr,
-    prefix: &str,
-    generator_names: &HashSet<String>,
-    shared_names: &HashSet<String>,
-) {
-    let shared = |name: &str| {
-        shared_names.contains(name)
-            || shared_names.contains(
-                name.split("::")
-                    .next()
-                    .unwrap_or(name)
-                    .split('.')
-                    .next()
-                    .unwrap_or(name),
-            )
-    };
-    if let Expr::List(items) = expression {
-        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#alias") {
-            if let Some(name) = items.get_mut(1) {
-                prefix_expression(name, prefix, generator_names, shared_names);
-            }
-            return;
-        }
-    }
-    if matches!(expression, Expr::Symbol(name) if file_access::split(name).is_some()) {
-        return;
-    }
-    match expression {
-        Expr::Function(_) => unreachable!("imports are prefixed before call normalization"),
-        Expr::Symbol(name) => {
-            if let Some(relative) = name.strip_prefix('@') {
-                // Preserve the qualification marker until every surrounding
-                // external import has applied its instance prefix.
-                if !relative.starts_with('#') && !shared(relative) {
-                    *name = format!("@{}", names::imported(prefix, relative));
-                }
-                return;
-            }
-            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) && !shared(name) {
-                *name = names::imported(prefix, name);
-            }
-        }
-        Expr::List(items) => {
-            // Shared std functions keep their parameter labels. Values still
-            // refer to the importing library's locals and must be prefixed.
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call"))
-                && matches!(items.get(1), Some(Expr::Symbol(name)) if shared(name))
-            {
-                if let Some(Expr::List(arguments)) = items.get_mut(2) {
-                    for argument in arguments {
-                        if let Expr::List(pair) = argument {
-                            for value in pair.iter_mut().skip(1) {
-                                prefix_expression(value, prefix, generator_names, shared_names);
-                            }
-                        }
-                    }
-                }
-                return;
-            }
-            // Register names are literal machine metadata, not Lim identifiers.
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#asm") {
-                if let Some(ty) = items.get_mut(1) {
-                    prefix_expression(ty, prefix, generator_names, shared_names);
-                }
-                if let Some(Expr::List(operands)) = items.get_mut(2) {
-                    for operand in operands {
-                        if let Expr::List(pair) = operand {
-                            for value in pair.iter_mut().skip(1) {
-                                prefix_expression(value, prefix, generator_names, shared_names);
-                            }
-                        }
-                    }
-                }
-                return;
-            }
-            // Builtin generator argument keys describe the API, not imported
-            // declarations. Prefix their literal values, including protocols.
-            if matches!(items.first(), Some(Expr::Generate))
-                && matches!(items.get(1), Some(Expr::Symbol(kind)) if generator::builtins::named_builtin_keys(kind).is_some())
-            {
-                if let Some(Expr::List(arguments)) = items.get_mut(2) {
-                    for argument in arguments {
-                        if let Expr::List(pair) = argument {
-                            for value in pair.iter_mut().skip(1) {
-                                prefix_expression(value, prefix, generator_names, shared_names);
-                            }
-                        }
-                    }
-                }
-                return;
-            }
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#gn-symbol") {
-                for item in items.iter_mut().skip(1) {
-                    match item {
-                        Expr::String(name)
-                            if !name.starts_with('#')
-                                && !is_unprefixed_builtin_name(name)
-                                && !shared(name) =>
-                        {
-                            *name = names::imported(prefix, name);
-                        }
-                        other => prefix_expression(other, prefix, generator_names, shared_names),
-                    }
-                }
-                return;
-            }
-            let is_generated_call = matches!(items.first(), Some(Expr::Generate));
-            for (index, item) in items.iter_mut().enumerate() {
-                if is_generated_call && index == 1 {
-                    if let Expr::Symbol(name) = item {
-                        if !name.starts_with('#') && generator_names.contains(name) {
-                            *name = names::imported(prefix, name);
-                        }
-                    }
-                } else {
-                    prefix_expression(item, prefix, generator_names, shared_names);
-                }
-            }
-        }
-        Expr::Quote(value)
-        | Expr::QuasiQuote(value)
-        | Expr::Unquote(value)
-        | Expr::UnquoteSplicing(value) => {
-            prefix_expression(value, prefix, generator_names, shared_names)
-        }
-        Expr::Block(_)
-        | Expr::Loop(_)
-        | Expr::Labeled { .. }
-        | Expr::Integer(_)
-        | Expr::UnsignedInteger(_)
-        | Expr::Float(_)
-        | Expr::Char(_)
-        | Expr::String(_)
-        | Expr::Generate => {}
-    }
-}
-
-fn is_unprefixed_builtin_name(name: &str) -> bool {
-    // Keywords are always #-prefixed. An unprefixed spelling such as
-    // `panic` is an ordinary identifier and must follow external imports.
-    matches!(
-        name,
-        "true"
-            | "false"
-            | "_"
-            | "()"
-            | "!"
-            | "bool"
-            | "char"
-            | "i8"
-            | "i16"
-            | "i32"
-            | "i64"
-            | "i128"
-            | "isize"
-            | "u8"
-            | "u16"
-            | "u32"
-            | "u64"
-            | "u128"
-            | "usize"
-            | "f32"
-            | "f64"
-    )
 }
 
 /// Materialize built-in generated declarations as source files.
@@ -10052,7 +9597,7 @@ mod tests {
     }
 
     #[test]
-    fn project_formatter_formats_transitive_internal_imports_only() {
+    fn project_formatter_formats_transitive_file_dependencies() {
         let directory = std::env::temp_dir().join(format!(
             "lim-format-project-{}-{}",
             std::process::id(),
@@ -10065,12 +9610,8 @@ mod tests {
         let root = directory.join("root.lim");
         let first = directory.join("first.lim");
         let second = directory.join("second.lim");
-        fs::write(
-            &root,
-            "(#import \"first.lim\") (#import-external \"missing.lim\" ext)",
-        )
-        .unwrap();
-        fs::write(&first, "(#import \"second.lim\")").unwrap();
+        fs::write(&root, "(#alias Number = ./first.lim::Number)").unwrap();
+        fs::write(&first, "(#alias Number = ./second.lim::Number)").unwrap();
         fs::write(&second, "(#type Number #u64)").unwrap();
 
         let formatted = format_project_from_path(&root).unwrap();
@@ -10079,7 +9620,6 @@ mod tests {
             let source = fs::read_to_string(path).unwrap();
             assert_eq!(format_source(&source).unwrap(), source);
         }
-        assert!(!directory.join("missing.lim").exists());
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -10444,90 +9984,6 @@ mod tests {
     }
 
     #[test]
-    fn external_prefix_keeps_source_children_consistent_without_changing_spans() {
-        fn spans(node: &SpannedExpr, output: &mut Vec<Span>) {
-            output.push(node.span);
-            for child in &node.children {
-                spans(child, output);
-            }
-        }
-        fn consistent(node: &SpannedExpr) {
-            match &node.expr {
-                Expr::List(items) => {
-                    assert_eq!(items.len(), node.children.len());
-                    for (value, child) in items.iter().zip(&node.children) {
-                        assert_eq!(value, &child.expr);
-                        consistent(child);
-                    }
-                }
-                Expr::Quote(value)
-                | Expr::QuasiQuote(value)
-                | Expr::Unquote(value)
-                | Expr::UnquoteSplicing(value) => {
-                    assert_eq!(value.as_ref(), &node.children[0].expr);
-                    consistent(&node.children[0]);
-                }
-                _ => {}
-            }
-        }
-        let source = "(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-          : function (#fn work (: owner Owner) #u64 (#return (#get owner amount)))))
-          (#gn literal (name) `(#type ,name '(Thing)))";
-        let mut forms = parse(source).unwrap();
-        let mut before = Vec::new();
-        for form in &forms {
-            spans(form, &mut before);
-        }
-        let generators = HashSet::from(["literal".to_owned()]);
-        for form in &mut forms {
-            prefix_expression(&mut form.expr, "ext", &generators, &HashSet::new());
-            synchronize_source_children(form);
-            consistent(form);
-        }
-        let mut after = Vec::new();
-        for form in &forms {
-            spans(form, &mut after);
-        }
-        assert_eq!(before, after);
-        let normalized = normalize_builtin_generator_invocation(&forms[0].expr).unwrap();
-        let text = expression_source(&normalized).unwrap();
-        assert!(text.contains("ext@owner ext@Owner"), "{text}");
-        assert!(text.contains("ext@work"), "{text}");
-        assert!(text.contains("ext@Owner"), "{text}");
-        assert!(
-            !text.contains("ext@protocol") && !text.contains("ext@access"),
-            "{text}"
-        );
-    }
-
-    #[test]
-    fn loads_internal_and_prefixes_external_imports() {
-        let directory = std::env::temp_dir().join(format!("lim-imports-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let module_path = directory.join("definitions.lim");
-        std::fs::write(
-            &module_path,
-            "(#struct Thing () ((value #u64))) (#fn read-value ((thing Thing)) #u64 (#return (#get thing value))) (#gn make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (#generate make-alias GeneratedAlias #u64)",
-        )
-        .unwrap();
-        let root_path = directory.join("root.lim");
-        let program_source = "(#import \"definitions.lim\") (#import-external \"definitions.lim\" ext) (#import-external \"definitions.lim\" ext) (#fn main () #u64 (#return (#u64::add-wrap (#call read-value (: thing (#struct-literal Thing ((value 20))))) (#call ext@read-value (: ext@thing (#struct-literal ext@Thing ((ext@value 22))))))))";
-        let program = parse_program_from_path(program_source, &root_path).unwrap();
-        assert!(check_types(&program).is_ok());
-        assert!(program
-            .items
-            .iter()
-            .any(|item| matches!(item, Item::TypeAlias { name, .. } if name == "GeneratedAlias")));
-        assert!(program.items.iter().any(
-            |item| matches!(item, Item::TypeAlias { name, .. } if name == "ext@GeneratedAlias")
-        ));
-        let assembly = generate_assembly(&program).unwrap();
-        assert!(assembly.contains(".globl read_x2d_value"));
-        assert!(assembly.contains(".globl ext_x40_read_x2d_value"));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
     fn imported_diagnostics_keep_their_own_source_file_and_offsets() {
         let directory = std::env::temp_dir().join(format!("lim-source-map-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
@@ -10535,7 +9991,8 @@ mod tests {
         let module_source = "(#fn broken () #u64\n  (#return missing))";
         std::fs::write(&module_path, module_source).unwrap();
         let root_path = directory.join("root.lim");
-        let root_source = "(#import \"module.lim\") (#fn main () #u64 (#return 0u64))";
+        let root_source =
+            "(#alias broken = ./module.lim::broken) (#fn main () #u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
         let (message, code, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10637,7 +10094,8 @@ mod tests {
   (#return "bad \" token)
 )"#;
         std::fs::write(&module_path, module_source).unwrap();
-        let import_source = "(#import \"module.lim\")\n(#fn main () #u64 (#return 0u64))";
+        let import_source =
+            "(#alias broken = ./module.lim::broken)\n(#fn main () #u64 (#return 0u64))";
         let diagnostic = compile_source_to_assembly(
             import_source,
             &root_path,
@@ -10720,7 +10178,7 @@ mod tests {
         let module_source = "(#gn fail () (#gn-error \"unsupported\"))\n(#generate fail)";
         std::fs::write(&module_path, module_source).unwrap();
         let root_path = directory.join("root.lim");
-        let root_source = "(#import \"module.lim\")";
+        let root_source = "(#alias fail = ./module.lim::fail)";
         let diagnostic = compile_source_to_assembly(
             root_source,
             &root_path,
@@ -10745,23 +10203,22 @@ mod tests {
     }
 
     #[test]
-    fn resolves_imports_from_configured_module_paths() {
+    fn resolves_explicit_file_references_from_the_entry_directory() {
         let directory =
             std::env::temp_dir().join(format!("lim-module-path-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("shared.lim"), "(#type Imported #u64)").unwrap();
-        let root = std::env::temp_dir().join(format!("lim-module-root-{}.lim", std::process::id()));
-        let mut config = CompileConfig::default();
-        config.add_module_path(&directory);
+        let root = directory.join("root.lim");
+        let config = CompileConfig::default();
         let program = parse_program_from_path_with_config(
-            "(#import \"shared.lim\") (#fn main () #u64 (#return 42))",
+            "(#alias Imported = ./shared.lim::Imported) (#fn main () #u64 (#return 42))",
             &root,
             &config,
         )
         .unwrap();
         assert!(program.items.iter().any(|item| matches!(
             item,
-            Item::TypeAlias { name, .. } if name == "Imported"
+            Item::TypeAlias { name, .. } if name.ends_with("shared.lim::Imported")
         )));
         std::fs::remove_file(root).ok();
         std::fs::remove_dir_all(directory).unwrap();
@@ -10823,7 +10280,7 @@ mod tests {
     }
 
     #[test]
-    fn collects_cfg_keys_from_all_imports_and_inactive_branches() {
+    fn collects_cfg_keys_from_all_file_dependencies_and_inactive_branches() {
         let directory =
             std::env::temp_dir().join(format!("lim-cfg-collect-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
@@ -10840,7 +10297,7 @@ mod tests {
         let root_path = directory.join("root.lim");
         std::fs::write(
             &root_path,
-            "(#cfg-if (#cfg-is #platform linux) (#import \"linux.lim\") (#cfg-else (#import \"other.lim\"))) (#cfg-if (#cfg-not (#cfg-is #debug enabled)) (#fn root () () (#return ())))",
+            "(#cfg-if (#cfg-is #platform linux) (#alias from-linux = ./linux.lim::from-linux) (#cfg-else (#alias from-other = ./other.lim::from-other))) (#cfg-if (#cfg-not (#cfg-is #debug enabled)) (#fn root () () (#return ())))",
         )
         .unwrap();
 
@@ -10852,31 +10309,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_import_cycles_and_malformed_imports() {
-        let directory =
-            std::env::temp_dir().join(format!("lim-import-cycle-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("a.lim"), "(#import \"b.lim\")").unwrap();
-        std::fs::write(directory.join("b.lim"), "(#import \"a.lim\")").unwrap();
-        let error =
-            parse_program_from_path("(#import \"b.lim\")", &directory.join("a.lim")).unwrap_err();
-        assert!(error.contains("import cycle"));
-        assert!(parse_program("(#import-external \"module.lim\")").is_err());
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn import_loader_enforces_depth_count_and_source_byte_budgets() {
-        let directory =
-            std::env::temp_dir().join(format!("lim-import-budgets-{}", std::process::id()));
+    fn file_dependency_loader_enforces_depth_count_and_source_byte_budgets() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-file-dependency-budgets-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
         let root = directory.join("root.lim");
-        let root_source = "(#import \"m0.lim\")";
+        let root_source = "(#alias first = ./m0.lim::second)";
         std::fs::write(&root, root_source).unwrap();
-        std::fs::write(directory.join("m0.lim"), "(#import \"m1.lim\")").unwrap();
-        std::fs::write(directory.join("m1.lim"), "(#import \"m2.lim\")").unwrap();
-        std::fs::write(directory.join("m2.lim"), "(#fn helper () () (#return ()))").unwrap();
+        std::fs::write(
+            directory.join("m0.lim"),
+            "(#alias second = ./m1.lim::third)",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.join("m1.lim"),
+            "(#alias third = ./m2.lim::fourth)",
+        )
+        .unwrap();
+        std::fs::write(directory.join("m2.lim"), "(#fn fourth () () (#return ()))").unwrap();
 
         let load_with_budget = |max_depth, max_import_count, max_total_source_bytes| {
             let canonical_root = std::fs::canonicalize(&root).unwrap();
@@ -10887,7 +10340,6 @@ mod tests {
                 file_scope: None,
                 path: canonical_root,
                 source: root_source.to_owned(),
-                import_prefix: String::new(),
             }];
             let mut budget = ImportBudget {
                 import_count: 0,
@@ -13400,11 +12852,7 @@ mod tests {
         let artifact = fs::read_dir(generator::generated_source_directory(&cache))
             .unwrap()
             .map(|entry| entry.unwrap().path())
-            .find(|path| {
-                fs::read_to_string(path)
-                    .unwrap()
-                    .contains("(#fn Work::poll ")
-            })
+            .find(|path| fs::read_to_string(path).unwrap().contains("Work::poll"))
             .unwrap();
         let original = fs::read(&artifact).unwrap();
         fs::write(&artifact, b"; damaged graph cache\n").unwrap();

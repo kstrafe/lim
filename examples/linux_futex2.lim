@@ -1,4 +1,15 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-CLOCK-GETTIME = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-CLOCK-GETTIME)
+(#alias linux-exit-group = ../library/linux_x86_64.lim::linux-exit-group)
+(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
+(#alias linux-futex-requeue = ../library/linux_x86_64.lim::linux-futex-requeue)
+(#alias linux-futex-wait = ../library/linux_x86_64.lim::linux-futex-wait)
+(#alias linux-futex-waitv = ../library/linux_x86_64.lim::linux-futex-waitv)
+(#alias linux-futex-wake = ../library/linux_x86_64.lim::linux-futex-wake)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield)
+(#alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; SAFETY: memory is a live shared 4096-byte mapping, initialized as below.
 ; This single-threaded process owns its records and forks one child at a time.

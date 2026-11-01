@@ -251,8 +251,8 @@ fn imported_and_generator_defined_variants_resolve_without_rhs_inference() {
         ),
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" Ext)
-      (#fn main () #u64 (#return (#call Ext::read (: Ext::value (Ext@Success 42u64)))))";
+    let source = "(#alias Ext::read = ./module.lim::read)\n(#alias Ext@Success = ./module.lim::Outcome.Success)
+      (#fn main () #u64 (#return (#call Ext::read (: value (Ext@Success 42u64)))))";
     let program = lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
     generate_assembly(&program).unwrap();

@@ -1,4 +1,6 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-brk = ../library/linux_x86_64.lim::linux-brk)
+(#alias linux-personality = ../library/linux_x86_64.lim::linux-personality)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Standalone, single-threaded executable: no other allocator owns the break.
 (#fn main () #u64

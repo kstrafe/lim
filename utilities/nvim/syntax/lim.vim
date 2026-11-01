@@ -19,7 +19,7 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
 syn match limGenerated +#generate\ze\%($\|[[:space:]();"'`,#]\)+
 syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:]();"'`,#]\++
-" A leading @ qualifies a source name; embedded @ remains an import separator.
+" A leading @ resolves a source name; embedded @ is ordinary identifier text.
 syn match limQualified +\%(^\|[[:space:]('`]\)\@<=@[^[:space:]();"'`,#]\++
 syn match limGenerated +#generated-context\ze\%($\|[[:space:]();"'`,#]\)+
 " Type properties are declaration annotations, not callable forms.

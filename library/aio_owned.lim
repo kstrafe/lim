@@ -1,9 +1,17 @@
+(#alias linux-io-cancel = ./linux_x86_64.lim::linux-io-cancel)
+(#alias linux-io-destroy = ./linux_x86_64.lim::linux-io-destroy)
+(#alias linux-io-getevents = ./linux_x86_64.lim::linux-io-getevents)
+(#alias linux-io-setup = ./linux_x86_64.lim::linux-io-setup)
+(#alias linux-io-submit = ./linux_x86_64.lim::linux-io-submit)
+(#alias linux-mmap = ./linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ./linux_x86_64.lim::linux-munmap)
+
 ;; Safe ownership wrappers for concurrent native Linux AIO requests.
 ;; Each pending request owns its mmap and shares an immutable borrow of its
 ;; context. aio_data carries that request's event-buffer address; a blocking
 ;; wait routes any other request's event to its own mapping before continuing.
 ;; The raw marker keeps this interior kernel protocol single-threaded.
-(#import "linux_x86_64.lim")
+
 
 (#struct AioOwnedContext (#linear) ((id #usize) (local-marker (#ptr #u8))))
 (#opaque AioOwnedContext)

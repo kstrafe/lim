@@ -1,4 +1,15 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-lseek = ../library/linux_x86_64.lim::linux-lseek)
+(#alias linux-memfd-create = ../library/linux_x86_64.lim::linux-memfd-create)
+(#alias linux-preadv = ../library/linux_x86_64.lim::linux-preadv)
+(#alias linux-preadv2 = ../library/linux_x86_64.lim::linux-preadv2)
+(#alias linux-pwritev = ../library/linux_x86_64.lim::linux-pwritev)
+(#alias linux-pwritev2 = ../library/linux_x86_64.lim::linux-pwritev2)
+(#alias linux-readv = ../library/linux_x86_64.lim::linux-readv)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+(#alias linux-writev = ../library/linux_x86_64.lim::linux-writev)
 
 ; The Linux x86-64 iovec ABI is a pointer followed by an 8-byte length.
 ; SAFETY: slot supplies 16 exclusively writable bytes. The eventual syscall

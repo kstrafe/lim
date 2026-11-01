@@ -5,37 +5,7 @@ use std::process::Command;
 #[test]
 fn wake_token_table_reports_invalid_busy_and_exhausted_slots() {
     let source = format!(
-        "(#import \"{}/library/wake_tokens.lim\")
-         (#fn main () #u64
-           (#let-mut table WakeTable4 (#call wake-table4-create (:)))
-           (#let invalid WakeRegister4
-             (#call wake-table4-register (: table (#borrow-mut table) : slot 4usize)))
-           (#let invalid-ok #bool (#match invalid
-             (#case WakeRegister4.WakeInvalid4 true) (#case _ false)))
-           (#let first WakeRegister4
-             (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
-           (#let token WakeToken4 (#match first
-             (#case (WakeRegister4.WakeRegistered4 value) value)
-             (#case _ (#unreachable))))
-           (#let busy WakeRegister4
-             (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
-           (#let busy-ok #bool (#match busy
-             (#case WakeRegister4.WakeBusy4 true) (#case _ false)))
-           (#let retired WakeRetire4
-             (#call wake-table4-retire (: table (#borrow-mut table) : token token)))
-           (#let retired-ok #bool (#match retired
-             (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
-           (#let-mut exhausted-table WakeTable4
-             (#call wake-table4-create-exhausted (:)))
-           (#let exhausted WakeRegister4
-             (#call wake-table4-register (: table (#borrow-mut exhausted-table) : slot 1usize)))
-           (#let exhausted-ok #bool (#match exhausted
-             (#case WakeRegister4.WakeExhausted4 true) (#case _ false)))
-           (#forget table) (#forget exhausted-table)
-           (#return (#if
-             (#bool::and invalid-ok
-               (#bool::and busy-ok (#bool::and retired-ok exhausted-ok)))
-             42u64 0u64)))",
+        "(#alias WakeRegister4 = \"{0}/library/wake_tokens.lim::WakeRegister4\")\n(#alias WakeRetire4 = \"{0}/library/wake_tokens.lim::WakeRetire4\")\n(#alias WakeTable4 = \"{0}/library/wake_tokens.lim::WakeTable4\")\n(#alias WakeToken4 = \"{0}/library/wake_tokens.lim::WakeToken4\")\n(#alias wake-table4-create = \"{0}/library/wake_tokens.lim::wake-table4-create\")\n(#alias wake-table4-create-exhausted = \"{0}/library/wake_tokens.lim::wake-table4-create-exhausted\")\n(#alias wake-table4-register = \"{0}/library/wake_tokens.lim::wake-table4-register\")\n(#alias wake-table4-retire = \"{0}/library/wake_tokens.lim::wake-table4-retire\")\n         (#fn main () #u64\n           (#let-mut table WakeTable4 (#call wake-table4-create (:)))\n           (#let invalid WakeRegister4\n             (#call wake-table4-register (: table (#borrow-mut table) : slot 4usize)))\n           (#let invalid-ok #bool (#match invalid\n             (#case WakeRegister4.WakeInvalid4 true) (#case _ false)))\n           (#let first WakeRegister4\n             (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))\n           (#let token WakeToken4 (#match first\n             (#case (WakeRegister4.WakeRegistered4 value) value)\n             (#case _ (#unreachable))))\n           (#let busy WakeRegister4\n             (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))\n           (#let busy-ok #bool (#match busy\n             (#case WakeRegister4.WakeBusy4 true) (#case _ false)))\n           (#let retired WakeRetire4\n             (#call wake-table4-retire (: table (#borrow-mut table) : token token)))\n           (#let retired-ok #bool (#match retired\n             (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))\n           (#let-mut exhausted-table WakeTable4\n             (#call wake-table4-create-exhausted (:)))\n           (#let exhausted WakeRegister4\n             (#call wake-table4-register (: table (#borrow-mut exhausted-table) : slot 1usize)))\n           (#let exhausted-ok #bool (#match exhausted\n             (#case WakeRegister4.WakeExhausted4 true) (#case _ false)))\n           (#forget table) (#forget exhausted-table)\n           (#return (#if\n             (#bool::and invalid-ok\n               (#bool::and busy-ok (#bool::and retired-ok exhausted-ok)))\n             42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("wake-tokens");
@@ -106,7 +76,7 @@ fn wake_authority_is_private_to_its_module() {
         ),
     ] {
         let source = format!(
-            "(#import \"{}/library/wake_tokens.lim\")\n{body}",
+            "(#alias WakeRegister4 = \"{0}/library/wake_tokens.lim::WakeRegister4\")\n(#alias WakeRetire4 = \"{0}/library/wake_tokens.lim::WakeRetire4\")\n(#alias WakeTable4 = \"{0}/library/wake_tokens.lim::WakeTable4\")\n(#alias WakeToken4 = \"{0}/library/wake_tokens.lim::WakeToken4\")\n(#alias wake-table4-create = \"{0}/library/wake_tokens.lim::wake-table4-create\")\n(#alias wake-table4-create-exhausted = \"{0}/library/wake_tokens.lim::wake-table4-create-exhausted\")\n(#alias wake-table4-register = \"{0}/library/wake_tokens.lim::wake-table4-register\")\n(#alias wake-table4-retire = \"{0}/library/wake_tokens.lim::wake-table4-retire\")\n(#alias wake-table4-valid = \"{0}/library/wake_tokens.lim::wake-table4-valid\")\n(#alias wake-token4-generation = \"{0}/library/wake_tokens.lim::wake-token4-generation\")\n(#alias wake-token4-slot = \"{0}/library/wake_tokens.lim::wake-token4-slot\")\n{body}",
             env!("CARGO_MANIFEST_DIR")
         );
         let error = lim::compile_source_to_assembly(
@@ -117,7 +87,11 @@ fn wake_authority_is_private_to_its_module() {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap_err();
-        assert!(error.message.contains(expected), "{name}: {error:?}");
+        let readable = error.message.replace(
+            &format!("{}/library/wake_tokens.lim::", env!("CARGO_MANIFEST_DIR")),
+            "",
+        );
+        assert!(readable.contains(expected), "{name}: {error:?}");
         assert_eq!(error.span.expect("private access source span").source_id, 0);
     }
 }
@@ -126,10 +100,10 @@ fn wake_authority_is_private_to_its_module() {
 fn external_import_prefix_does_not_remove_opacity() {
     let scratch = support::Scratch::new("wake-authority-external");
     let source = format!(
-        "(#import-external \"{}/library/wake_tokens.lim\" ext)
+        "(#alias ExtWakeToken = \"{}/library/wake_tokens.lim::WakeToken4\")
          (#fn main () #u64
-           (#let token ext@WakeToken4 (#struct-literal ext@WakeToken4
-             ((ext@slot 0usize) (ext@generation 1u64))))
+           (#let token ExtWakeToken (#struct-literal ExtWakeToken
+             ((slot 0usize) (generation 1u64))))
            (#return 0u64))",
         env!("CARGO_MANIFEST_DIR")
     );
@@ -144,7 +118,7 @@ fn external_import_prefix_does_not_remove_opacity() {
     assert!(
         error
             .message
-            .contains("cannot construct opaque type 'ext@WakeToken4'"),
+            .contains("WakeToken4' outside its defining module"),
         "{error:?}"
     );
 }
@@ -159,7 +133,7 @@ fn opaque_field_is_not_readable_from_a_foreign_global_initializer() {
          (#const vALUE Private (#struct-literal Private ((value 42u64))))",
     )
     .unwrap();
-    let source = "(#import \"module.lim\")
+    let source = "(#alias vALUE = ./module.lim::vALUE)
       (#const lEAK #u64 (#get vALUE value))
       (#fn main () #u64 (#return lEAK))";
     let result = lim::compile_source_to_assembly(
@@ -173,5 +147,10 @@ fn opaque_field_is_not_readable_from_a_foreign_global_initializer() {
         Ok(_) => panic!("foreign global initializer read an opaque field"),
         Err(error) => error,
     };
-    assert!(error.message.contains("opaque type 'Private'"), "{error:?}");
+    assert!(
+        error
+            .message
+            .contains("Private' outside its defining module"),
+        "{error:?}"
+    );
 }

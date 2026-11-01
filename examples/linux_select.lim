@@ -1,4 +1,14 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-epoll-create = ../library/linux_x86_64.lim::linux-epoll-create)
+(#alias linux-eventfd = ../library/linux_x86_64.lim::linux-eventfd)
+(#alias linux-fcntl = ../library/linux_x86_64.lim::linux-fcntl)
+(#alias linux-inotify-init = ../library/linux_x86_64.lim::linux-inotify-init)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-pselect6 = ../library/linux_x86_64.lim::linux-pselect6)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-select = ../library/linux_x86_64.lim::linux-select)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 (#fn main () #u64
   (#let event #i64 (#call linux-eventfd (: initial-value 7u32)))

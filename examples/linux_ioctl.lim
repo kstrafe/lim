@@ -1,4 +1,10 @@
-(#import "../library/linux_x86_64.lim")
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-ioctl = ../library/linux_x86_64.lim::linux-ioctl)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-pipe2 = ../library/linux_x86_64.lim::linux-pipe2)
+(#alias linux-read = ../library/linux_x86_64.lim::linux-read)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; FIONREAD writes an int; FIONBIO reads an int on Linux x86-64.
 (#fn main () #u64

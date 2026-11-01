@@ -166,14 +166,14 @@ fn parallel_cli_recording_preserves_every_entry() {
 fn editor_checks_all_contexts_including_the_shared_file() {
     let base = directory("multiple-editor");
     let library = base.join("library.lim");
-    let source = "(#fn read-value () #u64 (#return (#call provide ())))";
+    let source = "(#fn read-value () #u64 (#return false))";
     fs::write(&library, source).unwrap();
     let mut contexts = Vec::new();
     for (name, ty, value) in [("app", "#u64", "42u64"), ("test", "#bool", "false")] {
         let entry = base.join(format!("{name}.lim"));
         fs::write(
             &entry,
-            format!("(#import \"library.lim\") (#fn provide () {ty} (#return {value}))"),
+            format!("(#alias read-value = ./library.lim::read-value) (#fn provide () {ty} (#return {value}))"),
         )
         .unwrap();
         contexts.push(LspContext {
@@ -341,8 +341,8 @@ fn context_editor_checks_entry_not_isolated_module_and_reloads_flags() {
     let base = directory("editor");
     let entry = base.join("main.lim");
     let imported = base.join("child.lim");
-    let text = "(#fn child () Number (#return 42u64))";
-    fs::write(&entry, "(#cfg-if (#cfg-is #feature enabled) (#type Number #u64) (#cfg-else (#type Number #bool))) (#import \"child.lim\") (#fn main () #u64 (#return (#call child ())))").unwrap();
+    let text = "(#fn child () #u64 (#return 42u64))";
+    fs::write(&entry, "(#cfg-if (#cfg-is #feature enabled) (#type Number #u64) (#cfg-else (#type Number #bool))) (#alias child = ./child.lim::child) (#fn main () Number (#return (#call child ())))").unwrap();
     let overlays = std::collections::HashMap::from([(imported.clone(), text.to_owned())]);
     let mut config = CompileConfig::default();
     config.set("feature", "enabled");

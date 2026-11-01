@@ -1,5 +1,6 @@
-(#import "../library/cell.lim")
-(#generate #cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+(#alias lim-gen-cell = ../library/cell.lim::#cell)
+
+(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
 (#struct Resource (#linear) ((owned #u64)))
 
 (#struct Bundle () ((left Resource) (right Resource)))

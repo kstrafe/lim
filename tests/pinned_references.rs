@@ -14,22 +14,7 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
                 ""
             };
             let source = format!(
-                "(#import \"/<lim-std>/enum_project.lim\")
-          (#enum Choice () ((Choice.Number {discriminant} #u64) (Choice.Empty 0)))
-          (#generate #enum-project (: enum Choice : variant Choice.Number : payload #u64 : mode #pin-ref{suffix} : name Projection))
-          (#fn main () #u64
-            (#let-mut counter #u64 0u64)
-            (#let-mut owner (#array Choice 1)
-              (#array-of (#array Choice 1) (Choice.Number 42u64)))
-            (#let-else (Projection.Some payload)
-              (#call Projection::project (: source (#pin-borrow{suffix} (#index owner
-                (#block (#set counter (#u64::add-wrap counter 1u64)) 0usize)))))
-              (#else (#return 1u64)))
-            {write}
-            (#let result #u64 (#deref payload))
-            (#drop payload)
-            (#assert (#u64::eq counter 1u64))
-            (#forget owner) (#return result))"
+                "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#enum Choice () ((Choice.Number {discriminant} #u64) (Choice.Empty 0)))\n          (#generate lim-gen-enum-project (: enum Choice : variant Choice.Number : payload #u64 : mode #pin-ref{suffix} : name Projection))\n          (#fn main () #u64\n            (#let-mut counter #u64 0u64)\n            (#let-mut owner (#array Choice 1)\n              (#array-of (#array Choice 1) (Choice.Number 42u64)))\n            (#let-else (Projection.Some payload)\n              (#call Projection::project (: source (#pin-borrow{suffix} (#index owner\n                (#block (#set counter (#u64::add-wrap counter 1u64)) 0usize)))))\n              (#else (#return 1u64)))\n            {write}\n            (#let result #u64 (#deref payload))\n            (#drop payload)\n            (#assert (#u64::eq counter 1u64))\n            (#forget owner) (#return result))"
             );
             check(&source).unwrap();
             let scratch = support::Scratch::new("pinned-computed-payload");

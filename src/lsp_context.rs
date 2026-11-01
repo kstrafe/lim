@@ -346,6 +346,7 @@ impl Builder {
                 values: Default::default(),
                 module_paths: Vec::new(),
                 explicit_keys: HashSet::new(),
+                project_root: None,
             },
             seen: HashSet::new(),
             cfg_seen: HashSet::new(),

@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias linux-getresgid = ../library/linux_x86_64.lim::linux-getresgid)
+(#alias linux-getresuid = ../library/linux_x86_64.lim::linux-getresuid)
+(#alias linux-setfsgid = ../library/linux_x86_64.lim::linux-setfsgid)
+(#alias linux-setfsuid = ../library/linux_x86_64.lim::linux-setfsuid)
+(#alias linux-setgid = ../library/linux_x86_64.lim::linux-setgid)
+(#alias linux-setregid = ../library/linux_x86_64.lim::linux-setregid)
+(#alias linux-setresgid = ../library/linux_x86_64.lim::linux-setresgid)
+(#alias linux-setresuid = ../library/linux_x86_64.lim::linux-setresuid)
+(#alias linux-setreuid = ../library/linux_x86_64.lim::linux-setreuid)
+(#alias linux-setuid = ../library/linux_x86_64.lim::linux-setuid)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
 ; This executable only reapplies its current identity. Never use it as setuid.
 ; SAFETY: memory supplies six exclusively writable #u32 slots.

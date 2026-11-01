@@ -1,4 +1,13 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lINUX-SYS-READ = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-READ)
+(#alias linux-close = ../library/linux_x86_64.lim::linux-close)
+(#alias linux-inotify-add-watch = ../library/linux_x86_64.lim::linux-inotify-add-watch)
+(#alias linux-inotify-init1 = ../library/linux_x86_64.lim::linux-inotify-init1)
+(#alias linux-inotify-rm-watch = ../library/linux_x86_64.lim::linux-inotify-rm-watch)
+(#alias linux-mkdirat = ../library/linux_x86_64.lim::linux-mkdirat)
+(#alias linux-openat = ../library/linux_x86_64.lim::linux-openat)
+(#alias linux-unlinkat = ../library/linux_x86_64.lim::linux-unlinkat)
 
 (#fn main () #u64
   (#let paths (#ptr-mut #u8)

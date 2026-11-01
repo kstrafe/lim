@@ -1,4 +1,10 @@
-(#import "../library/timer_reactor1.lim")
+(#alias TimerCreate1 = ../library/timer_reactor1.lim::TimerCreate1)
+(#alias TimerPoll1 = ../library/timer_reactor1.lim::TimerPoll1)
+(#alias TimerWait1 = ../library/timer_reactor1.lim::TimerWait1)
+(#alias timer-reactor1-cancel = ../library/timer_reactor1.lim::timer-reactor1-cancel)
+(#alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create)
+(#alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll)
+(#alias timer-reactor1-wait = ../library/timer_reactor1.lim::timer-reactor1-wait)
 
 (#fn main () #u64
   (#let invalid TimerCreate1

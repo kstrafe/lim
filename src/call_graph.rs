@@ -400,7 +400,11 @@ fn lower_inner(program: &mut Program) -> Result<(), SourceError> {
     // not be enumerated (and may be exponential).
     let capacity = affected.iter().try_fold(0usize, |total, name| {
         total
-            .checked_add(name.chars().count() + 5 + widths.get(name).copied().unwrap_or(1))
+            .checked_add(
+                crate::file_access::local_name(name).chars().count()
+                    + 5
+                    + widths.get(name).copied().unwrap_or(1),
+            )
             .ok_or("#call-graph buffer size overflow")
     })?;
     let context_ty = Type::Array(Box::new(Type::Char), capacity);
@@ -454,8 +458,9 @@ fn lower_inner(program: &mut Program) -> Result<(), SourceError> {
                 return;
             }
             let label = format!(
-                "{}{name}:{}",
+                "{}{}:{}",
                 if name == "main" { "" } else { " -> " },
+                crate::file_access::local_name(&name),
                 site.line
             );
             let label_length = label.chars().count();

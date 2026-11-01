@@ -1,8 +1,20 @@
-(#import "../library/tasks.lim")
-(#import "../library/local_waker.lim")
-(#import "../library/wake_ready4.lim")
-(#import "../library/async_poll4.lim")
-(#import "../library/timer_reactor1.lim")
+(#alias AsyncPoll4Result = ../library/async_poll4.lim::AsyncPoll4Result)
+(#alias AsyncPollSource4 = ../library/async_poll4.lim::AsyncPollSource4)
+(#alias TimerCreate1 = ../library/timer_reactor1.lim::TimerCreate1)
+(#alias WakeReady4 = ../library/wake_ready4.lim::WakeReady4)
+(#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4)
+(#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4)
+(#alias async-poll4-source = ../library/async_poll4.lim::async-poll4-source)
+(#alias async-poll4-wait = ../library/async_poll4.lim::async-poll4-wait)
+(#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker)
+(#alias lim-gen-task = ../library/tasks.lim::#task)
+(#alias lim-gen-wake-executor = ../library/tasks.lim::#wake-executor)
+(#alias timer-reactor1-cancel = ../library/timer_reactor1.lim::timer-reactor1-cancel)
+(#alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create)
+(#alias timer-reactor1-source = ../library/timer_reactor1.lim::timer-reactor1-source)
+(#alias wake-ready4-create = ../library/wake_ready4.lim::wake-ready4-create)
+(#alias wake-ready4-notify = ../library/wake_ready4.lim::wake-ready4-notify)
+(#alias wake-ready4-register = ../library/wake_ready4.lim::wake-ready4-register)
 
 (#struct WakeExecutor () ((queue WakeReady4)))
 (#struct WakeMetadata (#linear) ((token WakeToken4)))
@@ -22,13 +34,13 @@
   (#forget metadata)
   (#return ()))
 
-(#generate #local-waker
+(#generate lim-gen-local-waker
   (LocalWaker local-waker-create local-waker-wake
     local-waker-wake-by-ref local-waker-clone local-waker-destroy)
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(#generate #task (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady) #u64
+(#generate lim-gen-task (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady) #u64
   ((JobTask.First #u64) (JobTask.Second #u64)))
 
 (#fn job-poll ((task JobTask) (waker (#ref LocalWaker))) JobPoll
@@ -65,7 +77,7 @@
     (#case (JobPoll.JobReady result) (#forget result)))
   (#return ()))
 
-(#generate #wake-executor run-jobs
+(#generate lim-gen-wake-executor run-jobs
   (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
     JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
   (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady #u64 job-poll LocalWaker)

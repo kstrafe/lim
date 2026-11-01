@@ -1,7 +1,20 @@
+(#alias AsyncPoll4Result = ../library/async_poll4.lim::AsyncPoll4Result)
+(#alias AsyncPollSource4 = ../library/async_poll4.lim::AsyncPollSource4)
+(#alias WakeReady4 = ../library/wake_ready4.lim::WakeReady4)
+(#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ../library/wake_tokens.lim::WakeRetire4)
+(#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4)
+(#alias async-poll4-source = ../library/async_poll4.lim::async-poll4-source)
+(#alias async-poll4-wait = ../library/async_poll4.lim::async-poll4-wait)
+(#alias wake-ready4-create = ../library/wake_ready4.lim::wake-ready4-create)
+(#alias wake-ready4-notify = ../library/wake_ready4.lim::wake-ready4-notify)
+(#alias wake-ready4-register = ../library/wake_ready4.lim::wake-ready4-register)
+(#alias wake-ready4-retire = ../library/wake_ready4.lim::wake-ready4-retire)
+
 ;; A pre-published local wake must make the blocking wait return immediately,
 ;; even when the only descriptor is disabled and can never become ready.
-(#import "../library/wake_ready4.lim")
-(#import "../library/async_poll4.lim")
+
+
 
 (#fn main () #u64
   (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))

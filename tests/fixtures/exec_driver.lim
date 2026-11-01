@@ -1,4 +1,12 @@
-(#import "../../library/linux_x86_64.lim")
+(#alias lINUX-SYS-WAIT4 = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WAIT4)
+(#alias linux-close = ../../library/linux_x86_64.lim::linux-close)
+(#alias linux-execve = ../../library/linux_x86_64.lim::linux-execve)
+(#alias linux-execveat = ../../library/linux_x86_64.lim::linux-execveat)
+(#alias linux-exit-group = ../../library/linux_x86_64.lim::linux-exit-group)
+(#alias linux-fork = ../../library/linux_x86_64.lim::linux-fork)
+(#alias linux-mmap = ../../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-openat = ../../library/linux_x86_64.lim::linux-openat)
 
 ; The Rust harness builds exec_target.lim as ./target in a private directory.
 (#fn main () #u64

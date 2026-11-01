@@ -62,20 +62,42 @@ impl Bundles {
         contexts: &mut HashMap<u32, Span>,
         origins: &mut HashMap<u32, Span>,
     ) -> Result<Vec<SpannedExpr>, SourceError> {
-        if contexts.is_empty() {
-            return self.expand(forms, true);
+        if !contexts.is_empty() {
+            self.splice_provenance = Some(SpliceProvenance {
+                contexts: contexts.clone(),
+                base: files.len(),
+                sources: Vec::new(),
+            });
         }
-        self.splice_provenance = Some(SpliceProvenance {
-            contexts: contexts.clone(),
-            base: files.len(),
-            sources: Vec::new(),
-        });
         let result = self.expand(forms, true);
-        let provenance = self.splice_provenance.take().unwrap();
-        *contexts = provenance.contexts;
-        for (file, origin) in provenance.sources {
-            origins.insert(files.len() as u32, origin);
-            files.push(file);
+        if let Some(provenance) = self.splice_provenance.take() {
+            *contexts = provenance.contexts;
+            for (file, origin) in provenance.sources {
+                origins.insert(files.len() as u32, origin);
+                files.push(file);
+            }
+        }
+        if result.is_ok() {
+            // Bundles disappear before runtime parsing. Retain their validated
+            // declaration identities, including bundles synthesized by another
+            // generator after the ordinary file-resolution pass.
+            for (name, definition) in &self.definitions {
+                let mut source = definition.span.source_id;
+                for _ in 0..origins.len() {
+                    let Some(origin) = origins.get(&source) else {
+                        break;
+                    };
+                    source = origin.source_id;
+                }
+                if let Some(scope) = files
+                    .get_mut(source as usize)
+                    .and_then(|file| file.file_scope.as_mut())
+                {
+                    std::sync::Arc::make_mut(scope)
+                        .declared
+                        .insert(name.clone());
+                }
+            }
         }
         result
     }
@@ -294,7 +316,6 @@ impl Bundles {
                             file_scope: None,
                             path: "<generated syntax splice>".into(),
                             source: text,
-                            import_prefix: String::new(),
                         },
                         current.span,
                     ));

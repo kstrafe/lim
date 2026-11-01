@@ -1,6 +1,9 @@
-(#import "../library/tasks.lim")
+(#alias lim-gen-async = ../library/tasks.lim::#async)
+(#alias lim-gen-executor = ../library/tasks.lim::#executor)
+(#alias lim-gen-task = ../library/tasks.lim::#task)
+(#alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel)
 
-(#generate #task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64)))
+(#generate lim-gen-task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64)))
 
 (#fn count-poll ((task Count)) CountPoll
   (#return (#match task
@@ -12,7 +15,7 @@
 (#fn next-count ((value #u64)) Count
   (#return (Count.Counting value)))
 
-(#generate #async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
+(#generate lim-gen-async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
   ((Pipeline.Begin (#await Count CountPoll.CountPending CountPoll.CountReady count-poll)
      (#then Pipeline.Finish next-count))
    (Pipeline.Finish (#await Count CountPoll.CountPending CountPoll.CountReady count-poll)
@@ -22,10 +25,10 @@
   (#match task (#case (Count.Counting remaining) (#forget remaining)))
   (#return ()))
 
-(#generate #task-cancel cancel-pipeline Pipeline
+(#generate lim-gen-task-cancel cancel-pipeline Pipeline
   ((Pipeline.Begin cancel-count) (Pipeline.Finish cancel-count)))
 
-(#generate #executor run-pipeline Results
+(#generate lim-gen-executor run-pipeline Results
   ((pipeline Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll #u64 pipeline-input)
    (counter Count CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 counter-input)))
 

@@ -1,4 +1,13 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-PRCTL = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-PRCTL)
+(#alias lINUX-SYS-WAIT4 = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WAIT4)
+(#alias linux-exit = ../library/linux_x86_64.lim::linux-exit)
+(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
+(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
+(#alias linux-pkey-alloc = ../library/linux_x86_64.lim::linux-pkey-alloc)
+(#alias linux-pkey-free = ../library/linux_x86_64.lim::linux-pkey-free)
+(#alias linux-pkey-mprotect = ../library/linux_x86_64.lim::linux-pkey-mprotect)
+(#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
 ; Requires Linux x86-64 with protection-key support enabled (PKU/OSPKE).
 (#fn main () #u64

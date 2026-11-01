@@ -1,3 +1,8 @@
-; Only this API is available through an external import.
+(#alias Counter = ./storage.lim::Counter)
+(#alias counter-destroy = ./storage.lim::counter-destroy)
+(#alias counter-new = ./storage.lim::counter-new)
+(#alias counter-read = ./storage.lim::counter-read)
+(#alias counter-reader = ./storage.lim::counter-reader)
+
+; Only this API is available through references from outside this library.
 (#export Counter counter-new counter-read counter-destroy counter-reader)
-(#import "storage.lim")

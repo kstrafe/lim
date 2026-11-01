@@ -342,3 +342,104 @@ fn file_looking_strings_remain_literal_data() {
     }
     check(scratch.path(), "(#gn ignore (value) `()) (#generate ignore ./does-not-exist.lim::literal) (#fn main () #u64 (#return 42u64))").unwrap();
 }
+
+#[test]
+fn project_root_paths_are_shared_across_nested_sources() {
+    let scratch = support::Scratch::new("project-root-references");
+    write(
+        scratch.path(),
+        "lim.project",
+        "schema-version = 1\nname = Root\n",
+    );
+    write(
+        scratch.path(),
+        "shared/value.lim",
+        "(#fn read () #u64 (#return 42u64))",
+    );
+    write(
+        scratch.path(),
+        "src/helper.lim",
+        "(#alias read = //shared/value.lim::read) (#fn run () #u64 (#return (#call read ())))",
+    );
+    let program = lim::parse_program_from_path(
+        "(#alias run = //src/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
+        &scratch.path().join("src/bin/main.lim"),
+    )
+    .unwrap();
+    lim::check_types(&program).unwrap();
+}
+
+#[test]
+fn standalone_root_paths_use_the_principal_sources_directory() {
+    let scratch = support::Scratch::new("standalone-root-references");
+    write(
+        scratch.path(),
+        "value.lim",
+        "(#fn read () #u64 (#return 42u64))",
+    );
+    write(
+        scratch.path(),
+        "nested/helper.lim",
+        "(#alias read = //value.lim::read) (#fn run () #u64 (#return (#call read ())))",
+    );
+    check(
+        scratch.path(),
+        "(#alias run = //nested/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
+    )
+    .unwrap();
+}
+
+#[test]
+fn project_root_references_reject_parent_escape() {
+    let scratch = support::Scratch::new("project-root-parent-escape");
+    let error = check(scratch.path(), "(#alias read = //../value.lim::read)").unwrap_err();
+    assert!(error.contains("cannot contain"), "{error}");
+}
+
+#[test]
+fn removed_import_forms_have_no_compatibility_path() {
+    let scratch = support::Scratch::new("removed-imports");
+    write(
+        scratch.path(),
+        "value.lim",
+        "(#fn read () #u64 (#return 42u64))",
+    );
+    for source in [
+        "(#import \"value.lim\")",
+        "(#import-external \"value.lim\" old)",
+    ] {
+        let error = check(scratch.path(), source).unwrap_err();
+        assert!(error.contains("unknown"), "{error}");
+    }
+}
+
+#[test]
+fn definition_references_survive_nested_generator_signature_templates() {
+    let scratch = support::Scratch::new("file-generator-signature-helper");
+    write(scratch.path(), "generator.lim", "(#gn-fn parameter () `(value #u64)) (#gn declare (name) `((#fn ,name (,(#gn-call @parameter)) #u64 (#return value))))");
+    check(scratch.path(), "(#alias declare = ./generator.lim::declare) (#generate declare answer) (#fn main () #u64 (#return (#call answer (: value 42u64))))").unwrap();
+}
+
+#[test]
+fn generation_requirements_use_the_actual_files_declaration() {
+    let scratch = support::Scratch::new("file-generation-proof");
+    for file in ["first.lim", "second.lim"] {
+        write(
+            scratch.path(),
+            file,
+            "(#gn make (name) `((#struct ,name () ()))) (#generate make Thing)",
+        );
+    }
+    let aliases = "(#alias First = ./first.lim::Thing) (#alias Second = ./second.lim::Thing) (#alias make-first = ./first.lim::make)";
+    check(
+        scratch.path(),
+        &format!(
+            "{aliases} (#require-generated First make-first) (#fn main () #u64 (#return 0u64))"
+        ),
+    )
+    .unwrap();
+    for name in ["Second", "Thing"] {
+        let error = check(scratch.path(), &format!("{aliases} (#require-generated {name} make-first) (#fn main () #u64 (#return 0u64))")).unwrap_err();
+        assert!(error.contains("was not generated"), "{error}");
+    }
+}

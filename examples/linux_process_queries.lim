@@ -1,4 +1,16 @@
-(#import "../library/linux_x86_64.lim")
+(#alias lINUX-SYS-GETRLIMIT = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-GETRLIMIT)
+(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lINUX-SYS-SCHED-GET-PRIORITY-MAX = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-SCHED-GET-PRIORITY-MAX)
+(#alias lINUX-SYS-SCHED-GET-PRIORITY-MIN = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-SCHED-GET-PRIORITY-MIN)
+(#alias linux-getcpu = ../library/linux_x86_64.lim::linux-getcpu)
+(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
+(#alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid)
+(#alias linux-sched-getattr = ../library/linux_x86_64.lim::linux-sched-getattr)
+(#alias linux-sched-getscheduler = ../library/linux_x86_64.lim::linux-sched-getscheduler)
+(#alias linux-sched-rr-get-interval = ../library/linux_x86_64.lim::linux-sched-rr-get-interval)
+(#alias linux-sysinfo = ../library/linux_x86_64.lim::linux-sysinfo)
+(#alias linux-tgkill = ../library/linux_x86_64.lim::linux-tgkill)
 
 (#fn main () #u64
   (#let pid #i64 (#call linux-getpid (:)))

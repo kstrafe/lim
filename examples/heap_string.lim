@@ -1,5 +1,11 @@
-(#import "../library/string.lim")
-(#import "../library/linux_x86_64.lim")
+(#alias String::byte-at = ../library/string.lim::String::byte-at)
+(#alias String::free = ../library/string.lim::String::free)
+(#alias String::from-chars = ../library/string.lim::String::from-chars)
+(#alias String::len = ../library/string.lim::String::len)
+(#alias StringByteResult = ../library/string.lim::StringByteResult)
+(#alias StringCreateResult = ../library/string.lim::StringCreateResult)
+(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+
 (
   #fn
   main

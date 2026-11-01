@@ -1,6 +1,7 @@
-(#import "../../library/linux_x86_64.lim")
-(#import "../../library/pin_box.lim")
-(#import "../../library/pin.lim")
+(#alias lINUX-SYS-MMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
+(#alias lINUX-SYS-MUNMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
+(#alias lim-gen-pin-box = ../../library/pin_box.lim::#pin-box)
+
 
 (#struct Arena () ((identity #u64) (fail #bool)))
 (#enum ArenaError () (ArenaError.OutOfMemory))
@@ -9,7 +10,7 @@
 (#enum Arena::Allocator::Allocation ()
   ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
    (Arena::Allocator::Allocation.AllocationFailed ArenaError)))
-(#generate #pin-box (: type #u64 : allocator Arena::Allocator : name PinU64Box : destroy destroy-u64))
+(#generate lim-gen-pin-box (: type #u64 : allocator Arena::Allocator : name PinU64Box : destroy destroy-u64))
 
 (#fn Arena::Allocator::allocate
   ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation

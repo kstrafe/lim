@@ -1,5 +1,7 @@
+(#alias lim-gen-allocator-for = /<lim-std>/allocator.lim::#allocator-for)
+
 ;; Allocator owned stable storage exposed only through native pinned references.
-(#import "/<lim-std>/allocator.lim")
+
 (#gn-fn pin-box-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-box-check (option keys)
   (#gn-if (#gn-equal (#gn-length option) 2)
@@ -10,7 +12,7 @@
     (#gn-error "#generate #pin-box options must be (key value) pairs")))
 
 (#gn-fn pin-box-build (o adapter checked)
-  `((#generate #allocator-for (: allocator ,(#gn-get o allocator) : type ,(#gn-get o type) : name ,adapter : operations (allocate deallocate)))
+  `((#generate lim-gen-allocator-for (: allocator ,(#gn-get o allocator) : type ,(#gn-get o type) : name ,adapter : operations (allocate deallocate)))
     (#enum ,(#gn-call pin-box-name (#gn-get o name) "CreateResult") ()
       ((,(#gn-variant (#gn-call pin-box-name (#gn-get o name) "CreateResult") "Created") ,(#gn-get o name))
        (,(#gn-variant (#gn-call pin-box-name (#gn-get o name) "CreateResult") "Allocation-failed")

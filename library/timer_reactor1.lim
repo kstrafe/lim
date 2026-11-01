@@ -1,9 +1,28 @@
+(#alias AsyncPollSource4 = ./async_poll4.lim::AsyncPollSource4)
+(#alias WakeReady4 = ./wake_ready4.lim::WakeReady4)
+(#alias WakeRegister4 = ./wake_tokens.lim::WakeRegister4)
+(#alias WakeRetire4 = ./wake_tokens.lim::WakeRetire4)
+(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
+(#alias async-poll4-source = ./async_poll4.lim::async-poll4-source)
+(#alias lINUX-SYS-TIMERFD-SETTIME = ./linux_x86_64_syscall_numbers.lim::lINUX-SYS-TIMERFD-SETTIME)
+(#alias linux-close = ./linux_x86_64.lim::linux-close)
+(#alias linux-mmap = ./linux_x86_64.lim::linux-mmap)
+(#alias linux-munmap = ./linux_x86_64.lim::linux-munmap)
+(#alias linux-poll = ./linux_x86_64.lim::linux-poll)
+(#alias linux-read = ./linux_x86_64.lim::linux-read)
+(#alias linux-timerfd-create = ./linux_x86_64.lim::linux-timerfd-create)
+(#alias wake-ready4-create = ./wake_ready4.lim::wake-ready4-create)
+(#alias wake-ready4-notify = ./wake_ready4.lim::wake-ready4-notify)
+(#alias wake-ready4-register = ./wake_ready4.lim::wake-ready4-register)
+(#alias wake-ready4-retire = ./wake_ready4.lim::wake-ready4-retire)
+(#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
+
 ;; One::shot Linux timer with owned kernel resources and a validated local wake.
 ;; The kernel never retains the scratch mapping after a synchronous poll/read
 ;; syscall returns. Cancel closes the fd before unmapping its storage.
-(#import "linux_x86_64.lim")
-(#import "wake_ready4.lim")
-(#import "async_poll4.lim")
+
+
+
 
 (#struct TimerReactor1 (#linear)
   ((fd #i64) (memory (#ptr-mut #u8)) (queue WakeReady4) (token WakeToken4)))

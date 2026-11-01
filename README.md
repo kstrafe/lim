@@ -80,7 +80,7 @@ nix develop --command cargo run -- --check-examples examples
 
 Compile-time configuration is passed with `--cfg key=value`; use
 `--collect-cfgs` to list configuration keys used by a source file and its
-imports. See `cargo run -- --help` for the CLI options.
+dependencies. See `cargo run -- --help` for the CLI options.
 Editors can request `--diagnostic-format=json`; the versioned schema is
 described in [docs/diagnostics.md](docs/diagnostics.md).
 
@@ -105,9 +105,9 @@ fully inspectable even when its unused functions are omitted from the binary.
 Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
 every example against `examples/outcomes.txt`. Each entry declares an exact
 exit code, intentional signal, or compile-only module, plus stdout/stderr
-fixtures. A module's expected column may name its complete importing entry
+fixtures. A module's expected column may name its complete entry graph
 instead of `-`, so distributed-enum declaration fragments are checked with
-their contributors. The harness verifies that the entry imports the module.
+their contributors. The harness verifies that the entry references the module.
 `graph-exit` selects `--cfg async-lowering=graph` for explicit
 graph-route coverage; graph lowering is also the default.
 `-` means empty output. Missing entries, unexpected signals, wrong output,
@@ -233,8 +233,8 @@ then nested results; paths within each group are sorted. Duplicate paths are
 printed only once, with direct selection taking precedence. A selection with
 no active invocation produces no paths.
 
-The entry point determines the import graph. Supply the same `--cfg`,
-`--target`, and `--module-path` options as for compilation. Lookup uses the
+The entry point determines the file dependency graph. Supply the same `--cfg`
+and `--target` options as for compilation. Lookup uses the
 current expansion and its content-addressed cache, not historical source
 locations in cached file headers. Changed generator inputs therefore resolve
 to the new artifact even when older files remain in `.lim/generated`.
@@ -243,10 +243,11 @@ to the new artifact even when older files remain in `.lim/generated`.
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
 diagnostics for unsaved buffers and imports, formatting, document symbols,
-and source-role definitions across the selected import graph,
-including external import prefixes. Navigation on an import path or keyword
-opens the imported file, using the compiler's module-path search order and
-unsaved buffers. Ordinary declarations remain navigable despite unrelated
+and source-role definitions across the selected dependency graph.
+Navigation on an alias target or direct file reference opens its declaration,
+including declarations in unsaved buffers. Relative `./` paths use the source
+file's directory; `//` paths use the entry point's nearest `lim.project`
+directory, or its own directory when no manifest exists. Ordinary declarations remain navigable despite unrelated
 type errors. Enum variants in `#case`, `#case-ref`, `#case-ref-mut`, `#case-pin`,
 and `#case-pin-mut` navigate to their exact declaration names, including
 generated variants and distributed-enum contributions. Payload bindings and

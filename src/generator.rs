@@ -232,8 +232,8 @@ impl Origins {
                 |visibility| visibility.module_context(span),
             )
         };
-        let (definition_module, definition_prefix) = descriptor(definition);
-        let (invocation_module, invocation_prefix) = descriptor(invocation);
+        let (definition_module, definition_file) = descriptor(definition);
+        let (invocation_module, invocation_file) = descriptor(invocation);
         let pair = |key: &str, value: String| {
             Expr::List(vec![Expr::Symbol(key.into()), Expr::String(value)])
         };
@@ -242,9 +242,9 @@ impl Origins {
             Expr::List(vec![
                 pair("producer", producer.into()),
                 pair("definition-module", definition_module),
-                pair("definition-prefix", definition_prefix),
+                pair("definition-file", definition_file),
                 pair("invocation-module", invocation_module),
-                pair("invocation-prefix", invocation_prefix),
+                pair("invocation-file", invocation_file),
             ]),
         ]);
         crate::expression_source(&header).expect("context header contains only reader syntax")
@@ -679,7 +679,6 @@ fn expand_with_hits_and_origins(
                         )
                         .into(),
                         source: text,
-                        import_prefix: String::new(),
                     },
                     expression.span,
                 ));
@@ -972,10 +971,21 @@ fn expand_top(
         return Ok(vec![expression]);
     };
     if !matches!(items.first(), Some(Expr::Generate)) {
-        context
-            .origins
-            .generation
-            .record(&expression.expr, &context.generation_origins);
+        let source = context
+            .invocation_span
+            .map(|span| context.origins.invocation_origin(span).source_id);
+        if let Some(source) = source {
+            context.origins.generation.record_in_source(
+                &expression.expr,
+                &context.generation_origins,
+                source,
+            );
+        } else {
+            context
+                .origins
+                .generation
+                .record(&expression.expr, &context.generation_origins);
+        }
         return Ok(vec![expression]);
     }
     let Some(Expr::Symbol(name)) = items.get(1) else {
