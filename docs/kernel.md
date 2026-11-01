@@ -375,10 +375,20 @@ constructor supplies one result index per declared index, and those terms may
 refer to the parameters and all its fields. Field types and result indices are
 checked at exact arity and universe. `#pt-self-at` marks direct recursive
 fields in an indexed family and takes explicit index terms; datatype parameters
-are inherited implicitly from the declaration. Bare `#pt-self` remains for
-regular inductives only. Mutual recursion and nested self occurrences remain
-unsupported, as do negative occurrences and self occurrences in the current
-family's indices.
+are inherited implicitly from the declaration. `#pt-self` and `#pt-self-at`
+may also occur as terminal codomains under zero or more `#pt-pi` binders. This
+supports strictly positive function fields, including dependent function
+telescopes; the current family may not occur anywhere in a function domain,
+including double-negative positions. No self occurrence is allowed in the
+current family's indices. Mutual recursion and recursion nested in containers
+or Sigma types remain unsupported.
+
+A checked `#pt-let` wrapper is permitted along a Pi codomain only when its
+annotation and value contain no occurrence of the current family. The kernel
+sort-checks the annotation and type-checks the value before zeta substitution,
+then continues the positivity check in the instantiated body. This does not
+allow recursive aliases in definitions or recursion hidden in Sigma types or
+applications.
 
 A small datatype with no parameters is:
 
@@ -487,6 +497,14 @@ immediately followed by an induction hypothesis at that child's indices. The
 branch result is checked at the constructor's declared result indices.
 Regular `#pt-induct` keeps its existing syntax and behavior.
 
+For function-valued recursive fields, the branch supplies the field followed
+by a pointwise induction hypothesis. For example, a fan node may carry
+`children : Π key : Nat, Self`; its branch receives `children` and then
+`ih : Π key : Nat, motive (children key)`. During reduction the recursive
+branch is applied as `λ key, recurse (children key)`, using each child's
+actual indices for indexed families. Existing direct recursive-field cases
+retain their branch shape and reduction behavior.
+
 As a proposition-valued example, this family has evidence only at zero:
 
 ```lisp
@@ -512,9 +530,10 @@ As a proposition-valued example, this family has evidence only at zero:
       h)))
 ```
 
-The kernel checks constructor types, recursive positions, result indices,
-branch types, and universe constraints. It rejects nested, negative, or
-current-index occurrences of the family.
+The kernel checks constructor types, strictly positive recursive positions,
+result indices, branch types, and universe constraints. It rejects negative
+and current-index occurrences of the family, as well as recursion nested in
+containers or Sigma types.
 
 ## Falsehood and elimination from propositions
 

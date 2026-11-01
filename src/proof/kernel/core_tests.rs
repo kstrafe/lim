@@ -933,6 +933,193 @@ fn indexed_recursive_ih_insertion_preserves_later_index_dependent_fields() {
 }
 
 #[test]
+fn recursive_function_fields_create_typed_lambda_hypotheses_in_open_contexts() {
+    let mut k = Kernel::new();
+    k.inductive(
+        "Fan",
+        vec![],
+        vec![],
+        level(1),
+        vec![
+            ("leaf".into(), vec![]),
+            ("node".into(), vec![pi(nat(), term(Term::SelfType))]),
+        ],
+    )
+    .unwrap();
+    let fan = global("Fan");
+    let motive = lam(fan.clone(), nat());
+    let (family, _) = k.family("Fan", &[], 0).unwrap();
+    let branch_type = k
+        .branch_type(&[], "Fan", &[], &[], &motive, &family.constructors[1], 0)
+        .unwrap();
+    let ctx = vec![branch_type];
+    let children = lam(nat(), ctor("Fan", vec![], "leaf", vec![]));
+    let value = term(Term::Induct {
+        family: "Fan".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![],
+        motive,
+        branches: vec![zero(), var(0)],
+        subject: ctor("Fan", vec![], "node", vec![children]),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    let reduced = k.whnf(&ctx, &value, 0).unwrap();
+    k.check(&ctx, &reduced, &nat(), 0).unwrap();
+    let Term::App(_, ih) = reduced.as_ref() else {
+        panic!("expected a pointwise IH argument")
+    };
+    k.check(&ctx, ih, &pi(nat(), nat()), 0).unwrap();
+    assert!(matches!(ih.as_ref(), Term::Lam(..)));
+    assert!(k
+        .convertible(&ctx, &app(ih.clone(), zero()), &zero(), 0)
+        .unwrap());
+}
+
+#[test]
+fn indexed_function_hypotheses_use_the_argument_index_not_the_parent() {
+    let mut k = Kernel::new();
+    k.indexed_inductive(
+        "Path",
+        vec![],
+        vec![],
+        vec![nat()],
+        level(1),
+        vec![
+            ("leaf".into(), vec![nat()], vec![var(0)]),
+            (
+                "node".into(),
+                vec![nat(), pi(nat(), term(Term::SelfAt(vec![var(0)])))],
+                vec![var(1)],
+            ),
+        ],
+    )
+    .unwrap();
+    let motive = lam(nat(), lam(app(global("Path"), var(0)), nat()));
+    let (family, _) = k.family("Path", &[], 0).unwrap();
+    let branch_type = k
+        .branch_type(&[], "Path", &[], &[], &motive, &family.constructors[1], 0)
+        .unwrap();
+    let ctx = vec![branch_type];
+    let value = term(Term::Induct {
+        family: "Path".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![succ(zero())],
+        motive,
+        branches: vec![lam(nat(), zero()), var(0)],
+        subject: ctor(
+            "Path",
+            vec![],
+            "node",
+            vec![
+                succ(zero()),
+                lam(nat(), ctor("Path", vec![], "leaf", vec![var(0)])),
+            ],
+        ),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    let reduced = k.whnf(&ctx, &value, 0).unwrap();
+    k.check(&ctx, &reduced, &nat(), 0).unwrap();
+    let Term::App(_, ih) = reduced.as_ref() else {
+        panic!("expected pointwise IH")
+    };
+    let Term::Lam(_, body) = ih.as_ref() else {
+        panic!("expected lambda IH")
+    };
+    let Term::Induct { indices, .. } = body.as_ref() else {
+        panic!("expected child recursor")
+    };
+    assert!(matches!(indices[0].as_ref(), Term::Var(0)));
+}
+
+#[test]
+fn dependent_function_hypotheses_shift_later_fields_and_uniform_parameters() {
+    let mut k = Kernel::new();
+    let function_field = pi(nat(), pi(eq(nat(), var(0), var(1)), term(Term::SelfType)));
+    k.inductive(
+        "DependentFan",
+        vec![],
+        vec![sort(1)],
+        level(1),
+        vec![
+            ("leaf".into(), vec![]),
+            (
+                "node".into(),
+                vec![nat(), function_field, eq(nat(), var(1), var(1))],
+            ),
+        ],
+    )
+    .unwrap();
+    let family_at = |a| app(global("DependentFan"), a);
+    let ctx = vec![sort(1)];
+    let params = vec![var(0)];
+    let children = lam(
+        nat(),
+        lam(
+            eq(nat(), var(0), zero()),
+            ctor("DependentFan", vec![var(2)], "leaf", vec![]),
+        ),
+    );
+    let function_ty = pi(nat(), pi(eq(nat(), var(0), var(1)), family_at(var(3))));
+    let ih_ty = pi(nat(), pi(eq(nat(), var(0), var(2)), nat()));
+    let branch = lam(
+        nat(),
+        lam(
+            function_ty,
+            lam(
+                ih_ty,
+                lam(
+                    eq(nat(), var(2), var(2)),
+                    succ(app(app(var(1), var(3)), refl(nat(), var(3)))),
+                ),
+            ),
+        ),
+    );
+    let value = term(Term::Induct {
+        family: "DependentFan".into(),
+        levels: vec![],
+        parameters: params.clone(),
+        indices: vec![],
+        motive: lam(family_at(var(0)), nat()),
+        branches: vec![zero(), branch],
+        subject: ctor(
+            "DependentFan",
+            params,
+            "node",
+            vec![zero(), children, refl(nat(), zero())],
+        ),
+    });
+    k.check(&ctx, &value, &nat(), 0).unwrap();
+    assert!(k.convertible(&ctx, &value, &succ(zero()), 0).unwrap());
+}
+
+#[test]
+fn positive_recursive_let_wrappers_cannot_erase_bad_definitions() {
+    let field = |value| term(Term::Let(nat(), value, pi(nat(), term(Term::SelfType))));
+    let mut k = Kernel::new();
+    k.inductive(
+        "LetFan",
+        vec![],
+        vec![],
+        level(1),
+        vec![("node".into(), vec![field(zero())])],
+    )
+    .unwrap();
+    let error = k
+        .inductive(
+            "BadLetFan",
+            vec![],
+            vec![],
+            level(1),
+            vec![("node".into(), vec![field(refl(nat(), zero()))])],
+        )
+        .unwrap_err();
+    assert!(error.contains("type mismatch"), "{error}");
+    assert!(!k.contains("BadLetFan"));
+}
+
+#[test]
 fn maximal_malformed_variable_index_returns_error_instead_of_panicking() {
     let mut k = Kernel::new();
     // Public declaration checking reaches infer(Var), whose index+1 must be checked.

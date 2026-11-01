@@ -340,6 +340,17 @@ Field values, induction motives, branch terms and subjects use the current term
 scope. Lists of parameter values, field values and branches are containers, so
 their first element is a term rather than a keyword or implicit call head.
 
+Recursive function fields use the same sequential `#pt-pi` scope rules as
+ordinary kernel functions. Each nested domain can refer to earlier arguments;
+`#pt-self-at` indices in recursive field types can refer to datatype
+parameters, earlier constructor fields, and in-scope function arguments.
+Datatype indices are not in scope in constructor fields or constructor result
+indices. A field is not in scope in its own type. Function argument names
+remain local to that recursive field: they do not enter constructor result
+indices or later field types. Constructor-label navigation continues to select
+the constructor declaration. Tests cover these roles and the negative scope
+boundaries in `tests/kernel_navigation.rs`.
+
 `#pt-app`, `#pt-eq`, `#pt-refl`, `#pt-eq-elim`, `#pt-pair`, `#pt-first`,
 `#pt-second`, `#pt-succ` and `#pt-nat-induct` navigate every term operand with
 these same kernel roles. `#pt-numeral` carries integer metadata. All kernel

@@ -558,6 +558,95 @@ fn indexed_inductive_roles_respect_index_and_constructor_visibility() {
 }
 
 #[test]
+fn recursive_function_fields_keep_nested_pi_and_self_index_scopes_local() {
+    run(
+        r#"
+      (#math-inductive [[datatype|tree]] ()
+        (([[parameter|a]] (#pt-type 0)))
+        (#[[indices-keyword|indices]]
+          (#parameter [[index|n]] #pt-nat)
+          (#parameter [[dependent-index|w]] (#pt-eq #pt-nat [[prior-index-left|n]] [[prior-index-right|n]])))
+        (#pt-type 0)
+        (([[constructor|node]]
+          (
+            ([[seed-field|seed]] #pt-nat)
+            ([[label-field|children]]
+              (#pt-pi (([[outer-arg|x]] #pt-nat))
+                (#pt-pi (([[dependent-arg|y]] (#pt-eq #pt-nat [[outer-use|x]] [[outer-use-right|x]]))
+                         ([[seed-dependent|z]] (#pt-eq #pt-nat [[seed-use|seed]] [[seed-use-right|seed]]))
+                         ([[element-field|element]] [[family-param-use|a]]))
+                  (#pt-self-at ([[outer-index-use|x]] [[field-index-use|seed]] [[inner-index-use|y]])))))
+          )
+          (
+            [[result-seed-use|seed]]
+            (#pt-refl #pt-nat [[result-seed-refl-use|seed]])
+          )
+        )))
+      (#math-definition build () #pt-nat
+        (#pt-lambda (([[build-a|a]] (#pt-type 0)))
+          (#pt-construct [[datatype-use|tree]] () ([[type-argument|a]]) [[constructor-use|node]]
+            (#pt-zero
+             (#pt-lambda ((x #pt-nat)
+                          (y (#pt-eq #pt-nat x x))
+                          (z (#pt-eq #pt-nat #pt-zero #pt-zero))
+                          (element a))
+               (#pt-self-at (x #pt-zero y)))))))
+      (#math-definition build-external () #pt-nat
+        (#pt-construct tree () ([[external-family-param|a]]) node (#pt-zero #pt-zero)))
+      (#math-definition outside-index () #pt-nat [[leaked-generic-index|n]])
+      (#math-definition outside () #pt-nat [[outside-y|y]])
+    "#,
+        &[
+            ("datatype", &["datatype"]),
+            ("parameter", &["parameter"]),
+            ("index", &["index"]),
+            ("dependent-index", &["dependent-index"]),
+            ("prior-index-left", &["index"]),
+            ("prior-index-right", &["index"]),
+            ("indices-keyword", &[]),
+            ("constructor", &["constructor"]),
+            ("seed-field", &["seed-field"]),
+            ("label-field", &["label-field"]),
+            ("outer-arg", &["outer-arg"]),
+            ("dependent-arg", &["dependent-arg"]),
+            ("outer-use", &["outer-arg"]),
+            ("outer-use-right", &["outer-arg"]),
+            ("seed-dependent", &["seed-dependent"]),
+            ("seed-use", &["seed-field"]),
+            ("seed-use-right", &["seed-field"]),
+            ("element-field", &["element-field"]),
+            ("family-param-use", &["parameter"]),
+            ("outer-index-use", &["outer-arg"]),
+            ("field-index-use", &["seed-field"]),
+            ("inner-index-use", &["dependent-arg"]),
+            ("leaked-generic-index", &[]),
+            ("result-seed-use", &["seed-field"]),
+            ("result-seed-refl-use", &["seed-field"]),
+            ("datatype-use", &["datatype"]),
+            ("type-argument", &["build-a"]),
+            ("constructor-use", &["constructor"]),
+            ("build-a", &["build-a"]),
+            ("external-family-param", &[]),
+            ("outside-y", &[]),
+        ],
+    );
+
+    for source in [
+        r#"(#math-inductive tree () ((a (#pt-type 0)))
+             (#indices (#parameter n #pt-nat)) (#pt-type 0)
+             ((node ((child (#pt-pi ((arg #pt-nat)) (#pt-self-at ([[query|n]])))))
+               (#pt-zero))))"#,
+        r#"(#math-inductive tree () ((a (#pt-type 0)))
+             (#indices (#parameter n #pt-nat)) (#pt-type 0)
+             ((node ((child (#pt-pi ((arg #pt-nat)) #pt-self))
+                     (later [[query|arg]])) (#pt-zero))))"#,
+    ] {
+        lim::parse(source).expect("scope-negative fixture must have balanced S-expressions");
+        run(source, &[("query", &[])]);
+    }
+}
+
+#[test]
 fn indexed_forms_reject_malformed_clauses_arities_and_binders() {
     run(
         r#"

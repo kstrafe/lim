@@ -1,0 +1,50 @@
+; Accessibility says that every predecessor is accessible. A child function
+; takes a predecessor and relation evidence, returning its accessibility proof.
+(#math-inductive accessible (u)
+  ((A (#pt-type u)) (relation (#pt-pi ((from A) (to A)) #pt-prop)))
+  (#indices
+    (#parameter at A))
+  #pt-prop
+  (
+    (intro
+      (
+        (point A)
+        (lower
+          (#pt-pi ((previous A) (edge (#pt-app relation previous point))) (#pt-self-at (previous)))))
+      (point))))
+; An accessible point cannot have a self edge. The IH is pointwise over both
+; the predecessor and edge evidence, at the predecessor's actual index.
+(#theorem accessible-no-self-edge
+  (#universes u)
+  (#parameters
+    (#parameter A (#pt-type u))
+    (#parameter relation (#pt-pi ((from A) (to A)) #pt-prop))
+    (#parameter point A)
+    (#parameter proof (#pt-app (#pt-use accessible (u)) A relation point)))
+  (#statement (#pt-pi ((loop (#pt-app relation point point))) #pt-false))
+  (#proof
+    (#pt-induct
+      accessible
+      (u)
+      (A relation)
+      (#indices point)
+      (#pt-lambda
+        ((index A) (accessible-proof (#pt-app (#pt-use accessible (u)) A relation index)))
+        (#pt-pi ((self-edge (#pt-app relation index index))) #pt-false))
+      (
+        (#pt-lambda
+          (
+            (current A)
+            (lower
+              (#pt-pi
+                ((previous A) (edge (#pt-app relation previous current)))
+                (#pt-app (#pt-use accessible (u)) A relation previous)))
+            (ih
+              (#pt-pi
+                ((previous A) (edge (#pt-app relation previous current)))
+                (#pt-pi ((self-edge (#pt-app relation previous previous))) #pt-false))))
+          (#pt-lambda ((loop (#pt-app relation current current))) (#pt-app ih current loop loop))))
+      proof)))
+
+(#fn main () #u64
+  (#return 42u64))

@@ -466,3 +466,5 @@ exit 42 proof_eta.lim - -
 exit 42 proof_unit.lim - -
 exit 42 proof_let.lim - -
 exit 42 proof_indexed.lim - -
+exit 42 proof_function_fields.lim - -
+exit 42 proof_accessibility.lim - -

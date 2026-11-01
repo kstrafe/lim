@@ -2091,10 +2091,19 @@ Index types may refer to parameters and earlier indices. Constructor fields
 may refer to parameters and earlier fields; each constructor gives exactly one
 result index per family index, with result terms allowed to refer to all
 fields. Types and indices are checked at exact arity and universe. Indexed
-direct recursive fields use `(#pt-self-at (index-terms...))`; parameters are
-inherited from the declaration. Bare `#pt-self` remains for regular families.
-Nested and negative occurrences, occurrences in the current family's indices,
-and mutual recursion remain unsupported.
+recursive fields use `(#pt-self-at (index-terms...))`; parameters are inherited
+from the declaration. `#pt-self` and `#pt-self-at` may be terminal codomains
+beneath zero or more `#pt-pi` binders, enabling strictly positive function
+fields and dependent telescopes. The current family cannot occur in any
+function domain, including double-negative positions. Recursion nested in
+containers or Sigma types, occurrences in current-family indices, and mutual
+recursion remain unsupported.
+
+A typed `#pt-let` may wrap a Pi codomain when neither its annotation nor its
+value contains the current family. The checker verifies the annotation's sort
+and the value's type before zeta substitution, then continues the positivity
+check in the instantiated body. Recursive aliases in definitions and
+recursion hidden in Sigma types or applications remain unsupported.
 
 Regular `#pt-induct` keeps its existing syntax. Indexed `#pt-induct` adds an
 explicit index clause after parameters:
@@ -3083,7 +3092,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
 | `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
-| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field Type)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Indexed constructors give exact result indices; mutual and nested recursion and negative occurrences remain unsupported. |
+| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field TYPE)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Recursive markers may be terminal codomains under zero or more `#pt-pi` binders, but the family cannot occur in function domains. Indexed constructors give exact result indices; mutual recursion and recursion nested in containers or Sigma types remain unsupported. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
@@ -3176,8 +3185,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
 | `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
 | `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
-| `#pt-self` | `#pt-self as a direct recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Direct recursive field marker for regular inductives only; nested occurrences are unsupported. |
-| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Direct recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. |
+| `#pt-self` | `#pt-self as a recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Recursive field marker for regular inductives; may also be a terminal codomain beneath zero or more `#pt-pi` binders. Function domains cannot contain the family, including double-negative positions. |
+| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. It may be a terminal codomain beneath zero or more `#pt-pi` binders. Recursion nested in containers or Sigma types remains unsupported. |
 | `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
 | `#pt-sort` | `(#pt-sort LEVEL)` | `(#math-definition prop-sort () (#pt-type 0) (#pt-sort 0))` (mathematical definition) | General Sort LEVEL with an explicit universe expression; level zero is Prop and Type u is Sort (succ u). A sort inhabits its successor sort, without inference, cumulativity, or type-in-type. |
 | `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |

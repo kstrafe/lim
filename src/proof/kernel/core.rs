@@ -308,42 +308,18 @@ impl Kernel {
                 let mut checked = vec![];
                 let mut recursive = vec![];
                 for field in fields {
-                    let recursive_indices = match field.as_ref() {
-                        Term::SelfType if indices.is_empty() => Some(vec![]),
-                        Term::SelfType => return Err(
-                            "indexed recursive fields require #pt-self-at with explicit indices"
-                                .into(),
-                        ),
-                        Term::SelfAt(values) => {
-                            if indices.is_empty() || values.len() != indices.len() {
-                                return Err(
-                                    "#pt-self-at index count does not match the indexed family"
-                                        .into(),
-                                );
-                            }
-                            if values.iter().any(|value| contains_recursive(value, name)) {
-                                return Err(
-                                    "recursive occurrences in an index violate strict positivity"
-                                        .into(),
-                                );
-                            }
-                            Some(values.clone())
-                        }
-                        _ => None,
-                    };
-                    let direct = recursive_indices.is_some();
-                    let field = if let Some(values) = recursive_indices {
-                        let params = (0..parameters.len())
-                            .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
-                            .collect::<Vec<_>>();
-                        let family = apps(term(Term::Global(name.into(), levels.clone())), &params);
-                        apps(family, &values)
-                    } else {
-                        if contains_recursive(&field, name) {
-                            return Err("inductive recursion must be a direct #pt-self or #pt-self-at field (strict positivity)".into());
-                        }
-                        field
-                    };
+                    let params = (0..parameters.len())
+                        .map(|i| term(Term::Var(checked.len() + parameters.len() - 1 - i)))
+                        .collect::<Vec<_>>();
+                    let (field, is_recursive) = self.prepare_recursive_field(
+                        &ctx,
+                        name,
+                        &levels,
+                        &params,
+                        indices.len(),
+                        &field,
+                        0,
+                    )?;
                     let field_sort = self.sort(&ctx, &field, 0)?;
                     if !field_sort.imax(&sort)?.at_most(&sort)? {
                         return Err("inductive field exceeds the datatype's universe".into());
@@ -351,7 +327,7 @@ impl Kernel {
                     family.large &= sort.zero_implies_zero(&field_sort)?;
                     ctx.push(field.clone());
                     checked.push(field);
-                    recursive.push(direct);
+                    recursive.push(is_recursive);
                 }
                 if result_indices.len() != indices.len() {
                     return Err("constructor result index count does not match the family".into());
@@ -392,6 +368,59 @@ impl Kernel {
             self.declarations.remove(name);
         }
         outcome
+    }
+    #[expect(clippy::too_many_arguments)]
+    fn prepare_recursive_field(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        index_count: usize,
+        field: &T,
+        depth: usize,
+    ) -> Result<(T, bool)> {
+        self.tick(depth)?;
+        if !contains_recursive(field, name) {
+            return Ok((field.clone(), false));
+        }
+        match field.as_ref() {
+            Term::Pi(domain, body) => {
+                if contains_recursive(domain, name) {
+                    return Err("recursive occurrences in function domains violate strict positivity".into());
+                }
+                self.sort(ctx, domain, depth + 1)?;
+                let mut inner = ctx.to_vec();
+                inner.push(domain.clone());
+                let parameters = self.shift_many(parameters, 1, depth + 1)?;
+                let (body, recursive) = self.prepare_recursive_field(
+                    &inner, name, levels, &parameters, index_count, body, depth + 1,
+                )?;
+                Ok((term(Term::Pi(domain.clone(), body)), recursive))
+            }
+            Term::Let(ty, value, body) => {
+                if contains_recursive(ty, name) || contains_recursive(value, name) {
+                    return Err("recursive occurrences in let definitions violate strict positivity".into());
+                }
+                // Do not let zeta reduction erase invalid unused definitions.
+                self.sort(ctx, ty, depth + 1)?;
+                self.check(ctx, value, ty, depth + 1)?;
+                let body = self.instantiate(body, value, depth + 1)?;
+                self.prepare_recursive_field(ctx, name, levels, parameters, index_count, &body, depth + 1)
+            }
+            Term::SelfType if index_count == 0 => Ok((apps(term(Term::Global(name.into(), levels.to_vec())), parameters), true)),
+            Term::SelfType => Err("indexed recursive fields require #pt-self-at with explicit indices".into()),
+            Term::SelfAt(indices) => {
+                if index_count == 0 || indices.len() != index_count {
+                    return Err("#pt-self-at index count does not match the indexed family".into());
+                }
+                if indices.iter().any(|index| contains_recursive(index, name)) {
+                    return Err("recursive occurrences in an index violate strict positivity".into());
+                }
+                Ok((apps(apps(term(Term::Global(name.into(), levels.to_vec())), parameters), indices), true))
+            }
+            _ => Err("recursive fields must end in #pt-self or #pt-self-at through strictly positive Pi codomains (strict positivity)".into()),
+        }
     }
     fn specialization(
         &mut self,
@@ -621,9 +650,10 @@ impl Kernel {
                 subject,
                 depth + 1,
             ),
-            Term::SelfType | Term::SelfAt(_) => {
-                Err("recursive markers are only valid as direct inductive field types".into())
-            }
+            Term::SelfType | Term::SelfAt(_) => Err(
+                "recursive markers are only valid in strictly positive inductive field codomains"
+                    .into(),
+            ),
         }
     }
     #[expect(clippy::too_many_arguments)]
@@ -800,11 +830,6 @@ impl Kernel {
             let Term::Pi(domain, body) = reduced.as_ref() else {
                 return Err("invalid constructor field telescope".into());
             };
-            let recursive_indices = if is_recursive {
-                self.family_indices(&inner, name, levels, &params, domain, depth + 1)?
-            } else {
-                vec![]
-            };
             domains.push(domain.clone());
             inner.push(domain.clone());
             ty = body.clone();
@@ -813,11 +838,17 @@ impl Kernel {
             params = self.shift_many(&params, 1, depth + 1)?;
             motive = self.shift(&motive, 1, 0, depth + 1)?;
             if is_recursive {
-                let recursive_indices = self.shift_many(&recursive_indices, 1, depth + 1)?;
-                let ih = apps(
-                    apps(motive.clone(), &recursive_indices),
-                    &[term(Term::Var(0))],
-                );
+                let field_type = self.shift(domain, 1, 0, depth + 1)?;
+                let ih = self.recursive_hypothesis_type(
+                    &inner,
+                    name,
+                    levels,
+                    &params,
+                    &motive,
+                    &field_type,
+                    &term(Term::Var(0)),
+                    depth + 1,
+                )?;
                 domains.push(ih.clone());
                 inner.push(ih);
                 ty = self.shift(&ty, 1, 0, depth + 1)?;
@@ -838,6 +869,93 @@ impl Kernel {
             &domains,
             term(Term::App(apps(motive, &result_indices), value)),
         ))
+    }
+    #[expect(clippy::too_many_arguments)]
+    fn recursive_hypothesis_type(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        motive: &T,
+        field_type: &T,
+        field: &T,
+        depth: usize,
+    ) -> Result<T> {
+        self.tick(depth)?;
+        let shape = self.whnf(ctx, field_type, depth + 1)?;
+        if let Term::Pi(domain, range) = shape.as_ref() {
+            let mut inner = ctx.to_vec();
+            inner.push(domain.clone());
+            let parameters = self.shift_many(parameters, 1, depth + 1)?;
+            let motive = self.shift(motive, 1, 0, depth + 1)?;
+            let applied = term(Term::App(
+                self.shift(field, 1, 0, depth + 1)?,
+                term(Term::Var(0)),
+            ));
+            let result = self.recursive_hypothesis_type(
+                &inner,
+                name,
+                levels,
+                &parameters,
+                &motive,
+                range,
+                &applied,
+                depth + 1,
+            )?;
+            return Ok(term(Term::Pi(domain.clone(), result)));
+        }
+        let indices = self.family_indices(ctx, name, levels, parameters, &shape, depth + 1)?;
+        Ok(apps(apps(motive.clone(), &indices), &[field.clone()]))
+    }
+    #[expect(clippy::too_many_arguments)]
+    fn recursive_hypothesis_value(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        motive: &T,
+        branches: &[T],
+        field_type: &T,
+        field: &T,
+        depth: usize,
+    ) -> Result<T> {
+        self.tick(depth)?;
+        let shape = self.whnf(ctx, field_type, depth + 1)?;
+        if let Term::Pi(domain, range) = shape.as_ref() {
+            let mut inner = ctx.to_vec();
+            inner.push(domain.clone());
+            let parameters = self.shift_many(parameters, 1, depth + 1)?;
+            let motive = self.shift(motive, 1, 0, depth + 1)?;
+            let branches = self.shift_many(branches, 1, depth + 1)?;
+            let applied = term(Term::App(
+                self.shift(field, 1, 0, depth + 1)?,
+                term(Term::Var(0)),
+            ));
+            let result = self.recursive_hypothesis_value(
+                &inner,
+                name,
+                levels,
+                &parameters,
+                &motive,
+                &branches,
+                range,
+                &applied,
+                depth + 1,
+            )?;
+            return Ok(term(Term::Lam(domain.clone(), result)));
+        }
+        let indices = self.family_indices(ctx, name, levels, parameters, &shape, depth + 1)?;
+        Ok(term(Term::Induct {
+            family: name.into(),
+            levels: levels.to_vec(),
+            parameters: parameters.to_vec(),
+            indices,
+            motive: motive.clone(),
+            branches: branches.to_vec(),
+            subject: field.clone(),
+        }))
     }
     fn family_indices(
         &mut self,
@@ -988,26 +1106,25 @@ impl Kernel {
                         let Term::Pi(domain, body) = reduced.as_ref() else {
                             return Err("invalid constructor field telescope".into());
                         };
-                        let child_indices = if *recursive {
-                            self.family_indices(ctx, family, levels, parameters, domain, depth + 1)?
+                        let ih = if *recursive {
+                            Some(self.recursive_hypothesis_value(
+                                ctx,
+                                family,
+                                levels,
+                                parameters,
+                                motive,
+                                branches,
+                                domain,
+                                field,
+                                depth + 1,
+                            )?)
                         } else {
-                            vec![]
+                            None
                         };
                         telescope = self.instantiate(body, field, depth + 1)?;
                         result = term(Term::App(result, field.clone()));
-                        if *recursive {
-                            result = term(Term::App(
-                                result,
-                                term(Term::Induct {
-                                    family: family.clone(),
-                                    levels: levels.clone(),
-                                    parameters: parameters.clone(),
-                                    indices: child_indices,
-                                    motive: motive.clone(),
-                                    branches: branches.clone(),
-                                    subject: field.clone(),
-                                }),
-                            ));
+                        if let Some(ih) = ih {
+                            result = term(Term::App(result, ih));
                         }
                     }
                     value = result;
