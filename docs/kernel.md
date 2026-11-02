@@ -856,6 +856,13 @@ the same body-depth bound as the first ordinary substitution and conservatively
 bounds argument walks; temporary argument storage and reuse entries are charged
 before allocation. It adds no mathematical rule or privileged constant name.
 
+The first argument shift also records whether every term variable is bound
+within that argument, including its annotations. Such an immutable argument
+needs no further shifts at other binder depths in the same batch; its initial
+walk still enforces the argument-depth limit. Universe payloads remain
+unchanged by term shifting, and source universe validation is retained. No
+cross-declaration cache or pointer-key lifetime is introduced.
+
 Typed function eta and primitive dependent Sigma pair eta are supported:
 
 - At a checked function type, `f` converts to

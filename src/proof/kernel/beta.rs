@@ -61,6 +61,8 @@ impl Kernel {
         argument_depth: usize,
     ) -> Result<T> {
         let mut shifted = HashMap::<(usize, usize), T>::new();
+        self.charge_transformation(128 + arguments.len())?;
+        let mut invariant = vec![false; arguments.len()];
         self.transform(
             body,
             0,
@@ -68,13 +70,24 @@ impl Kernel {
             &mut |kernel, index, binders| {
                 if index >= binders && index - binders < arguments.len() {
                     let argument = arguments.len() - 1 - (index - binders);
+                    if invariant[argument] {
+                        return Ok(arguments[argument].clone());
+                    }
                     let key = (argument, binders);
                     if let Some(value) = shifted.get(&key) {
                         return Ok(value.clone());
                     }
-                    let value = kernel.shift(&arguments[argument], binders, 0, argument_depth)?;
+                    let (value, unchanged) = kernel.beta_shift_argument(
+                        &arguments[argument],
+                        binders,
+                        argument_depth,
+                    )?;
                     kernel.charge_transformation(256)?;
-                    shifted.insert(key, value.clone());
+                    if unchanged {
+                        invariant[argument] = true;
+                    } else {
+                        shifted.insert(key, value.clone());
+                    }
                     Ok(value)
                 } else {
                     Ok(term(Term::Var(if index >= binders {
@@ -86,6 +99,30 @@ impl Kernel {
             },
             &mut |level| Ok(level.clone()),
         )
+    }
+
+    /// Discover shift invariance during the first shift already needed for an
+    /// argument. Inspect every annotation and bound-variable scope; universe
+    /// variables are unaffected by term shifting. No extra traversal or global
+    /// cache is needed, and later shifts in this batch use the same depth.
+    fn beta_shift_argument(&mut self, value: &T, amount: usize, depth: usize) -> Result<(T, bool)> {
+        let mut invariant = true;
+        let shifted = self.transform(
+            value,
+            0,
+            depth,
+            &mut |_, index, binders| {
+                let index = if index >= binders {
+                    invariant = false;
+                    index.checked_add(amount).ok_or("variable index overflow")?
+                } else {
+                    index
+                };
+                Ok(term(Term::Var(index)))
+            },
+            &mut |level| Ok(level.clone()),
+        )?;
+        Ok((if invariant { value.clone() } else { shifted }, invariant))
     }
 }
 
@@ -182,6 +219,57 @@ mod tests {
         assert!(kernel
             .same_syntax(&actual, &lam(nat(), app(var(0), var(1))))
             .unwrap());
+    }
+
+    #[test]
+    fn invariant_arguments_are_shared_at_distinct_binder_depths() {
+        let mut kernel = Kernel::new();
+        let argument = lam(nat(), var(0));
+        let body = app(var(0), lam(nat(), var(1)));
+        let result = kernel
+            .instantiate_many(&body, &[number(0), argument.clone()], 0, 1)
+            .unwrap();
+        let Term::App(first, second) = result.as_ref() else {
+            panic!("application")
+        };
+        let Term::Lam(_, under_binder) = second.as_ref() else {
+            panic!("lambda")
+        };
+        assert!(Arc::ptr_eq(first, &argument));
+        assert!(Arc::ptr_eq(under_binder, &argument));
+    }
+
+    #[test]
+    fn a_free_variable_in_an_annotation_still_requires_shifting() {
+        let mut kernel = Kernel::new();
+        let argument = lam(var(0), var(0));
+        let body = app(var(0), lam(nat(), var(1)));
+        let result = kernel
+            .instantiate_many(&body, &[number(0), argument], 0, 1)
+            .unwrap();
+        let expected = app(lam(var(0), var(0)), lam(nat(), lam(var(1), var(0))));
+        assert!(kernel.same_syntax(&result, &expected).unwrap());
+    }
+
+    #[test]
+    fn discovering_invariance_keeps_depth_overflow_and_universe_payloads() {
+        let mut kernel = Kernel::new();
+        assert!(kernel
+            .beta_shift_argument(&lam(nat(), var(0)), 1, DEPTH)
+            .unwrap_err()
+            .contains("resource limit"));
+        kernel.reset_budget();
+        assert!(kernel
+            .beta_shift_argument(&var(usize::MAX), 1, 0)
+            .unwrap_err()
+            .contains("variable index overflow"));
+        kernel.reset_budget();
+        let argument = term(Term::Global(
+            "polymorphic".into(),
+            vec![Level::variable("u".into())],
+        ));
+        let (shifted, invariant) = kernel.beta_shift_argument(&argument, 4, 0).unwrap();
+        assert!(invariant && Arc::ptr_eq(&shifted, &argument));
     }
 
     #[test]
