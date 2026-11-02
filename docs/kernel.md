@@ -533,7 +533,15 @@ left avoids prematurely unfolding a matching recursive worker on the right.
 Both raw and native checks report `Quot.sound` for zero-left and successor;
 zero-right additionally requires `propext`. The primitive foundation remains
 `quotient-computation-v1`, and raw replay requires explicit authorization.
-Generic GCD self-equality and closed GCD computation still exceed work.
+The separate [GCD self corpus](../tests/fixtures/lean_export_gcd_self/README.md)
+checks `Nat.gcd n n = n` for arbitrary naturals through 335 genuine declarations.
+It uses the explicit 1,000,000-work/128-MiB-phase/1-GiB-total profile and reports
+exactly `Quot.sound` and `propext`, plus the quotient primitive package. Raw
+replay, emitted native source and independent native checking retain the same
+basis. The default work budget correctly refuses this larger proof closure;
+selecting its recorded budget changes no proof rule. Source ownership includes
+the independently pinned `Init.Data.Nat.Div.Basic` fuel-congruence proof.
+The closed GCD computation remains unsupported within the fixed depth bound.
 
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks

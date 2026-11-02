@@ -101,6 +101,15 @@ reports `propext`. Raw replay requires `--lean-foundations`. The pinned
 assumption inventories are retained in the corpus provenance. The generic
 self theorem and closed GCD computation remain open.
 
+The twenty-first file, [`gcd-self.lim`](gcd-self.lim), translates the
+[GCD self corpus](../../tests/fixtures/lean_export_gcd_self/README.md). All 335
+declarations check the unbounded `Nat.gcd n n = n` theorem. Its source header
+records the explicit 1,000,000-work/128-MiB-phase/1-GiB-total profile; comments
+do not configure the checker, so standalone checking must supply these flags.
+The exact basis is `Quot.sound, propext` with quotient computation. Canonical
+ownership, mappings, source hashes and attribution include `Init.Data.Nat.Div.Basic`.
+Closed GCD computation and the complete FLT proof remain unfinished.
+
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps the original nine exports' declarations

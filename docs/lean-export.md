@@ -146,8 +146,17 @@ every equality by its existing rules. Raw and native target bases are exactly
 zero-right. The export registers both axioms and requires explicit
 `--lean-foundations`; its primitive basis is `quotient-computation-v1`.
 Canonical private ownership and source attribution additionally pin
-`Init.Data.Nat.Gcd`. The generic self theorem, closed GCD computation and the
-full FLT dependency closure remain open.
+`Init.Data.Nat.Gcd`.
+
+The [GCD self corpus](../tests/fixtures/lean_export_gcd_self/README.md) checks the
+actual `Nat.gcd_self` dependency closure and its unbounded statement. All 335
+declarations replay under the explicitly recorded 1,000,000-work, 128-MiB-phase,
+1-GiB-total budget. Exact native translation and independent native checking
+report the same `Quot.sound, propext` basis and quotient primitive package.
+Both raw and native checking refuse the unchanged default work budget;
+constructive replay still refuses the imported axioms even with more work.
+Canonical private ownership additionally pins `Init.Data.Nat.Div.Basic`.
+Closed GCD computation and the full FLT dependency closure remain open.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

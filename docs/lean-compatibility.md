@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with twenty committed genuine
+for this accepted subset, with twenty-one committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -397,9 +397,19 @@ closures use exactly `Quot.sound`; zero-right additionally uses `propext`.
 Both are declared in the export, with `quotient-computation-v1` primitive
 computation, and explicit authorization remains required. Raw and native
 proofs are checked independently. Source attribution includes the pinned
-`Init.Data.Nat.Gcd` private helpers. Generic GCD self-equality and closed GCD
-computation remain limited by work. Other arithmetic, arbitrary course-of-values
-computation and large-environment storage/replay remain open. This does not
+`Init.Data.Nat.Gcd` private helpers.
+
+The [GCD self corpus](../tests/fixtures/lean_export_gcd_self/README.md) adds a
+twenty-first genuine export. Its 335 declarations include the actual modular
+fuel-congruence helper and `Nat.gcd_self`, checked for arbitrary naturals with
+an explicit 1,000,000-work/128-MiB-phase/1-GiB-total profile. Budgets are
+resource choices, recorded independently of the exact `Quot.sound, propext`
+logical basis and quotient primitive foundation. Every original and translated
+native declaration is checked; both paths reject the default work budget.
+The constructive policy still refuses the imported axioms. Source ownership
+and attribution additionally pin `Init.Data.Nat.Div.Basic`. Closed GCD
+computation, other arithmetic, arbitrary course-of-values computation and
+large-environment storage/replay remain open. This does not
 provide the full mathematical dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:

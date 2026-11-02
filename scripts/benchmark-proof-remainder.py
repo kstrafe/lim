@@ -89,6 +89,17 @@ def main():
             "raw_gcd": ["--check-lean-export", gcd["export"]["file"], gcd["targets"][-1], "--lean-foundations"],
             "native_gcd": ["--check-theorem", gcd["native"]["file"], gcd["native"]["targets"][gcd["targets"][-1]]],
         })
+        gcd_self_path = ROOT / "tests/fixtures/lean_export_gcd_self/provenance.json"
+        gcd_self = json.loads(gcd_self_path.read_bytes())
+        selected = gcd_self["proof_budget"]
+        budget_args = ["--proof-work", str(selected["work_per_phase"]),
+                       "--proof-phase-bytes", str(selected["transformation_bytes_per_phase"]),
+                       "--proof-total-bytes", str(selected["transformation_bytes_total"])]
+        target = gcd_self["targets"][-1]
+        cases.update({
+            "raw_gcd_self": ["--check-lean-export", gcd_self["export"]["file"], target, "--lean-foundations", *budget_args],
+            "native_gcd_self": ["--check-theorem", gcd_self["native"]["file"], gcd_self["native"]["targets"][target], *budget_args],
+        })
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]
             for iteration in range(args.iterations + 1):

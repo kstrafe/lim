@@ -66,6 +66,13 @@ arbitrary naturals. The first two target closures use `Quot.sound`; zero-right
 also uses `propext`. Explicit foundation authorization, exact native mappings,
 private ownership and attribution include pinned `Init.Data.Nat.Gcd`.
 
+The [GCD self corpus](../lean_export_gcd_self/README.md) adds a twenty-first
+genuine export. Its 335 declarations check `Nat.gcd n n = n` for arbitrary
+naturals with the explicitly recorded larger resource profile. Exact original
+and native checks retain `Quot.sound`, `propext` and quotient computation;
+more work never authorizes a missing assumption. Private source attribution
+additionally pins `Init.Data.Nat.Div.Basic`.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

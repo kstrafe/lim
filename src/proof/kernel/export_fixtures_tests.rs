@@ -349,6 +349,23 @@ fn genuine_gcd_retains_checked_mapping_hashes_and_attribution() {
     );
 }
 
+#[test]
+fn genuine_gcd_self_retains_explicit_budget_mapping_hashes_and_attribution() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_gcd_self/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_gcd_self/gcd-self.ndjson"),
+        include_str!("../../../theorems/lean_replay/gcd-self.lim"),
+        "GcdSelfSource.self",
+        "lim-lean-gcd-self-fixture-v1",
+        &["quotient-computation-v1"],
+        (
+            1,
+            &["Quot.sound", "propext"],
+            crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap(),
+        ),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],
@@ -358,8 +375,33 @@ fn assert_primitive_fixture(
     foundations: &[&str],
     expected: (usize, &[&str]),
 ) {
-    let (expected_targets, expected_axioms) = expected;
+    assert_primitive_fixture_with_budget(
+        manifest,
+        input,
+        native,
+        target,
+        schema,
+        foundations,
+        (expected.0, expected.1, crate::ProofBudget::default()),
+    );
+}
+
+fn assert_primitive_fixture_with_budget(
+    manifest: &str,
+    input: &[u8],
+    native: &str,
+    target: &str,
+    schema: &str,
+    foundations: &[&str],
+    expected: (usize, &[&str], crate::ProofBudget),
+) {
+    let (expected_targets, expected_axioms, budget) = expected;
     let manifest = crate::lsp::json::parse(manifest).unwrap();
+    if let Some(recorded) = manifest.get("proof_budget") {
+        assert_eq!(recorded, &budget.json());
+    } else {
+        assert_eq!(budget, crate::ProofBudget::default());
+    }
     assert_eq!(text(&manifest, "schema"), schema);
     assert_eq!(text(&manifest, "lean_revision"), LEAN_EXPORT_GITHASH);
     assert_eq!(text(&manifest, "exporter_revision"), EXPORTER_REVISION);
@@ -396,8 +438,10 @@ fn assert_primitive_fixture(
     } else {
         LeanFoundationPolicy::Lean4
     };
-    let report = check_lean_export_with_policy(input, target, policy).unwrap();
+    let report = check_lean_export_with_budget(input, target, policy, budget).unwrap();
     assert_eq!(report.axioms, expected_axioms);
+    assert_eq!(report.budget, budget);
+    assert_eq!(report.foundations, foundations);
     if let Some(expected) = manifest.get("target_axioms") {
         assert_eq!(
             expected.array().unwrap(),
@@ -480,7 +524,8 @@ fn assert_primitive_fixture(
             assert_eq!(declaration.kind, "theorem");
             if let Some(inventories) = manifest.get("target_inventories") {
                 let checked =
-                    check_lean_export_with_policy(input, &declaration.name, policy).unwrap();
+                    check_lean_export_with_budget(input, &declaration.name, policy, budget)
+                        .unwrap();
                 assert_eq!(
                     field(inventories, &declaration.name).array().unwrap(),
                     &checked
