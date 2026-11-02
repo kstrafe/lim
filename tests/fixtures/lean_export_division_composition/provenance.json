@@ -3792,7 +3792,7 @@
       "project": "lim-fixture",
       "sha256": "97c85da466e841b61d165d13a5ee15a3aeaab188046b4d138c2388fe3ad58107",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3816,7 +3816,7 @@
       "project": "lim-fixture",
       "sha256": "e353dec8c134f7d3a1bea74916fd10b0a844c640150e935c4e9c0bbee1d3f160",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3840,7 +3840,7 @@
       "project": "lim-fixture",
       "sha256": "4982026549ccdab08c6468b7f85fc0cf990f5bc253cef52116960f6ad918ec1d",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3864,7 +3864,7 @@
       "project": "lim-fixture",
       "sha256": "ba7dae2a48d4b06f24b71c77590c55471d17d786e86302b6c00fb9a29180aaa0",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3888,7 +3888,7 @@
       "project": "lim-fixture",
       "sha256": "fbd86e2bf36b480dc0a4fa72177134ec2c8886ef337364e05e8be039a971c9a0",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3912,7 +3912,7 @@
       "project": "lim-fixture",
       "sha256": "23b69a5f7de7a956ec70afc73f68eca4af8a0373961a57051eb43b95e3ddd35b",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     },
     {
       "dependencies": [
@@ -3936,13 +3936,173 @@
       "project": "lim-fixture",
       "sha256": "14c09cf5d820dbbd3e519035ba99fb6ee790452eabdd81d94b38516aefdacfc4",
       "source": "tests/fixtures/lean_export_division_composition/Source.lean",
-      "source_sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources11:zeroDivZero",
+      "kind": "theorem",
+      "line": 5911,
+      "module": "Source",
+      "name": "DivisionCompositionSource.zeroDivZero",
+      "native_name": "lean-203-DivisionCompositionSource-zeroDivZero",
+      "project": "lim-fixture",
+      "sha256": "401fcbfda443d3dba9324cadf61bd07d7732e23cf5b5d1fb48990c911493873d",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources11:hugeDivZero",
+      "kind": "theorem",
+      "line": 5922,
+      "module": "Source",
+      "name": "DivisionCompositionSource.hugeDivZero",
+      "native_name": "lean-204-DivisionCompositionSource-hugeDivZero",
+      "project": "lim-fixture",
+      "sha256": "51f330d34aa53b46e50fcb08b3674604da637017e1f64253fd1a56b76ba716cd",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources12:belowDivisor",
+      "kind": "theorem",
+      "line": 5933,
+      "module": "Source",
+      "name": "DivisionCompositionSource.belowDivisor",
+      "native_name": "lean-205-DivisionCompositionSource-belowDivisor",
+      "project": "lim-fixture",
+      "sha256": "972d4157983d69ba58747dbfe6f5be7644a01ae1e99796f268d18ad201434ec6",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources12:equalDivisor",
+      "kind": "theorem",
+      "line": 5940,
+      "module": "Source",
+      "name": "DivisionCompositionSource.equalDivisor",
+      "native_name": "lean-206-DivisionCompositionSource-equalDivisor",
+      "project": "lim-fixture",
+      "sha256": "8185fd7f4517631ac9b7aa1884b38f0817f23189da6c8b2cfe5388718ba03922",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources13:exactDivision",
+      "kind": "theorem",
+      "line": 5955,
+      "module": "Source",
+      "name": "DivisionCompositionSource.exactDivision",
+      "native_name": "lean-207-DivisionCompositionSource-exactDivision",
+      "project": "lim-fixture",
+      "sha256": "a297bce350993c5e2bce14fb6f4e21bc95f8b4d4723852f1f2a331326814bb86",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources21:divisionWithRemainder",
+      "kind": "theorem",
+      "line": 5965,
+      "module": "Source",
+      "name": "DivisionCompositionSource.divisionWithRemainder",
+      "native_name": "lean-208-DivisionCompositionSource-divisionWithRemainder",
+      "project": "lim-fixture",
+      "sha256": "95e7c51e3579691ef8134b66f709defac6212388f6b1a795493c079e86ac91d7",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources13:largeQuotient",
+      "kind": "theorem",
+      "line": 5971,
+      "module": "Source",
+      "name": "DivisionCompositionSource.largeQuotient",
+      "native_name": "lean-209-DivisionCompositionSource-largeQuotient",
+      "project": "lim-fixture",
+      "sha256": "44d5036e7802e5d09598a9ff2f07374618d62289842c46c53ab7be43e3841e06",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:div",
+        "$lean:s3:rfl",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s25:DivisionCompositionSources14:largeRemainder",
+      "kind": "theorem",
+      "line": 5977,
+      "module": "Source",
+      "name": "DivisionCompositionSource.largeRemainder",
+      "native_name": "lean-210-DivisionCompositionSource-largeRemainder",
+      "project": "lim-fixture",
+      "sha256": "03ce1981abab6e05b82085c1348edad1b71a28e86d5ba863cd91f78b226c2c6f",
+      "source": "tests/fixtures/lean_export_division_composition/Source.lean",
+      "source_sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
     }
   ],
   "export": {
-    "bytes": 318543,
+    "bytes": 321850,
     "file": "tests/fixtures/lean_export_division_composition/division-composition.ndjson",
-    "sha256": "14c09cf5d820dbbd3e519035ba99fb6ee790452eabdd81d94b38516aefdacfc4"
+    "sha256": "03ce1981abab6e05b82085c1348edad1b71a28e86d5ba863cd91f78b226c2c6f"
   },
   "exporter_revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
   "exporter_source_sha256": {
@@ -3969,17 +4129,25 @@
     }
   ],
   "native": {
-    "bytes": 545386,
+    "bytes": 560193,
     "file": "theorems/lean_replay/division-composition.lim",
-    "sha256": "d4aa8eba8dcf282ff2b3205917a886f1e6d08c052482847d495a0f8ea3280510",
+    "sha256": "a03eb2a106267579de9af6ecb65b10b94f8eb8c9af74ef38f706838a1bcdfeb9",
     "targets": {
       "DivisionCompositionSource.below": "lean-201-DivisionCompositionSource-below",
+      "DivisionCompositionSource.belowDivisor": "lean-205-DivisionCompositionSource-belowDivisor",
       "DivisionCompositionSource.both": "lean-199-DivisionCompositionSource-both",
       "DivisionCompositionSource.dividend": "lean-197-DivisionCompositionSource-dividend",
+      "DivisionCompositionSource.divisionWithRemainder": "lean-208-DivisionCompositionSource-divisionWithRemainder",
       "DivisionCompositionSource.divisor": "lean-198-DivisionCompositionSource-divisor",
       "DivisionCompositionSource.equal": "lean-200-DivisionCompositionSource-equal",
+      "DivisionCompositionSource.equalDivisor": "lean-206-DivisionCompositionSource-equalDivisor",
+      "DivisionCompositionSource.exactDivision": "lean-207-DivisionCompositionSource-exactDivision",
+      "DivisionCompositionSource.hugeDivZero": "lean-204-DivisionCompositionSource-hugeDivZero",
+      "DivisionCompositionSource.largeQuotient": "lean-209-DivisionCompositionSource-largeQuotient",
+      "DivisionCompositionSource.largeRemainder": "lean-210-DivisionCompositionSource-largeRemainder",
       "DivisionCompositionSource.small": "lean-196-DivisionCompositionSource-small",
-      "DivisionCompositionSource.zero": "lean-202-DivisionCompositionSource-zero"
+      "DivisionCompositionSource.zero": "lean-202-DivisionCompositionSource-zero",
+      "DivisionCompositionSource.zeroDivZero": "lean-203-DivisionCompositionSource-zeroDivZero"
     }
   },
   "origin_reader": {
@@ -3993,7 +4161,7 @@
   "schema": "lim-lean-division-composition-fixture-v1",
   "source": {
     "file": "tests/fixtures/lean_export_division_composition/Source.lean",
-    "sha256": "3c5da10ec0476c77890e43c386c26a3b5a79fc08def6342b04a36718ec374fde"
+    "sha256": "04930435bff8294eadf416d9e8595517e4555791833afc8466d98d1d1c73b510"
   },
   "targets": [
     "DivisionCompositionSource.small",
@@ -4002,7 +4170,15 @@
     "DivisionCompositionSource.both",
     "DivisionCompositionSource.equal",
     "DivisionCompositionSource.below",
-    "DivisionCompositionSource.zero"
+    "DivisionCompositionSource.zero",
+    "DivisionCompositionSource.zeroDivZero",
+    "DivisionCompositionSource.hugeDivZero",
+    "DivisionCompositionSource.belowDivisor",
+    "DivisionCompositionSource.equalDivisor",
+    "DivisionCompositionSource.exactDivision",
+    "DivisionCompositionSource.divisionWithRemainder",
+    "DivisionCompositionSource.largeQuotient",
+    "DivisionCompositionSource.largeRemainder"
   ],
   "upstream_sources": [
     {

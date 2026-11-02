@@ -48,7 +48,17 @@ def main():
             "native_subtraction": ["--check-theorem", "theorems/lean_replay/subtraction-bridge.lim", "lean-59-SubtractionBridgeSource-mappedCancellation"],
         }
         composition = json.loads((ROOT / "tests/fixtures/lean_export_division_composition/provenance.json").read_bytes())
+        prefix = next(d for d in composition["declarations"] if d["name"] == "DivisionCompositionSource.zero")
+        composed_raw = work / "composed-prefix.ndjson"
+        composed_raw.write_text("".join((ROOT / composition["export"]["file"]).read_text().splitlines(keepends=True)[:prefix["line"]]))
+        composed_source = (ROOT / composition["native"]["file"]).read_text()
+        begin = composed_source.index("\n(#theorem " + prefix["native_name"])
+        end = composed_source.find("\n(#", begin + 1)
+        composed_native = work / "composed-prefix.lim"
+        composed_native.write_text(composed_source[:end] if end != -1 else composed_source)
         cases.update({
+            "raw_composed_prefix": ["--check-lean-export", str(composed_raw), prefix["name"]],
+            "native_composed_prefix": ["--check-theorem", str(composed_native), prefix["native_name"]],
             "raw_division_composition": ["--check-lean-export", composition["export"]["file"], composition["targets"][-1]],
             "native_division_composition": ["--check-theorem", composition["native"]["file"], composition["native"]["targets"][composition["targets"][-1]]],
         })

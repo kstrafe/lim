@@ -2351,3 +2351,66 @@ fn substitution_reuse_preserves_depth_overflow_and_allocation_checks() {
     let actual = kernel.instantiate(&var(0), &zero(), 0).unwrap();
     assert!(kernel.same_syntax(&actual, &zero()).unwrap());
 }
+
+#[test]
+fn invariant_leaves_are_shared_without_skipping_other_binder_work() {
+    let mut k = Kernel::new();
+    let literal = term(Term::NatLiteral {
+        family: "#pt-nat".into(),
+        value: Natural::parse("1234").unwrap(),
+    });
+    for leaf in [nat(), literal] {
+        k.reset_budget();
+        let shifted = k.shift(&leaf, 2, 0, 0).unwrap();
+        assert!(Arc::ptr_eq(&leaf, &shifted));
+        assert_eq!(k.transformed_bytes, 0);
+        assert!(k.work > 0);
+        let body = app(var(0), leaf.clone());
+        k.reset_budget();
+        let shifted = k.shift(&body, 1, 0, 0).unwrap();
+        let Term::App(variable, shared) = shifted.as_ref() else {
+            panic!("application")
+        };
+        assert!(matches!(variable.as_ref(), Term::Var(1)));
+        assert!(Arc::ptr_eq(&leaf, shared));
+        k.reset_budget();
+        assert!(k
+            .shift(&leaf, 1, 0, DEPTH + 1)
+            .unwrap_err()
+            .contains("resource limit"));
+        k.reset_budget();
+        k.work = WORK;
+        assert!(k
+            .shift(&leaf, 1, 0, 0)
+            .unwrap_err()
+            .contains("resource limit"));
+    }
+}
+
+#[test]
+fn sharing_global_leaves_preserves_universe_scope_and_initial_arity_checks() {
+    let mut k = Kernel::new();
+    let universe = term(Term::Global(
+        "poly".into(),
+        vec![Level::variable("u".into())],
+    ));
+    assert!(k
+        .universes(&universe, &HashMap::new(), 0)
+        .unwrap_err()
+        .contains("undeclared universe"));
+    k.reset_budget();
+    let changed = k
+        .universes(&universe, &HashMap::from([("u".into(), level(1))]), 0)
+        .unwrap();
+    assert!(!Arc::ptr_eq(&universe, &changed));
+    assert!(matches!(changed.as_ref(),Term::Global(_,levels) if levels==&vec![level(1)]));
+    k.reset_budget();
+    k.definition("poly", vec!["u".into()], nat(), zero(), false)
+        .unwrap();
+    let erased = term(Term::Let(nat(), global("poly"), zero()));
+    k.reset_budget();
+    assert!(k
+        .definition("invalid-arity", vec![], nat(), erased, false)
+        .is_err());
+    assert!(!k.contains("invalid-arity"));
+}

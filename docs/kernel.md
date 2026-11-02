@@ -459,10 +459,14 @@ execution do not incur their predicted cost. Other errors propagate, and the
 enclosing budget is restored on every result. This adds no arithmetic equation,
 proof admission or cached theorem authority. Initial source inference remains
 mandatory even when normalization erases a malformed annotation or value.
-More expensive composition and arbitrary course-of-values algorithms can still
-exceed the global budgets. A combined fifteen-target division export currently
-exceeds the 256 MiB cumulative replay payload limit; the two independent corpora
-retain all fifteen targets and their genuine dependencies without raising it.
+Shifts and universe walks share immutable numeral and monomorphic-global leaves
+instead of copying their owned payloads. The node callback and depth/work checks
+still run; globals with universe arguments still invoke universe substitution.
+Initial inference still validates declaration existence and arity. This reduces
+real allocation, without a new reduction rule or theorem cache. The composition
+corpus now checks all fifteen division targets together under the unchanged
+256 MiB cumulative replay limit. More expensive composition, larger environments
+and arbitrary course-of-values algorithms can still exceed the global budgets.
 
 These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow`,
 `Nat.sub`, `Nat.ble` and `Nat.beq`

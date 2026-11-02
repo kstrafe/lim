@@ -1,8 +1,8 @@
 ; Checked native translation of a Lean export, not an admission.
 ; Lean: 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6)
 ; Exporter: 15f6055e299ad5b89345e533cc2192f4cc00f659
-; Input SHA-256: 14c09cf5d820dbbd3e519035ba99fb6ee790452eabdd81d94b38516aefdacfc4
-; Native theorem: lean-202-DivisionCompositionSource-zero
+; Input SHA-256: 03ce1981abab6e05b82085c1348edad1b71a28e86d5ba863cd91f78b226c2c6f
+; Native theorem: lean-210-DivisionCompositionSource-largeRemainder
 ; Keep the upstream source/license provenance with this translation.
 ; Lean declaration: "Eq"
 ; Identity: "$lean:s2:Eq"
@@ -14783,3 +14783,379 @@
           (#pt-use lean-3-Nat ())
           (#pt-nat-literal lean-3-Nat "0")
           (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))))
+; Lean declaration: "DivisionCompositionSource.zeroDivZero"
+; Identity: "$lean:s25:DivisionCompositionSources11:zeroDivZero"
+; Export line: 5911
+; Prefix SHA-256: 401fcbfda443d3dba9324cadf61bd07d7732e23cf5b5d1fb48990c911493873d
+(#theorem lean-203-DivisionCompositionSource-zeroDivZero
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))))
+; Lean declaration: "DivisionCompositionSource.hugeDivZero"
+; Identity: "$lean:s25:DivisionCompositionSources11:hugeDivZero"
+; Export line: 5922
+; Prefix SHA-256: 51f330d34aa53b46e50fcb08b3674604da637017e1f64253fd1a56b76ba716cd
+(#theorem lean-204-DivisionCompositionSource-hugeDivZero
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))))
+; Lean declaration: "DivisionCompositionSource.belowDivisor"
+; Identity: "$lean:s25:DivisionCompositionSources12:belowDivisor"
+; Export line: 5933
+; Prefix SHA-256: 972d4157983d69ba58747dbfe6f5be7644a01ae1e99796f268d18ad201434ec6
+(#theorem lean-205-DivisionCompositionSource-belowDivisor
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "2")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "0")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "2")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "2")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5")))))))
+; Lean declaration: "DivisionCompositionSource.equalDivisor"
+; Identity: "$lean:s25:DivisionCompositionSources12:equalDivisor"
+; Export line: 5940
+; Prefix SHA-256: 8185fd7f4517631ac9b7aa1884b38f0817f23189da6c8b2cfe5388718ba03922
+(#theorem lean-206-DivisionCompositionSource-equalDivisor
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "1")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5")))))))
+; Lean declaration: "DivisionCompositionSource.exactDivision"
+; Identity: "$lean:s25:DivisionCompositionSources13:exactDivision"
+; Export line: 5955
+; Prefix SHA-256: a297bce350993c5e2bce14fb6f4e21bc95f8b4d4723852f1f2a331326814bb86
+(#theorem lean-207-DivisionCompositionSource-exactDivision
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "21")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "21")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "3")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "3"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "7")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "7")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "21")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "21")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "3")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "3")))))))
+; Lean declaration: "DivisionCompositionSource.divisionWithRemainder"
+; Identity: "$lean:s25:DivisionCompositionSources21:divisionWithRemainder"
+; Export line: 5965
+; Prefix SHA-256: 95e7c51e3579691ef8134b66f709defac6212388f6b1a795493c079e86ac91d7
+(#theorem lean-208-DivisionCompositionSource-divisionWithRemainder
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "21")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "21")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "4")
+        (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "4")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "21")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "21")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "5")
+          (#pt-app (#pt-use lean-30-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "5")))))))
+; Lean declaration: "DivisionCompositionSource.largeQuotient"
+; Identity: "$lean:s25:DivisionCompositionSources13:largeQuotient"
+; Export line: 5971
+; Prefix SHA-256: 44d5036e7802e5d09598a9ff2f07374618d62289842c46c53ab7be43e3841e06
+(#theorem lean-209-DivisionCompositionSource-largeQuotient
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "18446744073709551616"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "18446744073709551616")
+        (#pt-app
+          (#pt-use lean-30-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211456")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "18446744073709551616")))))))
+; Lean declaration: "DivisionCompositionSource.largeRemainder"
+; Identity: "$lean:s25:DivisionCompositionSources14:largeRemainder"
+; Export line: 5977
+; Prefix SHA-256: 03ce1981abab6e05b82085c1348edad1b71a28e86d5ba863cd91f78b226c2c6f
+(#theorem lean-210-DivisionCompositionSource-largeRemainder
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use lean-0-Eq (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "18446744073709551616"))))
+      (#pt-app
+        (#pt-use lean-29-OfNat-ofNat (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-nat-literal lean-3-Nat "18446744073709551616")
+        (#pt-app
+          (#pt-use lean-30-instOfNatNat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")))))
+  (#proof
+    (#pt-app
+      (#pt-use lean-58-rfl (1))
+      (#pt-use lean-3-Nat ())
+      (#pt-app
+        (#pt-use lean-176-Nat-div ())
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "340282366920938463463374607431768211579")))
+        (#pt-app
+          (#pt-use lean-29-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "18446744073709551616")
+          (#pt-app
+            (#pt-use lean-30-instOfNatNat ())
+            (#pt-nat-literal lean-3-Nat "18446744073709551616")))))))

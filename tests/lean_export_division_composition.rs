@@ -14,6 +14,14 @@ const TARGETS: &[&str] = &[
     "DivisionCompositionSource.equal",
     "DivisionCompositionSource.below",
     "DivisionCompositionSource.zero",
+    "DivisionCompositionSource.zeroDivZero",
+    "DivisionCompositionSource.hugeDivZero",
+    "DivisionCompositionSource.belowDivisor",
+    "DivisionCompositionSource.equalDivisor",
+    "DivisionCompositionSource.exactDivision",
+    "DivisionCompositionSource.divisionWithRemainder",
+    "DivisionCompositionSource.largeQuotient",
+    "DivisionCompositionSource.largeRemainder",
 ];
 
 fn native_name(original: &str) -> String {

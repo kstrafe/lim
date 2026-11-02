@@ -203,17 +203,17 @@ mod tests {
     }
 
     #[test]
-    fn transformations_charge_the_full_compact_decimal_payload() {
+    fn sharing_a_compact_leaf_avoids_a_copy_but_new_payloads_still_pay() {
         let mut kernel = Kernel::new();
         let value = term(Term::NatLiteral {
             family: "#pt-nat".into(),
             value: Natural::parse(&"9".repeat(MAX_DIGITS)).unwrap(),
         });
-        let bytes = 128 + "#pt-nat".len() + MAX_DIGITS;
-        kernel.transformed_bytes = 64 * 1024 * 1024 - bytes;
-        kernel.shift(&value, 1, 0, 0).unwrap();
+        kernel.transformed_bytes = 64 * 1024 * 1024;
+        let shared = kernel.shift(&value, 1, 0, 0).unwrap();
+        assert!(Arc::ptr_eq(&value, &shared));
         assert_eq!(kernel.transformed_bytes, 64 * 1024 * 1024);
-        let why = kernel.shift(&value, 1, 0, 0).unwrap_err();
+        let why = kernel.natural_constructor(&value, 0).unwrap_err();
         assert!(why.contains("allocation limit"), "{why}");
     }
 }

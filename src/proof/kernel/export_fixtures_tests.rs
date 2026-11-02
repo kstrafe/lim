@@ -303,10 +303,10 @@ fn genuine_division_composition_retains_checked_mapping_hashes_and_attribution()
             "../../../tests/fixtures/lean_export_division_composition/division-composition.ndjson"
         ),
         include_str!("../../../theorems/lean_replay/division-composition.lim"),
-        "DivisionCompositionSource.zero",
+        "DivisionCompositionSource.largeRemainder",
         "lim-lean-division-composition-fixture-v1",
         &[],
-        (7, &[]),
+        (15, &[]),
     );
 }
 

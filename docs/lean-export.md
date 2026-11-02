@@ -101,8 +101,10 @@ the exact comparison/subtraction/increment step and normalized operands. This
 adds a trusted conversion optimization, rather than a name-based assumption.
 Every raw and native target is independently checked with empty inventories.
 The [composition corpus](../tests/fixtures/lean_export_division_composition/README.md)
-adds seven computed-operand cases using bounded optional normalization through
-the existing arithmetic rules. It retains the cost of attempted work and
+checks fifteen targets together, including seven computed-operand cases using
+bounded optional normalization through the existing arithmetic rules. Sharing
+immutable numeral and monomorphic-global leaves avoids needless copies during
+shifts/universe walks while retaining node, scope and depth/work checks. It retains the cost of attempted work and
 restores enclosing limits on success, decline or error. Expensive expressions
 and larger combined corpora can still exceed the work/allocation limits; these
 fixtures do not establish arbitrary division algorithms or full FLT.

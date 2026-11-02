@@ -1668,15 +1668,15 @@ impl Kernel {
             };
         }
         let transformed = match value.as_ref() {
+            // The node callback and depth/work check already ran. These
+            // immutable leaves contain neither term nor universe arguments.
+            Term::NatLiteral { .. } => return Ok(value),
+            Term::Global(_, levels) if levels.is_empty() => return Ok(value),
             Term::Var(index) => {
                 self.charge_transformation(128)?;
                 return var(self, *index, binders);
             }
             Term::Sort(l) => Term::Sort(level(l)?),
-            Term::NatLiteral { family, value } => Term::NatLiteral {
-                family: family.clone(),
-                value: value.clone(),
-            },
             Term::Global(n, ls) => Term::Global(
                 n.clone(),
                 ls.iter().map(&mut *level).collect::<Result<_>>()?,

@@ -27,9 +27,9 @@ verification of the checker.
 The [composition corpus](../lean_export_division_composition/README.md) additionally
 checks operands written as powers. The observer now uses bounded optional
 normalization through the existing arithmetic rules and charges the actual
-long-division operations before they run. A combined fifteen-target export
-exceeds the cumulative replay payload cap, so the corpora independently retain
-all cases without raising that limit. This does not establish arbitrary
+long-division operations before they run. The composition corpus now also
+checks all fifteen targets together: sharing immutable leaves avoids enough
+transformation allocation to fit the original cumulative replay cap. This does not establish arbitrary
 course-of-values algorithms, remainder, the full mathematical dependency
 closure or the complete unbounded FLT proof.
 

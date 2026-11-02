@@ -1,10 +1,12 @@
 # Computed division operands
 
-[`Source.lean`](Source.lean) defines seven closed theorems in
+[`Source.lean`](Source.lean) defines fifteen closed theorems in
 `DivisionCompositionSource`, each proved by reflexivity over actual standard
 `Nat.div` and `Nat.pow`. Cases cover `2^6 / 2^3`, computed dividend only,
 computed divisor only, both computed operands, equal powers, below-divisor
-powers and a computed dividend divided by zero. The large quotient is `2^64`.
+powers and a computed dividend divided by zero, followed by the eight literal-
+division cases. The large quotient is `2^64`. All fifteen are checked in one
+211-declaration export.
 
 The genuine dependency graph is `division-composition.ndjson`, with its exact
 native translation at
@@ -30,12 +32,16 @@ charged before execution, rather than charging for every worst-case subtraction
 at every digit. Tests compare computed operands with independent expected
 values and check quota nesting/restoration, source errors and discarded values.
 
-This corpus and the [literal division corpus](../lean_export_division/README.md)
-retain all fifteen cases separately. Their combined export exceeds the existing
-256 MiB cumulative replay transformation cap; larger-environment replay remains
-open, with no budget increase or skipped declarations. The separate complete
-closures do not establish arbitrary course-of-values programs, remainder or
-the complete unbounded Fermat proof.
+The original combined export exceeded the 256 MiB cumulative transformation
+cap. Shifts and universe walks now share immutable numeral and monomorphic-
+global leaves instead of cloning their payloads. Node callbacks and work/depth
+checks still run; globals with universe arguments still check/substitute them,
+and initial inference still validates unknown globals and arity. Real allocation
+is reduced without any budget increase, skipped declaration or theorem cache.
+This corpus now checks all fifteen cases together. The smaller
+[literal division corpus](../lean_export_division/README.md) remains an accepted
+benchmark control. Larger environments, arbitrary course-of-values programs,
+remainder and the complete unbounded Fermat proof remain open.
 
 Reproduce under the existing 2 GiB/two-core guard:
 

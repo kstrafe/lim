@@ -43,8 +43,9 @@ Its guide describes the structural conversion rule and remaining operand
 composition limits, with pinned source, module and license provenance.
 
 The [division-composition corpus](../lean_export_division_composition/README.md)
-adds a seventeenth genuine export: seven computed-operand cases with complete
-standard dependency bodies, exact native translations and empty assumptions.
+adds a seventeenth genuine export: fifteen combined targets, including seven
+computed-operand cases, with complete standard dependency bodies, exact native
+translations and empty assumptions.
 It has separate source, ownership, hash and license provenance.
 
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are

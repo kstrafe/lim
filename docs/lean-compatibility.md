@@ -364,8 +364,10 @@ adds seven computed-operand cases, including equal powers, using optional
 bounded normalization under the existing arithmetic rules. Spent work and
 allocations remain charged when an attempt declines. Actual decimal operations
 are billed before execution. All original/native targets have empty inventories.
-The combined fifteen-target export exceeds the cumulative replay payload cap;
-the independent corpora retain every case without changing that limit.
+Sharing invariant numeral and monomorphic-global leaves during transformations
+allows the composition corpus to check all fifteen combined targets under the
+unchanged cumulative replay payload cap. Node/depth/work checks still run;
+polymorphic universe arguments and initial source arity remain checked.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.
