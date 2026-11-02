@@ -112,7 +112,7 @@ fn async_companions_can_be_registered_in_a_distributed_enum() {
     // enums must qualify the variants by their respective executor roots.
     let two_executors = format!(
         "{source}\n(#distributed-enum OtherExecutor ())
-        (#generate register-future OtherExecutor Work)"
+        (#generate register-future @OtherExecutor @Work Work)"
     );
     compile(&two_executors, &scratch).unwrap();
     let wrong_producer = source.replacen("#async-fn-pinned", "#optional", 1);
