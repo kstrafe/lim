@@ -474,11 +474,28 @@ to protected, invocation-local, immediately unlinked data and index files.
 Before releasing an in-memory report, replay structurally compares every
 field with the decoded record. A record is bounded to the existing 16-MiB
 dependency accounting limit plus 65,536 bytes; reads use 64-KiB chunks. This
-bounds retained report inventory, but the checked name index and closure
-visitation state remain resident. Native source and native translation reports
-remain eager, and the 64-MiB input and 4,096-declaration limits are unchanged.
+bounds retained report inventory. The checked-name candidate IDs, closure
+visit flags and integer worklist remain resident. Native source and native
+translation reports remain eager, and the 64-MiB input and 4,096-declaration
+limits are unchanged.
 This storage does not establish full-FLT-scale checking. The synthetic
 [measurements below](#measuring-replay-memory) describe its memory/time tradeoff.
+
+Replay's checked-name index retains randomized 64-bit fingerprints and numeric
+report IDs instead of another copy of each canonical name. A fingerprint hit
+only selects candidates: membership compares the complete canonical identity
+bytes in the report inventory. Paged membership reads just the bounded name
+and identity fields, without rebuilding that report's dependency list. Page
+protection and exact identity checks still apply; display spellings never
+establish membership.
+
+The target axiom audit uses report IDs for its worklist and one visit flag per
+declaration. It marks IDs when scheduling them, so repeated edges cannot queue
+more than one work item per declaration. Declared axioms must still exactly
+match the reachable fixed native foundations, and missing dependencies fail.
+These indexes contain no proof terms and authorize no new foundation. Kernel
+declaration keys and nested-family views still retain their existing storage;
+this change does not complete full-environment scaling.
 
 Canonical identities start with `$lean:`. Each string component is encoded as
 `sBYTE_LENGTH:CONTENTS`; each numeric component as `nDECIMAL;`. For example,
@@ -569,8 +586,9 @@ universe payloads, including temporary transformations. These are explicit
 work/payload budgets, not exact process RSS measurements. Input is read one
 bounded line at a time, and replay-only expression nodes can spill to bounded
 scratch storage. Completed raw-replay declarations also have bounded resident
-storage, and expanded names and universe values can spill. Name candidate IDs,
-nested-family views and closure-visitation state remain in RAM. Raw CLI report
+storage, and expanded names and universe values can spill. Name and checked-name
+candidate IDs, nested-family views and per-declaration closure flags remain in
+RAM. Raw CLI report
 inventory can spill as described in the
 [receipt section](#replay-receipt-and-identity); native source and native
 translation reports remain eager. This does not provide full-environment
@@ -674,6 +692,42 @@ The 3,793,424-byte input has SHA-256
 Every sample emits the same 6,752,270-byte receipt and hash recorded above.
 Proof budgets and the host guard are unchanged. This is importer storage
 stress, not new mathematical coverage or a full FLT replay.
+
+The compact checked-name index and integer closure worklist are measured
+against `fba13a2a` with five alternating debug0 samples per compiler:
+
+| Synthetic workload | Before peak RSS (KiB) | After peak RSS (KiB) | Before wall (ms) | After wall (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 3,000 reports, 1,024-byte names | 27,204 | 24,972 | 907.087 | 891.639 |
+| 1,000 closure nodes, 16 prior neighbors | 19,944 | 19,980 | 478.194 | 530.966 |
+| 2,500 closure nodes, 32 prior neighbors | 28,964 | 21,900 | 2,876.218 | 3,408.492 |
+
+The long-name case reduces RSS by 8.2% and wall time by 1.7%. On the wider
+closure, RSS falls 24.4% while time increases 18.5%; the smaller graph is 11.0%
+slower with approximately unchanged RSS. Exact key reads have a cost, while
+bounding the pending frontier matters more as shared dependencies grow.
+These are complete checker/receipt measurements, not isolated audit timings.
+
+The closure tool generates closed identity proofs that depend on previous
+theorems through checked typed lets. It uses the hash-pinned identity fixture,
+consumes the entire stream, and compares complete receipt fingerprints before
+sampling and after every sample. The two graph cases explicitly select a
+4-GiB cumulative transformation budget; work and per-phase limits remain at
+their defaults. The report case retains its 1-GiB cumulative budget. The same
+2-GiB/two-core host guard applies to both versions in every case:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-closure.py \
+  --before /path/to/before/lim --after target/debug/lim --iterations 5 \
+  --declarations 2500 --width 32
+```
+
+The wider source has 7,022,593 bytes and SHA-256
+`d4086d21797f2a7af3917f1789e96a223d5936c0da8cd411d7b328d8c37fbf35`.
+Its identical 7,578,369-byte receipts have SHA-256
+`196896bc27d96d40b052effbc7eb9b8434143597ca924ccb292debb41309d24b`.
+Synthetic graphs do not add a genuine mathematical theorem or establish
+full-FLT-scale support.
 
 Deferring prefix finalization until a declaration needs it preserves every
 receipt hash while avoiding per-primitive digest work. Against `abad273f`, five

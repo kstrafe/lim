@@ -129,7 +129,7 @@ impl Replay {
             (OF_LIST, vec![], term(Term::Pi(list_char, global(STRING)))),
         ];
         for (name, levels, signature) in signatures {
-            if !self.checked.contains_key(name) {
+            if !self.is_checked(name)? {
                 return Err(format!(
                     "string literals require previously checked helper '{name}'"
                 ));

@@ -51,6 +51,17 @@ impl Inventory {
             Storage::Spilled(s) => s.get(id).map(Cow::Owned),
         }
     }
+    /// Compare only the exact canonical key for a candidate declaration.
+    /// This avoids rebuilding its dependency list for membership lookups.
+    pub(super) fn matches_identity(&self, id: usize, key: &str) -> Result<bool> {
+        match &self.0 {
+            Storage::Memory { values, .. } => values
+                .get(id)
+                .map(|value| value.identity == key)
+                .ok_or_else(reference_error),
+            Storage::Spilled(s) => s.matches_identity(id, key),
+        }
+    }
     pub(super) fn push(&mut self, report: LeanDeclarationReport) -> Result<()> {
         validate(&report)?;
         if self.len() >= super::MAX_DECLARATIONS {
@@ -132,7 +143,7 @@ impl Spilled {
             .ok_or("declaration report count overflow")?;
         Ok(())
     }
-    fn get(&self, id: usize) -> Result<LeanDeclarationReport> {
+    fn meta(&self, id: usize) -> Result<(u64, usize)> {
         if id >= self.count {
             return Err(reference_error());
         }
@@ -160,6 +171,10 @@ impl Spilled {
         {
             return Err("invalid declaration report index record".into());
         }
+        Ok((start, len))
+    }
+    fn get(&self, id: usize) -> Result<LeanDeclarationReport> {
+        let (start, len) = self.meta(id)?;
         let mut bytes = vec![0; len];
         for (i, chunk) in bytes.chunks_mut(PAGE).enumerate() {
             let off = start
@@ -171,6 +186,45 @@ impl Spilled {
             self.data.borrow_mut().read_into(off, chunk)?;
         }
         decode(&bytes)
+    }
+    fn matches_identity(&self, id: usize, key: &str) -> Result<bool> {
+        let (start, len) = self.meta(id)?;
+        let mut data = self.data.borrow_mut();
+        let mut field = [0; 4];
+        if len < 4 {
+            return Err("truncated declaration report name".into());
+        }
+        data.read_into(start, &mut field)?;
+        let name_len = u32::from_le_bytes(field) as usize;
+        let identity_length_at = 4usize
+            .checked_add(name_len)
+            .filter(|at| name_len <= MAX_PART && at.checked_add(4).is_some_and(|end| end <= len))
+            .ok_or("invalid declaration report name length")?;
+        data.read_into(start + identity_length_at as u64, &mut field)?;
+        let identity_len = u32::from_le_bytes(field) as usize;
+        let identity_at = identity_length_at + 4;
+        if identity_len > MAX_PART
+            || identity_at
+                .checked_add(identity_len)
+                .is_none_or(|end| end > len)
+        {
+            return Err("invalid declaration report identity length".into());
+        }
+        if identity_len != key.len() {
+            return Ok(false);
+        }
+        // Metadata already bounded this complete range inside the data file.
+        // Reading through Spool retains current-invocation page protection.
+        let mut buffer = [0; 512];
+        let mut at = start + identity_at as u64;
+        for part in key.as_bytes().chunks(buffer.len()) {
+            data.read_into(at, &mut buffer[..part.len()])?;
+            if &buffer[..part.len()] != part {
+                return Ok(false);
+            }
+            at += part.len() as u64;
+        }
+        Ok(true)
     }
 }
 
@@ -455,11 +509,77 @@ mod tests {
         index[8..].copy_from_slice(&u64::MAX.to_le_bytes());
         spilled.index.get_mut().append(&index).unwrap();
         assert!(spilled.get(0).is_err());
+        assert!(spilled.matches_identity(0, "key").is_err());
         let missing = Spilled {
             index: RefCell::new(Spool::new().unwrap()),
             data: RefCell::new(Spool::new().unwrap()),
             count: 1,
         };
         assert!(missing.get(0).is_err());
+        assert!(missing.matches_identity(0, "key").is_err());
+    }
+
+    #[test]
+    fn identity_lookup_preserves_keys_across_page_and_chunk_boundaries() {
+        let mut filler = report("padding", vec!["p".repeat(MAX_PART); 3], 1);
+        let fill = PAGE - 2 - encode(&filler).unwrap().len() - 4;
+        assert!(fill <= MAX_PART);
+        filler.dependencies.push("p".repeat(fill));
+        assert_eq!(encode(&filler).unwrap().len(), PAGE - 2);
+        let mut value = report("a different display name", vec![], 2);
+        value.identity = "λ".repeat(MAX_PART / 2);
+        for limit in [0, usize::MAX] {
+            let mut inventory = Inventory::with_limit(limit);
+            inventory.push(filler.clone()).unwrap();
+            inventory.push(value.clone()).unwrap();
+            assert!(inventory.matches_identity(1, &value.identity).unwrap());
+            assert!(!inventory.matches_identity(1, &value.name).unwrap());
+            assert!(!inventory.matches_identity(1, "").unwrap());
+            let mut different = value.identity.clone();
+            different.truncate(different.len() - 2);
+            different.push('μ');
+            assert!(!inventory.matches_identity(1, &different).unwrap());
+            assert!(inventory.matches_identity(2, &value.identity).is_err());
+        }
+    }
+
+    #[test]
+    fn identity_lookup_cannot_read_fields_past_the_record_boundary() {
+        let valid = encode(&report("display", vec![], 1)).unwrap();
+        let identity_length_at = 4 + "display".len();
+        let cases = [
+            (valid.clone(), 3),
+            (valid.clone(), identity_length_at + 3),
+            (valid.clone(), identity_length_at + 4),
+            (
+                {
+                    let mut bytes = valid.clone();
+                    bytes[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+                    bytes
+                },
+                valid.len(),
+            ),
+            (
+                {
+                    let mut bytes = valid.clone();
+                    bytes[identity_length_at..identity_length_at + 4]
+                        .copy_from_slice(&u32::MAX.to_le_bytes());
+                    bytes
+                },
+                valid.len(),
+            ),
+        ];
+        for (bytes, len) in cases {
+            let mut store = Spilled {
+                index: RefCell::new(Spool::new().unwrap()),
+                data: RefCell::new(Spool::new().unwrap()),
+                count: 1,
+            };
+            store.data.get_mut().append(&bytes).unwrap();
+            let mut index = [0; INDEX_BYTES];
+            index[8..].copy_from_slice(&(len as u64).to_le_bytes());
+            store.index.get_mut().append(&index).unwrap();
+            assert!(store.matches_identity(0, "pkg.λ.identity").is_err());
+        }
     }
 }

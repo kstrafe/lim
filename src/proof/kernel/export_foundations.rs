@@ -116,8 +116,8 @@ impl Replay {
             .family
             .as_ref()
             .ok_or("Nonempty must be inductive")?;
-        if !self.checked.contains_key(&name)
-            || !self.checked.contains_key(&intro)
+        if !self.is_checked(&name)?
+            || !self.is_checked(&intro)?
             || declaration.universes.len() != 1
             || family.group != [name.clone()]
             || family.parameters.len() != 1
@@ -152,8 +152,8 @@ impl Replay {
             .get(&name)?
             .ok_or("propext requires the checked standard Iff family")?;
         let family = declaration.family.as_ref().ok_or("Iff must be inductive")?;
-        if !self.checked.contains_key(&name)
-            || !self.checked.contains_key(&intro)
+        if !self.is_checked(&name)?
+            || !self.is_checked(&intro)?
             || !declaration.universes.is_empty()
             || family.group != [name.clone()]
             || family.parameters.len() != 2
@@ -222,27 +222,34 @@ impl Replay {
     }
 
     pub(super) fn target_axioms(&self, target: &str) -> Result<Vec<String>> {
-        let mut pending = vec![target.to_owned()];
-        let mut visited = HashSet::new();
+        let root = self
+            .checked_index(target)?
+            .ok_or("unchecked target dependency in axiom audit")?;
+        let mut pending = vec![root];
+        let mut scheduled = vec![false; self.reports.len()];
+        scheduled[root] = true;
         let mut declared = BTreeSet::new();
         let mut actual = BTreeSet::new();
-        while let Some(name) = pending.pop() {
-            if !visited.insert(name.clone()) {
-                continue;
-            }
-            if let Some(label) = foundation::label(&name) {
-                actual.insert(label.to_owned());
-                continue;
-            }
-            let index = self
-                .checked
-                .get(&name)
-                .ok_or("unchecked target dependency in axiom audit")?;
-            let record = self.reports.get(*index)?;
+        while let Some(index) = pending.pop() {
+            let record = self.reports.get(index)?;
             if record.kind == "axiom" {
                 declared.insert(record.name.clone());
             }
-            pending.extend(record.dependencies.iter().cloned());
+            for dependency in &record.dependencies {
+                if let Some(label) = foundation::label(dependency) {
+                    actual.insert(label.to_owned());
+                    continue;
+                }
+                let next = self
+                    .checked_index(dependency)?
+                    .ok_or("unchecked target dependency in axiom audit")?;
+                // Mark when enqueuing, so shared edges cannot retain repeated
+                // work items. At most one integer per declaration is pending.
+                if !scheduled[next] {
+                    scheduled[next] = true;
+                    pending.push(next);
+                }
+            }
         }
         if declared != actual {
             return Err("target logical foundations differ from its declared axiom closure".into());
@@ -250,3 +257,7 @@ impl Replay {
         Ok(actual.into_iter().collect())
     }
 }
+
+#[cfg(test)]
+#[path = "export_closure_tests.rs"]
+mod closure_tests;

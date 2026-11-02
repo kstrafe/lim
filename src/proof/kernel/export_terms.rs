@@ -271,7 +271,7 @@ impl Replay {
             && family.constructors[1].name == succ
             && family.constructors[1].fields.len() == 1
             && matches!(family.constructors[1].fields[0].as_ref(),Term::Global(name,levels) if name == nat && levels.is_empty())
-            && self.checked.contains_key(nat);
+            && self.is_checked(nat)?;
         if !valid {
             return Err(
                 "Nat literal declaration does not have the standard checked Nat signature".into(),

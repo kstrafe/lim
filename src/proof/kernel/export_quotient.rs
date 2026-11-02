@@ -78,8 +78,8 @@ impl Replay {
             .family
             .as_ref()
             .ok_or("quotient Eq must be inductive")?;
-        if !self.checked.contains_key(&name)
-            || !self.checked.contains_key(&refl)
+        if !self.is_checked(&name)?
+            || !self.is_checked(&refl)?
             || declaration.universes.len() != 1
             || family.group != [name.clone()]
             || family.parameters.len() != 2

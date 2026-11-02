@@ -7,6 +7,8 @@ use std::io::BufRead;
 
 #[path = "export_foundations.rs"]
 mod axioms;
+#[path = "export_checked.rs"]
+mod checked;
 #[path = "export_expressions.rs"]
 mod expressions;
 #[cfg(test)]
@@ -148,7 +150,7 @@ struct Replay {
     levels: levels::Levels,
     expressions: expressions::Expressions,
     reports: inventory::Inventory,
-    checked: HashMap<String, usize>,
+    checked: checked::Index,
     target: String,
     selected: Option<(String, String, String)>,
     ambiguous_target: bool,
@@ -377,7 +379,7 @@ impl Replay {
             levels: levels::Levels::new(),
             expressions: expressions::Expressions::new(retain_bodies),
             reports: inventory::Inventory::new(),
-            checked: HashMap::new(),
+            checked: checked::Index::new(),
             target: String::new(),
             selected: None,
             ambiguous_target: false,
@@ -592,7 +594,7 @@ impl Replay {
     }
     fn dependencies_known(&self, dependencies: &[String], local: &[String]) -> Result<()> {
         for dependency in dependencies {
-            if !self.checked.contains_key(dependency)
+            if !self.is_checked(dependency)?
                 && !local.contains(dependency)
                 && !(self.foundation_policy == LeanFoundationPolicy::Lean4
                     && foundation::label(dependency).is_some())
@@ -603,6 +605,12 @@ impl Replay {
             }
         }
         Ok(())
+    }
+    fn checked_index(&self, name: &str) -> Result<Option<usize>> {
+        self.checked.find(name, &self.reports)
+    }
+    fn is_checked(&self, name: &str) -> Result<bool> {
+        Ok(self.checked_index(name)?.is_some())
     }
     fn room(&self, more: usize) -> Result<()> {
         if self
@@ -628,7 +636,7 @@ impl Replay {
         if self.dependency_count > MAX_DEPENDENCIES || self.dependency_bytes > MAX_NAME_BYTES {
             return Err("export dependency manifest limit exceeded".into());
         }
-        if name.depth == 0 || self.checked.contains_key(&name.key) {
+        if name.depth == 0 || self.is_checked(&name.key)? {
             return Err("duplicate or anonymous declaration".into());
         }
         // Hash the complete prefix through this record, not just the
@@ -637,7 +645,7 @@ impl Replay {
         let digest = self
             .digest
             .get_or_insert_with(|| hash::hex(&self.input_hash.clone().finish()));
-        self.checked.insert(name.key.clone(), self.reports.len());
+        let index = self.reports.len();
         self.reports.push(LeanDeclarationReport {
             name: name.display.clone(),
             identity: name.key.clone(),
@@ -646,6 +654,7 @@ impl Replay {
             sha256: digest.clone(),
             dependencies,
         })?;
+        self.checked.insert(&name.key, index)?;
         // Retain only the selector match and the three authorized axiom
         // names. Avoid scanning and decoding the complete paged inventory at
         // EOF; target validation still happens after every record is checked.
