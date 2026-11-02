@@ -339,3 +339,7 @@ pub(super) fn payload(value: &T) -> usize {
 #[cfg(test)]
 #[path = "export_expressions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "export_expression_model_tests.rs"]
+mod model_tests;
