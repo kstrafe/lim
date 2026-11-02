@@ -13,6 +13,8 @@ mod euclidean;
 mod fold;
 #[path = "natural_fusion.rs"]
 mod fusion;
+#[path = "natural_probe.rs"]
+mod probe;
 
 pub(in crate::proof::kernel) const MAX_DIGITS: usize = 4096;
 

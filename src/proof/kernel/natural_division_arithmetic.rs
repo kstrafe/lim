@@ -1,14 +1,22 @@
-use super::Natural;
+use super::{Natural, Result};
 
 impl Natural {
-    /// Computes Euclidean quotient and remainder using exact decimal arithmetic.
-    ///
-    /// Callers must budget digit work and allocations before calling. Division
-    /// keeps one bounded remainder buffer and performs at most nine in-place
-    /// subtractions for each dividend digit.
+    #[cfg(test)]
     pub(super) fn divide_remainder(&self, divisor: &Self) -> (Self, Self) {
+        self.divide_remainder_metered(divisor, |_| Ok(())).unwrap()
+    }
+
+    /// Exact decimal division with work charged before each digit operation.
+    /// Callers separately reserve scratch allocation before invoking this.
+    /// There are at most nine subtractions per dividend digit.
+    pub(super) fn divide_remainder_metered(
+        &self,
+        divisor: &Self,
+        mut charge: impl FnMut(usize) -> Result<()>,
+    ) -> Result<(Self, Self)> {
+        charge(self.0.len() + divisor.0.len() + 1)?;
         if divisor.0 == "0" {
-            return (Self("0".into()), self.clone());
+            return Ok((Self("0".into()), self.clone()));
         }
 
         let divisor_digits = divisor.0.as_bytes();
@@ -16,28 +24,45 @@ impl Natural {
         let mut remainder = Vec::with_capacity(divisor_digits.len() + 1);
 
         for &digit in self.0.as_bytes() {
+            charge(1)?;
             if remainder == b"0" {
                 remainder.clear();
             }
             remainder.push(digit);
 
             let mut quotient_digit = 0u8;
-            while decimal_cmp(&remainder, divisor_digits) != std::cmp::Ordering::Less {
+            loop {
+                // Unequal lengths compare in constant time. Equal lengths
+                // may inspect every digit; charge before reading them.
+                charge(
+                    1 + if remainder.len() == divisor_digits.len() {
+                        remainder.len()
+                    } else {
+                        0
+                    },
+                )?;
+                if decimal_cmp(&remainder, divisor_digits) == std::cmp::Ordering::Less {
+                    break;
+                }
+                // Subtraction, leading-zero scan and compaction are bounded
+                // by three passes over this remainder. No work runs unpaid.
+                charge(3 * remainder.len())?;
                 subtract_in_place(&mut remainder, divisor_digits);
                 quotient_digit += 1;
             }
             quotient.push(b'0' + quotient_digit);
         }
 
+        charge(2 * quotient.len() + 1)?;
         let first = quotient.iter().position(|&digit| digit != b'0');
         let quotient = match first {
             Some(first) => quotient.split_off(first),
             None => vec![b'0'],
         };
-        (
+        Ok((
             Self(String::from_utf8(quotient).expect("decimal quotient")),
             Self(String::from_utf8(remainder).expect("decimal remainder")),
-        )
+        ))
     }
 }
 
@@ -166,5 +191,50 @@ mod tests {
             dividend.divide_remainder(&natural("0")),
             (natural("0"), dividend)
         );
+    }
+
+    #[test]
+    fn equal_large_operands_do_not_pay_for_unperformed_subtractions() {
+        let value = natural(&"9".repeat(200));
+        let mut work = 0;
+        let result = value
+            .divide_remainder_metered(&value, |cost| {
+                work += cost;
+                if work > 20 * value.decimal().len() {
+                    return Err("budget".into());
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(result, (natural("1"), natural("0")));
+        assert!(work > value.decimal().len());
+    }
+
+    #[test]
+    fn digit_meter_refuses_before_spending_a_smaller_budget() {
+        let mut refused = false;
+        let mut accepted = false;
+        for limit in 0..=200 {
+            let mut work = 0;
+            let result = natural("1234").divide_remainder_metered(&natural("17"), |cost| {
+                if work + cost > limit {
+                    return Err("budget".into());
+                }
+                work += cost;
+                Ok(())
+            });
+            assert!(work <= limit);
+            match result {
+                Ok(value) => {
+                    accepted = true;
+                    assert_eq!(value, (natural("72"), natural("10")));
+                }
+                Err(why) => {
+                    refused = true;
+                    assert_eq!(why, "budget");
+                }
+            }
+        }
+        assert!(accepted && refused);
     }
 }

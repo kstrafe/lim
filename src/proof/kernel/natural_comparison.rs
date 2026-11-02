@@ -31,9 +31,7 @@ impl Kernel {
         let Some(right) = self.natural_closed_number(family, right, depth + 1)? else {
             return Ok(None);
         };
-        self.work = self
-            .work
-            .saturating_add(left.decimal().len().max(right.decimal().len()));
+        self.charge_work(left.decimal().len().max(right.decimal().len()))?;
         self.tick(depth + 1)?;
         let order =
             (left.decimal().len(), left.decimal()).cmp(&(right.decimal().len(), right.decimal()));

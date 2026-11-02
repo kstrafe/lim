@@ -42,6 +42,11 @@ division body, exact native translations and empty assumption inventories.
 Its guide describes the structural conversion rule and remaining operand
 composition limits, with pinned source, module and license provenance.
 
+The [division-composition corpus](../lean_export_division_composition/README.md)
+adds a seventeenth genuine export: seven computed-operand cases with complete
+standard dependency bodies, exact native translations and empty assumptions.
+It has separate source, ownership, hash and license provenance.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

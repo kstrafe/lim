@@ -141,18 +141,14 @@ impl Kernel {
         let Some(divisor) = self.euclidean_step(family, record, body, depth + 1)? else {
             return Ok(None);
         };
-        let Some(input) = self.euclidean_compact_number(family, input, depth + 1)? else {
+        let Some(input) = self.euclidean_number(family, input, depth + 1)? else {
             return Ok(None);
         };
-        let work = input
-            .decimal()
-            .len()
-            .saturating_mul(divisor.decimal().len() + 1)
-            .saturating_mul(20);
-        self.work = self.work.saturating_add(work);
-        self.tick(depth + 1)?;
         self.charge_transformation(512 + 4 * (input.decimal().len() + divisor.decimal().len()))?;
-        let (quotient, _) = input.divide_remainder(&divisor);
+        let (quotient, _) = input.divide_remainder_metered(&divisor, |work| {
+            self.charge_work(work)?;
+            self.tick(depth + 1)
+        })?;
         // There are q positive steps and one terminal step. Never assume a
         // proof argument establishes sufficient fuel for definitional reduction.
         if !self.euclidean_has_fuel(family, fuel, &quotient, depth + 1)? {
@@ -239,6 +235,18 @@ impl Kernel {
         }
     }
 
+    fn euclidean_number(
+        &mut self,
+        family: &str,
+        value: &T,
+        depth: usize,
+    ) -> Result<Option<Natural>> {
+        if let Some(number) = self.euclidean_compact_number(family, value, depth)? {
+            return Ok(Some(number));
+        }
+        self.natural_probe_number(family, value, depth)
+    }
+
     /// Recognize compact numerals without forcing arbitrary arithmetic in an
     /// operand that ordinary evaluation might discard.
     fn euclidean_compact_number(
@@ -286,7 +294,7 @@ impl Kernel {
         if base.decimal().len() == MAX_DIGITS && base.decimal().bytes().all(|b| b == b'9') {
             return Ok(None);
         }
-        self.work = self.work.saturating_add(base.decimal().len() + 1);
+        self.charge_work(base.decimal().len() + 1)?;
         self.tick(depth + 1)?;
         self.charge_transformation(256 + base.decimal().len())?;
         Ok(Some(base.add(&Natural::parse("1")?)?))
@@ -323,7 +331,11 @@ impl Kernel {
                 fields,
             } = value.as_ref()
             else {
-                return Ok(false);
+                return Ok(self
+                    .natural_probe_number(family, &value, level + 1)?
+                    .is_some_and(|fuel| {
+                        decimal_order(&fuel, &required) == std::cmp::Ordering::Greater
+                    }));
             };
             if actual != family
                 || !levels.is_empty()
@@ -336,7 +348,7 @@ impl Kernel {
             if required.decimal() == "0" {
                 return Ok(true);
             }
-            self.work = self.work.saturating_add(required.decimal().len());
+            self.charge_work(required.decimal().len())?;
             self.tick(level + 1)?;
             self.charge_transformation(128 + required.decimal().len())?;
             required = required
@@ -654,14 +666,12 @@ impl Kernel {
         let left_head = self.natural_head(left, depth + 1)?;
         let right_head = self.natural_head(right, depth + 1)?;
         let (divisor, tags) = if matches!(left_head.as_ref(),Term::Var(i) if *i == state) {
-            let Some(divisor) = self.euclidean_compact_number(natural, &right_head, depth + 1)?
-            else {
+            let Some(divisor) = self.euclidean_number(natural, &right_head, depth + 1)? else {
                 return Ok(None);
             };
             (divisor, [tags[1], tags[0], tags[2]])
         } else if matches!(right_head.as_ref(),Term::Var(i) if *i == state) {
-            let Some(divisor) = self.euclidean_compact_number(natural, &left_head, depth + 1)?
-            else {
+            let Some(divisor) = self.euclidean_number(natural, &left_head, depth + 1)? else {
                 return Ok(None);
             };
             (divisor, [tags[2], tags[0], tags[1]])
@@ -846,11 +856,7 @@ impl Kernel {
         if !matches!(base.as_ref(),Term::Var(i) if *i == state) {
             return Ok(false);
         }
-        if self
-            .euclidean_compact_number(natural, subject, depth + 1)?
-            .as_ref()
-            != Some(divisor)
-        {
+        if self.euclidean_number(natural, subject, depth + 1)?.as_ref() != Some(divisor) {
             return Ok(false);
         }
         let step = self.natural_head(&branches[1], depth + 1)?;

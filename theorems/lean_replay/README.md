@@ -68,6 +68,12 @@ division and a quotient beyond machine integers. Original and native checks
 retain the standard fuelled body and have empty assumption inventories.
 Its fixture guide documents provenance, reproduction and operand restrictions.
 
+The seventeenth file, [`division-composition.lim`](division-composition.lim),
+translates the [computed-division corpus](../../tests/fixtures/lean_export_division_composition/README.md).
+Seven targets include computed dividends/divisors, equal powers, below-divisor
+and zero-divisor cases. The independent corpus preserves the full standard
+closure and exact native mapping with empty assumption inventories.
+
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps the original nine exports' declarations

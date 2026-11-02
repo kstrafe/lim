@@ -430,10 +430,12 @@ record projection, binders and finite case tags are checked structurally.
 Finite decision fields may contain only propositions; the observer cannot
 inspect their proof payloads. No operation or constructor name grants authority.
 
-For compact input `x`, exact decimal long division computes `q = x/d` only
-after charging digit work and scratch storage. The rule additionally requires
-strictly more than `q` units of actual fuel: `q` positive steps and one terminal
-step. It never assumes that a proof argument establishes sufficient fuel.
+For a normalized input `x`, exact decimal long division computes `q = x/d`.
+Scratch storage is charged up front; comparisons and subtraction/compaction
+passes are charged before execution. Equal-length operands do not pay for
+unperformed worst-case subtractions at every input digit. The rule additionally
+requires strictly more than `q` units of actual fuel: `q` positive steps and one
+terminal step. It never assumes a proof argument establishes sufficient fuel.
 Insufficient or unknown fuel retains ordinary reduction, preserving an arbitrary
 base function. A known successor can establish positive fuel without forcing
 its unused tail. Zero fuel does not inspect the successor step. Every source
@@ -443,10 +445,24 @@ This is an additional trusted conversion optimization, tested against separately
 materialized history records and altered recurrences. The
 [division corpus](../tests/fixtures/lean_export_division/README.md) independently
 checks the genuine pinned standard body and native translation, including a
-quotient larger than a machine integer. Its fast observation deliberately
-requires compact operands. Equivalent operands written as power computations
-can still exceed the existing work budget; general arithmetic composition
-and arbitrary course-of-values algorithms remain separate work.
+quotient larger than a machine integer. The
+[composition corpus](../tests/fixtures/lean_export_division_composition/README.md)
+adds computed dividends, divisors and fuel, including powers and equal operands.
+
+Noncompact numeric operands can use an optional normalization attempt through
+the existing checked affine rules. Each attempt is capped at 16,384 additional
+work units, 2 MiB of transformation payload and 48 additional depth levels,
+within the enclosing limits. Nested attempts inherit the tighter caps. Declining
+a quota or an unrepresentable arithmetic result returns to ordinary reduction;
+work and allocations already charged remain charged. Operations refused before
+execution do not incur their predicted cost. Other errors propagate, and the
+enclosing budget is restored on every result. This adds no arithmetic equation,
+proof admission or cached theorem authority. Initial source inference remains
+mandatory even when normalization erases a malformed annotation or value.
+More expensive composition and arbitrary course-of-values algorithms can still
+exceed the global budgets. A combined fifteen-target division export currently
+exceeds the 256 MiB cumulative replay payload limit; the two independent corpora
+retain all fifteen targets and their genuine dependencies without raising it.
 
 These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow`,
 `Nat.sub`, `Nat.ble` and `Nat.beq`

@@ -24,10 +24,14 @@ an additional trusted conversion optimization, tested against separately
 expanded history records and changed recurrences. It is not a formal
 verification of the checker.
 
-The observation requires compact operands. Replacing the large decimal
-operands with expressions such as `2 ^ 128` still exhausts the current work
-budget. This corpus does not claim arbitrary composed division, remainder,
-the full mathematical dependency closure, or the complete unbounded FLT proof.
+The [composition corpus](../lean_export_division_composition/README.md) additionally
+checks operands written as powers. The observer now uses bounded optional
+normalization through the existing arithmetic rules and charges the actual
+long-division operations before they run. A combined fifteen-target export
+exceeds the cumulative replay payload cap, so the corpora independently retain
+all cases without raising that limit. This does not establish arbitrary
+course-of-values algorithms, remainder, the full mathematical dependency
+closure or the complete unbounded FLT proof.
 
 Reproduce with the pinned Lean/exporter installations and a built Lim binary:
 

@@ -47,6 +47,11 @@ def main():
             "native_discrimination": ["--check-theorem", "theorems/lean_replay/discrimination.lim", "lean-51-DiscriminationSource-mappedDiscrimination"],
             "native_subtraction": ["--check-theorem", "theorems/lean_replay/subtraction-bridge.lim", "lean-59-SubtractionBridgeSource-mappedCancellation"],
         }
+        composition = json.loads((ROOT / "tests/fixtures/lean_export_division_composition/provenance.json").read_bytes())
+        cases.update({
+            "raw_division_composition": ["--check-lean-export", composition["export"]["file"], composition["targets"][-1]],
+            "native_division_composition": ["--check-theorem", composition["native"]["file"], composition["native"]["targets"][composition["targets"][-1]]],
+        })
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]
             for iteration in range(args.iterations + 1):

@@ -559,7 +559,7 @@ impl Kernel {
     }
 
     fn natural_arithmetic_budget(&mut self, work: usize, bytes: usize, depth: usize) -> Result<()> {
-        self.work = self.work.saturating_add(work);
+        self.charge_work(work)?;
         self.tick(depth)?;
         self.charge_transformation(bytes)
     }

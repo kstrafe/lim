@@ -295,6 +295,21 @@ fn genuine_division_retains_checked_mapping_hashes_and_attribution() {
     );
 }
 
+#[test]
+fn genuine_division_composition_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_division_composition/provenance.json"),
+        include_bytes!(
+            "../../../tests/fixtures/lean_export_division_composition/division-composition.ndjson"
+        ),
+        include_str!("../../../theorems/lean_replay/division-composition.lim"),
+        "DivisionCompositionSource.zero",
+        "lim-lean-division-composition-fixture-v1",
+        &[],
+        (7, &[]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

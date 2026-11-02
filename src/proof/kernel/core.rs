@@ -168,12 +168,20 @@ pub(super) struct Declaration {
     pub value: Option<T>,
     pub family: Option<Family>,
 }
+const NATURAL_PROBE_DECLINED: &str = "optional natural normalization declined";
+#[derive(Clone, Copy)]
+struct NaturalProbeBudget {
+    work: usize,
+    bytes: usize,
+    depth: usize,
+}
 pub(super) struct Kernel {
     declarations: HashMap<String, Declaration>,
     nested: HashMap<String, NestedFamily>,
     nested_build: Option<NestedBuild>,
     work: usize,
     transformed_bytes: usize,
+    natural_probe_budget: Option<NaturalProbeBudget>,
 }
 impl Kernel {
     pub fn new() -> Self {
@@ -183,6 +191,7 @@ impl Kernel {
             nested_build: None,
             work: 0,
             transformed_bytes: 0,
+            natural_probe_budget: None,
         };
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
@@ -256,7 +265,14 @@ impl Kernel {
         self.transformed_bytes = 0;
     }
     fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
-        self.transformed_bytes = self.transformed_bytes.saturating_add(bytes);
+        let proposed = self.transformed_bytes.saturating_add(bytes);
+        if self
+            .natural_probe_budget
+            .is_some_and(|budget| proposed > budget.bytes)
+        {
+            return Err(NATURAL_PROBE_DECLINED.into());
+        }
+        self.transformed_bytes = proposed;
         if self.transformed_bytes > 64 * 1024 * 1024 {
             return Err(
                 "kernel transformation allocation limit exceeded; no theorem was established"
@@ -265,8 +281,28 @@ impl Kernel {
         }
         Ok(())
     }
+    fn charge_work(&mut self, work: usize) -> Result<()> {
+        let proposed = self.work.saturating_add(work);
+        if self
+            .natural_probe_budget
+            .is_some_and(|budget| proposed > budget.work)
+        {
+            return Err(NATURAL_PROBE_DECLINED.into());
+        }
+        self.work = proposed;
+        if self.work > WORK {
+            return Err("kernel resource limit exceeded; no theorem was established".into());
+        }
+        Ok(())
+    }
     fn tick(&mut self, depth: usize) -> Result<()> {
-        self.work += 1;
+        if self
+            .natural_probe_budget
+            .is_some_and(|budget| depth > budget.depth || self.work >= budget.work)
+        {
+            return Err(NATURAL_PROBE_DECLINED.into());
+        }
+        self.work = self.work.saturating_add(1);
         if depth > DEPTH || self.work > WORK {
             return Err("kernel resource limit exceeded; no theorem was established".into());
         }

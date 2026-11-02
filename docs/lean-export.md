@@ -97,11 +97,15 @@ The [division corpus](../tests/fixtures/lean_export_division/README.md) retains
 the standard fuelled history recurrence and checks eight closed targets,
 including zero divisors, exact/inexact division and a quotient beyond 64 bits.
 A structurally checked Euclidean observation requires sufficient actual fuel,
-the exact comparison/subtraction/increment step and compact operands. This
+the exact comparison/subtraction/increment step and normalized operands. This
 adds a trusted conversion optimization, rather than a name-based assumption.
 Every raw and native target is independently checked with empty inventories.
-Arithmetic expressions used as operands can still exceed the work limit;
-these fixtures do not establish arbitrary division algorithms or full FLT.
+The [composition corpus](../tests/fixtures/lean_export_division_composition/README.md)
+adds seven computed-operand cases using bounded optional normalization through
+the existing arithmetic rules. It retains the cost of attempted work and
+restores enclosing limits on success, decline or error. Expensive expressions
+and larger combined corpora can still exceed the work/allocation limits; these
+fixtures do not establish arbitrary division algorithms or full FLT.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

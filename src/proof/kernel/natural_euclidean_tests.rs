@@ -76,6 +76,15 @@ fn fold(ty: T, base: T, body: T, count: T) -> T {
         count,
     )
 }
+// 2^n as a Nat induction: each step folds `succ` over the previous value.
+fn power_of_two(count: T) -> T {
+    fold(
+        nat(),
+        literal(1),
+        fold(nat(), var(0), succ(var(0)), var(0)),
+        count,
+    )
+}
 fn le(left: T, right: T) -> T {
     let inner = fold(global("Tag"), flag(false), app(var(3), var(1)), var(0));
     app(
@@ -247,6 +256,45 @@ fn exhausted_fuel_preserves_the_arbitrary_base_function() {
         k.reset_budget();
         assert!(k.convertible(&[], &slow, &literal(99 + fuel), 0).unwrap());
     }
+}
+
+#[test]
+fn structurally_computed_dividends_are_observed_with_successor_fuel() {
+    let mut k = kernel();
+    for (exponent, divisor, expected) in [(6, 8, 8), (12, 8, 512)] {
+        let input = power_of_two(literal(exponent));
+        let fuel = succ(input.clone());
+        let value = Recurrence::division(divisor).value(&mut k, input, fuel);
+        k.reset_budget();
+        k.check(&[], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        let result = k.natural_euclidean_observation(&value, 0).unwrap();
+        assert!(
+            matches!(result.as_deref(), Some(Term::NatLiteral { value, .. }) if value.decimal() == expected.to_string())
+        );
+    }
+}
+
+#[test]
+fn zero_and_insufficient_fuel_do_not_force_an_oversized_input() {
+    let mut k = kernel();
+    // This well-typed fold denotes a number far beyond the compact literal
+    // limit, while the small fuel means observation can reject immediately.
+    let input = power_of_two(literal(MAX_DIGITS * 4));
+    let recurrence = Recurrence::division(8);
+    for fuel in [literal(0), literal(1), literal(2)] {
+        let value = recurrence.value(&mut k, input.clone(), fuel);
+        k.reset_budget();
+        k.check(&[], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        assert!(k
+            .natural_euclidean_observation(&value, 0)
+            .unwrap()
+            .is_none());
+    }
+    let small = recurrence.materialized(&mut k, input, 0);
+    k.reset_budget();
+    assert!(k.convertible(&[], &small, &literal(99), 0).unwrap());
 }
 
 #[test]
