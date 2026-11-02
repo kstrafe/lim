@@ -706,6 +706,47 @@ expression subtree. Sharing does not eliminate that duplication or make
 native-source checking incremental; the complete FLT input and replay remain
 unverified.
 
+Formatting now parses, renders and releases one top-level source tree at a
+time through the ordinary parser. It preserves input-relative spans, comment
+placement, declaration spacing and parser failures. The complete token and
+comment tables, raw output and formatted string still remain resident. The
+later ordinary program parser, typechecker, correspondence and foundation
+checks are unchanged, as are the source byte, node and depth limits.
+
+For `--format` on the 3,000-theorem input above, five alternating debug0
+samples reduce median peak RSS from 349,812 to 68,664 KiB (80.4%) and wall
+time from 1,424.555 to 1,323.037 ms (7.1%). Both versions produce the same
+5,884,890 formatted bytes, SHA-256
+`8fa8ce9f9076231da971d4381b5eb9fa43d42d6c997dcd454cec0521c77b6cbb`.
+All 702 non-cache example, library and UI source files produce identical
+formatted bytes or identical errors. The 23 pinned genuine exports also
+regenerate their complete committed proof files byte-for-byte, with receipts
+identical to the previous compiler. These comparisons preserve existing
+evidence; they do not establish the missing complete FLT proof.
+
+The native emission workload can exercise this separately from source-only
+theorem checking:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-native-retention.py \
+  --before /path/to/old/lim --after target/debug/lim \
+  --declarations 500 --lets 16 --unused-expressions 0 --iterations 5
+```
+
+Against `9e6bd1b6`, five alternating debug0 samples reduce median wall time
+from 5,813.444 to 5,699.962 ms (2.0%). Peak RSS is effectively unchanged,
+197,104 versus 197,336 KiB, because later whole-program checking dominates.
+Both compilers use default work/per-phase limits, explicit 1-GiB cumulative
+accounting and the unchanged 2-GiB/two-core host guard. The synthetic export
+has 709,124 bytes and SHA-256
+`411cdfcfd2cfe4291623dc51cd501aa1c43c1681180580bb33fa6243840426b0`.
+Every sample preserves the complete 116,737-byte receipt, SHA-256
+`be090892357c8356325caf5c6a4ccb9b21a57b1ff64d4d90a5d4296e290d8790`,
+and 1,181,204-byte proof source, SHA-256
+`65747feed96fc11e78dc2f5a2dde106af5f23e768b10b46f01a8473acc232799`.
+These measurements describe a formatting prerequisite and do not add FLT
+proof coverage.
+
 Before selecting larger importer limits, inspect an available export without
 retaining its tables:
 

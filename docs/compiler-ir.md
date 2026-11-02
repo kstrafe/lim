@@ -18,6 +18,13 @@ Converting into a vector reuses uniquely owned storage or clones shared
 storage. This ownership mechanism carries no proof authority or checked
 judgment; ordinary validation still applies.
 
+Formatting retains only the current top-level source tree. It uses the same
+parser as ordinary source loading, keeping input-relative spans and comment
+cursors, and carries the previous declaration's spacing flag across forms.
+A later lexical or parse error still rejects the whole formatting request.
+The token table, comment table, input and output strings remain resident;
+this does not make program parsing or checking incremental.
+
 ## Actual internal-owner access contexts
 
 `call_self_loans.rs` maps references stored inside an argument's pointee to

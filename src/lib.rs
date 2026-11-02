@@ -1085,12 +1085,17 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
 
 /// Format canonical Lim source using the parsed S-expression structure.
 pub fn format_source(source: &str) -> Result<String, String> {
-    let expressions = parse(source)?;
+    let tokens = lex(source).map_err(|error| error.to_string())?;
+    let mut parser = Parser::new(&tokens);
     let comments = source_comments(source);
     let mut output = String::new();
     let mut comment_index = 0;
     let mut cursor = 0;
-    for (index, expression) in expressions.iter().enumerate() {
+    let mut previous_declaration = None;
+    // Keep only one formatting tree live. Source offsets still refer to the
+    // complete input, including comments between adjacent top-level forms.
+    while parser.index < tokens.len() {
+        let expression = parser.expression().map_err(|error| error.to_string())?;
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.end > expression.span.start {
                 break;
@@ -1108,18 +1113,21 @@ pub fn format_source(source: &str) -> Result<String, String> {
         if !output.is_empty() && !output.ends_with('\n') {
             output.push('\n');
         }
-        let declaration = |node: &SpannedExpr| {
-            matches!(&node.expr, Expr::List(items)
+        let declaration = matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")))
-        };
-        if index > 0
-            && (declaration(expression) || declaration(&expressions[index - 1]))
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")));
+        if previous_declaration.is_some_and(|previous| previous || declaration)
             && !output.ends_with("\n\n")
         {
             output.push('\n');
         }
-        output.push_str(&pretty_spanned_expression(expression, source, &comments, 0));
+        output.push_str(&pretty_spanned_expression(
+            &expression,
+            source,
+            &comments,
+            0,
+        ));
+        previous_declaration = Some(declaration);
         cursor = expression.span.end;
         // Nested comments were emitted by the expression renderer already.
         while comments
@@ -1128,8 +1136,8 @@ pub fn format_source(source: &str) -> Result<String, String> {
         {
             comment_index += 1;
         }
-        let next_start = expressions
-            .get(index + 1)
+        let next_start = tokens
+            .get(parser.index)
             .map_or(source.len(), |next| next.span.start);
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.start < expression.span.end || comment.span.start >= next_start {
