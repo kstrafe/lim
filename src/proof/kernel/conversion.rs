@@ -134,7 +134,8 @@ impl Kernel {
             Term::Global(name, _) if name != target => {
                 let Some(body) = self
                     .declarations
-                    .get(name)
+                    .get(name)?
+                    .as_ref()
                     .and_then(|decl| decl.value.clone())
                 else {
                     return Ok(false);

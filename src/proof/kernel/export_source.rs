@@ -95,9 +95,8 @@ pub(super) fn render(
         let checked = writer
             .kernel
             .declarations
-            .get(&declaration.identity)
-            .ok_or("checked source declaration is missing")?
-            .clone();
+            .get(&declaration.identity)?
+            .ok_or("checked source declaration is missing")?;
         writer.kernel.reset_budget();
         writer.universes = checked
             .universes

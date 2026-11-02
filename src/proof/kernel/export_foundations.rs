@@ -88,8 +88,7 @@ impl Replay {
         let declaration = self
             .kernel
             .declarations
-            .get(name)
-            .cloned()
+            .get(name)?
             .ok_or("missing checked logical datatype declaration")?;
         let expected = self.axiom_template(signature, &declaration.universes)?;
         self.reset_budget()?;
@@ -111,7 +110,7 @@ impl Replay {
         let declaration = self
             .kernel
             .declarations
-            .get(&name)
+            .get(&name)?
             .ok_or("choice requires the checked standard Nonempty family")?;
         let family = declaration
             .family
@@ -132,7 +131,7 @@ impl Replay {
             || self
                 .kernel
                 .declarations
-                .get(&intro)
+                .get(&intro)?
                 .is_none_or(|d| d.universes.len() != 1)
         {
             return Err("choice requires the standard checked Nonempty/intro shape".into());
@@ -150,7 +149,7 @@ impl Replay {
         let declaration = self
             .kernel
             .declarations
-            .get(&name)
+            .get(&name)?
             .ok_or("propext requires the checked standard Iff family")?;
         let family = declaration.family.as_ref().ok_or("Iff must be inductive")?;
         if !self.checked.contains_key(&name)
@@ -167,7 +166,7 @@ impl Replay {
             || self
                 .kernel
                 .declarations
-                .get(&intro)
+                .get(&intro)?
                 .is_none_or(|d| !d.universes.is_empty())
         {
             return Err("propext requires the standard checked Iff/intro shape".into());

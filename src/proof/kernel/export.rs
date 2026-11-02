@@ -12,8 +12,6 @@ mod expressions;
 #[cfg(test)]
 #[path = "export_fixtures_tests.rs"]
 mod fixtures_tests;
-#[path = "export_hash.rs"]
-mod hash;
 #[path = "export_inductive.rs"]
 mod inductives;
 #[path = "export_quotient.rs"]
@@ -22,8 +20,7 @@ mod quotient;
 mod report;
 #[path = "export_source.rs"]
 mod source;
-#[path = "export_spool.rs"]
-mod spool;
+use super::scratch as spool;
 #[path = "export_strings.rs"]
 mod strings;
 #[path = "export_terms.rs"]
@@ -312,7 +309,10 @@ impl Replay {
         Self::with_retention(crate::ProofBudget::default(), false)
     }
     fn with_retention(budget: crate::ProofBudget, retain_bodies: bool) -> Self {
-        let kernel = Kernel::with_budget(budget);
+        let mut kernel = Kernel::with_budget(budget);
+        if !retain_bodies {
+            kernel.declarations.enable_spilling();
+        }
         Self {
             kernel,
             names: vec![Name {
@@ -405,7 +405,14 @@ impl Replay {
             _ => Err(format!("unsupported export record '{tag}'")),
         };
         self.expressions.end_record();
-        result
+        result?;
+        if self.kernel.nested_build.is_some() {
+            return Err("incomplete inductive group at replay record boundary".into());
+        }
+        if self.kernel.declarations.trim()? {
+            self.expressions.sweep_dead();
+        }
+        Ok(())
     }
     fn name_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;

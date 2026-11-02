@@ -101,6 +101,18 @@ impl Materialized {
             }
         }
     }
+    fn sweep_dead(&mut self) {
+        self.end_record();
+        if let Some(slots) = &mut self.sparse {
+            slots.retain(|_, (value, _)| value.strong_count() > 0);
+        } else {
+            for slot in &mut self.slots {
+                if slot.as_ref().is_some_and(|value| value.strong_count() == 0) {
+                    *slot = None;
+                }
+            }
+        }
+    }
 }
 
 pub(super) struct Expressions {
@@ -236,6 +248,11 @@ impl Expressions {
         };
         // Dead weak handles must also be removed to reclaim Arc allocations.
         materialized.get_mut().end_record();
+    }
+    pub(super) fn sweep_dead(&mut self) {
+        if let Storage::Compact { materialized, .. } = &mut self.storage {
+            materialized.get_mut().sweep_dead();
+        }
     }
 }
 

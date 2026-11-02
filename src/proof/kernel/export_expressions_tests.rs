@@ -56,6 +56,30 @@ fn compact_storage_reuses_a_dag_then_releases_dead_weak_allocations() {
 }
 
 #[test]
+fn eviction_sweeps_dead_handles_from_earlier_records_in_both_memo_layouts() {
+    for limit in [0, usize::MAX] {
+        let names = root_names();
+        let levels = [Level::number(0).unwrap()];
+        let mut values = Expressions::with_limit(false, limit);
+        values
+            .push(Expression::Var(0), 1, 0, &names, &levels)
+            .unwrap();
+        let owner = values.get(0, &names, &levels).unwrap();
+        // The declaration still owns the term at its original record boundary.
+        values.end_record();
+        assert!(!slots_empty(&values));
+        drop(owner);
+        // A later record's incremental sweep does not revisit that old slot.
+        values.end_record();
+        assert!(!slots_empty(&values));
+        values.sweep_dead();
+        assert!(slots_empty(&values));
+        let rebuilt = values.get(0, &names, &levels).unwrap();
+        assert!(matches!(rebuilt.as_ref(), Term::Var(0)));
+    }
+}
+
+#[test]
 fn compact_and_eager_modes_reconstruct_all_source_nodes_exactly() {
     let inputs = [
         r#"{"ie":0,"bvar":1}"#,

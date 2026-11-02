@@ -86,7 +86,7 @@ impl Kernel {
         if self.provisional_family(name) || self.nested.contains_key(name) {
             return Ok(None);
         }
-        let Some(declaration) = self.declarations.get(name) else {
+        let Some(declaration) = self.declarations.get(name)? else {
             return Ok(None);
         };
         if !declaration.universes.is_empty() {

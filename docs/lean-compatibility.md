@@ -459,6 +459,15 @@ The ten genuine raw/native memory cases still check; their small retained graphs
 show nearly unchanged RSS. All source/table limits remain finite and unchanged,
 so the large upstream environment and full FLT proof are still open.
 
+Completed raw-replay kernel declarations can now leave the resident environment
+for temporary backing storage. A bounded working set retains their types,
+transparent bodies and inductive metadata; opaque proofs stay opaque. Exact
+structural round trips precede eviction, and current-process SHA-256 digests
+protect subsequent reads. This is not a persistent checked-result cache. Native
+emission, nested-family views and name/universe/report tables still retain
+their existing representations. The input and declaration-count limits remain
+unchanged, so the full upstream environment still requires further work.
+
 The remaining work is a staged port, not a completed deliverable:
 
 1. Freeze the upstream, toolchain, and Mathlib revisions, and define the intended

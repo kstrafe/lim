@@ -191,7 +191,7 @@ impl Kernel {
         if !levels.is_empty() || self.provisional_family(name) || self.nested.contains_key(name) {
             return Ok(None);
         }
-        let Some(declaration) = self.declarations.get(name) else {
+        let Some(declaration) = self.declarations.get(name)? else {
             return Ok(None);
         };
         let Some(desc) = &declaration.family else {

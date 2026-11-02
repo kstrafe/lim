@@ -313,6 +313,30 @@ original proof body for emission and independent correspondence checking. Input,
 source/table/payload, work/depth and transformation limits remain unchanged.
 This storage change does not provide full-environment replay or an FLT proof.
 
+Replay also stores completed kernel declarations in invocation-local scratch
+storage when their conservative resident estimate exceeds 8 MiB. It releases
+older declarations down to 4 MiB and keeps later reads within the remaining
+8-MiB working-set allowance. A single larger declaration is returned to its
+checking caller without entering the read cache. A declaration being checked,
+the checker’s temporary terms, source memos and name/index metadata have their
+own bounds; 8 MiB is not a process RSS cap.
+
+Only successful complete declaration records can trigger eviction. The scratch
+codec preserves shared term DAGs, exact universes, transparent values, opaque
+signatures and all inductive-family metadata. Before releasing a checked object,
+the kernel compares its structure with the decoded representation independently
+of the encoder. Reads verify both page and complete-record SHA-256 digests held
+in the current process. Identical complete representations may share bytes;
+their nominal declaration names remain distinct. Mutation invalidates a stored
+representation. I/O errors and integrity failures fail replay.
+
+These immediately unlinked files are temporary backing storage for the current
+kernel environment. No earlier process’s judgment or persistent cache can
+insert a declaration. Records are bounded to 32 MiB, one million term nodes and
+depth 256; the scratch file is bounded to 128 MiB. Native source emission keeps
+its environment resident. Nested-family views, names, universe tables and
+receipt inventories still need further work for very large upstream exports.
+
 ## Native proof-source translation
 
 Add `--emit-proof PATH` to emit a standard Lim proof file after successful
@@ -474,6 +498,8 @@ inside the separate host memory/CPU guard.
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
 | Structural arithmetic | Decimal digit work counts against the core budget before each addition/multiplication; at most 4,096 result digits |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
+| Completed raw declaration storage | 8 MiB resident estimate, eviction down to 4 MiB; 128 MiB invocation-local scratch |
+| Declaration scratch records | 32 MiB encoded bytes, 1,000,000 unique term nodes, depth 256; 256 MiB decode allocation accounting |
 | Native translation source | 8 MiB before and after formatting; 1,000,000 expanded term visits; recursive render depth 96 |
 | Source correspondence | 1,000,000 relocated nodes, depth 256, and 64 MiB accounted node/name/universe allocations across a translation |
 | Universe source reconstruction | 64 KiB per level; at most 64 variable successors, guard/successor depth 80, and 4,096 symbolic guard-order comparisons |
@@ -482,8 +508,9 @@ Allocation accounting charges term nodes, owned identifiers and normalized
 universe payloads, including temporary transformations. These are explicit
 work/payload budgets, not exact process RSS measurements. Input is read one
 bounded line at a time, and replay-only expression nodes can spill to bounded
-scratch storage. Names, universe values and the checked environment remain
-in RAM; this does not provide full-environment storage for enormous exports.
+scratch storage. Completed raw-replay declarations also have bounded resident
+storage; names, universe values, nested-family views and report metadata remain
+in RAM. This does not provide full-environment storage for enormous exports.
 The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
@@ -567,3 +594,25 @@ paired debug0 samples reduce the 3,000-proof/64-let median from 6,573.652 to
 5,970.663 ms (9.2%) and the 190,000-unused-expression median from 1,092.175 to
 597.735 ms (45.3%). Peak RSS is approximately unchanged. The same budgets and
 2-GiB/two-core guard apply; these are synthetic importer measurements.
+
+The declaration tool exercises retained signatures instead of discarded proof
+bodies. It adds 1,800 marker definitions and 1,800 checked theorems, each with
+48 unused typed lets in its signature. Each signature references a distinct
+marker, so identical-signature deduplication cannot erase the workload. It
+checks equal complete receipt fingerprints before the timed fresh workers:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-declarations.py \
+  --before /path/to/before/lim --after target/debug/lim --iterations 5
+```
+
+Against `f7b368cb`, five alternating debug0 samples reduce median compiler RSS
+from 41,432 to 30,408 KiB (26.6%). Median wall time increases from 2,954.887 to
+3,444.346 ms (16.6%); encoding, independent structural verification and reloads
+cost time. The 7,627,039-byte input has SHA-256
+`5b700a3c1ab7dad6e58741f16ddca9fb49d880f139cbff7c496158afb1008c63`.
+Both compilers emit the same 830,046-byte receipt with SHA-256
+`49c2817e40f7285a914250c3fd258be815a5fa966ff8adadff4e820d03224f38`.
+The default work/phase limits, explicit 4-GiB cumulative transformation budget
+and separate 2-GiB/two-core host guard match. This measures storage scaling;
+it adds no genuine mathematical theorem or FLT dependency coverage.

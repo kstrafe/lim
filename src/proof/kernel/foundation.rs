@@ -135,7 +135,7 @@ mod tests {
         for (name, label, universes, source, _) in FOUNDATIONS {
             assert_eq!(super::label(name), Some(*label));
             kernel.ensure_logical_foundation(name, 0).unwrap();
-            let declaration = kernel.declarations.get(*name).unwrap().clone();
+            let declaration = kernel.declarations.get(*name).unwrap().unwrap().clone();
             assert_eq!(declaration.universes.len(), universes.len());
             assert!(declaration.value.is_none());
             assert!(declaration.family.is_none());

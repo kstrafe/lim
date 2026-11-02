@@ -12,12 +12,16 @@ use std::sync::Arc;
 mod beta;
 #[path = "conversion.rs"]
 mod conversion;
+#[path = "declarations.rs"]
+mod declarations;
 #[path = "elimination.rs"]
 mod elimination;
 #[path = "export.rs"]
 pub(super) mod export;
 #[path = "foundation.rs"]
 pub(super) mod foundation;
+#[path = "hash.rs"]
+mod hash;
 #[path = "inductive.rs"]
 mod inductive;
 #[path = "natural.rs"]
@@ -29,6 +33,8 @@ pub(super) use natural::Natural;
 mod probe;
 #[path = "quotient.rs"]
 mod quotient;
+#[path = "scratch.rs"]
+mod scratch;
 #[path = "syntax.rs"]
 mod syntax;
 use nested::{NestedBuild, NestedFamily};
@@ -182,7 +188,7 @@ struct ReductionProbeBudget {
 }
 pub(super) struct Kernel {
     budget: crate::ProofBudget,
-    declarations: HashMap<String, Declaration>,
+    declarations: declarations::Declarations,
     nested: HashMap<String, NestedFamily>,
     nested_build: Option<NestedBuild>,
     work: usize,
@@ -197,7 +203,7 @@ impl Kernel {
     pub fn with_budget(budget: crate::ProofBudget) -> Self {
         let mut result = Self {
             budget,
-            declarations: HashMap::new(),
+            declarations: declarations::Declarations::new(),
             nested: HashMap::new(),
             nested_build: None,
             work: 0,
@@ -395,7 +401,7 @@ impl Kernel {
     ) -> Result<()> {
         self.definition(name, universes, ty, value, false)?;
         self.declarations
-            .get_mut(name)
+            .get_mut(name)?
             .ok_or("missing checked opaque definition")?
             .value = None;
         Ok(())
@@ -462,9 +468,13 @@ impl Kernel {
         self.ensure_logical_foundation(name, depth + 1)?;
         let declaration = self
             .declarations
-            .get(name)
-            .or_else(|| self.nested.get(name).map(|nested| &nested.declaration))
-            .cloned()
+            .get(name)?
+            .map(|declaration| declaration.as_ref().clone())
+            .or_else(|| {
+                self.nested
+                    .get(name)
+                    .map(|nested| nested.declaration.clone())
+            })
             .ok_or_else(|| format!("unknown or unchecked kernel declaration '{name}'"))?;
         if declaration.universes.len() != levels.len() {
             return Err(format!(
@@ -910,7 +920,7 @@ impl Kernel {
         let Term::Global(name, levels) = head.as_ref() else {
             return Ok(None);
         };
-        let Some(family) = self.declarations.get(name).and_then(|d| d.family.clone()) else {
+        let Some(family) = self.declarations.get(name)?.and_then(|d| d.family.clone()) else {
             return Ok(None);
         };
         if family.group.len() != 1
@@ -1561,8 +1571,8 @@ impl Kernel {
         };
         Ok(self
             .declarations
-            .get(name)
-            .and_then(|declaration| declaration.family.as_ref())
+            .get(name)?
+            .and_then(|declaration| declaration.family.clone())
             .is_some_and(|family| {
                 family.group.len() == 1
                     && family.parameters.len() == supplied

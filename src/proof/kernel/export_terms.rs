@@ -256,11 +256,14 @@ impl Replay {
         let nat = "$lean:s3:Nat";
         let zero = "$lean:s3:Nats4:zero";
         let succ = "$lean:s3:Nats4:succ";
-        let family = self
+        let declaration = self
             .kernel
             .declarations
-            .get(nat)
-            .and_then(|d| d.family.as_ref())
+            .get(nat)?
+            .ok_or("Nat literals require the previously checked standard Nat declaration")?;
+        let family = declaration
+            .family
+            .as_ref()
             .ok_or("Nat literals require the previously checked standard Nat declaration")?;
         let valid = family.group == [nat]
             && family.parameters.is_empty()

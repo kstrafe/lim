@@ -31,6 +31,78 @@ fn spend(work: &mut usize) -> Result<()> {
 }
 
 impl Level {
+    /// Return the exact stored monomial representation for checksummed storage.
+    pub(in crate::proof::kernel) fn storage_parts(
+        &self,
+    ) -> Vec<(Option<String>, Vec<String>, u32)> {
+        self.terms
+            .iter()
+            .map(|(term, offset)| {
+                (
+                    term.base.clone(),
+                    term.nonzero.iter().cloned().collect(),
+                    *offset,
+                )
+            })
+            .collect()
+    }
+
+    /// Restore an exact representation without normalization or insertion.
+    pub(in crate::proof::kernel) fn from_storage_parts(
+        parts: Vec<(Option<String>, Vec<String>, u32)>,
+    ) -> Result<Self> {
+        if parts.len() > TERMS {
+            return Err("universe term limit exceeded".into());
+        }
+        let mut previous: Option<Monomial> = None;
+        let mut total_name_bytes = 0usize;
+        for (base, guards, offset) in &parts {
+            if *offset > LEVEL {
+                return Err("universe level limit exceeded".into());
+            }
+            if guards.len() > GUARDS {
+                return Err("universe guard limit exceeded".into());
+            }
+            total_name_bytes = total_name_bytes
+                .checked_add(base.as_ref().map_or(0, String::len))
+                .ok_or("universe name payload limit exceeded")?;
+            let mut previous_guard: Option<&str> = None;
+            for guard in guards {
+                total_name_bytes = total_name_bytes
+                    .checked_add(guard.len())
+                    .ok_or("universe name payload limit exceeded")?;
+                if previous_guard.is_some_and(|old| old >= guard.as_str()) {
+                    return Err("invalid universe guard ordering".into());
+                }
+                previous_guard = Some(guard);
+            }
+            if total_name_bytes > 16 * 1024 * 1024 {
+                return Err("universe name payload limit exceeded".into());
+            }
+            let monomial = Monomial {
+                base: base.clone(),
+                nonzero: guards.iter().cloned().collect(),
+            };
+            if previous.as_ref().is_some_and(|old| old >= &monomial) {
+                return Err("invalid universe monomial ordering".into());
+            }
+            previous = Some(monomial);
+        }
+        let terms = parts
+            .into_iter()
+            .map(|(base, guards, offset)| {
+                (
+                    Monomial {
+                        base,
+                        nonzero: guards.into_iter().collect(),
+                    },
+                    offset,
+                )
+            })
+            .collect();
+        Ok(Self { terms })
+    }
+
     /// Conservative local payload accounting for bounded term transformations.
     pub(super) fn memory_weight(&self) -> usize {
         self.terms.keys().fold(0usize, |total, monomial| {
@@ -39,6 +111,18 @@ impl Level {
                     .saturating_add(96)
                     .saturating_add(monomial.base.as_ref().map_or(0, String::len)),
                 |total, name| total.saturating_add(64).saturating_add(name.len()),
+            )
+        })
+    }
+    /// Backing-store residency includes underfull B-tree nodes and owned
+    /// string capacities, rather than the transformation traffic estimate.
+    pub(in crate::proof::kernel) fn storage_memory_weight(&self) -> usize {
+        self.terms.keys().fold(0usize, |total, monomial| {
+            monomial.nonzero.iter().fold(
+                total
+                    .saturating_add(1024)
+                    .saturating_add(monomial.base.as_ref().map_or(0, String::capacity)),
+                |total, name| total.saturating_add(512).saturating_add(name.capacity()),
             )
         })
     }
@@ -327,6 +411,9 @@ pub(super) fn same_levels(left: &[Level], right: &[Level]) -> Result<bool> {
     Ok(true)
 }
 
+#[cfg(test)]
+#[path = "level_storage_tests.rs"]
+mod storage_tests;
 #[cfg(test)]
 #[path = "level_tests.rs"]
 mod tests;

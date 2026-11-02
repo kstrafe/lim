@@ -23,14 +23,14 @@ impl Kernel {
             head = function;
         }
         let body = match head.as_ref() {
-            Term::Lam(..) => Some(head),
+            Term::Lam(..) => Some(head.clone()),
             Term::Global(name, _) if delta => {
-                self.declarations.get(name).and_then(|d| d.value.as_ref())
+                self.declarations.get(name)?.and_then(|d| d.value.clone())
             }
             _ => None,
         };
         if count < 2
-            || !matches!(body.map(T::as_ref), Some(Term::Lam(_, body)) if matches!(body.as_ref(), Term::Lam(..)))
+            || !matches!(body.as_ref().map(T::as_ref), Some(Term::Lam(_, body)) if matches!(body.as_ref(), Term::Lam(..)))
         {
             return Ok(None);
         }

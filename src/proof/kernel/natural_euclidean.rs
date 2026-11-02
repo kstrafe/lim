@@ -427,10 +427,10 @@ impl Kernel {
         if self.provisional_family(family) || self.nested.contains_key(family) {
             return Ok(None);
         }
-        let Some(decl) = self.declarations.get(family).cloned() else {
+        let Some(decl) = self.declarations.get(family)? else {
             return Ok(None);
         };
-        let Some(desc) = decl.family else {
+        let Some(desc) = decl.family.clone() else {
             return Ok(None);
         };
         if !decl.universes.is_empty()

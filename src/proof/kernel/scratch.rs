@@ -1,5 +1,6 @@
-//! Append-only private scratch bytes with bounded resident pages. These are
-//! source bytes owned by this replay, never persisted checked evidence.
+//! Append-only invocation-local scratch bytes with bounded resident pages.
+//! The current process protects page digests; no pathname or prior process's
+//! storage is accepted as a source of checked evidence.
 use super::{hash::Sha256, Result};
 use std::{
     collections::VecDeque,

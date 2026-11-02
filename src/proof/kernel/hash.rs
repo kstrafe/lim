@@ -1,4 +1,4 @@
-//! Small streaming SHA-256 implementation for export integrity checks.
+//! Small streaming SHA-256 implementation for replay integrity checks.
 
 #[derive(Clone)]
 pub(super) struct Sha256 {

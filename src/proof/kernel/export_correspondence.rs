@@ -59,8 +59,9 @@ pub(super) fn check(
         let declaration = replay
             .kernel
             .declarations
-            .get(original)
+            .get(original)?
             .ok_or("missing original checked declaration")?
+            .as_ref()
             .clone();
         let parsed = parse_declaration(name, proposition, &HashSet::new())?;
         if parsed.universes.len() != declaration.universes.len() {

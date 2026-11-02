@@ -72,8 +72,7 @@ impl Replay {
         let declaration = self
             .kernel
             .declarations
-            .get(&name)
-            .cloned()
+            .get(&name)?
             .ok_or("quotient primitives require the checked standard Eq family")?;
         let family = declaration
             .family
@@ -113,8 +112,7 @@ impl Replay {
         let constructor = self
             .kernel
             .declarations
-            .get(&refl)
-            .cloned()
+            .get(&refl)?
             .ok_or("missing checked Eq.refl")?;
         if constructor.universes.len() != 1 {
             return Err("quotient Eq.refl universe mismatch".into());

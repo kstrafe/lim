@@ -329,7 +329,7 @@ impl Replay {
             let derived = self
                 .kernel
                 .declarations
-                .get(&spec.name.key)
+                .get(&spec.name.key)?
                 .ok_or("missing checked family")?
                 .ty
                 .clone();
