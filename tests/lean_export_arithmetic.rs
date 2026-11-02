@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 const FIXTURE: &str = include_str!("fixtures/lean_export_arithmetic/arithmetic.ndjson");
 const NATIVE: &str = include_str!("../theorems/lean_replay/arithmetic.lim");
-const TARGET: &str = "ArithmeticSource.nestedSubtraction";
+const TARGET: &str = "ArithmeticSource.equalZero";
 const TARGETS: &[(&str, &str)] = &[
     (
         "ArithmeticSource.addition",
@@ -65,7 +65,59 @@ const TARGETS: &[(&str, &str)] = &[
         "ArithmeticSource.subtractZero",
         "lean-53-ArithmeticSource-subtractZero",
     ),
-    (TARGET, "lean-54-ArithmeticSource-nestedSubtraction"),
+    (
+        "ArithmeticSource.nestedSubtraction",
+        "lean-54-ArithmeticSource-nestedSubtraction",
+    ),
+    (
+        "ArithmeticSource.booleanControl",
+        "lean-62-ArithmeticSource-booleanControl",
+    ),
+    (
+        "ArithmeticSource.booleanLess",
+        "lean-63-ArithmeticSource-booleanLess",
+    ),
+    (
+        "ArithmeticSource.booleanEqual",
+        "lean-64-ArithmeticSource-booleanEqual",
+    ),
+    (
+        "ArithmeticSource.booleanGreater",
+        "lean-65-ArithmeticSource-booleanGreater",
+    ),
+    (
+        "ArithmeticSource.booleanZeroLeft",
+        "lean-66-ArithmeticSource-booleanZeroLeft",
+    ),
+    (
+        "ArithmeticSource.booleanZeroRight",
+        "lean-67-ArithmeticSource-booleanZeroRight",
+    ),
+    (
+        "ArithmeticSource.booleanGenericZero",
+        "lean-68-ArithmeticSource-booleanGenericZero",
+    ),
+    (
+        "ArithmeticSource.booleanNested",
+        "lean-69-ArithmeticSource-booleanNested",
+    ),
+    (
+        "ArithmeticSource.equalControl",
+        "lean-73-ArithmeticSource-equalControl",
+    ),
+    (
+        "ArithmeticSource.equalLarge",
+        "lean-74-ArithmeticSource-equalLarge",
+    ),
+    (
+        "ArithmeticSource.unequalLarge",
+        "lean-75-ArithmeticSource-unequalLarge",
+    ),
+    (
+        "ArithmeticSource.unequalReverse",
+        "lean-76-ArithmeticSource-unequalReverse",
+    ),
+    (TARGET, "lean-77-ArithmeticSource-equalZero"),
 ];
 fn rows() -> Vec<Json> {
     FIXTURE
@@ -92,7 +144,7 @@ fn rejected_source(source: &str) {
 fn actual_standard_arithmetic_replays_with_empty_axiom_inventories() {
     for (original, _) in TARGETS {
         let report = check_lean_export(FIXTURE.as_bytes(), original).unwrap();
-        assert_eq!(report.declarations.len(), 55);
+        assert_eq!(report.declarations.len(), 78);
         assert_eq!(&report.target, original);
         assert!(report.axioms.is_empty());
         assert!(report.target_axioms.is_empty());
@@ -106,7 +158,7 @@ fn exact_native_translation_independently_checks_every_target() {
     assert_eq!(translated.source, NATIVE);
     assert_eq!(translated.target, TARGETS.last().unwrap().1);
     assert!(NATIVE.contains("Nat-brecOn-go"));
-    assert!(NATIVE.len() < 96 * 1024);
+    assert!(NATIVE.len() < 128 * 1024);
     lim::check_types(&lim::parse_program(NATIVE).unwrap()).unwrap();
     for (_, name) in TARGETS {
         let checked = lim::check_theorem_details_from_path_with_config(
@@ -177,6 +229,33 @@ fn shift_expression_ids(value: &mut Json, start: i64) {
 /// earlier addition input, so changing its shared row would test that earlier
 /// theorem instead of reaching the power obligation.
 fn with_expected_endpoint(target: &str, decimal: &str) -> (Vec<Json>, usize) {
+    with_endpoint(target, "natVal", Json::String(decimal.into()))
+}
+
+fn with_boolean_endpoint(target: &str, which: &str) -> (Vec<Json>, usize) {
+    let data = rows();
+    let name = data
+        .iter()
+        .find(|row| {
+            row.get("str")
+                .and_then(|v| v.get("str"))
+                .and_then(Json::string)
+                == Some(which)
+        })
+        .unwrap()
+        .get("in")
+        .unwrap();
+    let constant = data
+        .iter()
+        .find_map(|row| {
+            let constant = row.get("const")?;
+            (constant.get("name") == Some(name)).then_some(constant.clone())
+        })
+        .unwrap();
+    with_endpoint(target, "const", constant)
+}
+
+fn with_endpoint(target: &str, tag: &str, endpoint: Json) -> (Vec<Json>, usize) {
     let mut data = rows();
     let name = data
         .iter()
@@ -213,7 +292,7 @@ fn with_expected_endpoint(target: &str, decimal: &str) -> (Vec<Json>, usize) {
         at,
         Json::Object(BTreeMap::from([
             ("ie".into(), Json::Number(next.to_string())),
-            ("natVal".into(), Json::String(decimal.into())),
+            (tag.into(), endpoint),
         ])),
     );
     data.insert(
@@ -275,6 +354,9 @@ fn names_and_provenance_comments_do_not_authorize_arithmetic() {
         .replace("Nat-pow", "different-operation")
         .replace("Nat-pred", "a-preceding-operation")
         .replace("Nat-sub", "a-decreasing-operation")
+        .replace("Nat-ble", "a-relational-operation")
+        .replace("Nat-beq", "a-boolean-equality")
+        .replace("Bool", "Decision")
         .replace("PProd", "Another-record")
         .replace("Nat", "Tally");
     lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
@@ -333,11 +415,101 @@ fn a_well_typed_changed_subtraction_step_is_not_the_original_operation() {
 }
 
 #[test]
+fn false_boolean_endpoints_are_rejected_at_the_actual_boolean_obligation() {
+    let (positive, _) = with_boolean_endpoint("booleanLess", "true");
+    check_lean_export(render(&positive).as_bytes(), TARGET).unwrap();
+    for (target, wrong) in [
+        ("booleanControl", "true"),
+        ("booleanLess", "false"),
+        ("booleanEqual", "false"),
+        ("booleanGreater", "true"),
+        ("booleanZeroLeft", "false"),
+        ("booleanZeroRight", "true"),
+        ("booleanNested", "false"),
+        ("equalControl", "false"),
+        ("equalLarge", "false"),
+        ("unequalLarge", "true"),
+        ("unequalReverse", "true"),
+        ("equalZero", "false"),
+    ] {
+        let (data, at) = with_boolean_endpoint(target, wrong);
+        check_lean_export(
+            render(&data[..at]).as_bytes(),
+            "ArithmeticSource.nestedSubtraction",
+        )
+        .unwrap();
+        let why = check_lean_export(render(&data).as_bytes(), TARGET).unwrap_err();
+        assert!(
+            why.message.contains(&format!("ArithmeticSource.{target}")),
+            "{why}"
+        );
+        assert!(why.message.contains("type mismatch"), "{why}");
+        assert!(!why.message.contains("resource limit"), "{why}");
+    }
+}
+
+fn changed_boolean_definition(definition: &str, before: &str, after: &str) -> String {
+    let start = NATIVE
+        .find(&format!("(#math-definition {definition} "))
+        .unwrap();
+    let end = start + NATIVE[start..].find("\n; Lean declaration:").unwrap();
+    assert!(NATIVE[start..end].contains(before));
+    format!(
+        "{}{}{}",
+        &NATIVE[..start],
+        NATIVE[start..end].replacen(before, after, 1),
+        &NATIVE[end..]
+    )
+}
+
+#[test]
+fn changed_boolean_terminals_and_recursive_arguments_keep_their_actual_meaning() {
+    for (definition, failure, terminal) in [
+        (
+            "lean-60-Nat-ble-_f",
+            "lean-62-ArithmeticSource-booleanControl",
+            "(#pt-use lean-56-Bool-false ())",
+        ),
+        (
+            "lean-71-Nat-beq-_f",
+            "lean-73-ArithmeticSource-equalControl",
+            "(#pt-use lean-57-Bool-true ())",
+        ),
+    ] {
+        let other = if terminal.contains("false") {
+            "(#pt-use lean-57-Bool-true ())"
+        } else {
+            "(#pt-use lean-56-Bool-false ())"
+        };
+        for (before, after) in [
+            (terminal, other),
+            (
+                "(#pt-app (#pt-project lean-10-PProd 0 v5) v4)",
+                "(#pt-app (#pt-project lean-10-PProd 0 v5) v2)",
+            ),
+        ] {
+            let changed = changed_boolean_definition(definition, before, after);
+            let prefix = changed
+                .split(&format!("(#theorem {failure}"))
+                .next()
+                .unwrap();
+            lim::check_types(&lim::parse_program(prefix).unwrap()).unwrap();
+            let why = lim::check_types(&lim::parse_program(&changed).unwrap()).unwrap_err();
+            assert!(why.contains(failure), "{why}");
+            assert!(why.contains("type mismatch"), "{why}");
+            assert!(!why.contains("resource limit"), "{why}");
+        }
+    }
+}
+
+#[test]
 fn opaque_standard_names_do_not_expose_their_initializers() {
     for (function, theorem) in [
         ("lean-19-Nat-add", "lean-26-ArithmeticSource-addition"),
         ("lean-38-Nat-pow", "lean-39-ArithmeticSource-power"),
         ("lean-48-Nat-sub", "lean-49-ArithmeticSource-subtraction"),
+        ("lean-61-Nat-ble", "lean-62-ArithmeticSource-booleanControl"),
+        ("lean-72-Nat-beq", "lean-73-ArithmeticSource-equalControl"),
     ] {
         let original = format!("(#math-definition {function}");
         assert!(NATIVE.contains(&original));
@@ -353,7 +525,7 @@ fn opaque_standard_names_do_not_expose_their_initializers() {
 
 #[test]
 fn a_standard_name_does_not_bypass_the_provided_signature() {
-    for operation in ["add", "pow", "pred", "sub"] {
+    for operation in ["add", "pow", "pred", "sub", "ble", "beq"] {
         let mut rows = rows();
         let prop = rows
             .iter()

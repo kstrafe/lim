@@ -1,0 +1,40 @@
+; Structural natural comparison, with both recursors visible in the definition.
+(#math-inductive comparison-flag () () (#pt-type 0) ((yes ()) (no ())))
+
+(#math-definition less-or-equal ()
+  (#pt-pi ((left #pt-nat) (right #pt-nat)) (#pt-use comparison-flag ()))
+  (#pt-lambda ((left #pt-nat) (right #pt-nat))
+    (#pt-app (#pt-nat-induct
+      (#pt-lambda ((left-index #pt-nat)) (#pt-pi ((right-index #pt-nat)) (#pt-use comparison-flag ())))
+      (#pt-lambda ((right-index #pt-nat)) (#pt-construct comparison-flag () () yes ()))
+      (#pt-lambda ((previous #pt-nat)
+                   (older (#pt-pi ((right-index #pt-nat)) (#pt-use comparison-flag ()))))
+        (#pt-lambda ((right-index #pt-nat))
+          (#pt-nat-induct
+            (#pt-lambda ((right-inner #pt-nat)) (#pt-use comparison-flag ()))
+            (#pt-construct comparison-flag () () no ())
+            (#pt-lambda ((right-previous #pt-nat) (ignored-flag (#pt-use comparison-flag ())))
+              (#pt-app older right-previous))
+            right-index)))
+      left) right)))
+
+(#theorem two-to-128-le-next
+  (#universes) (#parameters)
+  (#statement (#pt-eq (#pt-use comparison-flag ())
+    (#pt-app (#pt-use less-or-equal ())
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211456")
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211457"))
+    (#pt-construct comparison-flag () () yes ())))
+  (#proof (#pt-refl (#pt-use comparison-flag ()) (#pt-construct comparison-flag () () yes ()))))
+
+(#theorem next-not-le-two-to-128
+  (#universes) (#parameters)
+  (#statement (#pt-eq (#pt-use comparison-flag ())
+    (#pt-app (#pt-use less-or-equal ())
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211457")
+      (#pt-nat-literal #pt-nat "340282366920938463463374607431768211456"))
+    (#pt-construct comparison-flag () () no ())))
+  (#proof (#pt-refl (#pt-use comparison-flag ()) (#pt-construct comparison-flag () () no ()))))
+
+(#fn main () #u64
+  (#return 42u64))

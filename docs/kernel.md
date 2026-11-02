@@ -385,26 +385,51 @@ complex carrier. Projecting the first field of a record-valued natural fold
 can become a fold of that field if the step uses its previous state only
 through the same first-field projection. The checked carrier must be an
 unindexed, nonrecursive data record whose first field is its first type
-parameter. The observed type must be a constant natural family or a function
-from that family to itself. Reading another history field or passing the
+parameter. The observed type must be a constant natural family or completed
+finite Type-0 data family, or a function from the natural family to one of
+those scalar types. Finite families must be monomorphic, parameterless and
+indexless, with no constructor fields. Reading another history field or passing the
 whole old state prevents fusion. The projected base stays suspended.
 
 Likewise, applying a function-valued natural fold at a fixed argument can
 become a natural-valued fold only if every use of its old function applies
 that same argument. Binder-aware replacement checks the actual argument and
-rejects other arguments or whole-function uses. Constructor-headed natural
+rejects other arguments or whole-function uses. A separate nonrecursive-case
+rule can push a fixed argument of another type into the branches. Its function
+domain must be definitionally independent of the case index and its range
+must be a closed scalar type. The step cannot use the old function after
+checked definitional normalization, including in annotations and erased terms.
+The transformed branch retains that normalized body before changing its
+unused hypothesis type; the original source still undergoes full typing.
+This exposes histories passed through Lean's matchers without permitting
+arbitrary recursive calls at changing arguments. Constructor-headed natural
 recursors select branches through ordinary iota; zero literals return their
 base without inspecting the unused step. Other inductive families retain
 their normal evaluator. Source typing, including unused fields and local
 bindings, is always checked before conversion.
 
-These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow` and `Nat.sub`
+Paired-predecessor recursion has a separate rule for a completed finite data
+result family. It checks all four cases: `F(0,0)=a`, `F(0,y+1)=b`,
+`F(x+1,0)=c`, and `F(x+1,y+1)=F(x,y)`. A constant zero-left function is
+the special case `a=b`. The recognizer checks both natural motives, branch
+domains and exact binder indices, including the second operand of the zero-left
+case. Closed counts compare by canonical decimal length and digits; the
+result is the actual terminal from the checked body. Constructor order and
+names do not assign truth values or authorize a computation. Symbolic operands
+remain in their real scope rather than being normalized in an empty context.
+The [native comparison example](../examples/proof_natural_comparison.lim)
+shows the less-or-equal recurrence, and direct constructor-iota tests also
+cover three distinct terminals. Work and transformation budgets are unchanged.
+
+These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow`,
+`Nat.sub`, `Nat.ble` and `Nat.beq`
 recurrences without constructing their `Nat.brecOn` history tables. The
 [genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-checks seventeen targets over 55 declarations, including large powers, zero/one
+checks thirty targets over 78 declarations, including large powers, zero/one
 bases, generic right-zero and zero-exponent identities, nested arithmetic and
 an affine recurrence with a nonzero offset, large truncated subtraction and its
-zero/equal-operand cases. The [native observation example](../examples/proof_observed_arithmetic.lim)
+zero/equal-operand cases, Boolean relations/equality, generic zero-left
+comparison and nested arithmetic operands. The [native observation example](../examples/proof_observed_arithmetic.lim)
 shows both rules directly. No declaration spelling, hash, source comment or
 exporter claim authorizes a computation. Fusion and decimal arithmetic use
 the existing work, transformation and result-size bounds. Other arithmetic

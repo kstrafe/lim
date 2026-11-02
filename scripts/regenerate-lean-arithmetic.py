@@ -27,7 +27,13 @@ TARGETS = ["ArithmeticSource.addition", "ArithmeticSource.multiplication",
            "ArithmeticSource.affineGrowth", "ArithmeticSource.subtraction",
            "ArithmeticSource.subtractToZero", "ArithmeticSource.subtractSelf",
            "ArithmeticSource.zeroMinus", "ArithmeticSource.subtractZero",
-           "ArithmeticSource.nestedSubtraction"]
+           "ArithmeticSource.nestedSubtraction", "ArithmeticSource.booleanControl",
+           "ArithmeticSource.booleanLess", "ArithmeticSource.booleanEqual",
+           "ArithmeticSource.booleanGreater", "ArithmeticSource.booleanZeroLeft",
+           "ArithmeticSource.booleanZeroRight", "ArithmeticSource.booleanGenericZero",
+           "ArithmeticSource.booleanNested", "ArithmeticSource.equalControl",
+           "ArithmeticSource.equalLarge", "ArithmeticSource.unequalLarge",
+           "ArithmeticSource.unequalReverse", "ArithmeticSource.equalZero"]
 
 
 def digest(data):
@@ -120,7 +126,7 @@ def main():
         native_targets = {}
         for item, name in zip(originals, names):
             owner = owners[item["name"]]
-            if item["name"] in ["Nat.add", "Nat.mul", "Nat.pow", "Nat.pred", "Nat.sub"] and owner != "Init.Prelude":
+            if item["name"] in ["Nat.add", "Nat.mul", "Nat.pow", "Nat.pred", "Nat.sub", "Nat.ble", "Nat.beq"] and owner != "Init.Prelude":
                 raise ValueError(f"standard arithmetic declaration has unexpected owner: {item['name']} ({owner})")
             if owner not in ["Source", "Init.Prelude"]:
                 raise ValueError(f"unexpected fixture source module: {owner}")

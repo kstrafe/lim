@@ -314,16 +314,18 @@ The optimization recognizes the checked syntax of the recurrence, including
 nested translation folds, independently of function names. It preserves nominal
 types, opacity and source typing, and leaves other shapes to ordinary iota
 computation. Guarded first-field observation and fixed-argument fusion now
-expose the pinned producer's standard `Nat.add`, `Nat.mul`, `Nat.pow` and `Nat.sub` recurrences
+expose the pinned producer's standard `Nat.add`, `Nat.mul`, `Nat.pow`, `Nat.sub`,
+`Nat.ble` and `Nat.beq` recurrences
 inside `Nat.brecOn` records. They require an independently checked natural
-family, data-record shape, constant natural/function observation type, and
+family, data-record shape, constant scalar/function observation type, and
 exclusive use of the corresponding projection or fixed recursive argument.
 They preserve binder scope, source typing and opacity; they do not identify
 operations by name or add an axiom. The
 [genuine standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-checks seventeen targets across 55 declarations, including powers, generic
+checks thirty targets across 78 declarations, including powers, generic
 right-zero/zero-exponent identities, nested computations and an affine offset
-recurrence, truncated subtraction, zero/equal operands and nested subtraction.
+recurrence, truncated subtraction, zero/equal operands, Boolean relations and
+equality, generic zero-left comparison and nested arithmetic operands.
 Selected outer accumulators have separate coefficient slots;
 predecessors and unrelated locals remain unknown. Constant-affine iteration
 uses exact decimal bit extraction and squaring under the existing budgets,
@@ -332,6 +334,13 @@ target's empty logical-assumption inventory are checked independently. An exact
 zero/successor predecessor and its iteration on the accumulator can compute
 closed subtraction using decimal borrow arithmetic. Different branches or
 subjects, symbolic operands and opaque definitions retain normal computation.
+Finite observations require completed, monomorphic, parameterless/indexless
+Type-0 families with no constructor fields. A separate guarded case-application
+rule exposes matcher histories only if the function domain is independent of
+the case index and the old function is unused after checked normalization.
+The exact four-case paired-predecessor recurrence can then choose its checked
+terminal by decimal comparison, independent of constructor names or order.
+Changing other recursive arguments remains outside fixed-argument fusion.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.

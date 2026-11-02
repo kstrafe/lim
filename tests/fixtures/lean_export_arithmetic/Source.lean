@@ -1,5 +1,5 @@
 /- Genuine standard natural arithmetic computations using Nat.add, Nat.mul,
-   Nat.pow and Nat.sub. No axioms, admissions, or native-decision shortcuts. -/
+   Nat.pow, Nat.sub, Nat.ble and Nat.beq. No axioms, admissions or native-decision shortcuts. -/
 namespace ArithmeticSource
 
 theorem addition : Nat.add 184467440737095516160 340282366920938463463374607431768211456 =
@@ -49,5 +49,39 @@ theorem subtractZero (value : Nat) : Nat.sub value 0 = value := rfl
 theorem nestedSubtraction : Nat.add
     (Nat.sub 340282366920938463463374607431768211456 18446744073709551616) 7 =
     340282366920938463444927863358058659847 := rfl
+
+theorem booleanControl : Nat.ble 2 1 = false := rfl
+
+theorem booleanLess : Nat.ble 340282366920938463463374607431768211456
+    340282366920938463463374607431768211457 = true := rfl
+
+theorem booleanEqual : Nat.ble 340282366920938463463374607431768211456
+    340282366920938463463374607431768211456 = true := rfl
+
+theorem booleanGreater : Nat.ble 340282366920938463463374607431768211457
+    340282366920938463463374607431768211456 = false := rfl
+
+theorem booleanZeroLeft : Nat.ble 0 340282366920938463463374607431768211456 = true := rfl
+
+theorem booleanZeroRight : Nat.ble 340282366920938463463374607431768211456 0 = false := rfl
+
+theorem booleanGenericZero (value : Nat) : Nat.ble 0 value = true := rfl
+
+theorem booleanNested : Nat.ble
+    (Nat.sub 340282366920938463463374607431768211456 18446744073709551616)
+    (Nat.add 340282366920938463444927863358058659840 1) = true := rfl
+
+theorem equalControl : Nat.beq 1 1 = true := rfl
+
+theorem equalLarge : Nat.beq 340282366920938463463374607431768211456
+    340282366920938463463374607431768211456 = true := rfl
+
+theorem unequalLarge : Nat.beq 340282366920938463463374607431768211456
+    340282366920938463463374607431768211457 = false := rfl
+
+theorem unequalReverse : Nat.beq 340282366920938463463374607431768211457
+    340282366920938463463374607431768211456 = false := rfl
+
+theorem equalZero : Nat.beq 0 0 = true := rfl
 
 end ArithmeticSource

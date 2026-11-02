@@ -3,6 +3,8 @@ use super::*;
 
 #[path = "natural_arithmetic.rs"]
 mod arithmetic;
+#[path = "natural_comparison.rs"]
+mod comparison;
 #[path = "natural_fold.rs"]
 mod fold;
 #[path = "natural_fusion.rs"]

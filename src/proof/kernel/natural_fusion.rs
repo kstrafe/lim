@@ -150,7 +150,8 @@ impl Kernel {
         })))
     }
 
-    /// Only a constant Nat or Nat -> Nat observation is handled. A source
+    /// Observations have a closed scalar type, or Nat -> scalar type. Scalars
+    /// are this natural family or a completed finite Type-0 data family. A
     /// motive depending on its index cannot silently become a constant type.
     fn natural_observation_type(
         &mut self,
@@ -159,20 +160,57 @@ impl Kernel {
         depth: usize,
     ) -> Result<Option<T>> {
         self.tick(depth)?;
-        let nat = term(Term::Global(family.into(), vec![]));
-        if self.natural_type(value, family, depth + 1)? {
-            return Ok(Some(nat));
+        if let Some(scalar) = self.natural_scalar_type(value, family, depth + 1)? {
+            return Ok(Some(scalar));
         }
         let value = self.natural_head(value, depth + 1)?;
         if let Term::Pi(domain, range) = value.as_ref() {
-            if self.natural_type(domain, family, depth + 1)?
-                && self.natural_type(range, family, depth + 1)?
-            {
-                self.charge_transformation(384 + family.len() * 2)?;
-                return Ok(Some(term(Term::Pi(nat.clone(), nat))));
+            if self.natural_type(domain, family, depth + 1)? {
+                if let Some(scalar) = self.natural_scalar_type(range, family, depth + 1)? {
+                    self.charge_transformation(384 + family.len())?;
+                    return Ok(Some(term(Term::Pi(
+                        term(Term::Global(family.into(), vec![])),
+                        scalar,
+                    ))));
+                }
             }
         }
         Ok(None)
+    }
+
+    fn natural_scalar_type(&mut self, value: &T, family: &str, depth: usize) -> Result<Option<T>> {
+        self.tick(depth)?;
+        if self.natural_type(value, family, depth + 1)? {
+            self.charge_transformation(128 + family.len())?;
+            return Ok(Some(term(Term::Global(family.into(), vec![]))));
+        }
+        let value = self.natural_head(value, depth + 1)?;
+        let Term::Global(name, levels) = value.as_ref() else {
+            return Ok(None);
+        };
+        if !levels.is_empty() || self.provisional_family(name) || self.nested.contains_key(name) {
+            return Ok(None);
+        }
+        let Some(declaration) = self.declarations.get(name) else {
+            return Ok(None);
+        };
+        let Some(desc) = &declaration.family else {
+            return Ok(None);
+        };
+        if !declaration.universes.is_empty()
+            || desc.group.len() != 1
+            || desc.group[0] != *name
+            || !desc.parameters.is_empty()
+            || !desc.indices.is_empty()
+            || desc
+                .constructors
+                .iter()
+                .any(|constructor| !constructor.fields.is_empty())
+            || !desc.sort.equivalent(&Level::number(1)?)?
+        {
+            return Ok(None);
+        }
+        Ok(Some(value))
     }
 
     pub(super) fn natural_apply_fusion(
@@ -215,10 +253,28 @@ impl Kernel {
         let Term::Pi(domain, range) = result.as_ref() else {
             return Ok(None);
         };
-        if !self.natural_type(domain, family, depth + 1)?
-            || !self.natural_type(range, family, depth + 1)?
-        {
-            return Ok(None);
+        if !self.natural_type(domain, family, depth + 1)? {
+            return self.natural_case_apply_fusion(
+                family,
+                &result,
+                branches,
+                subject,
+                argument,
+                depth + 1,
+            );
+        }
+        if !self.natural_type(range, family, depth + 1)? {
+            let Some(ty) = self.natural_observation_type(&result, family, depth + 1)? else {
+                return Ok(None);
+            };
+            return self.natural_comparison_fold(
+                family,
+                &ty,
+                branches,
+                subject,
+                argument,
+                depth + 1,
+            );
         }
         let step = self.natural_head(&branches[1], depth + 1)?;
         let Term::Lam(domain, rest) = step.as_ref() else {
@@ -291,6 +347,93 @@ impl Kernel {
             ],
             subject: subject.clone(),
         })))
+    }
+
+    /// Applying a fixed argument also commutes with a nonrecursive natural
+    /// case, even if the argument is a history record. Require an index-free
+    /// function domain, a closed scalar range, and no use of the old function
+    /// anywhere in the step body, including its annotations and erased values.
+    #[expect(clippy::too_many_arguments)]
+    fn natural_case_apply_fusion(
+        &mut self,
+        family: &str,
+        ty: &T,
+        branches: &[T],
+        subject: &T,
+        argument: &T,
+        depth: usize,
+    ) -> Result<Option<T>> {
+        self.tick(depth)?;
+        let Term::Pi(domain, range) = ty.as_ref() else {
+            return Ok(None);
+        };
+        if self.natural_without_variable(domain, depth + 1)?.is_none() {
+            return Ok(None);
+        }
+        let Some(range) = self.natural_scalar_type(range, family, depth + 1)? else {
+            return Ok(None);
+        };
+        let step = self.natural_head(&branches[1], depth + 1)?;
+        let Term::Lam(domain, body) = step.as_ref() else {
+            return Ok(None);
+        };
+        if !self.natural_type(domain, family, depth + 1)? {
+            return Ok(None);
+        }
+        let step = self.natural_head(body, depth + 1)?;
+        let Term::Lam(_, body) = step.as_ref() else {
+            return Ok(None);
+        };
+        let Some(body) = self.natural_without_variable(body, depth + 1)? else {
+            return Ok(None);
+        };
+        let argument_under_step = self.shift(argument, 2, 0, depth + 1)?;
+        self.charge_transformation(1024 + family.len() * 3)?;
+        let nat = term(Term::Global(family.into(), vec![]));
+        Ok(Some(term(Term::Induct {
+            family: family.into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: term(Term::Lam(nat.clone(), range.clone())),
+            branches: vec![
+                term(Term::App(branches[0].clone(), argument.clone())),
+                term(Term::Lam(
+                    nat,
+                    term(Term::Lam(
+                        range,
+                        term(Term::App(body.clone(), argument_under_step)),
+                    )),
+                )),
+            ],
+            subject: subject.clone(),
+        })))
+    }
+
+    /// Erase only checked definitional redexes before testing for a local.
+    /// Return the rewritten term: reusing the original could retain that
+    /// local in a discarded argument or type after changing the binder type.
+    fn natural_without_variable(&mut self, value: &T, depth: usize) -> Result<Option<T>> {
+        let mut found = false;
+        let value = self.transform_nodes(
+            value,
+            0,
+            depth + 1,
+            &mut |kernel, value, binders, depth| {
+                if found {
+                    return Ok(ControlFlow::Break(value.clone()));
+                }
+                let value = kernel.natural_head(value, depth + 1)?;
+                if matches!(value.as_ref(), Term::Var(index) if *index == binders) {
+                    found = true;
+                    return Ok(ControlFlow::Break(value));
+                }
+                Ok(ControlFlow::Continue(value))
+            },
+            &mut |_, index, _| Ok(term(Term::Var(index))),
+            &mut |level| Ok(level.clone()),
+        )?;
+        Ok((!found).then_some(value))
     }
 }
 
@@ -504,5 +647,146 @@ mod tests {
             let expected = successor(successor(successor(var(0))));
             assert!(kernel.convertible(&context, &value, &expected, 0).unwrap());
         }
+    }
+
+    fn record_case(count: T, body: T) -> T {
+        let ty = term(Term::Pi(pair_type(), nat()));
+        term(Term::Induct {
+            family: "#pt-nat".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: lam(nat(), ty.clone()),
+            branches: vec![lam(pair_type(), literal(0)), lam(nat(), lam(ty, body))],
+            subject: count,
+        })
+    }
+
+    #[test]
+    fn nonrecursive_case_application_uses_the_rewritten_body_after_erasing_a_local() {
+        let mut kernel = kernel();
+        let ty = term(Term::Pi(pair_type(), nat()));
+        let body = term(Term::Let(ty.clone(), var(0), lam(pair_type(), literal(0))));
+        let fold = record_case(literal(1000), body);
+        kernel.check(&[], &fold, &ty, 0).unwrap();
+        let value = pair(literal(7), literal(8));
+        let fused = kernel
+            .natural_apply_fusion(&fold, &value, 0)
+            .unwrap()
+            .unwrap();
+        kernel.check(&[], &fused, &nat(), 0).unwrap();
+        assert!(kernel.convertible(&[], &fused, &literal(0), 0).unwrap());
+        // Before source typing, the same erased local with a false annotation
+        // must still fail. Conversion is not permission to skip that check.
+        let bad = record_case(
+            literal(1000),
+            term(Term::Let(nat(), var(0), lam(pair_type(), literal(0)))),
+        );
+        assert!(kernel
+            .check(&[], &bad, &ty, 0)
+            .unwrap_err()
+            .contains("type mismatch"));
+    }
+
+    #[test]
+    fn a_record_case_that_uses_the_old_function_is_not_nonrecursive() {
+        let mut kernel = kernel();
+        let fold = record_case(
+            literal(3),
+            lam(pair_type(), term(Term::App(var(1), var(0)))),
+        );
+        let ty = term(Term::Pi(pair_type(), nat()));
+        kernel.check(&[], &fold, &ty, 0).unwrap();
+        assert!(kernel
+            .natural_apply_fusion(&fold, &pair(literal(1), literal(2)), 0)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_case_function_domain_cannot_depend_on_its_recursion_index() {
+        let mut kernel = kernel();
+        kernel
+            .inductive(
+                "Indexed",
+                vec![],
+                vec![nat()],
+                Level::number(1).unwrap(),
+                vec![("make".into(), vec![])],
+            )
+            .unwrap();
+        let indexed = |n: T| term(Term::App(term(Term::Global("Indexed".into(), vec![])), n));
+        let ty = |n: T| term(Term::Pi(indexed(n), nat()));
+        let fold = term(Term::Induct {
+            family: "#pt-nat".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: lam(nat(), ty(var(0))),
+            branches: vec![
+                lam(indexed(literal(0)), literal(0)),
+                lam(
+                    nat(),
+                    lam(ty(var(0)), lam(indexed(successor(var(1))), literal(0))),
+                ),
+            ],
+            subject: literal(3),
+        });
+        kernel.check(&[], &fold, &ty(literal(3)), 0).unwrap();
+        let argument = term(Term::Ctor {
+            family: "Indexed".into(),
+            levels: vec![],
+            parameters: vec![literal(3)],
+            constructor: "make".into(),
+            fields: vec![],
+        });
+        assert!(kernel
+            .natural_apply_fusion(&fold, &argument, 0)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn finite_observations_are_nominal_completed_data_and_never_propositions() {
+        let mut kernel = kernel();
+        kernel
+            .inductive(
+                "Flag",
+                vec![],
+                vec![],
+                Level::number(1).unwrap(),
+                vec![("off".into(), vec![]), ("on".into(), vec![])],
+            )
+            .unwrap();
+        kernel
+            .inductive(
+                "Proof",
+                vec![],
+                vec![],
+                Level::number(0).unwrap(),
+                vec![("witness".into(), vec![])],
+            )
+            .unwrap();
+        let flag = term(Term::Global("Flag".into(), vec![]));
+        assert!(kernel
+            .natural_observation_type(&flag, "#pt-nat", 0)
+            .unwrap()
+            .is_some());
+        assert!(kernel
+            .natural_observation_type(&term(Term::Pi(nat(), flag)), "#pt-nat", 0)
+            .unwrap()
+            .is_some());
+        assert!(kernel
+            .natural_observation_type(&term(Term::Global("Proof".into(), vec![])), "#pt-nat", 0)
+            .unwrap()
+            .is_none());
+        assert!(kernel
+            .natural_observation_type(&pair_type(), "#pt-nat", 0)
+            .unwrap()
+            .is_none());
+        assert!(kernel
+            .natural_observation_type(&var(0), "#pt-nat", 0)
+            .unwrap()
+            .is_none());
     }
 }

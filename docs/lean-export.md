@@ -67,10 +67,10 @@ decimal addition/multiplication, independently of declaration names, through
 the [ordinary native rule](kernel.md#natural-numbers-and-induction). Other
 recursion shapes still use ordinary computation and finite work budgets.
 Guarded first-field and fixed-argument fusion also expose the pinned standard
-`Nat.add`/`Nat.mul`/`Nat.pow`/`Nat.sub` recurrences inside their course-of-values records, without
+`Nat.add`/`Nat.mul`/`Nat.pow`/`Nat.sub`/`Nat.ble`/`Nat.beq` recurrences inside their course-of-values records, without
 recognizing those names as privileged operations. The
 [standard arithmetic corpus](../tests/fixtures/lean_export_arithmetic/README.md)
-replays seventeen actual targets and independently rechecks their ordinary native
+replays thirty actual targets and independently rechecks their ordinary native
 translations with empty logical-assumption inventories.
 Affine recursors track selected outer accumulators without confusing them
 with predecessors. Constant-affine iteration uses bounded decimal halving and
@@ -79,7 +79,11 @@ computation. Checked predecessor-shaped recursors also support closed truncated
 subtraction, requiring the correct zero/successor branches and accumulator
 subject. Decimal borrow arithmetic preserves saturation and arbitrary precision;
 unknown operands do not acquire an affine interpretation. No source operation
-is authorized by its spelling.
+is authorized by its spelling. Completed finite data observations and guarded
+nonrecursive case application expose Boolean histories. An exact paired-
+predecessor rule checks every zero/successor case and binder, then selects the
+actual terminal by closed decimal comparison. It neither guesses constructor
+truth values nor permits arbitrary changing recursive arguments.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

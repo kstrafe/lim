@@ -29,6 +29,22 @@ impl Affine {
 }
 
 impl Kernel {
+    /// Speculative arithmetic must not normalize an open term using an empty
+    /// typing context. The affine recognizer instead refuses unknown locals.
+    pub(super) fn natural_closed_number(
+        &mut self,
+        family: &str,
+        value: &T,
+        depth: usize,
+    ) -> Result<Option<Natural>> {
+        let Some(desc) = self.natural_recursor_family(family, depth + 1)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .natural_affine(&desc, family, value, &[], depth + 1)?
+            .map(|value| value.constant))
+    }
+
     /// All source terms still pass ordinary inference before conversion. This
     /// does not make an unchecked body, annotation or erased let acceptable.
     #[expect(clippy::too_many_arguments)]
