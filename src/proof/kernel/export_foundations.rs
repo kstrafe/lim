@@ -238,7 +238,7 @@ impl Replay {
                 .checked
                 .get(&name)
                 .ok_or("unchecked target dependency in axiom audit")?;
-            let record = &self.reports[*index];
+            let record = self.reports.get(*index)?;
             if record.kind == "axiom" {
                 declared.insert(record.name.clone());
             }

@@ -457,6 +457,38 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     compile_with_links(&input_path, &output_path, false, &config, target, &links)
 }
 
+enum LeanCommandReport {
+    Materialized(lim::LeanExportReport),
+    Paged(lim::LeanExportReceipt),
+}
+
+impl LeanCommandReport {
+    fn declaration_count(&self) -> usize {
+        match self {
+            Self::Materialized(report) => report.declarations.len(),
+            Self::Paged(report) => report.declaration_count(),
+        }
+    }
+    fn axioms(&self) -> &[String] {
+        match self {
+            Self::Materialized(report) => &report.axioms,
+            Self::Paged(report) => report.axioms(),
+        }
+    }
+    fn target_axioms(&self) -> &[String] {
+        match self {
+            Self::Materialized(report) => &report.target_axioms,
+            Self::Paged(report) => report.target_axioms(),
+        }
+    }
+    fn write_json(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+        match self {
+            Self::Materialized(report) => report.write_json(writer),
+            Self::Paged(report) => report.write_json(writer),
+        }
+    }
+}
+
 fn check_lean_export_command(arguments: &[String]) -> ExitCode {
     let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]";
     let (arguments, budget) = match cli_proof_budget::parse(arguments) {
@@ -568,7 +600,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             budget,
         ) {
             Ok(translation) => (
-                translation.report,
+                LeanCommandReport::Materialized(translation.report),
                 Some((translation.target, translation.source)),
             ),
             Err(error) => {
@@ -577,7 +609,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             }
         }
     } else {
-        match lim::check_lean_export_with_budget(
+        match lim::check_lean_export_receipt_with_budget(
             std::io::BufReader::new(file),
             target,
             if lean_foundations {
@@ -587,7 +619,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             },
             budget,
         ) {
-            Ok(report) => (report, None),
+            Ok(report) => (LeanCommandReport::Paged(report), None),
             Err(error) => {
                 eprintln!("lim: {}: {error}", input.display());
                 return ExitCode::FAILURE;
@@ -614,7 +646,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
     println!(
         "checked Lean export theorem {} ({} declarations)",
         target,
-        report.declarations.len()
+        report.declaration_count()
     );
     if !cli_proof_budget::is_default(budget) {
         println!(
@@ -624,14 +656,14 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             budget.total_bytes()
         );
     }
-    if !report.axioms.is_empty() {
-        println!("declared Lean axioms: {}", report.axioms.join(", "));
+    if !report.axioms().is_empty() {
+        println!("declared Lean axioms: {}", report.axioms().join(", "));
         println!(
             "target logical foundations: {}",
-            if report.target_axioms.is_empty() {
+            if report.target_axioms().is_empty() {
                 "none".to_owned()
             } else {
-                report.target_axioms.join(", ")
+                report.target_axioms().join(", ")
             }
         );
     }

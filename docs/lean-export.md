@@ -457,6 +457,29 @@ a second JSON object tree or complete serialized string. The library method
 Rust writer and propagates errors; `render_json` remains available for callers
 that need a string. Writer failures leave an existing destination untouched.
 
+Raw replay also has a paged declaration-inventory API:
+`check_lean_export_receipt_with_budget` returns a `LeanExportReceipt` with
+`declaration_count`, `axioms`, `target_axioms`, `write_json` and `into_report`
+methods. The raw `--check-lean-export` CLI uses this path and streams its
+receipt without materializing every declaration report. The existing
+materialized report API and its behavior are unchanged; `into_report` provides
+the explicit materialization path for callers that need the full report.
+Replay records the selector match and authorized axiom names as declarations
+pass checking; target validation still waits for all input records. Target
+axiom-closure calculation can read paged reports. The receipt schema, hashes,
+declaration order and JSON bytes remain unchanged.
+
+Internal declaration reports spill above a 1-MiB resident allocation estimate
+to protected, invocation-local, immediately unlinked data and index files.
+Before releasing an in-memory report, replay structurally compares every
+field with the decoded record. A record is bounded to the existing 16-MiB
+dependency accounting limit plus 65,536 bytes; reads use 64-KiB chunks. This
+bounds retained report inventory, but the checked name index and closure
+visitation state remain resident. Native source and native translation reports
+remain eager, and the 64-MiB input and 4,096-declaration limits are unchanged.
+This storage does not establish full-FLT-scale checking. The synthetic
+[measurements below](#measuring-replay-memory) describe its memory/time tradeoff.
+
 Canonical identities start with `$lean:`. Each string component is encoded as
 `sBYTE_LENGTH:CONTENTS`; each numeric component as `nDECIMAL;`. For example,
 `Audit.identity` has identity `$lean:s5:Audits8:identity`. The CLI accepts either
@@ -525,6 +548,7 @@ inside the separate host memory/CPU guard.
 | Primitive payload accounting | 64 MiB, including owned compact decimals, identifiers and universe payloads |
 | Checked declarations | 4,096, including families, constructors and recursors |
 | Dependency receipts | 1,000,000 entries; 16 MiB accounted payload |
+| Report inventory storage | 1 MiB resident estimate before spilling; records at most 16 MiB + 65,536 bytes; separate protected data/index scratch files, each capped at 128 MiB |
 | Universes per declaration/application | 32 |
 | Mutual families | 16 |
 | Expanded nested recursion group | 16 total main and scoped container cases |
@@ -546,8 +570,11 @@ work/payload budgets, not exact process RSS measurements. Input is read one
 bounded line at a time, and replay-only expression nodes can spill to bounded
 scratch storage. Completed raw-replay declarations also have bounded resident
 storage, and expanded names and universe values can spill. Name candidate IDs,
-nested-family views and report metadata remain in RAM. This does not provide
-full-environment storage for enormous exports.
+nested-family views and closure-visitation state remain in RAM. Raw CLI report
+inventory can spill as described in the
+[receipt section](#replay-receipt-and-identity); native source and native
+translation reports remain eager. This does not provide full-environment
+storage for enormous exports.
 The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
@@ -635,6 +662,18 @@ RSS from 64,840 to 41,024 KiB (36.7%) and wall time from 443.969 to
 SHA-256 `7342fb49cb070e239ac261d97fc8e73e3b30a4efda4da4293a1c7e9b557f8c63`.
 The explicit 1-GiB cumulative budget and separate 2-GiB/two-core guard are
 identical for both compilers.
+
+Paging the raw declaration inventory against `43fee588`, with five alternating
+debug0 samples of the same 3,000-declaration/1,024-byte-name workload, reduces
+median compiler RSS from 33,656 to 29,092 KiB (13.6%). Median wall time rises
+from 586.929 to 909.680 ms (55.0%); exact encoding, structural verification,
+protected writes and later reads cost time. Target selection and declared
+axiom inventory are accumulated during checking to avoid an extra full scan.
+The 3,793,424-byte input has SHA-256
+`bc6c56d006b6ca9472ab20d4d928b2952862f400c711354d528dfd830f9ece22`.
+Every sample emits the same 6,752,270-byte receipt and hash recorded above.
+Proof budgets and the host guard are unchanged. This is importer storage
+stress, not new mathematical coverage or a full FLT replay.
 
 Deferring prefix finalization until a declaration needs it preserves every
 receipt hash while avoiding per-primitive digest work. Against `abad273f`, five

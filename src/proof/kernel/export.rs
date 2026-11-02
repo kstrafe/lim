@@ -14,6 +14,8 @@ mod expressions;
 mod fixtures_tests;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_inventory.rs"]
+mod inventory;
 #[path = "export_levels.rs"]
 mod levels;
 #[path = "export_names.rs"]
@@ -54,7 +56,7 @@ pub enum LeanFoundationPolicy {
     Lean4,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeanDeclarationReport {
     pub name: String,
     pub identity: String,
@@ -78,6 +80,47 @@ pub struct LeanExportReport {
     pub axioms: Vec<String>,
     /// The selected theorem's transitive axiom closure, sorted by name.
     pub target_axioms: Vec<String>,
+}
+
+/// A checked replay receipt whose declaration inventory can remain paged.
+/// All declarations and the target's axiom closure are checked before this
+/// value is returned. Receipt bytes and scratch storage are not proof inputs.
+pub struct LeanExportReceipt {
+    summary: LeanExportReport,
+    declarations: inventory::Inventory,
+}
+
+impl std::fmt::Debug for LeanExportReceipt {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output
+            .debug_struct("LeanExportReceipt")
+            .field("summary", &self.summary)
+            .field("declaration_count", &self.declaration_count())
+            .finish_non_exhaustive()
+    }
+}
+
+impl LeanExportReceipt {
+    pub fn declaration_count(&self) -> usize {
+        self.declarations.len()
+    }
+    pub fn axioms(&self) -> &[String] {
+        &self.summary.axioms
+    }
+    pub fn target_axioms(&self) -> &[String] {
+        &self.summary.target_axioms
+    }
+    /// Explicitly materialize all declaration reports for in-memory callers.
+    pub fn into_report(mut self) -> std::result::Result<LeanExportReport, LeanExportError> {
+        self.summary.declarations =
+            self.declarations
+                .into_vec()
+                .map_err(|message| LeanExportError {
+                    line: (self.summary.records as usize).saturating_add(1),
+                    message,
+                })?;
+        Ok(self.summary)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,8 +147,12 @@ struct Replay {
     name_bytes: usize,
     levels: levels::Levels,
     expressions: expressions::Expressions,
-    reports: Vec<LeanDeclarationReport>,
+    reports: inventory::Inventory,
     checked: HashMap<String, usize>,
+    target: String,
+    selected: Option<(String, String, String)>,
+    ambiguous_target: bool,
+    axioms: BTreeSet<String>,
     dependency_count: usize,
     payload_bytes: usize,
     dependency_bytes: usize,
@@ -148,6 +195,17 @@ pub fn check_lean_export_with_budget<R: BufRead>(
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
 ) -> std::result::Result<LeanExportReport, LeanExportError> {
+    check_lean_export_receipt_with_budget(reader, target, policy, budget)?.into_report()
+}
+
+/// Check the entire export and retain a paged inventory for streamed receipts.
+/// Resource limits and logical checks are identical to the materialized API.
+pub fn check_lean_export_receipt_with_budget<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> std::result::Result<LeanExportReceipt, LeanExportError> {
     let _stage = crate::timing::stage("lean_export_replay");
     replay_export(reader, target, false, policy, budget).map(|(_, report, _)| report)
 }
@@ -180,7 +238,8 @@ pub fn translate_lean_export_with_budget<R: BufRead>(
 ) -> std::result::Result<LeanExportTranslation, LeanExportError> {
     let (mut replay, report, identity) = {
         let _stage = crate::timing::stage("lean_export_replay");
-        replay_export(reader, target, true, policy, budget)?
+        let (replay, receipt, identity) = replay_export(reader, target, true, policy, budget)?;
+        (replay, receipt.into_report()?, identity)
     };
     let _stage = crate::timing::stage("lean_export_source");
     let line = replay.line.saturating_add(1);
@@ -196,7 +255,7 @@ fn replay_export<R: BufRead>(
     retain_bodies: bool,
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
-) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
+) -> std::result::Result<(Replay, LeanExportReceipt, String), LeanExportError> {
     let mut replay = Replay::with_retention(budget, retain_bodies);
     replay.foundation_policy = policy;
     replay_reader(reader, target, replay)
@@ -206,8 +265,9 @@ fn replay_reader<R: BufRead>(
     mut reader: R,
     target: &str,
     mut replay: Replay,
-) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
+) -> std::result::Result<(Replay, LeanExportReceipt, String), LeanExportError> {
     let budget = replay.kernel.budget;
+    replay.target = target.to_owned();
     let mut total = 0u64;
     let mut line = Vec::new();
     loop {
@@ -265,43 +325,37 @@ fn replay_reader<R: BufRead>(
     if replay.quotient_stage != 0 && replay.quotient_stage != 4 {
         return Err(failure("incomplete checked quotient package".into()));
     }
-    let matches = replay
-        .reports
-        .iter()
-        .filter(|decl| decl.name == target || decl.identity == target)
-        .collect::<Vec<_>>();
-    if matches.len() != 1 {
+    if replay.ambiguous_target {
         return Err(failure("theorem target is missing or ambiguous".into()));
     }
-    if matches[0].kind != "theorem" {
+    let (target_name, identity, kind) = replay
+        .selected
+        .take()
+        .ok_or_else(|| failure("theorem target is missing or ambiguous".into()))?;
+    if kind != "theorem" {
         return Err(failure(
             "the selected export declaration is not a theorem".into(),
         ));
     }
-    let identity = matches[0].identity.clone();
     let target_axioms = replay.target_axioms(&identity).map_err(failure)?;
-    let axioms = replay
-        .reports
-        .iter()
-        .filter(|decl| decl.kind == "axiom")
-        .map(|decl| decl.name.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
     let report = LeanExportReport {
         budget,
-        target: matches[0].name.clone(),
+        target: target_name,
         input_sha256: hash::hex(&replay.input_hash.clone().finish()),
         bytes: total,
         records: replay.line as u64,
-        axioms,
+        axioms: std::mem::take(&mut replay.axioms).into_iter().collect(),
         target_axioms,
-        declarations: std::mem::take(&mut replay.reports),
+        declarations: vec![],
         foundations: if replay.quotient_stage == 4 {
             vec!["quotient-computation-v1".into()]
         } else {
             vec![]
         },
+    };
+    let report = LeanExportReceipt {
+        summary: report,
+        declarations: std::mem::replace(&mut replay.reports, inventory::Inventory::new()),
     };
     Ok((replay, report, identity))
 }
@@ -322,8 +376,12 @@ impl Replay {
             name_bytes: 0,
             levels: levels::Levels::new(),
             expressions: expressions::Expressions::new(retain_bodies),
-            reports: vec![],
+            reports: inventory::Inventory::new(),
             checked: HashMap::new(),
+            target: String::new(),
+            selected: None,
+            ambiguous_target: false,
+            axioms: BTreeSet::new(),
             dependency_count: 0,
             payload_bytes: 0,
             dependency_bytes: 0,
@@ -587,7 +645,20 @@ impl Replay {
             line: self.line,
             sha256: digest.clone(),
             dependencies,
-        });
+        })?;
+        // Retain only the selector match and the three authorized axiom
+        // names. Avoid scanning and decoding the complete paged inventory at
+        // EOF; target validation still happens after every record is checked.
+        if name.display == self.target || name.key == self.target {
+            if self.selected.is_some() {
+                self.ambiguous_target = true;
+            } else {
+                self.selected = Some((name.display.clone(), name.key.clone(), kind.into()));
+            }
+        }
+        if kind == "axiom" {
+            self.axioms.insert(name.display.clone());
+        }
         Ok(())
     }
 }

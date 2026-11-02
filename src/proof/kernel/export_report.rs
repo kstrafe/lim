@@ -16,26 +16,27 @@ impl LeanExportReport {
     /// immediately; a partial write is not a successfully published receipt.
     /// Neither this output nor its hashes can bypass later proof checking.
     pub fn write_json<W: Write + ?Sized>(&self, output: &mut W) -> io::Result<()> {
+        self.write_inventory(output, self.declarations.len(), |output, index| {
+            write_declaration(output, &self.declarations[index])
+        })
+    }
+
+    fn write_inventory<W: Write + ?Sized>(
+        &self,
+        output: &mut W,
+        count: usize,
+        mut declaration: impl FnMut(&mut W, usize) -> io::Result<()>,
+    ) -> io::Result<()> {
         // Keep the former BTreeMap renderer's lexicographic field order and
         // escaping, so existing receipts remain byte-for-byte identical.
         output.write_all(b"{\"axioms\":")?;
         write_strings(output, &self.axioms)?;
         write!(output, ",\"bytes\":{},\"declaration_hash_scope\":\"export-prefix-through-record\",\"declarations\":[", self.bytes)?;
-        for (index, declaration) in self.declarations.iter().enumerate() {
+        for index in 0..count {
             if index != 0 {
                 output.write_all(b",")?;
             }
-            output.write_all(b"{\"dependencies\":")?;
-            write_strings(output, &declaration.dependencies)?;
-            output.write_all(b",\"identity\":")?;
-            write_string(output, &declaration.identity)?;
-            output.write_all(b",\"kind\":")?;
-            write_string(output, &declaration.kind)?;
-            write!(output, ",\"line\":{},\"name\":", declaration.line)?;
-            write_string(output, &declaration.name)?;
-            output.write_all(b",\"sha256\":")?;
-            write_string(output, &declaration.sha256)?;
-            output.write_all(b"}")?;
+            declaration(output, index)?;
         }
         output.write_all(b"],\"exporter_revision\":")?;
         write_string(output, EXPORTER_REVISION)?;
@@ -55,6 +56,36 @@ impl LeanExportReport {
         write_strings(output, &self.target_axioms)?;
         output.write_all(b"}")
     }
+}
+
+impl LeanExportReceipt {
+    /// Stream checked inventory records without materializing the full report.
+    /// Storage and writer failures abort the write; publish through an atomic
+    /// output writer when the receipt must replace an existing file.
+    pub fn write_json<W: Write + ?Sized>(&self, output: &mut W) -> io::Result<()> {
+        self.summary
+            .write_inventory(output, self.declarations.len(), |output, index| {
+                let declaration = self.declarations.get(index).map_err(io::Error::other)?;
+                write_declaration(output, &declaration)
+            })
+    }
+}
+
+fn write_declaration<W: Write + ?Sized>(
+    output: &mut W,
+    declaration: &LeanDeclarationReport,
+) -> io::Result<()> {
+    output.write_all(b"{\"dependencies\":")?;
+    write_strings(output, &declaration.dependencies)?;
+    output.write_all(b",\"identity\":")?;
+    write_string(output, &declaration.identity)?;
+    output.write_all(b",\"kind\":")?;
+    write_string(output, &declaration.kind)?;
+    write!(output, ",\"line\":{},\"name\":", declaration.line)?;
+    write_string(output, &declaration.name)?;
+    output.write_all(b",\"sha256\":")?;
+    write_string(output, &declaration.sha256)?;
+    output.write_all(b"}")
 }
 
 fn write_strings<W: Write + ?Sized>(output: &mut W, values: &[String]) -> io::Result<()> {

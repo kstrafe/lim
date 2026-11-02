@@ -59,12 +59,14 @@ fn spilled_report(
     replay.names = names::Names::with_limit(0);
     replay.levels = levels::Levels::with_limit(0);
     replay.expressions = expressions::Expressions::with_limit(false, 0);
+    replay.reports = inventory::Inventory::with_limit(0);
     replay.kernel.declarations.set_limit(0);
     let (replay, report, _) = replay_reader(input, target, replay).unwrap();
     assert!(replay.names.is_spilled());
     assert!(replay.levels.is_spilled());
     assert!(replay.expressions.is_spilled());
-    report
+    assert!(report.declarations.is_spilled());
+    report.into_report().unwrap()
 }
 
 fn digest(bytes: &[u8]) -> String {

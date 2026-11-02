@@ -86,10 +86,10 @@ pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
 pub use proof::{
-    check_lean_export, check_lean_export_with_budget, check_lean_export_with_policy,
-    translate_lean_export, translate_lean_export_with_budget, translate_lean_export_with_policy,
-    LeanDeclarationReport, LeanExportError, LeanExportReport, LeanExportTranslation,
-    LeanFoundationPolicy,
+    check_lean_export, check_lean_export_receipt_with_budget, check_lean_export_with_budget,
+    check_lean_export_with_policy, translate_lean_export, translate_lean_export_with_budget,
+    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReceipt,
+    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy,
 };
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
