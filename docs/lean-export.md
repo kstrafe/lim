@@ -243,6 +243,28 @@ invalidates the entire run. The command emits no native binary. A report is
 published atomically only after success; input aliases, including hard links,
 cannot be used as report destinations.
 
+## Source graph lifetime
+
+Replay-only checking stores primitive expressions as compact source nodes with
+backward references to names, universes and earlier expressions. Record shapes,
+references, literal spelling, graph depth and payload accounting are checked
+while reading, including for unused expressions. A declaration materializes its
+required source roots and still checks every type, value, universe scope and
+proof body through the kernel.
+
+The reader shares immutable syntax while it has a live owner. It caches no
+inferred type or successful judgment. After checking a declaration it releases
+unowned proof trees and their weak handles; opaque theorem bodies therefore do
+not remain alive just because their numeric source IDs exist. The compact nodes
+can reconstruct the same source syntax when a later declaration references it.
+Transparent metadata aliases are flattened to avoid adding reconstruction depth.
+Changed universe binders and expected types always trigger ordinary checking.
+
+Native source emission uses eager expression retention because it needs every
+original proof body for emission and independent correspondence checking. Input,
+source/table/payload, work/depth and transformation limits remain unchanged.
+This storage change does not provide full-environment replay or an FLT proof.
+
 ## Native proof-source translation
 
 Add `--emit-proof PATH` to emit a standard Lim proof file after successful

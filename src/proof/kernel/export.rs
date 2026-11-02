@@ -7,6 +7,8 @@ use std::io::BufRead;
 
 #[path = "export_foundations.rs"]
 mod axioms;
+#[path = "export_expressions.rs"]
+mod expressions;
 #[cfg(test)]
 #[path = "export_fixtures_tests.rs"]
 mod fixtures_tests;
@@ -162,7 +164,7 @@ struct Replay {
     name_keys: HashSet<String>,
     name_bytes: usize,
     levels: Vec<Level>,
-    expressions: Vec<(T, usize)>,
+    expressions: expressions::Expressions,
     reports: Vec<LeanDeclarationReport>,
     checked: HashMap<String, usize>,
     dependency_count: usize,
@@ -254,9 +256,8 @@ fn replay_export<R: BufRead>(
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
 ) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
-    let mut replay = Replay::with_budget(budget);
+    let mut replay = Replay::with_retention(budget, retain_bodies);
     replay.foundation_policy = policy;
-    replay.retain_bodies = retain_bodies;
     let mut input_hash = hash::Sha256::new();
     let mut total = 0u64;
     let mut line = Vec::new();
@@ -359,9 +360,9 @@ fn replay_export<R: BufRead>(
 impl Replay {
     #[cfg(test)]
     fn new() -> Self {
-        Self::with_budget(crate::ProofBudget::default())
+        Self::with_retention(crate::ProofBudget::default(), false)
     }
-    fn with_budget(budget: crate::ProofBudget) -> Self {
+    fn with_retention(budget: crate::ProofBudget, retain_bodies: bool) -> Self {
         let kernel = Kernel::with_budget(budget);
         Self {
             kernel,
@@ -373,7 +374,7 @@ impl Replay {
             name_keys: HashSet::from(["$lean:".into()]),
             name_bytes: 0,
             levels: vec![Level::number(0).expect("zero universe")],
-            expressions: vec![],
+            expressions: expressions::Expressions::new(retain_bodies),
             reports: vec![],
             checked: HashMap::new(),
             dependency_count: 0,
@@ -383,7 +384,7 @@ impl Replay {
             natural_literals: false,
             line: 0,
             digest: String::new(),
-            retain_bodies: false,
+            retain_bodies,
             bodies: HashMap::new(),
             quotient_stage: 0,
             foundation_policy: LeanFoundationPolicy::Constructive,
@@ -444,39 +445,52 @@ impl Replay {
         if (1..4).contains(&self.quotient_stage) && tag != "quot" {
             return Err("quotient package must finish before other declarations".into());
         }
-        match tag.as_str() {
+        let result = match tag.as_str() {
             "def" | "thm" | "opaque" => self.definition(tag, body),
             "inductive" => self.inductive(body),
             "axiom" => self.axiom_record(body),
             "quot" => self.quotient_record(body),
             "meta" => Err("export metadata is permitted only as the first record".into()),
             _ => Err(format!("unsupported export record '{tag}'")),
-        }
+        };
+        self.expressions.end_record();
+        result
     }
-    fn name(&self, value: &Json) -> Result<Name> {
+    fn name_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;
         self.names
             .get(id)
-            .cloned()
-            .ok_or_else(|| "name reference must refer to an earlier record".into())
+            .ok_or("name reference must refer to an earlier record")?;
+        Ok(id)
+    }
+    fn name(&self, value: &Json) -> Result<Name> {
+        Ok(self.names[self.name_id(value)?].clone())
+    }
+    fn level_id(&self, value: &Json) -> Result<usize> {
+        let id = index(value)?;
+        self.levels
+            .get(id)
+            .ok_or("universe reference must refer to an earlier record")?;
+        Ok(id)
     }
     fn level(&self, value: &Json) -> Result<Level> {
-        self.levels
-            .get(index(value)?)
-            .cloned()
-            .ok_or_else(|| "universe reference must refer to an earlier record".into())
+        Ok(self.levels[self.level_id(value)?].clone())
     }
     fn expression(&self, value: &Json) -> Result<T> {
         self.expressions
-            .get(index(value)?)
-            .map(|(value, _)| value.clone())
-            .ok_or_else(|| "expression reference must refer to an earlier record".into())
+            .get(index(value)?, &self.names, &self.levels)
     }
     fn expression_depth(&self, value: &Json) -> Result<usize> {
         self.expressions
-            .get(index(value)?)
-            .map(|(_, depth)| *depth)
+            .depth(index(value)?)
             .ok_or_else(|| "expression reference must refer to an earlier record".into())
+    }
+    fn expression_id(&self, value: &Json) -> Result<usize> {
+        let id = index(value)?;
+        self.expressions
+            .depth(id)
+            .ok_or("expression reference must refer to an earlier record")?;
+        Ok(id)
     }
     fn universes(&self, value: &Json) -> Result<Vec<String>> {
         let values = array(value, 32)?;

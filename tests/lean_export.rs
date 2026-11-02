@@ -385,3 +385,68 @@ fn cli_report_cannot_overwrite_a_hard_link_to_its_input() {
     assert_eq!(fs::read_to_string(input).unwrap(), FIXTURE);
     assert_eq!(fs::read_to_string(output).unwrap(), FIXTURE);
 }
+
+#[test]
+fn previously_checked_syntax_is_rechecked_under_each_declarations_universes() {
+    // Both roots are still owned by the checked polymorphic definition. Reusing
+    // their syntax cannot carry that declaration's universe authorization.
+    let source = format!("{FIXTURE}\
+{{\"in\":5,\"str\":{{\"pre\":1,\"str\":\"badScope\"}}}}\n\
+{{\"def\":{{\"name\":5,\"levelParams\":[],\"type\":4,\"value\":7,\"hints\":\"abbrev\",\"safety\":\"safe\",\"all\":[5]}}}}\n");
+    let error = check_lean_export(source.as_bytes(), TARGET).unwrap_err();
+    assert_eq!(error.line, FIXTURE.lines().count() + 2);
+    assert!(
+        error.message.contains("undeclared universe"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn a_previous_theorem_body_is_rechecked_against_a_changed_statement() {
+    let source = format!(
+        "{FIXTURE}\
+{{\"in\":5,\"str\":{{\"pre\":1,\"str\":\"badType\"}}}}\n\
+{{\"ie\":20,\"forallE\":{{\"name\":0,\"type\":8,\"body\":9,\"binderInfo\":\"default\"}}}}\n\
+{{\"thm\":{{\"name\":5,\"levelParams\":[],\"type\":20,\"value\":19,\"all\":[5]}}}}\n"
+    );
+    let error = check_lean_export(source.as_bytes(), TARGET).unwrap_err();
+    assert_eq!(error.line, FIXTURE.lines().count() + 3);
+    assert!(error.message.contains("type mismatch"), "{}", error.message);
+    assert!(
+        !error.message.contains("resource limit"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn an_unused_natural_literal_still_requires_the_checked_standard_family() {
+    let source = format!("{FIXTURE}{{\"ie\":20,\"natVal\":\"0\"}}\n");
+    let error = check_lean_export(source.as_bytes(), TARGET).unwrap_err();
+    assert!(
+        error.message.contains("Nat literals require"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn long_metadata_chains_keep_backward_ids_without_deep_materialization() {
+    let mut source = FIXTURE.to_owned();
+    for id in 20..4116 {
+        source.push_str(&format!(
+            "{{\"ie\":{id},\"mdata\":{{\"expr\":{},\"data\":{{}}}}}}\n",
+            id - 1
+        ));
+    }
+    source.push_str("{\"in\":5,\"str\":{\"pre\":1,\"str\":\"aliasProof\"}}\n");
+    source.push_str(
+        "{\"thm\":{\"name\":5,\"levelParams\":[],\"type\":12,\"value\":4115,\"all\":[5]}}\n",
+    );
+    let report = check_lean_export(source.as_bytes(), "Audit.aliasProof").unwrap();
+    assert_eq!(report.declarations.len(), 3);
+    assert!(report.axioms.is_empty());
+    let translated = lim::translate_lean_export(source.as_bytes(), "Audit.aliasProof").unwrap();
+    assert_eq!(translated.report.input_sha256, report.input_sha256);
+}

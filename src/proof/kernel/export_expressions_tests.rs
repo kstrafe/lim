@@ -1,0 +1,170 @@
+use super::*;
+
+fn record(replay: &mut Replay, value: &str) -> Result<()> {
+    replay.expression_record(&crate::lsp::json::parse(value).unwrap())
+}
+fn slots_empty(values: &Expressions) -> bool {
+    let Storage::Compact { materialized, .. } = &values.storage else {
+        panic!("compact table")
+    };
+    materialized.borrow().slots.iter().all(Option::is_none)
+}
+fn root_names() -> Vec<Name> {
+    vec![Name {
+        key: "$lean:".into(),
+        display: String::new(),
+        depth: 0,
+    }]
+}
+
+#[test]
+fn compact_storage_reuses_a_dag_then_releases_dead_weak_allocations() {
+    let mut values = Expressions::new(false);
+    let names = root_names();
+    let levels = vec![Level::number(0).unwrap()];
+    values
+        .push(Expression::Var(0), 1, 0, &names, &levels)
+        .unwrap();
+    values
+        .push(Expression::App(0, 0), 2, 0, &names, &levels)
+        .unwrap();
+    assert!(slots_empty(&values));
+    let root = values.get(1, &names, &levels).unwrap();
+    let Term::App(a, b) = root.as_ref() else {
+        panic!("application")
+    };
+    assert!(Arc::ptr_eq(a, b));
+    drop(root);
+    values.end_record();
+    assert!(slots_empty(&values));
+    let owner = values.get(0, &names, &levels).unwrap();
+    values.end_record();
+    assert!(Arc::ptr_eq(
+        &owner,
+        &values.get(0, &names, &levels).unwrap()
+    ));
+    drop(owner);
+    let again = values.get(0, &names, &levels).unwrap();
+    assert!(matches!(again.as_ref(), Term::Var(0)));
+    drop(again);
+    values.end_record();
+    assert!(slots_empty(&values));
+}
+
+#[test]
+fn compact_and_eager_modes_reconstruct_all_source_nodes_exactly() {
+    let inputs = [
+        r#"{"ie":0,"bvar":1}"#,
+        r#"{"ie":1,"sort":0}"#,
+        r#"{"ie":2,"const":{"name":1,"us":[0]}}"#,
+        r#"{"ie":3,"natVal":"123"}"#,
+        r#"{"ie":4,"app":{"fn":0,"arg":1}}"#,
+        r#"{"ie":5,"lam":{"name":0,"type":1,"body":0,"binderInfo":"default"}}"#,
+        r#"{"ie":6,"forallE":{"name":0,"type":1,"body":0,"binderInfo":"implicit"}}"#,
+        r#"{"ie":7,"letE":{"name":0,"type":1,"value":2,"body":0,"nondep":false}}"#,
+        r#"{"ie":8,"proj":{"typeName":1,"idx":7,"struct":0}}"#,
+        r#"{"ie":9,"mdata":{"expr":8,"data":{}}}"#,
+    ];
+    let mut eager = Replay::with_retention(crate::ProofBudget::default(), true);
+    let mut compact = Replay::with_retention(crate::ProofBudget::default(), false);
+    for replay in [&mut eager, &mut compact] {
+        replay
+            .name_record(
+                &crate::lsp::json::parse(r#"{"in":1,"str":{"pre":0,"str":"Foo"}}"#).unwrap(),
+            )
+            .unwrap();
+        for input in inputs {
+            record(replay, input).unwrap();
+        }
+    }
+    for id in 0..inputs.len() {
+        let a = eager.expression(&number_json(id as u64)).unwrap();
+        let b = compact.expression(&number_json(id as u64)).unwrap();
+        assert!(Kernel::new().same_syntax(&a, &b).unwrap());
+        assert_eq!(eager.expressions.depth(id), compact.expressions.depth(id));
+        assert_eq!(
+            eager.expressions.payload(id),
+            compact.expressions.payload(id)
+        );
+    }
+    assert_eq!(eager.payload_bytes, compact.payload_bytes);
+}
+
+#[test]
+fn long_metadata_alias_chains_preserve_depth_without_reconstruction_recursion() {
+    let mut replay = Replay::new();
+    record(&mut replay, r#"{"ie":0,"bvar":0}"#).unwrap();
+    for id in 1..=4096 {
+        let row = object([
+            ("ie", number_json(id)),
+            (
+                "mdata",
+                object([("expr", number_json(id - 1)), ("data", object([]))]),
+            ),
+        ]);
+        replay.expression_record(&row).unwrap();
+        assert_eq!(replay.expressions.depth(id as usize), Some(1));
+    }
+    let result = replay.expression(&number_json(4096)).unwrap();
+    assert!(matches!(result.as_ref(), Term::Var(0)));
+    let Storage::Compact { entries, .. } = &replay.expressions.storage else {
+        unreachable!()
+    };
+    assert!(matches!(
+        entries.last().unwrap().expression,
+        Expression::Alias(0)
+    ));
+}
+
+#[test]
+fn cached_open_syntax_never_caches_a_context_dependent_inference_result() {
+    let mut replay = Replay::new();
+    record(&mut replay, r#"{"ie":0,"bvar":0}"#).unwrap();
+    let raw = replay.expression(&number_json(0)).unwrap();
+    assert!(Arc::ptr_eq(
+        &raw,
+        &replay.expression(&number_json(0)).unwrap()
+    ));
+    let nat = term(Term::Global("#pt-nat".into(), vec![]));
+    let prop = term(Term::Sort(Level::number(0).unwrap()));
+    let mut kernel = Kernel::new();
+    let a = kernel.infer(&[nat.clone()], &raw, 0).unwrap();
+    let b = kernel.infer(&[prop.clone()], &raw, 0).unwrap();
+    assert!(kernel.same_syntax(&a, &nat).unwrap());
+    assert!(kernel.same_syntax(&b, &prop).unwrap());
+    assert!(!kernel.same_syntax(&a, &b).unwrap());
+    assert!(kernel.infer(&[], &raw, 0).unwrap_err().contains("unbound"));
+}
+
+#[test]
+fn source_validation_is_eager_even_when_expression_trees_are_not_materialized() {
+    for retain in [false, true] {
+        for input in [
+            r#"{"ie":0,"app":{"fn":1,"arg":1}}"#,
+            r#"{"ie":0,"sort":1}"#,
+            r#"{"ie":0,"const":{"name":1,"us":[]}}"#,
+            r#"{"ie":0,"strVal":"x"}"#,
+            r#"{"ie":0,"natVal":"01"}"#,
+            r#"{"ie":0,"natVal":"-1"}"#,
+            r#"{"ie":0,"lam":{"name":0,"type":0,"body":0,"binderInfo":"unknown"}}"#,
+        ] {
+            let mut replay = Replay::with_retention(crate::ProofBudget::default(), retain);
+            assert!(record(&mut replay, input).is_err(), "{input}");
+            assert_eq!(replay.expressions.len(), 0);
+        }
+        let mut chain = Replay::with_retention(crate::ProofBudget::default(), retain);
+        record(&mut chain, r#"{"ie":0,"bvar":0}"#).unwrap();
+        for id in 1..MAX_EXPRESSION_DEPTH {
+            let input = format!(r#"{{"ie":{id},"app":{{"fn":{},"arg":0}}}}"#, id - 1);
+            record(&mut chain, &input).unwrap();
+        }
+        let input = format!(
+            r#"{{"ie":{},"app":{{"fn":{},"arg":0}}}}"#,
+            MAX_EXPRESSION_DEPTH,
+            MAX_EXPRESSION_DEPTH - 1
+        );
+        assert!(record(&mut chain, &input)
+            .unwrap_err()
+            .contains("expression depth"));
+    }
+}

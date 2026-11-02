@@ -1,4 +1,5 @@
 //! Indexed NDJSON primitive tables. Only backward references are accepted.
+use super::expressions::Expression;
 use super::*;
 
 impl Replay {
@@ -129,67 +130,69 @@ impl Replay {
             );
         }
         let expression = if let Some(value) = data.get("bvar") {
-            term(Term::Var(index(value)?))
+            Expression::Var(index(value)?)
         } else if let Some(value) = data.get("sort") {
-            term(Term::Sort(self.level(value)?))
+            Expression::Sort(self.level_id(value)?)
         } else if let Some(value) = data.get("const") {
             let value = fields(value, &["name", "us"])?;
-            let name = self.name(&value["name"])?;
+            let name = self.name_id(&value["name"])?;
             let levels = array(&value["us"], 32)?
                 .iter()
-                .map(|v| self.level(v))
+                .map(|v| self.level_id(v))
                 .collect::<Result<_>>()?;
-            term(Term::Global(name.key, levels))
+            Expression::Global(name, levels)
         } else if let Some(value) = data.get("app") {
             let value = fields(value, &["fn", "arg"])?;
-            term(Term::App(
-                self.expression(&value["fn"])?,
-                self.expression(&value["arg"])?,
-            ))
+            Expression::App(
+                self.expression_id(&value["fn"])?,
+                self.expression_id(&value["arg"])?,
+            )
         } else if data.contains_key("lam") || data.contains_key("forallE") {
             let lambda = data.contains_key("lam");
             let value = fields(
                 &data[if lambda { "lam" } else { "forallE" }],
                 &["name", "type", "body", "binderInfo"],
             )?;
-            self.name(&value["name"])?;
+            self.name_id(&value["name"])?;
             if !matches!(
                 string(&value["binderInfo"])?,
                 "default" | "implicit" | "strictImplicit" | "instImplicit"
             ) {
                 return Err("invalid exported binder style".into());
             }
-            let domain = self.expression(&value["type"])?;
-            let body = self.expression(&value["body"])?;
-            term(if lambda {
-                Term::Lam(domain, body)
+            let domain = self.expression_id(&value["type"])?;
+            let body = self.expression_id(&value["body"])?;
+            if lambda {
+                Expression::Lam(domain, body)
             } else {
-                Term::Pi(domain, body)
-            })
+                Expression::Pi(domain, body)
+            }
         } else if let Some(value) = data.get("letE") {
             let value = fields(value, &["name", "type", "value", "body", "nondep"])?;
-            self.name(&value["name"])?;
+            self.name_id(&value["name"])?;
             boolean(&value["nondep"])?;
-            term(Term::Let(
-                self.expression(&value["type"])?,
-                self.expression(&value["value"])?,
-                self.expression(&value["body"])?,
-            ))
+            Expression::Let(
+                self.expression_id(&value["type"])?,
+                self.expression_id(&value["value"])?,
+                self.expression_id(&value["body"])?,
+            )
         } else if let Some(value) = data.get("proj") {
             let value = fields(value, &["typeName", "idx", "struct"])?;
-            term(Term::Project {
-                family: self.name(&value["typeName"])?.key,
-                index: index(&value["idx"])?,
-                subject: self.expression(&value["struct"])?,
-            })
+            Expression::Project(
+                self.name_id(&value["typeName"])?,
+                index(&value["idx"])?,
+                self.expression_id(&value["struct"])?,
+            )
         } else if let Some(value) = data.get("mdata") {
             let value = fields(value, &["expr", "data"])?;
             if !matches!(value["data"], Json::Object(_)) {
                 return Err("expression metadata must be an object".into());
             }
-            self.expression(&value["expr"])?
+            Expression::Alias(self.expression_id(&value["expr"])?)
         } else if let Some(value) = data.get("natVal") {
-            self.natural_literal(string(value)?)?
+            let value = Natural::parse(string(value)?)?;
+            self.natural_literals = true;
+            Expression::Natural(value)
         } else if data.contains_key("strVal") {
             return Err("string literal replay is not implemented".into());
         } else {
@@ -218,15 +221,21 @@ impl Replay {
         if depth > MAX_EXPRESSION_DEPTH {
             return Err("export expression depth limit exceeded".into());
         }
-        let payload = match expression.as_ref() {
-            Term::NatLiteral { family, value } => {
-                family.len().saturating_add(value.decimal().len())
+        let payload = match &expression {
+            Expression::Natural(value) => {
+                "$lean:s3:Nat".len().saturating_add(value.decimal().len())
             }
-            Term::Sort(level) => level.memory_weight(),
-            Term::Global(name, levels) => levels.iter().fold(name.len(), |total, level| {
-                total.saturating_add(level.memory_weight())
-            }),
-            Term::Project { family, .. } => family.len(),
+            Expression::Sort(id) => self.levels[*id].memory_weight(),
+            Expression::Global(name, levels) => levels
+                .iter()
+                .fold(self.names[*name].key.len(), |total, id| {
+                    total.saturating_add(self.levels[*id].memory_weight())
+                }),
+            Expression::Project(name, ..) => self.names[*name].key.len(),
+            Expression::Alias(id) => self
+                .expressions
+                .payload(*id)
+                .ok_or("missing expression child")?,
             _ => 0,
         };
         self.payload_bytes = self
@@ -236,17 +245,8 @@ impl Replay {
         if self.payload_bytes > 64 * 1024 * 1024 {
             return Err("export primitive payload limit exceeded".into());
         }
-        self.expressions.push((expression, depth));
-        Ok(())
-    }
-    fn natural_literal(&mut self, literal: &str) -> Result<T> {
-        let value = Natural::parse(literal)?;
-        let nat = "$lean:s3:Nat";
-        self.natural_literals = true;
-        Ok(term(Term::NatLiteral {
-            family: nat.into(),
-            value,
-        }))
+        self.expressions
+            .push(expression, depth, payload, &self.names, &self.levels)
     }
     pub(super) fn check_natural_signature(&self) -> Result<()> {
         let nat = "$lean:s3:Nat";
