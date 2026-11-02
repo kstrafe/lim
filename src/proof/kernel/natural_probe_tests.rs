@@ -58,7 +58,7 @@ fn probes_use_the_existing_checked_recurrence_rules() {
         "340282366920938463463374607431768211456"
     );
     assert!(k.work > 0 && k.transformed_bytes > 0);
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn declining_a_large_computation_keeps_spent_work_and_allocations() {
         .is_none());
     assert!(k.work > 0 && k.work <= 16_385, "{}", k.work);
     assert!(k.transformed_bytes > 0 && k.transformed_bytes <= 2 * 1024 * 1024);
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
     let spent = (k.work, k.transformed_bytes);
     assert!(k
         .natural_probe_number(NAT, &literal("7"), 0)
@@ -86,7 +86,7 @@ fn an_unrepresentable_optional_result_is_not_a_proof_rule() {
     k.check(&[], &large, &nat(), 0).unwrap();
     k.reset_budget();
     assert!(k.natural_probe_number(NAT, &large, 0).unwrap().is_none());
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
     // A forced ordinary arithmetic result still fails its representation limit.
     k.reset_budget();
     assert!(k
@@ -98,23 +98,23 @@ fn an_unrepresentable_optional_result_is_not_a_proof_rule() {
 #[test]
 fn a_nested_probe_cannot_extend_the_enclosing_attempt() {
     let mut k = Kernel::new();
-    let outer = NaturalProbeBudget {
+    let outer = ReductionProbeBudget {
         work: 24,
         bytes: 4096,
         depth: 24,
     };
-    k.natural_probe_budget = Some(outer);
+    k.reduction_probe_budget = Some(outer);
     assert!(k
         .natural_probe_number(NAT, &power("128"), 0)
         .unwrap()
         .is_none());
     assert!(k.work <= outer.work && k.transformed_bytes <= outer.bytes);
-    let restored = k.natural_probe_budget.unwrap();
+    let restored = k.reduction_probe_budget.unwrap();
     assert_eq!(
         (restored.work, restored.bytes, restored.depth),
         (outer.work, outer.bytes, outer.depth)
     );
-    k.natural_probe_budget = None;
+    k.reduction_probe_budget = None;
 }
 
 #[test]
@@ -125,10 +125,10 @@ fn unknown_symbols_bad_universes_and_global_exhaustion_are_not_declines() {
         .natural_probe_number(NAT, &unknown, 0)
         .unwrap_err()
         .contains("unknown"));
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
     let bad = term(Term::Global(NAT.into(), vec![Level::number(0).unwrap()]));
     assert!(k.natural_probe_number(NAT, &bad, 0).is_err());
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
     k.reset_budget();
     k.work = WORK;
     assert!(k
@@ -146,27 +146,27 @@ fn unknown_symbols_bad_universes_and_global_exhaustion_are_not_declines() {
         .natural_probe_number(NAT, &literal("1"), 0)
         .unwrap_err()
         .contains("allocation limit"));
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
 }
 
 #[test]
 fn predicted_digit_work_is_refused_before_the_unperformed_operation() {
     let mut k = Kernel::new();
-    k.natural_probe_budget = Some(NaturalProbeBudget {
+    k.reduction_probe_budget = Some(ReductionProbeBudget {
         work: 12,
         bytes: 1024,
         depth: 24,
     });
     k.tick(0).unwrap();
     let work = k.work;
-    assert_eq!(k.charge_work(100).unwrap_err(), NATURAL_PROBE_DECLINED);
+    assert_eq!(k.charge_work(100).unwrap_err(), REDUCTION_PROBE_DECLINED);
     assert_eq!(k.work, work);
     assert_eq!(
         k.charge_transformation(2048).unwrap_err(),
-        NATURAL_PROBE_DECLINED
+        REDUCTION_PROBE_DECLINED
     );
     assert_eq!(k.transformed_bytes, 0);
-    k.natural_probe_budget = None;
+    k.reduction_probe_budget = None;
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn optional_computation_does_not_replace_initial_source_checking() {
         .natural_probe_number(NAT, &malformed, 0)
         .unwrap()
         .is_some());
-    assert!(k.natural_probe_budget.is_none());
+    assert!(k.reduction_probe_budget.is_none());
     k.reset_budget();
     assert!(k
         .definition("bad", vec![], nat(), malformed, false)

@@ -1,13 +1,13 @@
 # Checked standard remainders
 
-[`Source.lean`](Source.lean) defines fourteen targets in `RemainderSource`.
+[`Source.lean`](Source.lean) defines fifteen targets in `RemainderSource`.
 Twelve closed cases cover zero divisors, below/equal divisors, exact/inexact
 division, large dividends and computed powers/sums. The large case is
 `(2^128 + 123) % 2^64 = 123`. Two further targets quantify over every natural:
 `0 % n = 0` and `n % 0 = n`. The latter uses case analysis and explicit
 unfolding of the standard definitions; no additional assumption is introduced.
 
-`remainder.ndjson` retains all 216 genuine dependency declarations. Its exact
+`remainder.ndjson` retains all 256 genuine dependency declarations. Its exact
 native translation is
 [`theorems/lean_replay/remainder.lim`](../../../theorems/lean_replay/remainder.lim).
 `provenance.json` records original identities, exact private-name ownership,
@@ -36,10 +36,16 @@ fit the original budgets without an operation-name privilege or theorem cache.
 Native and raw mutation tests reject altered proofs and well-typed wrong
 operation bodies after their valid dependency prefixes.
 
-The general range theorem `Nat.mod_lt` is not established by these controls.
-Its independent genuine export currently exhausts work while checking
-`Nat.modCoreGo_lt`. Larger arithmetic/dependency replay and the complete
-unbounded Fermat proof remain open.
+The final target states the general bound `n % d < d` for arbitrary natural
+`n` and positive natural `d`, using the genuine standard `Nat.mod_lt` proof.
+Its complete dependency closure includes `Nat.modCoreGo_lt`. Conversion first
+compares common application heads and their arguments. Up to eight speculative
+right-hand delta steps expose wrappers and selected cases without unfolding the
+shared worker. Each candidate inherits the bounded reduction quotas, and the
+ordinary converter remains the fallback. Source typing, opacity, universe and
+binder scopes, and global budgets are unchanged. The checked bound is general;
+it is not established by sampling the numeral controls. Larger arithmetic and
+dependency replay, and the complete unbounded Fermat proof, remain open.
 
 Reproduce using pinned tools and the existing 2 GiB/two-core guard:
 

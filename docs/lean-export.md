@@ -110,15 +110,18 @@ and larger combined corpora can still exceed the work/allocation limits; these
 fixtures do not establish arbitrary division algorithms or full FLT.
 
 The [remainder corpus](../tests/fixtures/lean_export_remainder/README.md) adds
-fourteen targets over 216 genuine declarations, including computed sums/powers
+fifteen targets over 256 genuine declarations, including computed sums/powers
 and unbounded `0 % n` / `n % 0` controls. The observer recognizes the exact
 state-return terminal and unchanged recursive result under the same guard,
 update and actual-fuel checks. Reusing a guard's validated numeral for an exact
 syntax match reduces repeated divisor unfolding; all update-shape checks remain.
 Private origins include the case-analysis helper from pinned `Init.Data.Nat.Basic`.
 Raw/native proofs are independently checked with empty assumption inventories.
-The general `Nat.mod_lt` closure still fails at `Nat.modCoreGo_lt` and remains
-separate work; this does not complete standard arithmetic or the FLT port.
+The general `Nat.mod_lt` closure, including `Nat.modCoreGo_lt`, now checks for
+arbitrary naturals and a positive divisor. Common-head application congruence
+and bounded lazy delta candidates avoid unfolding the same worker twice; all
+argument comparisons still use ordinary conversion, and unmatched terms retain
+the existing fallback. This does not complete standard arithmetic or the FLT port.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

@@ -1,8 +1,8 @@
 ; Checked native translation of a Lean export, not an admission.
 ; Lean: 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6)
 ; Exporter: 15f6055e299ad5b89345e533cc2192f4cc00f659
-; Input SHA-256: df8093ca8f9b0919b801b22d35950f46dd6077fe98b062cfd4518c506fcda3fb
-; Native theorem: lean-215-RemainderSource-zeroDivisor
+; Input SHA-256: 962ae258fe5c384110f81771cc5ac1435ed2257b271e75b8f3cc48c43e3d48a1
+; Native theorem: lean-255-RemainderSource-bounded
 ; Keep the upstream source/license provenance with this translation.
 ; Lean declaration: "Eq"
 ; Identity: "$lean:s2:Eq"
@@ -15643,3 +15643,4202 @@
                   (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1"))))
               v2)))
         (#pt-app (#pt-use lean-1-Eq-refl (1)) (#pt-use lean-3-Nat ()) v0)))))
+; Lean declaration: "HMod"
+; Identity: "$lean:s4:HMod"
+; Export line: 6227
+; Prefix SHA-256: b828c6eead03266ee6c231c5bc117ece1e94d338621d223bc63e552e486ab1b4
+(#math-inductive lean-216-HMod (u0 u1 u2)
+  (
+    (v0 (#pt-sort (#pt-level-succ u0)))
+    (v1 (#pt-sort (#pt-level-succ u1)))
+    (v2
+      (#pt-app
+        (#pt-use lean-92-outParam ((#pt-level-succ (#pt-level-succ u2))))
+        (#pt-sort (#pt-level-succ u2)))))
+  (#pt-sort (#pt-level-max (#pt-level-succ u0) (#pt-level-succ u1) (#pt-level-succ u2)))
+  ((lean-217-HMod-mk ((v3 (#pt-pi ((v3 v0) (v4 v1)) v2))))))
+; Lean declaration: "HMod.mk"
+; Identity: "$lean:s4:HMods2:mk"
+; Export line: 6227
+; Prefix SHA-256: b828c6eead03266ee6c231c5bc117ece1e94d338621d223bc63e552e486ab1b4
+(#math-definition lean-217-HMod-mk (u0 u1 u2)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-sort (#pt-level-succ u1)))
+      (v2
+        (#pt-app
+          (#pt-use lean-92-outParam ((#pt-level-succ (#pt-level-succ u2))))
+          (#pt-sort (#pt-level-succ u2))))
+      (v3 (#pt-pi ((v3 v0) (v4 v1)) v2)))
+    (#pt-app (#pt-use lean-216-HMod (u0 u1 u2)) v0 v1 v2))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-sort (#pt-level-succ u1)))
+      (v2
+        (#pt-app
+          (#pt-use lean-92-outParam ((#pt-level-succ (#pt-level-succ u2))))
+          (#pt-sort (#pt-level-succ u2))))
+      (v3 (#pt-pi ((v3 v0) (v4 v1)) v2)))
+    (#pt-construct lean-216-HMod (u0 u1 u2) (v0 v1 v2) lean-217-HMod-mk (v3))))
+; Lean declaration: "HMod.rec"
+; Identity: "$lean:s4:HMods3:rec"
+; Export line: 6227
+; Prefix SHA-256: b828c6eead03266ee6c231c5bc117ece1e94d338621d223bc63e552e486ab1b4
+(#math-definition lean-218-HMod-rec (u0 u1 u2 u3)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u1)))
+      (v1 (#pt-sort (#pt-level-succ u2)))
+      (v2 (#pt-sort (#pt-level-succ u3)))
+      (v3 (#pt-pi ((v3 (#pt-app (#pt-use lean-216-HMod (u1 u2 u3)) v0 v1 v2))) (#pt-sort u0)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-pi ((v4 v0) (v5 v1)) v2)))
+          (#pt-app v3 (#pt-app (#pt-use lean-217-HMod-mk (u1 u2 u3)) v0 v1 v2 v4))))
+      (v5 (#pt-app (#pt-use lean-216-HMod (u1 u2 u3)) v0 v1 v2)))
+    (#pt-app v3 v5))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort (#pt-level-succ u1)))
+      (v1 (#pt-sort (#pt-level-succ u2)))
+      (v2 (#pt-sort (#pt-level-succ u3)))
+      (v3 (#pt-pi ((v3 (#pt-app (#pt-use lean-216-HMod (u1 u2 u3)) v0 v1 v2))) (#pt-sort u0)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-pi ((v4 v0) (v5 v1)) v2)))
+          (#pt-app v3 (#pt-app (#pt-use lean-217-HMod-mk (u1 u2 u3)) v0 v1 v2 v4))))
+      (v5 (#pt-app (#pt-use lean-216-HMod (u1 u2 u3)) v0 v1 v2)))
+    (#pt-induct
+      lean-216-HMod
+      (u1 u2 u3)
+      (v0 v1 v2)
+      v3
+      ((#pt-lambda ((v6 (#pt-pi ((v6 v0) (v7 v1)) v2))) (#pt-app v4 v6)))
+      v5)))
+; Lean declaration: "HMod.hMod"
+; Identity: "$lean:s4:HMods4:hMod"
+; Export line: 6238
+; Prefix SHA-256: 5654b9b749f5c4938d7cc8e64d3a8e226113a7117b0b79cc8fe484c6337ac620
+(#math-definition lean-219-HMod-hMod (u0 u1 u2)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-sort (#pt-level-succ u1)))
+      (v2
+        (#pt-app
+          (#pt-use lean-92-outParam ((#pt-level-succ (#pt-level-succ u2))))
+          (#pt-sort (#pt-level-succ u2))))
+      (v3 (#pt-app (#pt-use lean-216-HMod (u0 u1 u2)) v0 v1 v2))
+      (v4 v0)
+      (v5 v1))
+    v2)
+  (#pt-lambda
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-sort (#pt-level-succ u1)))
+      (v2
+        (#pt-app
+          (#pt-use lean-92-outParam ((#pt-level-succ (#pt-level-succ u2))))
+          (#pt-sort (#pt-level-succ u2))))
+      (v3 (#pt-app (#pt-use lean-216-HMod (u0 u1 u2)) v0 v1 v2)))
+    (#pt-project lean-216-HMod 0 v3)))
+; Lean declaration: "Mod"
+; Identity: "$lean:s3:Mod"
+; Export line: 6262
+; Prefix SHA-256: 25151d166636ef077740b4e328fc69357ab82b0272e614f11570660f90af622b
+(#math-inductive lean-220-Mod (u0)
+  ((v0 (#pt-sort (#pt-level-succ u0))))
+  (#pt-sort (#pt-level-succ u0))
+  ((lean-221-Mod-mk ((v1 (#pt-pi ((v1 v0) (v2 v0)) v0))))))
+; Lean declaration: "Mod.mk"
+; Identity: "$lean:s3:Mods2:mk"
+; Export line: 6262
+; Prefix SHA-256: 25151d166636ef077740b4e328fc69357ab82b0272e614f11570660f90af622b
+(#math-definition lean-221-Mod-mk (u0)
+  (#pt-pi
+    ((v0 (#pt-sort (#pt-level-succ u0))) (v1 (#pt-pi ((v1 v0) (v2 v0)) v0)))
+    (#pt-app (#pt-use lean-220-Mod (u0)) v0))
+  (#pt-lambda
+    ((v0 (#pt-sort (#pt-level-succ u0))) (v1 (#pt-pi ((v1 v0) (v2 v0)) v0)))
+    (#pt-construct lean-220-Mod (u0) (v0) lean-221-Mod-mk (v1))))
+; Lean declaration: "Mod.rec"
+; Identity: "$lean:s3:Mods3:rec"
+; Export line: 6262
+; Prefix SHA-256: 25151d166636ef077740b4e328fc69357ab82b0272e614f11570660f90af622b
+(#math-definition lean-222-Mod-rec (u0 u1)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u1)))
+      (v1 (#pt-pi ((v1 (#pt-app (#pt-use lean-220-Mod (u1)) v0))) (#pt-sort u0)))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-pi ((v2 v0) (v3 v0)) v0)))
+          (#pt-app v1 (#pt-app (#pt-use lean-221-Mod-mk (u1)) v0 v2))))
+      (v3 (#pt-app (#pt-use lean-220-Mod (u1)) v0)))
+    (#pt-app v1 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort (#pt-level-succ u1)))
+      (v1 (#pt-pi ((v1 (#pt-app (#pt-use lean-220-Mod (u1)) v0))) (#pt-sort u0)))
+      (v2
+        (#pt-pi
+          ((v2 (#pt-pi ((v2 v0) (v3 v0)) v0)))
+          (#pt-app v1 (#pt-app (#pt-use lean-221-Mod-mk (u1)) v0 v2))))
+      (v3 (#pt-app (#pt-use lean-220-Mod (u1)) v0)))
+    (#pt-induct
+      lean-220-Mod
+      (u1)
+      (v0)
+      v1
+      ((#pt-lambda ((v4 (#pt-pi ((v4 v0) (v5 v0)) v0))) (#pt-app v2 v4)))
+      v3)))
+; Lean declaration: "Mod.mod"
+; Identity: "$lean:s3:Mods3:mod"
+; Export line: 6269
+; Prefix SHA-256: f8097e3471a246c0e898475b4fd5b8e1ef323e0828d37e6ce2d6aa862a4da38a
+(#math-definition lean-223-Mod-mod (u0)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-app (#pt-use lean-220-Mod (u0)) v0))
+      (v2 v0)
+      (v3 v0))
+    v0)
+  (#pt-lambda
+    ((v0 (#pt-sort (#pt-level-succ u0))) (v1 (#pt-app (#pt-use lean-220-Mod (u0)) v0)))
+    (#pt-project lean-220-Mod 0 v1)))
+; Lean declaration: "instHMod"
+; Identity: "$lean:s8:instHMod"
+; Export line: 6297
+; Prefix SHA-256: 97942c9c96f3847f8940bd96a1f1ad248a04c2be9057276783961720968f47e4
+(#math-definition lean-224-instHMod (u0)
+  (#pt-pi
+    ((v0 (#pt-sort (#pt-level-succ u0))) (v1 (#pt-app (#pt-use lean-220-Mod (u0)) v0)))
+    (#pt-app (#pt-use lean-216-HMod (u0 u0 u0)) v0 v0 v0))
+  (#pt-lambda
+    ((v0 (#pt-sort (#pt-level-succ u0))) (v1 (#pt-app (#pt-use lean-220-Mod (u0)) v0)))
+    (#pt-app
+      (#pt-use lean-217-HMod-mk (u0 u0 u0))
+      v0
+      v0
+      v0
+      (#pt-lambda ((v2 v0) (v3 v0)) (#pt-app (#pt-use lean-223-Mod-mod (u0)) v0 v1 v2 v3)))))
+; Lean declaration: "Nat.instMod"
+; Identity: "$lean:s3:Nats7:instMod"
+; Export line: 6304
+; Prefix SHA-256: 66b4334fee47b26729d81dd1e61a9ca50ae59d21027764a946da38a311595b08
+(#math-definition lean-225-Nat-instMod ()
+  (#pt-app (#pt-use lean-220-Mod (0)) (#pt-use lean-3-Nat ()))
+  (#pt-app (#pt-use lean-221-Mod-mk (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-180-Nat-mod ())))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.mod_lt.match_1_3"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats6:mod_lts9:match_1_3"
+; Export line: 6447
+; Prefix SHA-256: c11746d54b63215816c492254536db8b0117c0b3d2a4ac36bc7a3c07b9b0c747
+(#math-definition lean-226-_private-Init-Prelude--0--Nat-mod_lt-match_1_3 ()
+  (#pt-pi
+    (
+      (v0
+        (#pt-pi
+          (
+            (v0 (#pt-use lean-3-Nat ()))
+            (v1 (#pt-use lean-3-Nat ()))
+            (v2
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v1)))
+          (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          (#pt-app
+            (#pt-use lean-10-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+          v2))
+      (v4
+        (#pt-pi
+          (
+            (v4 (#pt-use lean-3-Nat ()))
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v4))))
+          (#pt-app
+            v0
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+            v5)))
+      (v5
+        (#pt-pi
+          (
+            (v5 (#pt-use lean-3-Nat ()))
+            (v6 (#pt-use lean-3-Nat ()))
+            (v7
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v6)))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v5) v6 v7))))
+    (#pt-app v0 v1 v2 v3))
+  (#pt-lambda
+    (
+      (v0
+        (#pt-pi
+          (
+            (v0 (#pt-use lean-3-Nat ()))
+            (v1 (#pt-use lean-3-Nat ()))
+            (v2
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v1)))
+          (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          (#pt-app
+            (#pt-use lean-10-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+          v2))
+      (v4
+        (#pt-pi
+          (
+            (v4 (#pt-use lean-3-Nat ()))
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v4))))
+          (#pt-app
+            v0
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+            v5)))
+      (v5
+        (#pt-pi
+          (
+            (v5 (#pt-use lean-3-Nat ()))
+            (v6 (#pt-use lean-3-Nat ()))
+            (v7
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v6)))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v5) v6 v7))))
+    (#pt-app
+      (#pt-use lean-13-Nat-casesOn (0))
+      (#pt-lambda ((v6 (#pt-use lean-3-Nat ()))) (#pt-app v0 v6 v2 v3))
+      v1
+      (#pt-app
+        (#pt-use lean-13-Nat-casesOn (0))
+        (#pt-lambda
+          ((v6 (#pt-use lean-3-Nat ())))
+          (#pt-pi
+            (
+              (v7
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v6)))
+            (#pt-app v0 (#pt-use lean-4-Nat-zero ()) v6 v7)))
+        v2
+        (#pt-lambda
+          (
+            (v6
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app
+            (#pt-use lean-61-False-elim (0))
+            (#pt-app v0 (#pt-use lean-4-Nat-zero ()) (#pt-use lean-4-Nat-zero ()) v6)
+            (#pt-app
+              (#pt-use lean-127-Nat-le-casesOn ())
+              (#pt-app
+                (#pt-use lean-5-Nat-succ ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))
+              (#pt-lambda
+                (
+                  (v7 (#pt-use lean-3-Nat ()))
+                  (v8
+                    (#pt-app
+                      (#pt-use lean-28-Nat-le ())
+                      (#pt-app
+                        (#pt-use lean-5-Nat-succ ())
+                        (#pt-app
+                          (#pt-use lean-10-OfNat-ofNat (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-nat-literal lean-3-Nat "0")
+                          (#pt-app
+                            (#pt-use lean-11-instOfNatNat ())
+                            (#pt-nat-literal lean-3-Nat "0"))))
+                      v7)))
+                (#pt-pi
+                  (
+                    (v9
+                      (#pt-app
+                        (#pt-use lean-0-Eq (1))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-4-Nat-zero ())
+                        v7))
+                    (v10
+                      (#pt-app
+                        (#pt-use lean-63-HEq (0))
+                        (#pt-app
+                          (#pt-use lean-123-LT-lt (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-125-instLTNat ())
+                          (#pt-app
+                            (#pt-use lean-10-OfNat-ofNat (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-nat-literal lean-3-Nat "0")
+                            (#pt-app
+                              (#pt-use lean-11-instOfNatNat ())
+                              (#pt-nat-literal lean-3-Nat "0")))
+                          (#pt-use lean-4-Nat-zero ()))
+                        v6
+                        (#pt-app
+                          (#pt-use lean-28-Nat-le ())
+                          (#pt-app
+                            (#pt-use lean-5-Nat-succ ())
+                            (#pt-app
+                              (#pt-use lean-10-OfNat-ofNat (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-nat-literal lean-3-Nat "0")
+                              (#pt-app
+                                (#pt-use lean-11-instOfNatNat ())
+                                (#pt-nat-literal lean-3-Nat "0"))))
+                          v7)
+                        v8)))
+                  (#pt-use lean-15-False ())))
+              (#pt-use lean-4-Nat-zero ())
+              v6
+              (#pt-lambda
+                (
+                  (v7
+                    (#pt-app
+                      (#pt-use lean-0-Eq (1))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-4-Nat-zero ())
+                      (#pt-app
+                        (#pt-use lean-5-Nat-succ ())
+                        (#pt-app
+                          (#pt-use lean-10-OfNat-ofNat (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-nat-literal lean-3-Nat "0")
+                          (#pt-app
+                            (#pt-use lean-11-instOfNatNat ())
+                            (#pt-nat-literal lean-3-Nat "0")))))))
+                (#pt-app
+                  (#pt-use lean-61-False-elim (0))
+                  (#pt-pi
+                    (
+                      (v8
+                        (#pt-app
+                          (#pt-use lean-63-HEq (0))
+                          (#pt-app
+                            (#pt-use lean-123-LT-lt (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-125-instLTNat ())
+                            (#pt-app
+                              (#pt-use lean-10-OfNat-ofNat (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-nat-literal lean-3-Nat "0")
+                              (#pt-app
+                                (#pt-use lean-11-instOfNatNat ())
+                                (#pt-nat-literal lean-3-Nat "0")))
+                            (#pt-use lean-4-Nat-zero ()))
+                          v6
+                          (#pt-app
+                            (#pt-use lean-28-Nat-le ())
+                            (#pt-app
+                              (#pt-use lean-5-Nat-succ ())
+                              (#pt-app
+                                (#pt-use lean-10-OfNat-ofNat (0))
+                                (#pt-use lean-3-Nat ())
+                                (#pt-nat-literal lean-3-Nat "0")
+                                (#pt-app
+                                  (#pt-use lean-11-instOfNatNat ())
+                                  (#pt-nat-literal lean-3-Nat "0"))))
+                            (#pt-app
+                              (#pt-use lean-5-Nat-succ ())
+                              (#pt-app
+                                (#pt-use lean-10-OfNat-ofNat (0))
+                                (#pt-use lean-3-Nat ())
+                                (#pt-nat-literal lean-3-Nat "0")
+                                (#pt-app
+                                  (#pt-use lean-11-instOfNatNat ())
+                                  (#pt-nat-literal lean-3-Nat "0")))))
+                          (#pt-app
+                            (#pt-use lean-29-Nat-le-refl ())
+                            (#pt-app
+                              (#pt-use lean-5-Nat-succ ())
+                              (#pt-app
+                                (#pt-use lean-10-OfNat-ofNat (0))
+                                (#pt-use lean-3-Nat ())
+                                (#pt-nat-literal lean-3-Nat "0")
+                                (#pt-app
+                                  (#pt-use lean-11-instOfNatNat ())
+                                  (#pt-nat-literal lean-3-Nat "0"))))))))
+                    (#pt-use lean-15-False ()))
+                  (#pt-app
+                    (#pt-use lean-76-noConfusion_of_Nat (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-128-Nat-ctorIdx ())
+                    (#pt-use lean-4-Nat-zero ())
+                    (#pt-app
+                      (#pt-use lean-5-Nat-succ ())
+                      (#pt-app
+                        (#pt-use lean-10-OfNat-ofNat (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-nat-literal lean-3-Nat "0")
+                        (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))))
+                    v7)))
+              (#pt-lambda
+                (
+                  (v7 (#pt-use lean-3-Nat ()))
+                  (v8
+                    (#pt-app
+                      (#pt-use lean-28-Nat-le ())
+                      (#pt-app
+                        (#pt-use lean-5-Nat-succ ())
+                        (#pt-app
+                          (#pt-use lean-10-OfNat-ofNat (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-nat-literal lean-3-Nat "0")
+                          (#pt-app
+                            (#pt-use lean-11-instOfNatNat ())
+                            (#pt-nat-literal lean-3-Nat "0"))))
+                      v7))
+                  (v9
+                    (#pt-app
+                      (#pt-use lean-0-Eq (1))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-4-Nat-zero ())
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v7))))
+                (#pt-app
+                  (#pt-use lean-61-False-elim (0))
+                  (#pt-pi
+                    (
+                      (v10
+                        (#pt-app
+                          (#pt-use lean-63-HEq (0))
+                          (#pt-app
+                            (#pt-use lean-123-LT-lt (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-125-instLTNat ())
+                            (#pt-app
+                              (#pt-use lean-10-OfNat-ofNat (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-nat-literal lean-3-Nat "0")
+                              (#pt-app
+                                (#pt-use lean-11-instOfNatNat ())
+                                (#pt-nat-literal lean-3-Nat "0")))
+                            (#pt-use lean-4-Nat-zero ()))
+                          v6
+                          (#pt-app
+                            (#pt-use lean-28-Nat-le ())
+                            (#pt-app
+                              (#pt-use lean-5-Nat-succ ())
+                              (#pt-app
+                                (#pt-use lean-10-OfNat-ofNat (0))
+                                (#pt-use lean-3-Nat ())
+                                (#pt-nat-literal lean-3-Nat "0")
+                                (#pt-app
+                                  (#pt-use lean-11-instOfNatNat ())
+                                  (#pt-nat-literal lean-3-Nat "0"))))
+                            (#pt-app (#pt-use lean-5-Nat-succ ()) v7))
+                          (#pt-app
+                            (#pt-use lean-30-Nat-le-step ())
+                            (#pt-app
+                              (#pt-use lean-5-Nat-succ ())
+                              (#pt-app
+                                (#pt-use lean-10-OfNat-ofNat (0))
+                                (#pt-use lean-3-Nat ())
+                                (#pt-nat-literal lean-3-Nat "0")
+                                (#pt-app
+                                  (#pt-use lean-11-instOfNatNat ())
+                                  (#pt-nat-literal lean-3-Nat "0"))))
+                            v7
+                            v8))))
+                    (#pt-use lean-15-False ()))
+                  (#pt-app
+                    (#pt-use lean-76-noConfusion_of_Nat (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-128-Nat-ctorIdx ())
+                    (#pt-use lean-4-Nat-zero ())
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v7)
+                    v9)))
+              (#pt-app
+                (#pt-use lean-1-Eq-refl (1))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-4-Nat-zero ()))
+              (#pt-app
+                (#pt-use lean-64-HEq-refl (0))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  (#pt-use lean-4-Nat-zero ()))
+                v6))))
+        (#pt-lambda
+          (
+            (v6 (#pt-use lean-3-Nat ()))
+            (v7
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v6))))
+          (#pt-app v4 v6 v7))
+        v3)
+      (#pt-lambda ((v6 (#pt-use lean-3-Nat ()))) (#pt-app v5 v6 v2 v3)))))
+; Lean declaration: "Nat.zero_lt_succ"
+; Identity: "$lean:s3:Nats12:zero_lt_succ"
+; Export line: 6455
+; Prefix SHA-256: 7d4b7c50ddad1208f1d8ea3821e658013c41aea5e731f5f4430f43d31dd1d56a
+(#theorem lean-227-Nat-zero_lt_succ
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+  (#proof
+    (#pt-lambda
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-106-Nat-succ_le_succ ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        v0
+        (#pt-app (#pt-use lean-81-Nat-zero_le ()) v0)))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.mod_lt.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats6:mod_lts9:match_1_1"
+; Export line: 6501
+; Prefix SHA-256: 770b997838f9e1087b19fe337bffb45a94fb715a0e3de44070761f29bff78fe2
+(#math-definition lean-228-_private-Init-Prelude--0--Nat-mod_lt-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v1
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v1
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v1
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))
+              v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v1
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v1
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v1
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0))
+              v5)))))
+    (#pt-app
+      (#pt-use lean-22-Decidable-casesOn (0))
+      (#pt-app
+        (#pt-use lean-27-LE-le (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-32-instLENat ())
+        v1
+        (#pt-app (#pt-use lean-5-Nat-succ ()) v0))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-18-Decidable ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+        (#pt-app v2 v6))
+      v3
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-17-Not ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v1
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0)))))
+        (#pt-app v5 v6))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v1
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v0))))
+        (#pt-app v4 v6)))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.modCore_lt.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats10:modCore_lts9:match_1_1"
+; Export line: 6546
+; Prefix SHA-256: 84153ae173cadbf3a4bba2fbb15a60034192435669e729fa724e2d552a111901
+(#math-definition lean-229-_private-Init-Prelude--0--Nat-modCore_lt-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1
+        (#pt-pi
+          (
+            (v1
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v0))))
+          (#pt-sort 0)))
+      (v2
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v0)))
+      (v3
+        (#pt-pi
+          (
+            (v3
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)))
+          (#pt-app
+            v1
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)
+              v3))))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v0))))
+          (#pt-app
+            v1
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)
+              v4)))))
+    (#pt-app v1 v2))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1
+        (#pt-pi
+          (
+            (v1
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v0))))
+          (#pt-sort 0)))
+      (v2
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v0)))
+      (v3
+        (#pt-pi
+          (
+            (v3
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)))
+          (#pt-app
+            v1
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)
+              v3))))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v0))))
+          (#pt-app
+            v1
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0)
+              v4)))))
+    (#pt-app
+      (#pt-use lean-22-Decidable-casesOn (0))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app
+          (#pt-use lean-10-OfNat-ofNat (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-nat-literal lean-3-Nat "0")
+          (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+        v0)
+      (#pt-lambda
+        (
+          (v5
+            (#pt-app
+              (#pt-use lean-18-Decidable ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0))))
+        (#pt-app v1 v5))
+      v2
+      (#pt-lambda
+        (
+          (v5
+            (#pt-app
+              (#pt-use lean-17-Not ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v0))))
+        (#pt-app v4 v5))
+      (#pt-lambda
+        (
+          (v5
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              (#pt-app
+                (#pt-use lean-10-OfNat-ofNat (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-nat-literal lean-3-Nat "0")
+                (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+              v0)))
+        (#pt-app v3 v5)))))
+; Lean declaration: "Nat.not_lt_zero"
+; Identity: "$lean:s3:Nats11:not_lt_zero"
+; Export line: 6553
+; Prefix SHA-256: 13167f71e37df52ef9dae29e95aa37d19fc382e27cfdf4be8954fa7cc65af46b
+(#theorem lean-230-Nat-not_lt_zero
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-17-Not ())
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          v0
+          (#pt-app
+            (#pt-use lean-10-OfNat-ofNat (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-nat-literal lean-3-Nat "0")
+            (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))))))
+  (#proof
+    (#pt-lambda
+      ((v0 (#pt-use lean-3-Nat ())))
+      (#pt-app (#pt-use lean-157-Nat-not_succ_le_zero ()) v0))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.modCoreGo_lt.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats12:modCoreGo_lts9:match_1_1"
+; Export line: 6599
+; Prefix SHA-256: 8e5e45c6c03f680c4827e8cef31aaf75a118ad592650ddc07d7b670c80330b5c
+(#math-definition lean-231-_private-Init-Prelude--0--Nat-modCoreGo_lt-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-18-Decidable ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-18-Decidable ())
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-20-Decidable-isTrue ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-17-Not ())
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-19-Decidable-isFalse ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app
+      (#pt-use lean-22-Decidable-casesOn (0))
+      (#pt-app
+        (#pt-use lean-27-LE-le (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-32-instLENat ())
+        v0
+        v1)
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-18-Decidable ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1))))
+        (#pt-app v2 v6))
+      v3
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-17-Not ())
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1))))
+        (#pt-app v5 v6))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v1)))
+        (#pt-app v4 v6)))))
+; Lean declaration: "Or"
+; Identity: "$lean:s2:Or"
+; Export line: 6649
+; Prefix SHA-256: 5ece86b026ad14cc7c8094ddcf205c293211d3844909dcc29e5f22b0d0757b93
+(#math-inductive lean-232-Or ()
+  ((v0 (#pt-sort 0)) (v1 (#pt-sort 0)))
+  (#pt-sort 0)
+  ((lean-233-Or-inl ((v2 v0))) (lean-234-Or-inr ((v2 v1)))))
+; Lean declaration: "Or.inl"
+; Identity: "$lean:s2:Ors3:inl"
+; Export line: 6649
+; Prefix SHA-256: 5ece86b026ad14cc7c8094ddcf205c293211d3844909dcc29e5f22b0d0757b93
+(#math-definition lean-233-Or-inl ()
+  (#pt-pi ((v0 (#pt-sort 0)) (v1 (#pt-sort 0)) (v2 v0)) (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+  (#pt-lambda
+    ((v0 (#pt-sort 0)) (v1 (#pt-sort 0)) (v2 v0))
+    (#pt-construct lean-232-Or () (v0 v1) lean-233-Or-inl (v2))))
+; Lean declaration: "Or.inr"
+; Identity: "$lean:s2:Ors3:inr"
+; Export line: 6649
+; Prefix SHA-256: 5ece86b026ad14cc7c8094ddcf205c293211d3844909dcc29e5f22b0d0757b93
+(#math-definition lean-234-Or-inr ()
+  (#pt-pi ((v0 (#pt-sort 0)) (v1 (#pt-sort 0)) (v2 v1)) (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+  (#pt-lambda
+    ((v0 (#pt-sort 0)) (v1 (#pt-sort 0)) (v2 v1))
+    (#pt-construct lean-232-Or () (v0 v1) lean-234-Or-inr (v2))))
+; Lean declaration: "Or.rec"
+; Identity: "$lean:s2:Ors3:rec"
+; Export line: 6649
+; Prefix SHA-256: 5ece86b026ad14cc7c8094ddcf205c293211d3844909dcc29e5f22b0d0757b93
+(#math-definition lean-235-Or-rec ()
+  (#pt-pi
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-pi ((v3 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v3))))
+      (v4 (#pt-pi ((v4 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v4))))
+      (v5 (#pt-app (#pt-use lean-232-Or ()) v0 v1)))
+    (#pt-app v2 v5))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-pi ((v3 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v3))))
+      (v4 (#pt-pi ((v4 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v4))))
+      (v5 (#pt-app (#pt-use lean-232-Or ()) v0 v1)))
+    (#pt-induct
+      lean-232-Or
+      ()
+      (v0 v1)
+      v2
+      ((#pt-lambda ((v6 v0)) (#pt-app v3 v6)) (#pt-lambda ((v6 v1)) (#pt-app v4 v6)))
+      v5)))
+; Lean declaration: "Or.casesOn"
+; Identity: "$lean:s2:Ors7:casesOn"
+; Export line: 6681
+; Prefix SHA-256: 45a066acbccdb9e3f8c700fe37deca1a0066ec3b0a15b3b3d65cc7487dd45501
+(#math-definition lean-236-Or-casesOn ()
+  (#pt-pi
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+      (v4 (#pt-pi ((v4 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v4))))
+      (v5 (#pt-pi ((v5 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+      (v4 (#pt-pi ((v4 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v4))))
+      (v5 (#pt-pi ((v5 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v5)))))
+    (#pt-app
+      (#pt-use lean-235-Or-rec ())
+      v0
+      v1
+      v2
+      (#pt-lambda ((v6 v0)) (#pt-app v4 v6))
+      (#pt-lambda ((v6 v1)) (#pt-app v5 v6))
+      v3)))
+; Lean declaration: "_private.Init.Prelude.[0].Or.elim.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s2:Ors4:elims9:match_1_1"
+; Export line: 6705
+; Prefix SHA-256: ea33b0c17b8c343a13db46aacd4cdd531400d71794bd5db80242fa0fbd341059
+(#math-definition lean-237-_private-Init-Prelude--0--Or-elim-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+      (v4 (#pt-pi ((v4 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v4))))
+      (v5 (#pt-pi ((v5 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort 0))
+      (v1 (#pt-sort 0))
+      (v2 (#pt-pi ((v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-sort 0)))
+      (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+      (v4 (#pt-pi ((v4 v0)) (#pt-app v2 (#pt-app (#pt-use lean-233-Or-inl ()) v0 v1 v4))))
+      (v5 (#pt-pi ((v5 v1)) (#pt-app v2 (#pt-app (#pt-use lean-234-Or-inr ()) v0 v1 v5)))))
+    (#pt-app
+      (#pt-use lean-236-Or-casesOn ())
+      v0
+      v1
+      (#pt-lambda ((v6 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) (#pt-app v2 v6))
+      v3
+      (#pt-lambda ((v6 v0)) (#pt-app v4 v6))
+      (#pt-lambda ((v6 v1)) (#pt-app v5 v6)))))
+; Lean declaration: "Or.elim"
+; Identity: "$lean:s2:Ors4:elim"
+; Export line: 6728
+; Prefix SHA-256: cc13073278734121def33a6ac8d0b694e7a75a5fb99210e8a707d043b035ad69
+(#theorem lean-238-Or-elim
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-sort 0))
+        (v1 (#pt-sort 0))
+        (v2 (#pt-sort 0))
+        (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+        (v4 (#pt-pi ((v4 v0)) v2))
+        (v5 (#pt-pi ((v5 v1)) v2)))
+      v2))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-sort 0))
+        (v1 (#pt-sort 0))
+        (v2 (#pt-sort 0))
+        (v3 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+        (v4 (#pt-pi ((v4 v0)) v2))
+        (v5 (#pt-pi ((v5 v1)) v2)))
+      (#pt-app
+        (#pt-use lean-237-_private-Init-Prelude--0--Or-elim-match_1_1 ())
+        v0
+        v1
+        (#pt-lambda ((v6 (#pt-app (#pt-use lean-232-Or ()) v0 v1))) v2)
+        v3
+        (#pt-lambda ((v6 v0)) (#pt-app v4 v6))
+        (#pt-lambda ((v6 v1)) (#pt-app v5 v6))))))
+; Lean declaration: "Or.resolve_right"
+; Identity: "$lean:s2:Ors13:resolve_right"
+; Export line: 6756
+; Prefix SHA-256: 875ac66f25647e225808b1e41f9618249764160fa09edd4a037a663cf0d5a857
+(#theorem lean-239-Or-resolve_right
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-sort 0))
+        (v1 (#pt-sort 0))
+        (v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+        (v3 (#pt-app (#pt-use lean-17-Not ()) v1)))
+      v0))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-sort 0))
+        (v1 (#pt-sort 0))
+        (v2 (#pt-app (#pt-use lean-232-Or ()) v0 v1))
+        (v3 (#pt-app (#pt-use lean-17-Not ()) v1)))
+      (#pt-app
+        (#pt-use lean-238-Or-elim ())
+        v0
+        v1
+        v0
+        v2
+        (#pt-app (#pt-use lean-214-id (0)) v0)
+        (#pt-lambda ((v4 v1)) (#pt-app (#pt-use lean-109-absurd (0)) v1 v0 v4 v3))))))
+; Lean declaration: "GE.ge"
+; Identity: "$lean:s2:GEs2:ge"
+; Export line: 6772
+; Prefix SHA-256: 710276455a11bd9282c661f0c96a6ef5dbdb8428db9b7d506c516c3aac08195e
+(#math-definition lean-240-GE-ge (u0)
+  (#pt-pi
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-app (#pt-use lean-24-LE (u0)) v0))
+      (v2 v0)
+      (v3 v0))
+    (#pt-sort 0))
+  (#pt-lambda
+    (
+      (v0 (#pt-sort (#pt-level-succ u0)))
+      (v1 (#pt-app (#pt-use lean-24-LE (u0)) v0))
+      (v2 v0)
+      (v3 v0))
+    (#pt-app (#pt-use lean-27-LE-le (u0)) v0 v1 v3 v2)))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.lt_or_ge.match_1_5"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats8:lt_or_ges9:match_1_5"
+; Export line: 6775
+; Prefix SHA-256: a47045d6ed466f81ddcb7a0ed92e821c062a84d0d53ad892d736d26b0bffb520
+(#math-definition lean-241-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_5 ()
+  (#pt-pi
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-Nat ()))) (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-pi ((v2 (#pt-use lean-51-Unit ()))) (#pt-app v0 (#pt-use lean-4-Nat-zero ()))))
+      (v3
+        (#pt-pi
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+    (#pt-app v0 v1))
+  (#pt-lambda
+    (
+      (v0 (#pt-pi ((v0 (#pt-use lean-3-Nat ()))) (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-pi ((v2 (#pt-use lean-51-Unit ()))) (#pt-app v0 (#pt-use lean-4-Nat-zero ()))))
+      (v3
+        (#pt-pi
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+    (#pt-app
+      (#pt-use lean-13-Nat-casesOn (0))
+      (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-app v0 v4))
+      v1
+      (#pt-app v2 (#pt-use lean-53-Unit-unit ()))
+      (#pt-lambda ((v4 (#pt-use lean-3-Nat ()))) (#pt-app v3 v4)))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.lt_or_ge.match_1_3"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats8:lt_or_ges9:match_1_3"
+; Export line: 6839
+; Prefix SHA-256: 6e66543078d9e48a520439620f01ba58e9114c963f2d839ace456eb327a33c8a
+(#math-definition lean-242-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_3 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v0
+                  v1)
+                (#pt-app
+                  (#pt-use lean-240-GE-ge (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v0
+            v1)
+          (#pt-app
+            (#pt-use lean-240-GE-ge (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v0
+                  v1)
+                (#pt-app
+                  (#pt-use lean-240-GE-ge (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v0
+            v1)
+          (#pt-app
+            (#pt-use lean-240-GE-ge (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app
+      (#pt-use lean-236-Or-casesOn ())
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v0
+        v1)
+      (#pt-app
+        (#pt-use lean-240-GE-ge (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-32-instLENat ())
+        v0
+        v1)
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1))))
+        (#pt-app v2 v6))
+      v3
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v0
+              v1)))
+        (#pt-app v4 v6))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-240-GE-ge (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v1)))
+        (#pt-app v5 v6)))))
+; Lean declaration: "Nat.le_succ_of_le"
+; Identity: "$lean:s3:Nats13:le_succ_of_le"
+; Export line: 6851
+; Prefix SHA-256: d0a5c14ee2445cbb71c55c8bc80daa330d19502973290ea0e503212388fda033
+(#theorem lean-243-Nat-le_succ_of_le
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (#pt-app
+        (#pt-use lean-27-LE-le (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-32-instLENat ())
+        v0
+        (#pt-app (#pt-use lean-5-Nat-succ ()) v1))))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (#pt-app (#pt-use lean-30-Nat-le-step ()) v0 v1 v2))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.lt_or_ge.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats8:lt_or_ges9:match_1_1"
+; Export line: 6903
+; Prefix SHA-256: 393b6c2d5fd3443d89ca4d9c72aebf6b21a4298b3a7f25363071f7eaa99339f8
+(#math-definition lean-244-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v1
+                  v0))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v1
+            v0)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)
+              v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v1
+                  v0))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v1
+            v0)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0)
+              v5)))))
+    (#pt-app
+      (#pt-use lean-236-Or-casesOn ())
+      (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v1
+        v0)
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v1
+                v0))))
+        (#pt-app v2 v6))
+      v3
+      (#pt-lambda
+        ((v6 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v0)))
+        (#pt-app v4 v6))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v1
+              v0)))
+        (#pt-app v5 v6)))))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.eq_or_lt_of_le.match_1_3"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats14:eq_or_lt_of_les9:match_1_3"
+; Export line: 7019
+; Prefix SHA-256: cf74715c14fef96d90c163023ce049bc97910bd2efb35b73008a7df18678afa4
+(#math-definition lean-245-_private-Init-Prelude--0--Nat-eq_or_lt_of_le-match_1_3 ()
+  (#pt-pi
+    (
+      (v0
+        (#pt-pi
+          (
+            (v0 (#pt-use lean-3-Nat ()))
+            (v1 (#pt-use lean-3-Nat ()))
+            (v2
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-27-LE-le (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v1
+          v2))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-use lean-4-Nat-zero ())
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app v0 (#pt-use lean-4-Nat-zero ()) (#pt-use lean-4-Nat-zero ()) v4)))
+      (v5
+        (#pt-pi
+          (
+            (v5 (#pt-use lean-3-Nat ()))
+            (v6
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-use lean-4-Nat-zero ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v5))))
+          (#pt-app v0 (#pt-use lean-4-Nat-zero ()) (#pt-app (#pt-use lean-5-Nat-succ ()) v5) v6)))
+      (v6
+        (#pt-pi
+          (
+            (v6 (#pt-use lean-3-Nat ()))
+            (v7
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v6)
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v6) (#pt-use lean-4-Nat-zero ()) v7)))
+      (v7
+        (#pt-pi
+          (
+            (v7 (#pt-use lean-3-Nat ()))
+            (v8 (#pt-use lean-3-Nat ()))
+            (v9
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v7)
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v8))))
+          (#pt-app
+            v0
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v7)
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+            v9))))
+    (#pt-app v0 v1 v2 v3))
+  (#pt-lambda
+    (
+      (v0
+        (#pt-pi
+          (
+            (v0 (#pt-use lean-3-Nat ()))
+            (v1 (#pt-use lean-3-Nat ()))
+            (v2
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v1)))
+          (#pt-sort 0)))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-27-LE-le (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v1
+          v2))
+      (v4
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-use lean-4-Nat-zero ())
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app v0 (#pt-use lean-4-Nat-zero ()) (#pt-use lean-4-Nat-zero ()) v4)))
+      (v5
+        (#pt-pi
+          (
+            (v5 (#pt-use lean-3-Nat ()))
+            (v6
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-use lean-4-Nat-zero ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v5))))
+          (#pt-app v0 (#pt-use lean-4-Nat-zero ()) (#pt-app (#pt-use lean-5-Nat-succ ()) v5) v6)))
+      (v6
+        (#pt-pi
+          (
+            (v6 (#pt-use lean-3-Nat ()))
+            (v7
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v6)
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v6) (#pt-use lean-4-Nat-zero ()) v7)))
+      (v7
+        (#pt-pi
+          (
+            (v7 (#pt-use lean-3-Nat ()))
+            (v8 (#pt-use lean-3-Nat ()))
+            (v9
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v7)
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v8))))
+          (#pt-app
+            v0
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v7)
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+            v9))))
+    (#pt-app
+      (#pt-use lean-13-Nat-casesOn (0))
+      (#pt-lambda
+        ((v8 (#pt-use lean-3-Nat ())))
+        (#pt-pi
+          (
+            (v9
+              (#pt-app
+                (#pt-use lean-27-LE-le (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v8
+                v2)))
+          (#pt-app v0 v8 v2 v9)))
+      v1
+      (#pt-lambda
+        (
+          (v8
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-use lean-4-Nat-zero ())
+              v2)))
+        (#pt-app
+          (#pt-use lean-13-Nat-casesOn (0))
+          (#pt-lambda
+            ((v9 (#pt-use lean-3-Nat ())))
+            (#pt-pi
+              (
+                (v10
+                  (#pt-app
+                    (#pt-use lean-27-LE-le (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    (#pt-use lean-4-Nat-zero ())
+                    v9)))
+              (#pt-app v0 (#pt-use lean-4-Nat-zero ()) v9 v10)))
+          v2
+          (#pt-lambda
+            (
+              (v9
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  (#pt-use lean-4-Nat-zero ())
+                  (#pt-use lean-4-Nat-zero ()))))
+            (#pt-app v4 v9))
+          (#pt-lambda
+            (
+              (v9 (#pt-use lean-3-Nat ()))
+              (v10
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  (#pt-use lean-4-Nat-zero ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v9))))
+            (#pt-app v5 v9 v10))
+          v8))
+      (#pt-lambda
+        (
+          (v8 (#pt-use lean-3-Nat ()))
+          (v9
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+              v2)))
+        (#pt-app
+          (#pt-use lean-13-Nat-casesOn (0))
+          (#pt-lambda
+            ((v10 (#pt-use lean-3-Nat ())))
+            (#pt-pi
+              (
+                (v11
+                  (#pt-app
+                    (#pt-use lean-27-LE-le (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+                    v10)))
+              (#pt-app v0 (#pt-app (#pt-use lean-5-Nat-succ ()) v8) v10 v11)))
+          v2
+          (#pt-lambda
+            (
+              (v10
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+                  (#pt-use lean-4-Nat-zero ()))))
+            (#pt-app v6 v8 v10))
+          (#pt-lambda
+            (
+              (v10 (#pt-use lean-3-Nat ()))
+              (v11
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v8)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v10))))
+            (#pt-app v7 v8 v10 v11))
+          v9))
+      v3)))
+; Lean declaration: "_private.Init.Prelude.[0].Nat.eq_or_lt_of_le.match_1_1"
+; Identity: "$lean:s8:_privates4:Inits7:Preluden0;s3:Nats14:eq_or_lt_of_les9:match_1_1"
+; Export line: 7069
+; Prefix SHA-256: 82837c17ba770e911405fbdacd16d837b2aac489f0a3f79f4b48e4a81666c5d7
+(#math-definition lean-246-_private-Init-Prelude--0--Nat-eq_or_lt_of_le-match_1_1 ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app v2 v3))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-pi
+          (
+            (v2
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v0
+                  v1))))
+          (#pt-sort 0)))
+      (v3
+        (#pt-app
+          (#pt-use lean-232-Or ())
+          (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v0
+            v1)))
+      (v4
+        (#pt-pi
+          ((v4 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              v4))))
+      (v5
+        (#pt-pi
+          (
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)))
+          (#pt-app
+            v2
+            (#pt-app
+              (#pt-use lean-234-Or-inr ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1)
+              v5)))))
+    (#pt-app
+      (#pt-use lean-236-Or-casesOn ())
+      (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v0
+        v1)
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v1))))
+        (#pt-app v2 v6))
+      v3
+      (#pt-lambda
+        ((v6 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)))
+        (#pt-app v4 v6))
+      (#pt-lambda
+        (
+          (v6
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v0
+              v1)))
+        (#pt-app v5 v6)))))
+; Lean declaration: "Nat.eq_or_lt_of_le._f"
+; Identity: "$lean:s3:Nats14:eq_or_lt_of_les2:_f"
+; Export line: 7200
+; Prefix SHA-256: 36636159863cdc43ca4a0dac52c3dfc1c3cf176089beff1b7fcd85447ec6592b
+(#math-definition lean-247-Nat-eq_or_lt_of_le-_f ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1
+        (#pt-app
+          (#pt-use lean-44-Nat-below (0))
+          (#pt-lambda
+            ((v1 (#pt-use lean-3-Nat ())))
+            (#pt-pi
+              (
+                (v2 (#pt-use lean-3-Nat ()))
+                (v3
+                  (#pt-app
+                    (#pt-use lean-27-LE-le (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v1
+                    v2)))
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v2)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v1
+                  v2))))
+          v0))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-27-LE-le (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v0
+          v2)))
+    (#pt-app
+      (#pt-use lean-232-Or ())
+      (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v2)
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v0
+        v2)))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1
+        (#pt-app
+          (#pt-use lean-44-Nat-below (0))
+          (#pt-lambda
+            ((v1 (#pt-use lean-3-Nat ())))
+            (#pt-pi
+              (
+                (v2 (#pt-use lean-3-Nat ()))
+                (v3
+                  (#pt-app
+                    (#pt-use lean-27-LE-le (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v1
+                    v2)))
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v1 v2)
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v1
+                  v2))))
+          v0))
+      (v2 (#pt-use lean-3-Nat ()))
+      (v3
+        (#pt-app
+          (#pt-use lean-27-LE-le (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v0
+          v2)))
+    (#pt-app
+      (#pt-use lean-245-_private-Init-Prelude--0--Nat-eq_or_lt_of_le-match_1_3 ())
+      (#pt-lambda
+        (
+          (v4 (#pt-use lean-3-Nat ()))
+          (v5 (#pt-use lean-3-Nat ()))
+          (v6
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v4
+              v5)))
+        (#pt-pi
+          (
+            (v7
+              (#pt-app
+                (#pt-use lean-44-Nat-below (0))
+                (#pt-lambda
+                  ((v7 (#pt-use lean-3-Nat ())))
+                  (#pt-pi
+                    (
+                      (v8 (#pt-use lean-3-Nat ()))
+                      (v9
+                        (#pt-app
+                          (#pt-use lean-27-LE-le (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-32-instLENat ())
+                          v7
+                          v8)))
+                    (#pt-app
+                      (#pt-use lean-232-Or ())
+                      (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v7 v8)
+                      (#pt-app
+                        (#pt-use lean-123-LT-lt (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-125-instLTNat ())
+                        v7
+                        v8))))
+                v4)))
+          (#pt-app
+            (#pt-use lean-232-Or ())
+            (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v4 v5)
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v4
+              v5))))
+      v0
+      v2
+      v3
+      (#pt-lambda
+        (
+          (v4
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-use lean-4-Nat-zero ())
+              (#pt-use lean-4-Nat-zero ())))
+          (v5
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v5 (#pt-use lean-3-Nat ())))
+                (#pt-pi
+                  (
+                    (v6 (#pt-use lean-3-Nat ()))
+                    (v7
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v5
+                        v6)))
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v5 v6)
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v5
+                      v6))))
+              (#pt-use lean-4-Nat-zero ()))))
+        (#pt-app
+          (#pt-use lean-233-Or-inl ())
+          (#pt-app
+            (#pt-use lean-0-Eq (1))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-4-Nat-zero ())
+            (#pt-use lean-4-Nat-zero ()))
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-use lean-4-Nat-zero ())
+            (#pt-use lean-4-Nat-zero ()))
+          (#pt-app (#pt-use lean-55-rfl (1)) (#pt-use lean-3-Nat ()) (#pt-use lean-4-Nat-zero ()))))
+      (#pt-lambda
+        (
+          (v4 (#pt-use lean-3-Nat ()))
+          (v5
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-use lean-4-Nat-zero ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4)))
+          (v6
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v6 (#pt-use lean-3-Nat ())))
+                (#pt-pi
+                  (
+                    (v7 (#pt-use lean-3-Nat ()))
+                    (v8
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v6
+                        v7)))
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v6 v7)
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v6
+                      v7))))
+              (#pt-use lean-4-Nat-zero ()))))
+        (#pt-app
+          (#pt-use lean-234-Or-inr ())
+          (#pt-app
+            (#pt-use lean-0-Eq (1))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-4-Nat-zero ())
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v4))
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-use lean-4-Nat-zero ())
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v4))
+          (#pt-app
+            (#pt-use lean-106-Nat-succ_le_succ ())
+            (#pt-use lean-4-Nat-zero ())
+            v4
+            (#pt-app (#pt-use lean-81-Nat-zero_le ()) v4))))
+      (#pt-lambda
+        (
+          (v4 (#pt-use lean-3-Nat ()))
+          (v5
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+              (#pt-use lean-4-Nat-zero ())))
+          (v6
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v6 (#pt-use lean-3-Nat ())))
+                (#pt-pi
+                  (
+                    (v7 (#pt-use lean-3-Nat ()))
+                    (v8
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v6
+                        v7)))
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v6 v7)
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v6
+                      v7))))
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4))))
+        (#pt-app
+          (#pt-use lean-109-absurd (0))
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+            (#pt-use lean-4-Nat-zero ()))
+          (#pt-app
+            (#pt-use lean-232-Or ())
+            (#pt-app
+              (#pt-use lean-0-Eq (1))
+              (#pt-use lean-3-Nat ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+              (#pt-use lean-4-Nat-zero ()))
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+              (#pt-use lean-4-Nat-zero ())))
+          v5
+          (#pt-app (#pt-use lean-157-Nat-not_succ_le_zero ()) v4)))
+      (#pt-lambda
+        (
+          (v4 (#pt-use lean-3-Nat ()))
+          (v5 (#pt-use lean-3-Nat ()))
+          (v6
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v5)))
+          (v7
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v7 (#pt-use lean-3-Nat ())))
+                (#pt-pi
+                  (
+                    (v8 (#pt-use lean-3-Nat ()))
+                    (v9
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v7
+                        v8)))
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v7 v8)
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v7
+                      v8))))
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v4))))
+        (#pt-let
+          (#parameter v8 (#pt-app (#pt-use lean-27-LE-le (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-32-instLENat ()) v4 v5))
+          (#pt-app (#pt-use lean-161-Nat-le_of_succ_le_succ ()) v4 v5 v6)
+          (#pt-app
+            (#pt-use lean-246-_private-Init-Prelude--0--Nat-eq_or_lt_of_le-match_1_1 ())
+            v4
+            v5
+            (#pt-lambda
+              (
+                (v9
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v4 v5)
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v4
+                      v5))))
+              (#pt-app
+                (#pt-use lean-232-Or ())
+                (#pt-app
+                  (#pt-use lean-0-Eq (1))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))))
+            (#pt-app (#pt-project lean-41-PProd 0 v7) v5 v8)
+            (#pt-lambda
+              ((v9 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v4 v5)))
+              (#pt-app
+                (#pt-use lean-233-Or-inl ())
+                (#pt-app
+                  (#pt-use lean-0-Eq (1))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))
+                (#pt-app
+                  (#pt-use lean-2-Eq-rec (0 1))
+                  (#pt-use lean-3-Nat ())
+                  v4
+                  (#pt-lambda
+                    (
+                      (v10 (#pt-use lean-3-Nat ()))
+                      (v11 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v4 v10)))
+                    (#pt-app
+                      (#pt-use lean-0-Eq (1))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v10)))
+                  (#pt-app
+                    (#pt-use lean-55-rfl (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v4))
+                  v5
+                  v9)))
+            (#pt-lambda
+              (
+                (v9
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v4
+                    v5)))
+              (#pt-app
+                (#pt-use lean-234-Or-inr ())
+                (#pt-app
+                  (#pt-use lean-0-Eq (1))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v4)
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v5))
+                (#pt-app
+                  (#pt-use lean-106-Nat-succ_le_succ ())
+                  (#pt-app
+                    (#pt-use lean-96-HAdd-hAdd (0 0 0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-101-instHAdd (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-105-instAddNat ()))
+                    v4
+                    (#pt-app
+                      (#pt-use lean-10-OfNat-ofNat (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-nat-literal lean-3-Nat "1")
+                      (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "1"))))
+                  v5
+                  v9))))))
+      v1)))
+; Lean declaration: "Nat.eq_or_lt_of_le"
+; Identity: "$lean:s3:Nats14:eq_or_lt_of_le"
+; Export line: 7211
+; Prefix SHA-256: f1903814ce0b53df023d1b8982b03291a61218cd31079c3977e6cdf003c2577c
+(#theorem lean-248-Nat-eq_or_lt_of_le
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (#pt-app
+        (#pt-use lean-232-Or ())
+        (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v0 v1)
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          v0
+          v1))))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-27-LE-le (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            v1)))
+      (#pt-app
+        (#pt-use lean-46-Nat-brecOn (0))
+        (#pt-lambda
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-pi
+            (
+              (v4 (#pt-use lean-3-Nat ()))
+              (v5
+                (#pt-app
+                  (#pt-use lean-27-LE-le (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v3
+                  v4)))
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v3 v4)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v3
+                v4))))
+        v0
+        (#pt-use lean-247-Nat-eq_or_lt_of_le-_f ())
+        v1
+        v2))))
+; Lean declaration: "Nat.lt_or_ge._f"
+; Identity: "$lean:s3:Nats8:lt_or_ges2:_f"
+; Export line: 7322
+; Prefix SHA-256: 2d9b85f4558a2bb7ed9c781761bc023162b58f93ee255c6d9eaad8cc9b3ca724
+(#math-definition lean-249-Nat-lt_or_ge-_f ()
+  (#pt-pi
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-app
+          (#pt-use lean-44-Nat-below (0))
+          (#pt-lambda
+            ((v2 (#pt-use lean-3-Nat ())))
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v2)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v2)))
+          v1)))
+    (#pt-app
+      (#pt-use lean-232-Or ())
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v0
+        v1)
+      (#pt-app
+        (#pt-use lean-240-GE-ge (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-32-instLENat ())
+        v0
+        v1)))
+  (#pt-lambda
+    (
+      (v0 (#pt-use lean-3-Nat ()))
+      (v1 (#pt-use lean-3-Nat ()))
+      (v2
+        (#pt-app
+          (#pt-use lean-44-Nat-below (0))
+          (#pt-lambda
+            ((v2 (#pt-use lean-3-Nat ())))
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                v2)
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                v2)))
+          v1)))
+    (#pt-app
+      (#pt-use lean-241-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_5 ())
+      (#pt-lambda
+        ((v3 (#pt-use lean-3-Nat ())))
+        (#pt-pi
+          (
+            (v4
+              (#pt-app
+                (#pt-use lean-44-Nat-below (0))
+                (#pt-lambda
+                  ((v4 (#pt-use lean-3-Nat ())))
+                  (#pt-app
+                    (#pt-use lean-232-Or ())
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v0
+                      v4)
+                    (#pt-app
+                      (#pt-use lean-240-GE-ge (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v0
+                      v4)))
+                v3)))
+          (#pt-app
+            (#pt-use lean-232-Or ())
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v0
+              v3)
+            (#pt-app
+              (#pt-use lean-240-GE-ge (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v3))))
+      v1
+      (#pt-lambda
+        (
+          (v3 (#pt-use lean-51-Unit ()))
+          (v4
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v4 (#pt-use lean-3-Nat ())))
+                (#pt-app
+                  (#pt-use lean-232-Or ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    v4)
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    v4)))
+              (#pt-use lean-4-Nat-zero ()))))
+        (#pt-app
+          (#pt-use lean-234-Or-inr ())
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v0
+            (#pt-use lean-4-Nat-zero ()))
+          (#pt-app
+            (#pt-use lean-240-GE-ge (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-32-instLENat ())
+            v0
+            (#pt-use lean-4-Nat-zero ()))
+          (#pt-app (#pt-use lean-81-Nat-zero_le ()) v0)))
+      (#pt-lambda
+        (
+          (v3 (#pt-use lean-3-Nat ()))
+          (v4
+            (#pt-app
+              (#pt-use lean-44-Nat-below (0))
+              (#pt-lambda
+                ((v4 (#pt-use lean-3-Nat ())))
+                (#pt-app
+                  (#pt-use lean-232-Or ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    v4)
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    v4)))
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+        (#pt-app
+          (#pt-use lean-242-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_3 ())
+          v0
+          v3
+          (#pt-lambda
+            (
+              (v5
+                (#pt-app
+                  (#pt-use lean-232-Or ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    v3)
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    v3))))
+            (#pt-app
+              (#pt-use lean-232-Or ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+          (#pt-project lean-41-PProd 0 v4)
+          (#pt-lambda
+            (
+              (v5
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v0
+                  v3)))
+            (#pt-app
+              (#pt-use lean-233-Or-inl ())
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v0
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+              (#pt-app
+                (#pt-use lean-240-GE-ge (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-32-instLENat ())
+                v0
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+              (#pt-app
+                (#pt-use lean-243-Nat-le_succ_of_le ())
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v0)
+                v3
+                v5)))
+          (#pt-lambda
+            (
+              (v5
+                (#pt-app
+                  (#pt-use lean-240-GE-ge (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-32-instLENat ())
+                  v0
+                  v3)))
+            (#pt-app
+              (#pt-use lean-244-_private-Init-Prelude--0--Nat-lt_or_ge-match_1_1 ())
+              v0
+              v3
+              (#pt-lambda
+                (
+                  (v6
+                    (#pt-app
+                      (#pt-use lean-232-Or ())
+                      (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v3 v0)
+                      (#pt-app
+                        (#pt-use lean-123-LT-lt (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-125-instLTNat ())
+                        v3
+                        v0))))
+                (#pt-app
+                  (#pt-use lean-232-Or ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+              (#pt-app (#pt-use lean-248-Nat-eq_or_lt_of_le ()) v3 v0 v5)
+              (#pt-lambda
+                ((v6 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v3 v0)))
+                (#pt-app
+                  (#pt-use lean-233-Or-inl ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  (#pt-app
+                    (#pt-use lean-2-Eq-rec (0 1))
+                    (#pt-use lean-3-Nat ())
+                    v3
+                    (#pt-lambda
+                      (
+                        (v7 (#pt-use lean-3-Nat ()))
+                        (v8 (#pt-app (#pt-use lean-0-Eq (1)) (#pt-use lean-3-Nat ()) v3 v7)))
+                      (#pt-app
+                        (#pt-use lean-123-LT-lt (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-125-instLTNat ())
+                        v7
+                        (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))
+                    (#pt-app
+                      (#pt-use lean-166-Nat-le_refl ())
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                    v0
+                    v6)))
+              (#pt-lambda
+                (
+                  (v6
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v3
+                      v0)))
+                (#pt-app
+                  (#pt-use lean-234-Or-inr ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  (#pt-app
+                    (#pt-use lean-240-GE-ge (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-32-instLENat ())
+                    v0
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  v6))))))
+      v2)))
+; Lean declaration: "Nat.lt_or_ge"
+; Identity: "$lean:s3:Nats8:lt_or_ge"
+; Export line: 7332
+; Prefix SHA-256: fd746ffc25b8fcd6b779b6f844c2f9e9685880a1c9c1370e68fad9e21b8976e7
+(#theorem lean-250-Nat-lt_or_ge
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-232-Or ())
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          v0
+          v1)
+        (#pt-app
+          (#pt-use lean-240-GE-ge (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v0
+          v1))))
+  (#proof
+    (#pt-lambda
+      ((v0 (#pt-use lean-3-Nat ())) (v1 (#pt-use lean-3-Nat ())))
+      (#pt-app
+        (#pt-use lean-46-Nat-brecOn (0))
+        (#pt-lambda
+          ((v2 (#pt-use lean-3-Nat ())))
+          (#pt-app
+            (#pt-use lean-232-Or ())
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v0
+              v2)
+            (#pt-app
+              (#pt-use lean-240-GE-ge (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v2)))
+        v1
+        (#pt-app (#pt-use lean-249-Nat-lt_or_ge-_f ()) v0)))))
+; Lean declaration: "Nat.lt_of_not_le"
+; Identity: "$lean:s3:Nats12:lt_of_not_le"
+; Export line: 7350
+; Prefix SHA-256: 956c9bcb6c38e7d7d47ed7717d857a62e68ced9d9c32602d89621a2d31d6d831
+(#theorem lean-251-Nat-lt_of_not_le
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-17-Not ())
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v1))))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        v1
+        v0)))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-17-Not ())
+            (#pt-app
+              (#pt-use lean-27-LE-le (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-32-instLENat ())
+              v0
+              v1))))
+      (#pt-app
+        (#pt-use lean-239-Or-resolve_right ())
+        (#pt-app
+          (#pt-use lean-123-LT-lt (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-125-instLTNat ())
+          v1
+          v0)
+        (#pt-app
+          (#pt-use lean-240-GE-ge (0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-32-instLENat ())
+          v1
+          v0)
+        (#pt-app (#pt-use lean-250-Nat-lt_or_ge ()) v1 v0)
+        v2))))
+; Lean declaration: "Nat.modCoreGo_lt"
+; Identity: "$lean:s3:Nats12:modCoreGo_lt"
+; Export line: 7474
+; Prefix SHA-256: c613af13d3e6f8d11389a2d1b824cbb2ac7dda90c19531f1d58e93c613220381
+(#theorem lean-252-Nat-modCoreGo_lt
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1))
+        (v3 (#pt-use lean-3-Nat ()))
+        (v4
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            v3
+            v0)))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app (#pt-use lean-176-Nat-modCore-go ()) v1 v2 v0 v3 v4)
+        v1)))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app
+        (#pt-use lean-6-Nat-rec (0))
+        (#pt-lambda
+          ((v3 (#pt-use lean-3-Nat ())))
+          (#pt-pi
+            (
+              (v4 (#pt-use lean-3-Nat ()))
+              (v5
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  v4
+                  v3)))
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              (#pt-app (#pt-use lean-176-Nat-modCore-go ()) v1 v2 v3 v4 v5)
+              v1)))
+        (#pt-lambda
+          (
+            (v3 (#pt-use lean-3-Nat ()))
+            (v4
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v3
+                (#pt-use lean-4-Nat-zero ()))))
+          (#pt-app
+            (#pt-use lean-109-absurd (0))
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              v3
+              (#pt-use lean-4-Nat-zero ()))
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              (#pt-app
+                (#pt-use lean-176-Nat-modCore-go ())
+                v1
+                v2
+                (#pt-use lean-4-Nat-zero ())
+                v3
+                v4)
+              v1)
+            v4
+            (#pt-app (#pt-use lean-230-Nat-not_lt_zero ()) v3)))
+        (#pt-lambda
+          (
+            (v3 (#pt-use lean-3-Nat ()))
+            (v4
+              (#pt-pi
+                (
+                  (v4 (#pt-use lean-3-Nat ()))
+                  (v5
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      v4
+                      v3)))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app (#pt-use lean-176-Nat-modCore-go ()) v1 v2 v3 v4 v5)
+                  v1)))
+            (v5 (#pt-use lean-3-Nat ()))
+            (v6
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                v5
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+          (#pt-let
+            (#parameter v7 (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-33-dite (1)) (#pt-use lean-3-Nat ()) (#pt-app (#pt-use lean-27-LE-le (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-32-instLENat ()) v1 v5) (#pt-app (#pt-use lean-119-Nat-decLe ()) v1 v5) (#pt-lambda ((v7 (#pt-app (#pt-use lean-27-LE-le (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-32-instLENat ()) v1 v5))) (#pt-app (#pt-use lean-176-Nat-modCore-go ()) v1 v2 v3 (#pt-app (#pt-use lean-133-HSub-hSub (0 0 0)) (#pt-use lean-3-Nat ()) (#pt-use lean-3-Nat ()) (#pt-use lean-3-Nat ()) (#pt-app (#pt-use lean-138-instHSub (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-144-instSubNat ())) v5 v1) (#pt-app (#pt-use lean-174-Nat-div_rec_fuel_lemma ()) v5 v1 v3 v2 v7 v6))) (#pt-lambda ((v7 (#pt-app (#pt-use lean-17-Not ()) (#pt-app (#pt-use lean-27-LE-le (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-32-instLENat ()) v1 v5)))) v5)) v1))
+            (#pt-app
+              (#pt-use lean-231-_private-Init-Prelude--0--Nat-modCoreGo_lt-match_1_1 ())
+              v1
+              v5
+              (#pt-lambda
+                (
+                  (v7
+                    (#pt-app
+                      (#pt-use lean-18-Decidable ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v1
+                        v5))))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-33-dite (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v1
+                      v5)
+                    v7
+                    (#pt-lambda
+                      (
+                        (v8
+                          (#pt-app
+                            (#pt-use lean-27-LE-le (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-32-instLENat ())
+                            v1
+                            v5)))
+                      (#pt-app
+                        (#pt-use lean-176-Nat-modCore-go ())
+                        v1
+                        v2
+                        v3
+                        (#pt-app
+                          (#pt-use lean-133-HSub-hSub (0 0 0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-3-Nat ())
+                          (#pt-app
+                            (#pt-use lean-138-instHSub (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-144-instSubNat ()))
+                          v5
+                          v1)
+                        (#pt-app (#pt-use lean-174-Nat-div_rec_fuel_lemma ()) v5 v1 v3 v2 v8 v6)))
+                    (#pt-lambda
+                      (
+                        (v8
+                          (#pt-app
+                            (#pt-use lean-17-Not ())
+                            (#pt-app
+                              (#pt-use lean-27-LE-le (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-use lean-32-instLENat ())
+                              v1
+                              v5))))
+                      v5))
+                  v1))
+              (#pt-app (#pt-use lean-119-Nat-decLe ()) v1 v5)
+              (#pt-lambda
+                (
+                  (v7
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v1
+                      v5)))
+                (#pt-app
+                  v4
+                  (#pt-app
+                    (#pt-use lean-133-HSub-hSub (0 0 0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-138-instHSub (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-144-instSubNat ()))
+                    v5
+                    v1)
+                  (#pt-app (#pt-use lean-174-Nat-div_rec_fuel_lemma ()) v5 v1 v3 v2 v7 v6)))
+              (#pt-lambda
+                (
+                  (v7
+                    (#pt-app
+                      (#pt-use lean-17-Not ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v1
+                        v5))))
+                (#pt-app
+                  (#pt-use lean-251-Nat-lt_of_not_le ())
+                  v1
+                  (#pt-app
+                    (#pt-use lean-33-dite (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v1
+                      v5)
+                    (#pt-app
+                      (#pt-use lean-19-Decidable-isFalse ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v1
+                        v5)
+                      v7)
+                    (#pt-lambda
+                      (
+                        (v8
+                          (#pt-app
+                            (#pt-use lean-27-LE-le (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-32-instLENat ())
+                            v1
+                            v5)))
+                      (#pt-app
+                        (#pt-use lean-176-Nat-modCore-go ())
+                        v1
+                        v2
+                        v3
+                        (#pt-app
+                          (#pt-use lean-133-HSub-hSub (0 0 0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-3-Nat ())
+                          (#pt-app
+                            (#pt-use lean-138-instHSub (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-144-instSubNat ()))
+                          v5
+                          v1)
+                        (#pt-app (#pt-use lean-174-Nat-div_rec_fuel_lemma ()) v5 v1 v3 v2 v8 v6)))
+                    (#pt-lambda
+                      (
+                        (v8
+                          (#pt-app
+                            (#pt-use lean-17-Not ())
+                            (#pt-app
+                              (#pt-use lean-27-LE-le (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-use lean-32-instLENat ())
+                              v1
+                              v5))))
+                      v5))
+                  v7)))
+            v7))
+        v0))))
+; Lean declaration: "Nat.modCore_lt"
+; Identity: "$lean:s3:Nats10:modCore_lt"
+; Export line: 7542
+; Prefix SHA-256: 1a9c1b8c8322609d25eb21dc7ed690129f513bc9e453f9945a3355d9893bfc04
+(#theorem lean-253-Nat-modCore_lt
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app (#pt-use lean-179-Nat-modCore ()) v0 v1)
+        v1)))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-let
+        (#parameter v3 (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-33-dite (1)) (#pt-use lean-3-Nat ()) (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-10-OfNat-ofNat (0)) (#pt-use lean-3-Nat ()) (#pt-nat-literal lean-3-Nat "0") (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))) v1) (#pt-app (#pt-use lean-126-Nat-decLt ()) (#pt-app (#pt-use lean-10-OfNat-ofNat (0)) (#pt-use lean-3-Nat ()) (#pt-nat-literal lean-3-Nat "0") (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))) v1) (#pt-lambda ((v3 (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-10-OfNat-ofNat (0)) (#pt-use lean-3-Nat ()) (#pt-nat-literal lean-3-Nat "0") (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))) v1))) (#pt-app (#pt-use lean-176-Nat-modCore-go ()) v1 v3 (#pt-app (#pt-use lean-5-Nat-succ ()) v0) v0 (#pt-app (#pt-use lean-178-Nat-lt_succ_self ()) v0))) (#pt-lambda ((v3 (#pt-app (#pt-use lean-17-Not ()) (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-10-OfNat-ofNat (0)) (#pt-use lean-3-Nat ()) (#pt-nat-literal lean-3-Nat "0") (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0"))) v1)))) v0)) v1))
+        (#pt-app
+          (#pt-use lean-229-_private-Init-Prelude--0--Nat-modCore_lt-match_1_1 ())
+          v1
+          (#pt-lambda
+            (
+              (v3
+                (#pt-app
+                  (#pt-use lean-18-Decidable ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    (#pt-app
+                      (#pt-use lean-10-OfNat-ofNat (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-nat-literal lean-3-Nat "0")
+                      (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                    v1))))
+            (#pt-app
+              (#pt-use lean-123-LT-lt (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-125-instLTNat ())
+              (#pt-app
+                (#pt-use lean-33-dite (1))
+                (#pt-use lean-3-Nat ())
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v1)
+                v3
+                (#pt-lambda
+                  (
+                    (v4
+                      (#pt-app
+                        (#pt-use lean-123-LT-lt (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-125-instLTNat ())
+                        (#pt-app
+                          (#pt-use lean-10-OfNat-ofNat (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-nat-literal lean-3-Nat "0")
+                          (#pt-app
+                            (#pt-use lean-11-instOfNatNat ())
+                            (#pt-nat-literal lean-3-Nat "0")))
+                        v1)))
+                  (#pt-app
+                    (#pt-use lean-176-Nat-modCore-go ())
+                    v1
+                    v4
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v0)
+                    v0
+                    (#pt-app (#pt-use lean-178-Nat-lt_succ_self ()) v0)))
+                (#pt-lambda
+                  (
+                    (v4
+                      (#pt-app
+                        (#pt-use lean-17-Not ())
+                        (#pt-app
+                          (#pt-use lean-123-LT-lt (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-125-instLTNat ())
+                          (#pt-app
+                            (#pt-use lean-10-OfNat-ofNat (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-nat-literal lean-3-Nat "0")
+                            (#pt-app
+                              (#pt-use lean-11-instOfNatNat ())
+                              (#pt-nat-literal lean-3-Nat "0")))
+                          v1))))
+                  v0))
+              v1))
+          (#pt-app
+            (#pt-use lean-126-Nat-decLt ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)
+          (#pt-lambda
+            (
+              (v3
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-10-OfNat-ofNat (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-nat-literal lean-3-Nat "0")
+                    (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                  v1)))
+            (#pt-app
+              (#pt-use lean-252-Nat-modCoreGo_lt ())
+              (#pt-app (#pt-use lean-5-Nat-succ ()) v0)
+              v1
+              v2
+              v0
+              (#pt-app (#pt-use lean-178-Nat-lt_succ_self ()) v0)))
+          (#pt-lambda
+            (
+              (v3
+                (#pt-app
+                  (#pt-use lean-17-Not ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    (#pt-app
+                      (#pt-use lean-10-OfNat-ofNat (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-nat-literal lean-3-Nat "0")
+                      (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                    v1))))
+            (#pt-app
+              (#pt-use lean-109-absurd (0))
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v1)
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-33-dite (1))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-app
+                    (#pt-use lean-123-LT-lt (0))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-use lean-125-instLTNat ())
+                    (#pt-app
+                      (#pt-use lean-10-OfNat-ofNat (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-nat-literal lean-3-Nat "0")
+                      (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                    v1)
+                  (#pt-app
+                    (#pt-use lean-19-Decidable-isFalse ())
+                    (#pt-app
+                      (#pt-use lean-123-LT-lt (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-125-instLTNat ())
+                      (#pt-app
+                        (#pt-use lean-10-OfNat-ofNat (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-nat-literal lean-3-Nat "0")
+                        (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                      v1)
+                    v3)
+                  (#pt-lambda
+                    (
+                      (v4
+                        (#pt-app
+                          (#pt-use lean-123-LT-lt (0))
+                          (#pt-use lean-3-Nat ())
+                          (#pt-use lean-125-instLTNat ())
+                          (#pt-app
+                            (#pt-use lean-10-OfNat-ofNat (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-nat-literal lean-3-Nat "0")
+                            (#pt-app
+                              (#pt-use lean-11-instOfNatNat ())
+                              (#pt-nat-literal lean-3-Nat "0")))
+                          v1)))
+                    (#pt-app
+                      (#pt-use lean-176-Nat-modCore-go ())
+                      v1
+                      v4
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v0)
+                      v0
+                      (#pt-app (#pt-use lean-178-Nat-lt_succ_self ()) v0)))
+                  (#pt-lambda
+                    (
+                      (v4
+                        (#pt-app
+                          (#pt-use lean-17-Not ())
+                          (#pt-app
+                            (#pt-use lean-123-LT-lt (0))
+                            (#pt-use lean-3-Nat ())
+                            (#pt-use lean-125-instLTNat ())
+                            (#pt-app
+                              (#pt-use lean-10-OfNat-ofNat (0))
+                              (#pt-use lean-3-Nat ())
+                              (#pt-nat-literal lean-3-Nat "0")
+                              (#pt-app
+                                (#pt-use lean-11-instOfNatNat ())
+                                (#pt-nat-literal lean-3-Nat "0")))
+                            v1))))
+                    v0))
+                v1)
+              v2
+              v3)))
+        v3))))
+; Lean declaration: "Nat.mod_lt"
+; Identity: "$lean:s3:Nats6:mod_lt"
+; Export line: 7625
+; Prefix SHA-256: 4368b1bde7e5faec7ee658b591242c608d94bf364aeb34b8eb2e26ea09b5bca7
+(#theorem lean-254-Nat-mod_lt
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app
+          (#pt-use lean-219-HMod-hMod (0 0 0))
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-3-Nat ())
+          (#pt-use lean-3-Nat ())
+          (#pt-app
+            (#pt-use lean-224-instHMod (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-225-Nat-instMod ()))
+          v0
+          v1)
+        v1)))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app
+        (#pt-use lean-226-_private-Init-Prelude--0--Nat-mod_lt-match_1_3 ())
+        (#pt-lambda
+          (
+            (v3 (#pt-use lean-3-Nat ()))
+            (v4 (#pt-use lean-3-Nat ()))
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v4)))
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-219-HMod-hMod (0 0 0))
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-3-Nat ())
+              (#pt-use lean-3-Nat ())
+              (#pt-app
+                (#pt-use lean-224-instHMod (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-225-Nat-instMod ()))
+              v3
+              v4)
+            v4))
+        v0
+        v1
+        v2
+        (#pt-lambda
+          (
+            (v3 (#pt-use lean-3-Nat ()))
+            (v4
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+          (#pt-app (#pt-use lean-227-Nat-zero_lt_succ ()) v3))
+        (#pt-lambda
+          (
+            (v3 (#pt-use lean-3-Nat ()))
+            (v4 (#pt-use lean-3-Nat ()))
+            (v5
+              (#pt-app
+                (#pt-use lean-123-LT-lt (0))
+                (#pt-use lean-3-Nat ())
+                (#pt-use lean-125-instLTNat ())
+                (#pt-app
+                  (#pt-use lean-10-OfNat-ofNat (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-nat-literal lean-3-Nat "0")
+                  (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+                v4)))
+          (#pt-let
+            (#parameter v6 (#pt-app (#pt-use lean-123-LT-lt (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-125-instLTNat ()) (#pt-app (#pt-use lean-23-ite (1)) (#pt-use lean-3-Nat ()) (#pt-app (#pt-use lean-27-LE-le (0)) (#pt-use lean-3-Nat ()) (#pt-use lean-32-instLENat ()) v4 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)) (#pt-app (#pt-use lean-119-Nat-decLe ()) v4 (#pt-app (#pt-use lean-5-Nat-succ ()) v3)) (#pt-app (#pt-use lean-179-Nat-modCore ()) (#pt-app (#pt-use lean-5-Nat-succ ()) v3) v4) (#pt-app (#pt-use lean-5-Nat-succ ()) v3)) v4))
+            (#pt-app
+              (#pt-use lean-228-_private-Init-Prelude--0--Nat-mod_lt-match_1_1 ())
+              v3
+              v4
+              (#pt-lambda
+                (
+                  (v6
+                    (#pt-app
+                      (#pt-use lean-18-Decidable ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v4
+                        (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+                (#pt-app
+                  (#pt-use lean-123-LT-lt (0))
+                  (#pt-use lean-3-Nat ())
+                  (#pt-use lean-125-instLTNat ())
+                  (#pt-app
+                    (#pt-use lean-23-ite (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v4
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                    v6
+                    (#pt-app
+                      (#pt-use lean-179-Nat-modCore ())
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3)
+                      v4)
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  v4))
+              (#pt-app (#pt-use lean-119-Nat-decLe ()) v4 (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+              (#pt-lambda
+                (
+                  (v6
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v4
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3))))
+                (#pt-app
+                  (#pt-use lean-253-Nat-modCore_lt ())
+                  (#pt-app (#pt-use lean-5-Nat-succ ()) v3)
+                  v4
+                  v5))
+              (#pt-lambda
+                (
+                  (v6
+                    (#pt-app
+                      (#pt-use lean-17-Not ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v4
+                        (#pt-app (#pt-use lean-5-Nat-succ ()) v3)))))
+                (#pt-app
+                  (#pt-use lean-251-Nat-lt_of_not_le ())
+                  v4
+                  (#pt-app
+                    (#pt-use lean-23-ite (1))
+                    (#pt-use lean-3-Nat ())
+                    (#pt-app
+                      (#pt-use lean-27-LE-le (0))
+                      (#pt-use lean-3-Nat ())
+                      (#pt-use lean-32-instLENat ())
+                      v4
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                    (#pt-app
+                      (#pt-use lean-19-Decidable-isFalse ())
+                      (#pt-app
+                        (#pt-use lean-27-LE-le (0))
+                        (#pt-use lean-3-Nat ())
+                        (#pt-use lean-32-instLENat ())
+                        v4
+                        (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                      v6)
+                    (#pt-app
+                      (#pt-use lean-179-Nat-modCore ())
+                      (#pt-app (#pt-use lean-5-Nat-succ ()) v3)
+                      v4)
+                    (#pt-app (#pt-use lean-5-Nat-succ ()) v3))
+                  v6)))
+            v6))))))
+; Lean declaration: "RemainderSource.bounded"
+; Identity: "$lean:s15:RemainderSources7:bounded"
+; Export line: 7641
+; Prefix SHA-256: 962ae258fe5c384110f81771cc5ac1435ed2257b271e75b8f3cc48c43e3d48a1
+(#theorem lean-255-RemainderSource-bounded
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app
+        (#pt-use lean-123-LT-lt (0))
+        (#pt-use lean-3-Nat ())
+        (#pt-use lean-125-instLTNat ())
+        (#pt-app (#pt-use lean-180-Nat-mod ()) v0 v1)
+        v1)))
+  (#proof
+    (#pt-lambda
+      (
+        (v0 (#pt-use lean-3-Nat ()))
+        (v1 (#pt-use lean-3-Nat ()))
+        (v2
+          (#pt-app
+            (#pt-use lean-123-LT-lt (0))
+            (#pt-use lean-3-Nat ())
+            (#pt-use lean-125-instLTNat ())
+            (#pt-app
+              (#pt-use lean-10-OfNat-ofNat (0))
+              (#pt-use lean-3-Nat ())
+              (#pt-nat-literal lean-3-Nat "0")
+              (#pt-app (#pt-use lean-11-instOfNatNat ()) (#pt-nat-literal lean-3-Nat "0")))
+            v1)))
+      (#pt-app (#pt-use lean-254-Nat-mod_lt ()) v0 v1 v2))))

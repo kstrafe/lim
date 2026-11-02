@@ -478,6 +478,24 @@ retains ordinary normalization, and the complete predecessor-iteration shape,
 base state and constant count must still match. This is local value reuse;
 all source annotations/proofs still pass initial checking.
 
+Application conversion compares identical global or local heads before
+unfolding their bodies, checking each argument by ordinary conversion. If
+needed, up to eight right-hand delta candidates expose wrappers and selected
+cases. Candidate normalization contracts beta/zeta/iota while leaving unrelated
+global heads neutral, so a common worker can be compared without expanding its
+implementation twice. Every candidate uses at most 16,384 extra work units,
+2 MiB of transformed payload and 48 extra depth within the enclosing limits.
+Nested probes inherit tighter limits, spent charges remain spent, and only
+explicit internal declines fall back. Unknown names and invalid universes still
+fail. The existing converter handles nonmatching heads, unequal arguments of a
+constant function and longer wrapper chains; this is not an injectivity rule.
+No operation name authorizes conversion. Full source inference remains required.
+
+This reduction strategy checks the genuine general `Nat.mod_lt` theorem and
+its `Nat.modCoreGo_lt` dependency within the original budgets. The theorem
+quantifies over all natural dividends and all positive natural divisors; it is
+separate from the corpus's closed remainder computations and zero identities.
+
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks
 still run; globals with universe arguments still invoke universe substitution.

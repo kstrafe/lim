@@ -22,6 +22,7 @@ const TARGETS: &[&str] = &[
     "RemainderSource.computedZero",
     "RemainderSource.zeroLeft",
     "RemainderSource.zeroDivisor",
+    "RemainderSource.bounded",
 ];
 
 fn native_name(original: &str) -> String {

@@ -31,10 +31,10 @@ def digest(data):
 def targets_from_source():
     source = SOURCE.read_text()
     if re.search(r"\b(?:axiom|sorry|admit|native_decide)\b", source):
-        raise ValueError("division source contains a forbidden proof escape")
+        raise ValueError("remainder source contains a forbidden proof escape")
     namespace = re.search(r"^namespace\s+([A-Za-z_][A-Za-z0-9_.]*)", source, re.M)
     if not namespace or namespace.group(1) != NAMESPACE:
-        raise ValueError("unexpected division namespace")
+        raise ValueError("unexpected remainder namespace")
     targets = [NAMESPACE + "." + name for name in re.findall(
         r"^theorem\s+([A-Za-z_][A-Za-z0-9_]*)", source, re.M)]
     if not targets:

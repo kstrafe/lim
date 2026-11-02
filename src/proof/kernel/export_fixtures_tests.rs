@@ -316,10 +316,10 @@ fn genuine_remainder_retains_checked_mapping_hashes_and_attribution() {
         include_str!("../../../tests/fixtures/lean_export_remainder/provenance.json"),
         include_bytes!("../../../tests/fixtures/lean_export_remainder/remainder.ndjson"),
         include_str!("../../../theorems/lean_replay/remainder.lim"),
-        "RemainderSource.zeroDivisor",
+        "RemainderSource.bounded",
         "lim-lean-remainder-fixture-v1",
         &[],
-        (14, &[]),
+        (15, &[]),
     );
 }
 

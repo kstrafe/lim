@@ -10,6 +10,8 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 #[path = "beta.rs"]
 mod beta;
+#[path = "conversion.rs"]
+mod conversion;
 #[path = "elimination.rs"]
 mod elimination;
 #[path = "export.rs"]
@@ -23,6 +25,8 @@ mod natural;
 #[path = "nested.rs"]
 mod nested;
 pub(super) use natural::Natural;
+#[path = "probe.rs"]
+mod probe;
 #[path = "quotient.rs"]
 mod quotient;
 #[path = "syntax.rs"]
@@ -168,9 +172,9 @@ pub(super) struct Declaration {
     pub value: Option<T>,
     pub family: Option<Family>,
 }
-const NATURAL_PROBE_DECLINED: &str = "optional natural normalization declined";
+const REDUCTION_PROBE_DECLINED: &str = "optional reduction declined";
 #[derive(Clone, Copy)]
-struct NaturalProbeBudget {
+struct ReductionProbeBudget {
     work: usize,
     bytes: usize,
     depth: usize,
@@ -181,7 +185,7 @@ pub(super) struct Kernel {
     nested_build: Option<NestedBuild>,
     work: usize,
     transformed_bytes: usize,
-    natural_probe_budget: Option<NaturalProbeBudget>,
+    reduction_probe_budget: Option<ReductionProbeBudget>,
 }
 impl Kernel {
     pub fn new() -> Self {
@@ -191,7 +195,7 @@ impl Kernel {
             nested_build: None,
             work: 0,
             transformed_bytes: 0,
-            natural_probe_budget: None,
+            reduction_probe_budget: None,
         };
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
@@ -267,10 +271,10 @@ impl Kernel {
     fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
         let proposed = self.transformed_bytes.saturating_add(bytes);
         if self
-            .natural_probe_budget
+            .reduction_probe_budget
             .is_some_and(|budget| proposed > budget.bytes)
         {
-            return Err(NATURAL_PROBE_DECLINED.into());
+            return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.transformed_bytes = proposed;
         if self.transformed_bytes > 64 * 1024 * 1024 {
@@ -284,10 +288,10 @@ impl Kernel {
     fn charge_work(&mut self, work: usize) -> Result<()> {
         let proposed = self.work.saturating_add(work);
         if self
-            .natural_probe_budget
+            .reduction_probe_budget
             .is_some_and(|budget| proposed > budget.work)
         {
-            return Err(NATURAL_PROBE_DECLINED.into());
+            return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.work = proposed;
         if self.work > WORK {
@@ -297,10 +301,10 @@ impl Kernel {
     }
     fn tick(&mut self, depth: usize) -> Result<()> {
         if self
-            .natural_probe_budget
+            .reduction_probe_budget
             .is_some_and(|budget| depth > budget.depth || self.work >= budget.work)
         {
-            return Err(NATURAL_PROBE_DECLINED.into());
+            return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.work = self.work.saturating_add(1);
         if depth > DEPTH || self.work > WORK {
@@ -970,11 +974,14 @@ impl Kernel {
         Ok(found)
     }
     fn whnf(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<T> {
+        self.whnf_delta(ctx, value, true, depth)
+    }
+    fn whnf_delta(&mut self, ctx: &[T], value: &T, delta: bool, depth: usize) -> Result<T> {
         self.tick(depth)?;
         let mut value = value.clone();
         loop {
             self.tick(depth)?;
-            if matches!(value.as_ref(), Term::App(..) | Term::Project { .. }) {
+            if delta && matches!(value.as_ref(), Term::App(..) | Term::Project { .. }) {
                 let head = self.natural_head(&value, depth + 1)?;
                 if !Arc::ptr_eq(&head, &value) {
                     value = head;
@@ -982,6 +989,7 @@ impl Kernel {
                 }
             }
             match value.as_ref() {
+                Term::Global(_, _) if !delta => return Ok(value),
                 Term::Global(name, levels) => {
                     let (decl, map) = self.specialization(name, levels, depth + 1)?;
                     let Some(body) = decl.value else {
@@ -998,7 +1006,7 @@ impl Kernel {
                     };
                 }
                 Term::App(function, arg) => {
-                    let f = self.whnf(ctx, function, depth + 1)?;
+                    let f = self.whnf_delta(ctx, function, delta, depth + 1)?;
                     if let Term::Lam(_, body) = f.as_ref() {
                         value = self.instantiate(body, arg, depth + 1)?;
                     } else {
@@ -1182,6 +1190,9 @@ impl Kernel {
         // copies of the same dependent predicate can duplicate its history.
         // Source typing still happens in check before this comparison.
         if Arc::ptr_eq(a, b) || self.same_syntax(a, b)? {
+            return Ok(true);
+        }
+        if self.conversion_congruence(ctx, a, b, depth + 1)? {
             return Ok(true);
         }
         let a = self.whnf(ctx, a, depth + 1)?;

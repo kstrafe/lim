@@ -31,4 +31,6 @@ theorem zeroDivisor (n : Nat) : Nat.mod n 0 = n := by
   | zero => rfl
   | succ n => unfold Nat.mod Nat.modCore; rfl
 
+theorem bounded (n d : Nat) (h : LT.lt 0 d) : LT.lt (Nat.mod n d) d := Nat.mod_lt n h
+
 end RemainderSource

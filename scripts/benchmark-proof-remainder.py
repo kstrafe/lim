@@ -29,7 +29,7 @@ def main():
     raw = (ROOT / manifest["export"]["file"]).read_text()
     native = (ROOT / manifest["native"]["file"]).read_text()
     control = next(d for d in manifest["declarations"] if d["name"] == "DivisionSource.zeroDivZero")
-    with tempfile.TemporaryDirectory(prefix="lim-division-benchmark-") as directory:
+    with tempfile.TemporaryDirectory(prefix="lim-remainder-benchmark-") as directory:
         work = Path(directory)
         control_raw = work / "control.ndjson"
         control_raw.write_text("".join(raw.splitlines(keepends=True)[:control["line"]]))
@@ -63,6 +63,18 @@ def main():
             "native_division_composition": ["--check-theorem", composition["native"]["file"], composition["native"]["targets"][composition["targets"][-1]]],
         })
         remainder = json.loads((ROOT / "tests/fixtures/lean_export_remainder/provenance.json").read_bytes())
+        accepted = next(d for d in remainder["declarations"] if d["name"] == "RemainderSource.zeroDivisor")
+        accepted_raw = work / "remainder-prefix.ndjson"
+        accepted_raw.write_text("".join((ROOT / remainder["export"]["file"]).read_text().splitlines(keepends=True)[:accepted["line"]]))
+        accepted_source = (ROOT / remainder["native"]["file"]).read_text()
+        begin = accepted_source.index("\n(#theorem " + accepted["native_name"])
+        end = accepted_source.find("\n(#", begin + 1)
+        accepted_native = work / "remainder-prefix.lim"
+        accepted_native.write_text(accepted_source[:end] if end != -1 else accepted_source)
+        cases.update({
+            "raw_remainder_prefix": ["--check-lean-export", str(accepted_raw), accepted["name"]],
+            "native_remainder_prefix": ["--check-theorem", str(accepted_native), accepted["native_name"]],
+        })
         cases.update({
             "raw_remainder": ["--check-lean-export", remainder["export"]["file"], remainder["targets"][-1]],
             "native_remainder": ["--check-theorem", remainder["native"]["file"], remainder["native"]["targets"][remainder["targets"][-1]]],

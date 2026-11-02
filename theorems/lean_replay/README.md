@@ -77,10 +77,11 @@ sharing immutable leaves keeps it inside the original replay allocation cap.
 
 The eighteenth file, [`remainder.lim`](remainder.lim), translates the
 [remainder corpus](../../tests/fixtures/lean_export_remainder/README.md).
-Its 216 declarations check fourteen literal/computed targets and unbounded
-zero controls, with exact original/native mapping and empty assumptions.
+Its 256 declarations check fifteen targets: literal/computed remainders,
+unbounded zero controls, and the general positive-divisor remainder bound,
+with exact original/native mapping and empty assumptions.
 The case-analysis helper's `Init.Data.Nat.Basic` source is independently pinned.
-The general `Nat.mod_lt` dependency proof remains outside this checked corpus.
+The genuine `Nat.mod_lt` and `Nat.modCoreGo_lt` dependency proofs are checked.
 
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.

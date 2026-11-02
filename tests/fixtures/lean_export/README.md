@@ -49,8 +49,8 @@ translations and empty assumptions.
 It has separate source, ownership, hash and license provenance.
 
 The [remainder corpus](../lean_export_remainder/README.md) adds an eighteenth
-genuine export. Fourteen targets include literal/computed remainders and two
-unbounded zero controls. Its exact native translation, empty assumptions and
+genuine export. Fifteen targets include literal/computed remainders, two
+unbounded zero controls and the general positive-divisor remainder bound. Its exact native translation, empty assumptions and
 source/module/license provenance include the pinned `Nat.Basic` helper used
 by case analysis.
 
