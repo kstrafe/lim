@@ -3,9 +3,11 @@
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -133,6 +135,80 @@ class AuditLeanExportTests(unittest.TestCase):
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout, b"")
+
+    def test_selected_record_hash_is_exact_across_chunks_and_trailing_records(self):
+        fixture = SCRIPT.parent.parent / "tests/fixtures/lean_export/identity.ndjson"
+        original = fixture.read_bytes()
+        trailing = b'{"ie":20,"sort":0}\n'
+        for chunk in [1, 17, AUDIT.CHUNK_BYTES]:
+            report = AUDIT.inspect_stream(io.BytesIO(original + trailing), chunk_bytes=chunk,
+                                          targets=["Audit.identity.theorem"])
+            inventory = report["source_inventory"]
+            self.assertEqual(inventory["authority"], "source-inspection-only")
+            target = inventory["targets"]["Audit.identity.theorem"]
+            self.assertEqual(target["name_id"], 3)
+            declaration = target["declaration"]
+            self.assertEqual(declaration["kind"], "theorem")
+            self.assertEqual(declaration["line"], 28)
+            self.assertEqual(declaration["prefix_sha256"], hashlib.sha256(original).hexdigest())
+            self.assertEqual(declaration["type_expression_id"], 12)
+            self.assertEqual(declaration["value_expression_id"], 19)
+            self.assertEqual(report["sha256"], hashlib.sha256(original + trailing).hexdigest())
+
+    def test_cli_inventory_keeps_missing_target_explicit_without_claiming_verification(self):
+        fixture = SCRIPT.parent.parent / "tests/fixtures/lean_export/identity.ndjson"
+        result = subprocess.run([sys.executable, str(SCRIPT), str(fixture),
+                                 "--target", "fermat_last_theorem"], capture_output=True,
+                                text=True, check=False, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        target = report["source_inventory"]["targets"]["fermat_last_theorem"]
+        self.assertIsNone(target["name_id"])
+        self.assertIsNone(target["declaration"])
+        self.assertEqual(report["authority"], "source-inspection-only")
+
+    def test_cli_bad_target_and_bad_records_emit_no_partial_inventory(self):
+        bad = subprocess.run([sys.executable, str(SCRIPT), "unused", "--target", "A..b"],
+                             capture_output=True, check=False, timeout=5)
+        self.assertEqual(bad.returncode, 2)
+        self.assertEqual(bad.stdout, b"")
+        fixture = SCRIPT.parent.parent / "tests/fixtures/lean_export/identity.ndjson"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.ndjson"
+            path.write_bytes(fixture.read_bytes() + b'{"in":99,"str":{"pre":0,"str":"x"}}\n')
+            result = subprocess.run([sys.executable, str(SCRIPT), str(path), "--target",
+                                     "Audit.identity.theorem"], capture_output=True,
+                                    check=False, timeout=5)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, b"")
+            self.assertIn(b'line 29:', result.stderr)
+
+    def test_all_genuine_exports_keep_target_evidence_and_committed_prefix_hashes(self):
+        root = SCRIPT.parent.parent
+        base = root / "tests/fixtures/lean_export"
+        manifest = json.loads((base / "real-provenance.json").read_text())
+        cases = [(base / item["file"], [item["target"]], item["sha256"], {})
+                 for item in manifest["fixtures"]]
+        for path in sorted((root / "tests/fixtures").glob("lean_export_*/provenance.json")):
+            data = json.loads(path.read_text())
+            cases.append((root / data["export"]["file"], data["targets"],
+                          data["export"]["sha256"],
+                          {item["name"]: item for item in data["declarations"]}))
+        self.assertEqual(len(cases), 23)
+        for path, targets, expected_sha, declarations in cases:
+            with self.subTest(file=path.name), path.open("rb") as source:
+                report = AUDIT.inspect_stream(source, targets=targets)
+                self.assertEqual(report["sha256"], expected_sha)
+                inventory = report["source_inventory"]
+                self.assertEqual(inventory["unrecognized_axioms"]["count"], 0)
+                self.assertIsNone(inventory["admissions"]["sorryAx"])
+                for target in targets:
+                    selected = inventory["targets"][target]["declaration"]
+                    self.assertEqual(selected["kind"], "theorem")
+                    if target in declarations:
+                        expected = declarations[target]
+                        self.assertEqual(selected["prefix_sha256"], expected["sha256"])
+                        self.assertEqual(selected["line"], expected["line"])
 
 
 if __name__ == "__main__":

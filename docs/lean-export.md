@@ -595,6 +595,17 @@ than a success summary. This is source inspection only: it does not validate
 declarations, establish a theorem, change compiler limits, or supply proof
 authority. Its byte/string metrics are not retained-kernel-memory estimates.
 
+Add `--target fermat_last_theorem` (repeat for up to 32 simple dotted names)
+to inventory selected scalar declarations and the known foundation/admission
+names without retaining the source tables. The optional `source_inventory`
+records declaration kind, line, type/value IDs and an exact inclusive prefix
+SHA-256. Missing targets remain explicit; a successful scan does not prove
+that a target exists or that its proof checks. The fixed axiom names are
+candidates only, with no signature or dependency-basis validation. See the
+[full FLT input guide](flt-input.md) for the pinned producer commands, actual
+target names, and the distinction between the proved solution and the
+deliberately admitted comparator challenge.
+
 The first tool selects original/native targets and explicit budgets from the
 committed fixture manifests. Each sample starts a fresh Python worker and one
 compiler child, so process peak RSS belongs to that sample rather than an earlier

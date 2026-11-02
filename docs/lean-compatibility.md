@@ -48,6 +48,15 @@ kernel and storage work; source metadata and another checker's success cannot
 substitute for Lim checking the terms. The pinned source checkout used for
 this audit is `/tmp/lim-flt-upstream`.
 
+The recorded `.export` artifact already uses NDJSON 3.1.0, matching the pinned
+reader; its filename does not require a format converter. The proved solution
+and comparator challenge are different inputs: `Challenge.lean` deliberately
+uses `sorry`. The [input acquisition guide](flt-input.md) records the actual
+module/target names, exact producer commands, required provenance, and a bounded
+target/axiom source inventory. That inventory cannot replace kernel checking.
+The full source export has not been acquired, and the current 64-MiB input and
+4,096-declaration limits still prevent a full replay.
+
 ## License and provenance
 
 The metadata identifies the project as Apache-2.0, and the pinned

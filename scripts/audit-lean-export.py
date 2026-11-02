@@ -8,6 +8,8 @@ export schema correctness, or provide proof-checking/receipt authority.
 import argparse
 import hashlib
 import json
+from pathlib import Path
+import runpy
 import sys
 from collections import Counter
 
@@ -45,8 +47,9 @@ def _parse_constant(value):
 
 
 def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
-                   max_line_bytes=DEFAULT_LINE_BYTES, chunk_bytes=CHUNK_BYTES):
-    """Inspect a binary stream incrementally; return only aggregate metrics."""
+                   max_line_bytes=DEFAULT_LINE_BYTES, chunk_bytes=CHUNK_BYTES,
+                   targets=()):
+    """Inspect a stream with bounded metrics and optional target summaries."""
     for label, bound in (("max_input_bytes", max_input_bytes),
                          ("max_line_bytes", max_line_bytes),
                          ("chunk_bytes", chunk_bytes)):
@@ -56,6 +59,7 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
         raise ValueError("inspection bound exceeds the supported maximum")
     if chunk_bytes > CHUNK_BYTES:
         raise ValueError("chunk_bytes exceeds the supported maximum")
+    inventory = inventory_class()(targets) if targets else None
     digest = hashlib.sha256()
     counts = Counter({tag: 0 for tag in (*PROTOCOL_TAGS, UNKNOWN)})
     kinds = Counter({kind: 0 for kind in DECLARATION_KINDS})
@@ -66,6 +70,10 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
 
     def process(raw, number):
         nonlocal records, largest_line, largest_string
+        if inventory is not None:
+            # Targets need the prefix through this exact record, even when
+            # the input chunk already contains later records or a partial line.
+            digest.update(raw)
         content = raw[:-1] if raw.endswith(b"\n") else raw
         if content.endswith(b"\r"):
             content = content[:-1]
@@ -94,6 +102,11 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
             if type(item) is int and item >= 0:
                 previous = maximum_ids[key]
                 maximum_ids[key] = item if previous is None else max(previous, item)
+        if inventory is not None:
+            try:
+                inventory.observe(value, number, digest)
+            except ValueError as exc:
+                raise InspectionError(number, str(exc)) from exc
 
     try:
         while True:
@@ -106,7 +119,8 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
             exceeded = len(chunk) > available
             accepted = chunk[:available] if exceeded else chunk
             total += len(accepted)
-            digest.update(accepted)
+            if inventory is None:
+                digest.update(accepted)
             start = 0
             while True:
                 end = accepted.find(b"\n", start)
@@ -130,7 +144,7 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
     except (OSError, UnicodeError) as exc:
         raise InspectionError(line_number + 1, f"read failure ({exc})") from exc
 
-    return {
+    report = {
         "schema": "lean4export-source-inspection-v1",
         "authority": "source-inspection-only",
         "sha256": digest.hexdigest(),
@@ -142,6 +156,16 @@ def inspect_stream(stream, max_input_bytes=DEFAULT_INPUT_BYTES,
         "largest_line_bytes": largest_line,
         "largest_direct_utf8_string_bytes": largest_string,
     }
+    if inventory is not None:
+        report["source_inventory"] = inventory.snapshot()
+    return report
+
+
+def inventory_class():
+    # File-relative loading also supports importlib-based callers outside
+    # scripts/. This is repository code, never a module from the inspected file.
+    path = Path(__file__).with_name("lean_export_inventory.py")
+    return runpy.run_path(str(path))["SourceInventory"]
 
 
 def _walk_values(value):
@@ -194,14 +218,23 @@ def main(argv=None):
     parser.add_argument("--max-line-bytes", type=positive_decimal,
                         default=DEFAULT_LINE_BYTES,
                         help="line bound, up to 8 MiB (default: 8 MiB)")
+    parser.add_argument("--target", action="append", default=[],
+                        help="observe a simple dotted declaration name "
+                             "(repeat up to 32 times); no proof checking")
     args = parser.parse_args(argv)
     if args.max_input_bytes > MAX_INPUT_BYTES:
         parser.error("--max-input-bytes cannot exceed 64 GiB")
     if args.max_line_bytes > MAX_LINE_BYTES:
         parser.error("--max-line-bytes cannot exceed 8 MiB")
+    if args.target:
+        try:
+            inventory_class()(args.target)
+        except ValueError as exc:
+            parser.error(str(exc))
     try:
         with open(args.input, "rb") as source:
-            report = inspect_stream(source, args.max_input_bytes, args.max_line_bytes)
+            report = inspect_stream(source, args.max_input_bytes, args.max_line_bytes,
+                                    targets=args.target)
     except (OSError, InspectionError) as exc:
         print(f"audit-lean-export: {exc}", file=sys.stderr)
         return 1
