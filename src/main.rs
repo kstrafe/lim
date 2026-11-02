@@ -601,7 +601,12 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         }
     }
     if let Some(path) = report_path {
-        if let Err(error) = lim::write_output_atomic(path, report.render_json()) {
+        if let Err(error) = lim::write_output_atomic_with(path, |file| {
+            use std::io::Write;
+            let mut writer = std::io::BufWriter::with_capacity(64 * 1024, file);
+            report.write_json(&mut writer)?;
+            writer.flush()
+        }) {
             eprintln!("lim: {}: {error}", path.display());
             return ExitCode::FAILURE;
         }

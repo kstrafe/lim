@@ -41,9 +41,21 @@ impl Drop for StagingDirectory {
 }
 
 pub fn write_output_atomic(output: &Path, bytes: impl AsRef<[u8]>) -> io::Result<()> {
+    use io::Write;
+    write_output_atomic_with(output, |file| file.write_all(bytes.as_ref()))
+}
+
+/// Stream an artifact into same-filesystem staging. A failed writer leaves
+/// the destination untouched and removes its partial temporary output.
+pub fn write_output_atomic_with(
+    output: &Path,
+    write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
     let directory = StagingDirectory::beside(output)?;
     let staged = directory.0.join("output");
-    fs::write(&staged, bytes)?;
+    let mut file = fs::File::create(&staged)?;
+    write(&mut file)?;
+    drop(file);
     fs::rename(staged, output)
 }
 
@@ -81,6 +93,30 @@ pub fn reject_source_output_collision(source: &Path, output: &Path) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_streaming_output_preserves_destination_and_removes_staging() {
+        use io::Write;
+        let temp = StagingDirectory::beside(&std::env::temp_dir().join("unused")).unwrap();
+        let output = temp.0.join("receipt.json");
+        fs::write(&output, b"previous receipt").unwrap();
+        for path in [&output, &temp.0.join("new.json")] {
+            let error = write_output_atomic_with(path, |file| {
+                file.write_all(b"partial receipt")?;
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "injected failure",
+                ))
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+            assert_eq!(fs::read(&output).unwrap(), b"previous receipt");
+            assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
+        }
+        write_output_atomic_with(&output, |file| file.write_all(b"complete receipt")).unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"complete receipt");
+        assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
+    }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]

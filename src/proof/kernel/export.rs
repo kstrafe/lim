@@ -18,6 +18,8 @@ mod hash;
 mod inductives;
 #[path = "export_quotient.rs"]
 mod quotient;
+#[path = "export_report.rs"]
+mod report;
 #[path = "export_source.rs"]
 mod source;
 #[path = "export_spool.rs"]
@@ -73,73 +75,6 @@ pub struct LeanExportReport {
     pub axioms: Vec<String>,
     /// The selected theorem's transitive axiom closure, sorted by name.
     pub target_axioms: Vec<String>,
-}
-impl LeanExportReport {
-    /// A replay receipt, not a certificate that can bypass later checking.
-    pub fn render_json(&self) -> String {
-        object([
-            ("schema", text_json("lim-lean-replay-v1")),
-            ("proof_budget", self.budget.json()),
-            ("target", text_json(&self.target)),
-            ("input_sha256", text_json(&self.input_sha256)),
-            ("bytes", number_json(self.bytes)),
-            ("records", number_json(self.records)),
-            ("lean_version", text_json(LEAN_EXPORT_VERSION)),
-            ("lean_githash", text_json(LEAN_EXPORT_GITHASH)),
-            ("format_version", text_json(LEAN_EXPORT_FORMAT)),
-            ("exporter_revision", text_json(EXPORTER_REVISION)),
-            (
-                "declaration_hash_scope",
-                text_json("export-prefix-through-record"),
-            ),
-            (
-                "axioms",
-                Json::Array(self.axioms.iter().map(|name| text_json(name)).collect()),
-            ),
-            (
-                "target_axioms",
-                Json::Array(
-                    self.target_axioms
-                        .iter()
-                        .map(|name| text_json(name))
-                        .collect(),
-                ),
-            ),
-            (
-                "foundations",
-                Json::Array(
-                    self.foundations
-                        .iter()
-                        .map(|name| text_json(name))
-                        .collect(),
-                ),
-            ),
-            (
-                "declarations",
-                Json::Array(
-                    self.declarations
-                        .iter()
-                        .map(|decl| {
-                            object([
-                                ("name", text_json(&decl.name)),
-                                ("identity", text_json(&decl.identity)),
-                                ("kind", text_json(&decl.kind)),
-                                ("line", number_json(decl.line as u64)),
-                                ("sha256", text_json(&decl.sha256)),
-                                (
-                                    "dependencies",
-                                    Json::Array(
-                                        decl.dependencies.iter().map(|d| text_json(d)).collect(),
-                                    ),
-                                ),
-                            ])
-                        })
-                        .collect(),
-                ),
-            ),
-        ])
-        .render()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -694,9 +629,11 @@ fn boolean(value: &Json) -> Result<bool> {
 fn text_json(value: &str) -> Json {
     Json::String(value.into())
 }
+#[cfg(test)]
 fn number_json(value: u64) -> Json {
     Json::Number(value.to_string())
 }
+#[cfg(test)]
 fn object<const N: usize>(values: [(&str, Json); N]) -> Json {
     Json::Object(values.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }

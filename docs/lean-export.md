@@ -370,6 +370,13 @@ header when nonempty. Dependencies within a
 mutual inductive block refer to the other identities checked in that block;
 those are family relationships, not permission for cyclic definitions.
 
+The CLI streams the receipt through a 64-KiB buffer into same-filesystem
+staging and publishes it only after all writes succeed. It does not construct
+a second JSON object tree or complete serialized string. The library method
+`LeanExportReport::write_json` writes the same canonical bytes to an ordinary
+Rust writer and propagates errors; `render_json` remains available for callers
+that need a string. Writer failures leave an existing destination untouched.
+
 Canonical identities start with `$lean:`. Each string component is encoded as
 `sBYTE_LENGTH:CONTENTS`; each numeric component as `nDECIMAL;`. For example,
 `Audit.identity` has identity `$lean:s5:Audits8:identity`. The CLI accepts either
@@ -479,6 +486,8 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-memor
   --lim target/debug/lim --iterations 3 --case raw_gcd_self --case native_gcd_self
 bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-retention.py \
   --before /path/to/old/lim --after target/debug/lim --iterations 5
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-report.py \
+  --before /path/to/old/lim --after target/debug/lim --iterations 5
 ```
 
 Before selecting larger importer limits, inspect an available export without
@@ -515,6 +524,19 @@ limits stay unchanged. These synthetic tautologies measure storage behavior,
 not new mathematical coverage or a genuine Lean producer output. Temporary
 inputs are removed afterwards. Neither tool invokes the resource guard again
 inside its workers or treats a measurement as proof authority.
+
+The report tool measures a synthetic checked environment with 3,000 simple
+theorems and 1,024-byte declaration-name components. It streams source and
+receipt fingerprints, requires identical receipt bytes across every sample,
+and uses the same fresh-worker memory measurements. Name length, declaration
+count and sample count are explicitly bounded options. The case stresses
+receipt serialization, not the upstream FLT proof or a genuine Lean export.
+Against `998a3d6e`, five alternating debug0 samples reduce median compiler
+RSS from 64,840 to 41,024 KiB (36.7%) and wall time from 443.969 to
+377.149 ms (15.1%). Every sample emits the same 6,752,270-byte receipt with
+SHA-256 `7342fb49cb070e239ac261d97fc8e73e3b30a4efda4da4293a1c7e9b557f8c63`.
+The explicit 1-GiB cumulative budget and separate 2-GiB/two-core guard are
+identical for both compilers.
 
 Deferring prefix finalization until a declaration needs it preserves every
 receipt hash while avoiding per-primitive digest work. Against `abad273f`, five
