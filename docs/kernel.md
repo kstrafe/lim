@@ -975,6 +975,23 @@ are rejected. A forward reference does not authorize recursion. All proofs are
 rechecked on warm-cache validation, and mathematical declarations have zero
 native emission. A cached native artifact is not proof authority.
 
+The dependency planner retains numeric declaration/group IDs and deduplicated
+edges. Ready groups are chosen by their earliest source position; explicit
+mutual groups retain the declared member order and reciprocal membership
+checks. A definition's self-edge remains a cycle. Only internal edges of a
+validated inductive group can be handled together.
+
+Dependency collection parses one declaration at a time and releases its term
+trees. Once a group is ready, the checker reparses that immutable source,
+revalidates the group shape, and calls the same kernel definition/inductive
+operations. Only that group's parsed terms need remain live. Scheduling
+cannot establish a theorem, and later unused invalid declarations still fail
+the whole check. Work and cumulative transformation accounting are unchanged.
+Completed native declarations use the same bounded protected storage as raw
+replay, with eviction only after a complete checked group. The source program
+AST and dependency graph still reside in memory; this is a prerequisite for
+larger source checking, not a complete streaming source frontend.
+
 Definitional conversion supports beta reduction of lambda applications, delta
 unfolding of transparent definitions, and iota computation of eliminators on
 constructors. Pair projections compute on pairs. Equality elimination J

@@ -284,6 +284,16 @@ impl Kernel {
     pub(super) fn transformation_bytes(&self) -> usize {
         self.transformed_bytes
     }
+    pub(super) fn enable_declaration_spilling(&mut self) {
+        self.declarations.enable_spilling();
+    }
+    /// Storage changes are permitted only after a complete checked group.
+    pub(super) fn trim_completed_declarations(&mut self) -> Result<()> {
+        if self.nested_build.is_some() {
+            return Err("incomplete inductive group at declaration storage boundary".into());
+        }
+        self.declarations.trim().map(|_| ())
+    }
     fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
         let proposed = self.transformed_bytes.saturating_add(bytes);
         if self

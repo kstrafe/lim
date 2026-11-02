@@ -379,6 +379,14 @@ environment can spill during native emission too. Nested-family views, name
 candidate IDs, native report inventories and the independently parsed native
 environment still need further work for very large exports.
 
+The common mathematical checker now plans dependencies with numeric IDs,
+reparses only a ready declaration/group, and lets its completed native
+declarations use protected backing storage too. It preserves ordinary kernel
+checks and explicit mutual membership; see [checking and
+caching](kernel.md#checking-conversion-and-caching). The native source string,
+frontend AST, name maps, report materialization and dependency metadata still
+need a streaming design before the full upstream environment can be ported.
+
 ## Native proof-source translation
 
 Add `--emit-proof PATH` to emit a standard Lim proof file after successful
@@ -657,6 +665,28 @@ This isolates retained syntax during native translation; it is synthetic
 storage evidence, not additional FLT proof coverage. Output formatting,
 parsing, native report materialization and independent checking still have
 their existing finite limits.
+
+The common native theorem checker can be measured separately from raw export
+parsing with the scheduling tool. It generates 3,000 independent identity
+theorems with 16 typed lets in each proof and checks the complete program
+through `--check-theorem`:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-schedule.py \
+  --before /path/to/old/lim --after target/debug/lim --iterations 5
+```
+
+Against `0072854d`, five alternating debug0 samples reduce median wall time
+from 2,657.787 to 2,182.027 ms (17.9%) and compiler peak RSS from 940,608 to
+910,504 KiB (3.2%). Both use default work/per-phase limits, an explicit 1-GiB
+cumulative transformation budget and the unchanged 2-GiB/two-core host guard.
+The 2,824,890-byte source has SHA-256
+`bcb20ae2e10322c72c8ae5ba2550b19195ea8c44021009402c6f439bbeadcd37`.
+The tool requires exact theorem-selection confirmation from both preflights;
+source hashes are provenance, not proof authority. It produces no export
+receipt or translated proof fingerprint. Source frontend memory remains a
+substantial scaling problem on this synthetic workload, and these identity
+proofs add no genuine FLT dependency coverage.
 
 Before selecting larger importer limits, inspect an available export without
 retaining its tables:

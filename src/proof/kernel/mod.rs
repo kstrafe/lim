@@ -3,6 +3,7 @@
 //! succeeds. They remain opaque propositions, never equations about Nat.
 mod core;
 mod level;
+mod schedule;
 use crate::{Expr, Item};
 pub use core::export::{
     check_lean_export, check_lean_export_receipt_with_budget, check_lean_export_with_budget,
@@ -115,10 +116,12 @@ pub(super) fn check(
     facts: &HashSet<String>,
 ) -> std::result::Result<(), (String, String)> {
     let mut kernel = Kernel::with_budget(program.proof_budget);
+    kernel.enable_declaration_spilling();
     for fact in facts {
         kernel.certified_program_fact(fact);
     }
-    let mut pending = Vec::new();
+    let mut declarations = Vec::new();
+    let mut metadata = Vec::new();
     for item in &program.items {
         let Item::Proof { name, proposition } = item else {
             continue;
@@ -126,95 +129,76 @@ pub(super) fn check(
         if !is_declaration(proposition) {
             continue;
         }
-        if pending.len() >= 4096 {
+        if declarations.len() >= schedule::MAX_DECLARATIONS {
             return Err((name.clone(), "kernel declaration limit exceeded".into()));
         }
-        let declaration =
+        let parsed =
             parse_declaration(name, proposition, facts).map_err(|why| (name.clone(), why))?;
-        pending.push(declaration);
+        let members = match parsed.body {
+            Body::Inductive { members, .. } => Some(members),
+            _ => None,
+        };
+        metadata.push(schedule::Metadata {
+            name: parsed.name,
+            dependencies: parsed.dependencies,
+            members,
+        });
+        declarations.push((name.as_str(), proposition));
+        // The parsed type and proof are dropped here. Only immutable source
+        // references and dependency metadata survive until a group is ready.
     }
-    let declared = pending
-        .iter()
-        .map(|p| p.name.clone())
-        .collect::<HashSet<_>>();
-    for p in &pending {
-        for dependency in &p.dependencies {
-            if !declared.contains(dependency) && !kernel.contains(dependency) {
-                return Err((
-                    p.name.clone(),
-                    format!("unknown kernel declaration '{dependency}'"),
-                ));
-            }
+    let diagnostic = |index: usize, message| {
+        (
+            declarations
+                .get(index)
+                .map_or("<unknown>", |(name, _)| *name)
+                .to_owned(),
+            message,
+        )
+    };
+    let mut schedule = schedule::Schedule::new(metadata, |name| kernel.contains(name))
+        .map_err(|(index, message)| diagnostic(index, message))?;
+    let mut transformation_bytes = 0usize;
+    while let Some(indices) = schedule
+        .next()
+        .map_err(|(index, message)| diagnostic(index, message))?
+    {
+        let first = indices
+            .iter()
+            .copied()
+            .min()
+            .ok_or_else(|| diagnostic(0, "empty kernel declaration group".into()))?;
+        let diagnostic_name = declarations[first].0.to_owned();
+        let mut pending = Vec::with_capacity(indices.len());
+        for index in indices {
+            let (name, proposition) = declarations[index];
+            pending.push(
+                parse_declaration(name, proposition, facts)
+                    .map_err(|why| (name.to_owned(), why))?,
+            );
         }
-    }
-    let by_name = pending
-        .iter()
-        .map(|p| (p.name.as_str(), p))
-        .collect::<std::collections::HashMap<_, _>>();
-    // Membership is explicit and reciprocal; ordinary declaration cycles
-    // never authorize a mutual group implicitly.
-    for p in &pending {
-        if let Body::Inductive { members, .. } = &p.body {
-            for name in members {
-                let Some(other) = by_name.get(name.as_str()) else {
+        let members = pending.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+        // Scheduling cannot authorize a group. Recheck its explicit shape
+        // before passing the original parsed declarations to the kernel.
+        for p in &pending {
+            match &p.body {
+                Body::Inductive {
+                    members: actual, ..
+                } if actual == &members => {}
+                Body::Definition { .. } if members.len() == 1 => {}
+                _ => {
                     return Err((
-                        p.name.clone(),
-                        format!("unknown mutual group family '{name}'"),
-                    ));
-                };
-                if !matches!(&other.body, Body::Inductive { members: other_members, .. } if other_members == members)
-                {
-                    return Err((
-                        p.name.clone(),
+                        diagnostic_name,
                         "mutual group membership must be identical on every inductive member"
                             .into(),
-                    ));
+                    ))
                 }
             }
         }
-    }
-    let mut transformation_bytes = 0usize;
-    while !pending.is_empty() {
-        let positions = pending
-            .iter()
-            .enumerate()
-            .map(|(index, p)| (p.name.as_str(), index))
-            .collect::<std::collections::HashMap<_, _>>();
-        let Some(index) = pending.iter().position(|p| {
-            let members = match &p.body {
-                Body::Inductive { members, .. } => members.as_slice(),
-                _ => std::slice::from_ref(&p.name),
-            };
-            members.iter().all(|member| {
-                positions.get(member.as_str()).is_some_and(|position| {
-                    pending[*position].dependencies.iter().all(|dependency| {
-                        kernel.contains(dependency)
-                            || matches!(&p.body, Body::Inductive { .. })
-                                && members.contains(dependency)
-                    })
-                })
-            })
-        }) else {
-            return Err((
-                pending[0].name.clone(),
-                "cyclic kernel declaration dependencies are forbidden; use structural induction"
-                    .into(),
-            ));
-        };
-        let members = match &pending[index].body {
-            Body::Inductive { members, .. } => members.clone(),
-            _ => vec![pending[index].name.clone()],
-        };
-        let diagnostic = pending[index].name.clone();
         kernel.reset_budget();
-        let result = if members.len() > 1 {
-            let mut inputs = vec![];
-            for member in members {
-                let at = pending
-                    .iter()
-                    .position(|p| p.name == member)
-                    .ok_or_else(|| (diagnostic.clone(), "missing mutual group member".into()))?;
-                let p = pending.remove(at);
+        let result = if pending.len() > 1 {
+            let mut inputs = Vec::with_capacity(pending.len());
+            for p in pending {
                 let Body::Inductive {
                     parameters,
                     indices,
@@ -224,7 +208,10 @@ pub(super) fn check(
                     ..
                 } = p.body
                 else {
-                    unreachable!()
+                    return Err((
+                        diagnostic_name,
+                        "noninductive member in a mutual group".into(),
+                    ));
                 };
                 let constructors = if indices.is_empty() {
                     constructors
@@ -245,7 +232,12 @@ pub(super) fn check(
             }
             kernel.mutual_inductive(inputs)
         } else {
-            let p = pending.remove(index);
+            let p = pending.pop().ok_or_else(|| {
+                (
+                    diagnostic_name.clone(),
+                    "empty kernel declaration group".into(),
+                )
+            })?;
             let result = match p.body {
                 Body::Definition {
                     ty,
@@ -281,13 +273,16 @@ pub(super) fn check(
                     }
                 }
             };
-            result.map_err(|why| (diagnostic.clone(), why))
+            result.map_err(|why| (diagnostic_name.clone(), why))
         };
         result?;
         transformation_bytes = transformation_bytes.saturating_add(kernel.transformation_bytes());
         if transformation_bytes > program.proof_budget.total_bytes() {
-            return Err((diagnostic, format!("kernel cumulative transformation allocation limit exceeded ({transformation_bytes} > {} bytes); no theorem was established", program.proof_budget.total_bytes())));
+            return Err((diagnostic_name, format!("kernel cumulative transformation allocation limit exceeded ({transformation_bytes} > {} bytes); no theorem was established", program.proof_budget.total_bytes())));
         }
+        kernel
+            .trim_completed_declarations()
+            .map_err(|why| (diagnostic_name, why))?;
     }
     Ok(())
 }
