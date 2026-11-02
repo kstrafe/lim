@@ -20,6 +20,41 @@ impl Kernel {
         depth: usize,
     ) -> Result<Option<T>> {
         self.tick(depth)?;
+        let Some([at_equal, at_less, at_right_zero]) =
+            self.natural_comparison_terminals(family, function_type, branches, depth + 1)?
+        else {
+            return Ok(None);
+        };
+        let Some(left) = self.natural_closed_number(family, left, depth + 1)? else {
+            return Ok(None);
+        };
+        let Some(right) = self.natural_closed_number(family, right, depth + 1)? else {
+            return Ok(None);
+        };
+        self.work = self
+            .work
+            .saturating_add(left.decimal().len().max(right.decimal().len()));
+        self.tick(depth + 1)?;
+        let order =
+            (left.decimal().len(), left.decimal()).cmp(&(right.decimal().len(), right.decimal()));
+        Ok(Some(match order {
+            std::cmp::Ordering::Less => at_less,
+            std::cmp::Ordering::Equal => at_equal,
+            std::cmp::Ordering::Greater => at_right_zero,
+        }))
+    }
+
+    /// Return equal/less/greater terminals only after verifying the complete
+    /// paired-predecessor recurrence. This also supports symbolic observations
+    /// without inferring a comparison from sampled input values.
+    pub(super) fn natural_comparison_terminals(
+        &mut self,
+        family: &str,
+        function_type: &T,
+        branches: &[T],
+        depth: usize,
+    ) -> Result<Option<[T; 3]>> {
+        self.tick(depth)?;
         let Term::Pi(_, result_type) = function_type.as_ref() else {
             return Ok(None);
         };
@@ -115,24 +150,7 @@ impl Kernel {
         {
             return Ok(None);
         }
-        let Some(left) = self.natural_closed_number(family, left, depth + 1)? else {
-            return Ok(None);
-        };
-        let Some(right) = self.natural_closed_number(family, right, depth + 1)? else {
-            return Ok(None);
-        };
-        self.work = self
-            .work
-            .saturating_add(left.decimal().len().max(right.decimal().len()));
-        self.tick(depth + 1)?;
-        // Canonical nonnegative decimals order by digit length, then bytes.
-        let order =
-            (left.decimal().len(), left.decimal()).cmp(&(right.decimal().len(), right.decimal()));
-        Ok(Some(match order {
-            std::cmp::Ordering::Less => at_less,
-            std::cmp::Ordering::Equal => at_equal,
-            std::cmp::Ordering::Greater => at_right_zero,
-        }))
+        Ok(Some([at_equal, at_less, at_right_zero]))
     }
 
     fn comparison_left_terminals(

@@ -36,6 +36,12 @@ their induction/congruence dependencies, exact native translations and empty
 assumption inventories. Its own manifest and producer retain source, module,
 license and exact-identity provenance.
 
+The [division corpus](../lean_export_division/README.md) adds a sixteenth
+genuine export. Eight closed targets retain the actual standard fuelled
+division body, exact native translations and empty assumption inventories.
+Its guide describes the structural conversion rule and remaining operand
+composition limits, with pinned source, module and license provenance.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

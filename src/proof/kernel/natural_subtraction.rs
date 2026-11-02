@@ -67,7 +67,7 @@ impl Kernel {
     /// The exact zero/successor recursor, with constant natural motive,
     /// zero base, and successor branch returning its predecessor. Source
     /// inference still checks all domains, branches, lets and ignored terms.
-    fn natural_predecessor_subject(
+    pub(in crate::proof::kernel) fn natural_predecessor_subject(
         &mut self,
         family: &str,
         value: &T,

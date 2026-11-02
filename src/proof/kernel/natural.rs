@@ -5,6 +5,10 @@ use super::*;
 mod arithmetic;
 #[path = "natural_comparison.rs"]
 mod comparison;
+#[path = "natural_division_arithmetic.rs"]
+mod division_arithmetic;
+#[path = "natural_euclidean.rs"]
+mod euclidean;
 #[path = "natural_fold.rs"]
 mod fold;
 #[path = "natural_fusion.rs"]

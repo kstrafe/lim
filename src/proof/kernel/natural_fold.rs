@@ -117,6 +117,10 @@ impl Kernel {
                 }
                 Term::App(function, argument) => {
                     if matches!(function.as_ref(), Term::App(..)) {
+                        if let Some(reduced) = self.natural_euclidean_observation(&value, depth)? {
+                            value = reduced;
+                            continue;
+                        }
                         if let Some(reduced) = self.natural_beta_spine(&value, depth)? {
                             value = reduced;
                             continue;
@@ -245,6 +249,26 @@ impl Kernel {
         Ok(
             matches!(value.as_ref(), Term::Global(name, levels) if name == family && levels.is_empty()),
         )
+    }
+
+    /// A checked expression is exactly the selected natural plus this bias.
+    /// Other free locals and nonlinear coefficients remain unrecognized.
+    pub(super) fn natural_translation_bias(
+        &mut self,
+        family: &str,
+        value: &T,
+        variable: usize,
+        depth: usize,
+    ) -> Result<Option<Natural>> {
+        self.tick(depth)?;
+        let Some(desc) = self.natural_recursor_family(family, depth + 1)? else {
+            return Ok(None);
+        };
+        let Some(affine) = self.natural_affine(&desc, family, value, &[variable], depth + 1)?
+        else {
+            return Ok(None);
+        };
+        Ok((affine.coefficients[0].decimal() == "1").then_some(affine.constant))
     }
 
     fn natural_affine(

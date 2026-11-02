@@ -421,6 +421,33 @@ The [native comparison example](../examples/proof_natural_comparison.lim)
 shows the less-or-equal recurrence, and direct constructor-iota tests also
 cover three distinct terminals. Work and transformation budgets are unchanged.
 
+A separate Euclidean observation recognizes a particular checked history fold.
+Its selected field must be `Nat -> P -> Nat`, where `P` is a proposition.
+For a positive constant `d`, the successor step must select zero below `d`
+and otherwise apply the previous field to `max(x-d,0)` and add exactly one.
+The guard's complete paired-predecessor recurrence, predecessor iteration,
+record projection, binders and finite case tags are checked structurally.
+Finite decision fields may contain only propositions; the observer cannot
+inspect their proof payloads. No operation or constructor name grants authority.
+
+For compact input `x`, exact decimal long division computes `q = x/d` only
+after charging digit work and scratch storage. The rule additionally requires
+strictly more than `q` units of actual fuel: `q` positive steps and one terminal
+step. It never assumes that a proof argument establishes sufficient fuel.
+Insufficient or unknown fuel retains ordinary reduction, preserving an arbitrary
+base function. A known successor can establish positive fuel without forcing
+its unused tail. Zero fuel does not inspect the successor step. Every source
+body, annotation and proof argument still undergoes inference.
+
+This is an additional trusted conversion optimization, tested against separately
+materialized history records and altered recurrences. The
+[division corpus](../tests/fixtures/lean_export_division/README.md) independently
+checks the genuine pinned standard body and native translation, including a
+quotient larger than a machine integer. Its fast observation deliberately
+requires compact operands. Equivalent operands written as power computations
+can still exceed the existing work budget; general arithmetic composition
+and arbitrary course-of-values algorithms remain separate work.
+
 These rules expose the pinned Lean standard `Nat.add`, `Nat.mul`, `Nat.pow`,
 `Nat.sub`, `Nat.ble` and `Nat.beq`
 recurrences without constructing their `Nat.brecOn` history tables. The

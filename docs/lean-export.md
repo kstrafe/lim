@@ -93,6 +93,16 @@ cancellation. Batched ordinary beta reduction avoids repeated substitutions
 through curried helper bodies under the unchanged work/depth/allocation limits.
 All original and native targets have empty axiom and foundation inventories.
 
+The [division corpus](../tests/fixtures/lean_export_division/README.md) retains
+the standard fuelled history recurrence and checks eight closed targets,
+including zero divisors, exact/inexact division and a quotient beyond 64 bits.
+A structurally checked Euclidean observation requires sufficient actual fuel,
+the exact comparison/subtraction/increment step and compact operands. This
+adds a trusted conversion optimization, rather than a name-based assumption.
+Every raw and native target is independently checked with empty inventories.
+Arithmetic expressions used as operands can still exceed the work limit;
+these fixtures do not establish arbitrary division algorithms or full FLT.
+
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown
 or unchecked dependencies, unsafe or partial declarations, duplicate identities,

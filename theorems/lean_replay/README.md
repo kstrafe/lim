@@ -61,10 +61,19 @@ two successors, and arbitrary values mapped to naturals. All three targets
 have empty assumption inventories and independently checked source/native
 correspondence. Its fixture guide documents pinned fresh reproduction.
 
-Each file records its pinned producer, exact input SHA-256, native theorem
-name, and every original declaration's identity, export line and prefix hash.
-[`manifest.json`](manifest.json) maps every original declaration to its native
-name and records input/output hashes. Its linked upstream
+The sixteenth file, [`division.lim`](division.lim), translates the
+[division corpus](../../tests/fixtures/lean_export_division/README.md).
+Eight closed targets cover zero divisors, below/equal operands, exact/inexact
+division and a quotient beyond machine integers. Original and native checks
+retain the standard fuelled body and have empty assumption inventories.
+Its fixture guide documents provenance, reproduction and operand restrictions.
+
+Each corpus records its pinned producer, exact input SHA-256, native theorem
+names, and every original declaration's identity, export line and prefix hash.
+[`manifest.json`](manifest.json) maps the original nine exports' declarations
+and records input/output hashes. The additional corpora have the separate
+provenance manifests linked in their fixture guides. The original manifest's
+linked upstream
 [provenance manifest](../../tests/fixtures/lean_export/real-provenance.json)
 contains original module/source ownership, source hashes, notices, and links
 to the preserved Lean and exporter licenses. Keep that provenance with copied

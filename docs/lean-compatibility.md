@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with fifteen committed genuine
+for this accepted subset, with sixteen committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -354,6 +354,13 @@ adds successor, double-successor and arbitrarily mapped cancellation proofs,
 with 60 checked original declarations and exact native translations. Batching
 ordinary curried beta reductions checks the actual induction/congruence body
 within the existing limits; there is no trusted subtraction-cancellation rule.
+The [division corpus](../tests/fixtures/lean_export_division/README.md) adds
+eight closed targets over the actual fuelled standard body. An exact structural
+Euclidean observation checks its guard, changing state, increment and sufficient
+fuel before computing the quotient. It is a new trusted conversion optimization;
+it neither treats proof arguments as fuel guarantees nor privileges standard
+names. Its compact-operand restriction leaves composed arithmetic division
+subject to ordinary reduction and existing resource failures.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.
