@@ -123,6 +123,17 @@ and bounded lazy delta candidates avoid unfolding the same worker twice; all
 argument comparisons still use ordinary conversion, and unmatched terms retain
 the existing fallback. This does not complete standard arithmetic or the FLT port.
 
+The [well-founded equation corpus](../tests/fixtures/lean_export_well_founded/README.md)
+retains 141 genuine declarations and the generic `WellFounded.Nat.fix_eq`
+proof. Explicit lambda/let candidates expose a common call before expanding
+its worker, preserving substitution scope and the same conversion budgets.
+Raw replay requires the existing `--lean-foundations` policy: both declared
+and target axiom inventories contain exactly `Quot.sound`, with
+`quotient-computation-v1` as primitive foundation. The native translation
+independently reports `Quot.sound`. Source hashes, notices and canonical
+ownership include pinned `Init.WF` and `Init.SimpLemmas`. Later GCD equations
+and the full FLT dependency closure remain open.
+
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown
 or unchecked dependencies, unsafe or partial declarations, duplicate identities,

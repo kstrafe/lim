@@ -54,6 +54,12 @@ unbounded zero controls and the general positive-divisor remainder bound. Its ex
 source/module/license provenance include the pinned `Nat.Basic` helper used
 by case analysis.
 
+The [well-founded equation corpus](../lean_export_well_founded/README.md) adds
+a nineteenth genuine export. Its 141 declarations check the generic natural
+measure fixpoint equation using the explicit `Quot.sound` foundation policy;
+constructive replay refuses it. Exact private ownership, native mapping and
+attribution include independently pinned `Init.WF` and `Init.SimpLemmas`.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

@@ -83,6 +83,15 @@ with exact original/native mapping and empty assumptions.
 The case-analysis helper's `Init.Data.Nat.Basic` source is independently pinned.
 The genuine `Nat.mod_lt` and `Nat.modCoreGo_lt` dependency proofs are checked.
 
+The nineteenth file, [`well-founded.lim`](well-founded.lim), translates the
+[well-founded equation corpus](../../tests/fixtures/lean_export_well_founded/README.md).
+Its 141 declarations check the general natural-measure fixpoint equation,
+including the actual `WellFounded.Nat.fix_eq` proof. Unlike the constructive
+remainder corpus, it explicitly uses `Quot.sound` through function
+extensionality. Native checking reports that logical basis, and raw replay
+requires `--lean-foundations`. Canonical private ownership, exact mappings,
+source hashes and attribution include `Init.WF` and `Init.SimpLemmas`.
+
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps the original nine exports' declarations

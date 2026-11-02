@@ -79,6 +79,11 @@ def main():
             "raw_remainder": ["--check-lean-export", remainder["export"]["file"], remainder["targets"][-1]],
             "native_remainder": ["--check-theorem", remainder["native"]["file"], remainder["native"]["targets"][remainder["targets"][-1]]],
         })
+        well_founded = json.loads((ROOT / "tests/fixtures/lean_export_well_founded/provenance.json").read_bytes())
+        cases.update({
+            "raw_well_founded": ["--check-lean-export", well_founded["export"]["file"], well_founded["targets"][-1], "--lean-foundations"],
+            "native_well_founded": ["--check-theorem", well_founded["native"]["file"], well_founded["native"]["targets"][well_founded["targets"][-1]]],
+        })
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]
             for iteration in range(args.iterations + 1):

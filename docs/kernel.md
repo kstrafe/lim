@@ -489,12 +489,27 @@ Nested probes inherit tighter limits, spent charges remain spent, and only
 explicit internal declines fall back. Unknown names and invalid universes still
 fail. The existing converter handles nonmatching heads, unequal arguments of a
 constant function and longer wrapper chains; this is not an injectivity rule.
+Explicit lambda and let heads use the same bounded candidate path: contract
+their beta/zeta redex before unfolding the resulting named call. In particular,
+an unused proof binder must not force both copies of an open well-founded
+worker to normalize. Substitution preserves outer variables and checks every
+source annotation even when subsequent reduction erases an argument.
 No operation name authorizes conversion. Full source inference remains required.
 
 This reduction strategy checks the genuine general `Nat.mod_lt` theorem and
 its `Nat.modCoreGo_lt` dependency within the original budgets. The theorem
 quantifies over all natural dividends and all positive natural divisors; it is
 separate from the corpus's closed remainder computations and zero identities.
+
+The [well-founded equation corpus](../tests/fixtures/lean_export_well_founded/README.md)
+checks the actual `WellFounded.Nat.fix_eq` proof for arbitrary input sorts,
+result families, natural-valued measures and recursive steps. Its 141 genuine
+declarations and exact native translation require `Quot.sound`, used by
+function extensionality, and the `quotient-computation-v1` primitive foundation.
+Raw replay requires explicit `--lean-foundations`; the constructive default
+refuses it. Native checking reports the same `Quot.sound` logical basis. This
+is not a new axiom or an admission of the equation by its name. The later
+private GCD defining equation and closed GCD computation still exceed work.
 
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks

@@ -323,6 +323,19 @@ fn genuine_remainder_retains_checked_mapping_hashes_and_attribution() {
     );
 }
 
+#[test]
+fn genuine_well_founded_equation_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_well_founded/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_well_founded/well-founded.ndjson"),
+        include_str!("../../../theorems/lean_replay/well-founded.lim"),
+        "WellFoundedProbe.equation",
+        "lim-lean-well-founded-fixture-v1",
+        &["quotient-computation-v1"],
+        (1, &["Quot.sound"]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

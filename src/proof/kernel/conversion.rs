@@ -1,7 +1,9 @@
 //! Compare common application heads before unfolding their definitions.
 //!
 //! Congruence uses ordinary conversion of every argument. A short right-hand
-//! delta chain can expose the same call through wrappers and selected cases.
+//! reduction chain can expose the same call through wrappers and selected
+//! cases. Explicit lambda/let heads contract before an unrelated named worker
+//! is unfolded, including under dependent proof and term binders.
 //! Each speculative delta candidate has a bounded reduction attempt; refusing
 //! it returns to the ordinary converter, with all spent work still charged.
 //! No declaration name, cached receipt or unverified source term is authority.
@@ -27,7 +29,7 @@ impl Kernel {
         for _ in 0..8 {
             let reduced = self
                 .reduction_probe(depth, |kernel| {
-                    kernel.conversion_delta_candidate(ctx, &candidate, depth + 1)
+                    kernel.conversion_candidate(ctx, &candidate, depth + 1)
                 })?
                 .flatten();
             let Some(reduced) = reduced else {
@@ -76,16 +78,16 @@ impl Kernel {
         Ok(true)
     }
 
-    fn conversion_delta_candidate(
-        &mut self,
-        ctx: &[T],
-        value: &T,
-        depth: usize,
-    ) -> Result<Option<T>> {
+    fn conversion_candidate(&mut self, ctx: &[T], value: &T, depth: usize) -> Result<Option<T>> {
         if !matches!(value.as_ref(), Term::App(..)) {
             return Ok(None);
         }
         let (head, arguments) = self.application_spine(value, depth + 1)?;
+        if matches!(head.as_ref(), Term::Lam(..) | Term::Let(..)) {
+            // Contract the explicit beta/zeta redex, retaining a neutral
+            // global call rather than expanding the worker on both sides.
+            return self.whnf_delta(ctx, value, false, depth + 1).map(Some);
+        }
         let Term::Global(name, levels) = head.as_ref() else {
             return Ok(None);
         };

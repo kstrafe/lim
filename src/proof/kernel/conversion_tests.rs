@@ -293,3 +293,48 @@ fn common_dependent_heads_preserve_proof_irrelevance_in_the_real_scope() {
     k.infer(&ctx, &right, 0).unwrap();
     assert!(k.conversion_congruence(&ctx, &left, &right, 0).unwrap());
 }
+
+#[test]
+fn explicit_lambda_candidates_preserve_outer_binders_and_unused_arguments() {
+    let mut k = Kernel::new();
+    let (worker_call, _) = wrappers(&mut k);
+    let direct = app(global("worker"), var(0));
+    let right = app(lam(nat(), app(global("worker"), var(1))), zero());
+    k.check(&[nat()], &right, &nat(), 0).unwrap();
+    assert!(k
+        .conversion_congruence(&[nat()], &direct, &right, 0)
+        .unwrap());
+    let wrong_binding = app(lam(nat(), app(global("worker"), var(0))), zero());
+    k.check(&[nat()], &wrong_binding, &nat(), 0).unwrap();
+    assert!(!k
+        .conversion_congruence(&[nat()], &direct, &wrong_binding, 0)
+        .unwrap());
+    assert!(!k.convertible(&[nat()], &direct, &wrong_binding, 0).unwrap());
+    let ignored = app(lam(nat(), worker_call.clone()), succ(zero()));
+    assert!(k
+        .conversion_congruence(&[], &worker_call, &ignored, 0)
+        .unwrap());
+}
+
+#[test]
+fn explicit_let_heads_expose_the_same_checked_function_call() {
+    let mut k = Kernel::new();
+    let (direct, _) = wrappers(&mut k);
+    let function_alias = term(Term::Let(pi(nat(), nat()), global("worker"), var(0)));
+    let applied = app(function_alias, zero());
+    k.check(&[], &applied, &nat(), 0).unwrap();
+    assert!(k.conversion_congruence(&[], &direct, &applied, 0).unwrap());
+    assert!(k.reduction_probe_budget.is_none());
+    // Erasing an invalid function annotation cannot bypass initial checking.
+    let bad_alias = term(Term::Let(nat(), global("worker"), var(0)));
+    assert!(k
+        .definition(
+            "bad-function-alias",
+            vec![],
+            nat(),
+            app(bad_alias, zero()),
+            false
+        )
+        .is_err());
+    assert!(!k.contains("bad-function-alias"));
+}

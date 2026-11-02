@@ -378,8 +378,16 @@ from `Init.Data.Nat.Basic`. The genuine general `Nat.mod_lt` closure, including
 hypothesis. Bounded delta candidates expose matching calls before unfolding
 shared workers; congruence checks every argument with ordinary conversion.
 The global kernel limits and explicit assumption policy remain unchanged.
-Other arithmetic, arbitrary course-of-values computation and large-environment
-storage/replay remain open. This does not provide the full mathematical
+The [well-founded equation corpus](../tests/fixtures/lean_export_well_founded/README.md)
+adds a nineteenth genuine export and checks `WellFounded.Nat.fix_eq` with
+arbitrary input/result sorts, measures and steps. Explicit lambda/let candidates
+preserve a shared worker as a neutral call after beta/zeta reduction. All 141
+declarations replay under the existing explicit foundation policy; the sole
+declared/target axiom is `Quot.sound`, with `quotient-computation-v1` primitive
+computation. Native checking reports the same logical basis. The constructive
+default refuses this corpus. The private GCD defining equation and closed GCD
+computation remain limited by work. Other arithmetic, arbitrary course-of-values
+computation and large-environment storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:
