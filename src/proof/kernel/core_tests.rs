@@ -2337,12 +2337,13 @@ fn substitution_reuse_preserves_depth_overflow_and_allocation_checks() {
         .unwrap_err();
     assert!(why.contains("variable index overflow"), "{why}");
     let why = kernel
-        .instantiate(&var(0), &lam(nat(), zero()), DEPTH - 1)
+        .instantiate(&lam(nat(), var(1)), &lam(nat(), zero()), DEPTH - 1)
         .unwrap_err();
     assert!(why.contains("resource limit"), "{why}");
     kernel.reset_budget();
-    // Body and argument each charge 128 bytes; the local entry charges 256.
-    kernel.transformed_bytes = 64 * 1024 * 1024 - 511;
+    // The body charges 128 bytes and the local entry 256. Identity shares
+    // the argument without allocating a replacement node.
+    kernel.transformed_bytes = 64 * 1024 * 1024 - 383;
     assert!(kernel
         .instantiate(&var(0), &var(0), 0)
         .unwrap_err()

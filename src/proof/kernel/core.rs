@@ -1610,6 +1610,12 @@ impl Kernel {
             .collect()
     }
     fn shift(&mut self, value: &T, amount: usize, cutoff: usize, depth: usize) -> Result<T> {
+        // Identity needs no syntax walk; declaration scope and type checking
+        // still visit source terms independently before they can be reused.
+        if amount == 0 {
+            self.tick(depth)?;
+            return Ok(value.clone());
+        }
         self.transform(
             value,
             cutoff,

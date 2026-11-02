@@ -119,11 +119,21 @@ impl Kernel {
         )
     }
 
-    /// Discover shift invariance during the first shift already needed for an
-    /// argument. Inspect every annotation and bound-variable scope; universe
-    /// variables are unaffected by term shifting. No extra traversal or global
-    /// cache is needed, and later shifts in this batch use the same depth.
+    /// A zero shift is identity, without establishing that a compound term is
+    /// closed. Discover invariance during a needed nonzero shift by inspecting
+    /// every annotation and bound-variable scope. Universe variables are
+    /// unaffected. Reuse remains local to this argument and substitution batch.
     fn beta_shift_argument(&mut self, value: &T, amount: usize, depth: usize) -> Result<(T, bool)> {
+        if amount == 0 {
+            self.tick(depth)?;
+            // An identity shift proves nothing about free variables in a
+            // compound argument. Only these leaves are known invariant.
+            let invariant = matches!(
+                value.as_ref(),
+                Term::Sort(_) | Term::Global(..) | Term::NatLiteral { .. }
+            );
+            return Ok((value.clone(), invariant));
+        }
         let mut invariant = true;
         let shifted = self.transform(
             value,
@@ -418,7 +428,12 @@ mod tests {
         assert!(why.contains("resource limit"), "{why}");
         kernel.reset_budget();
         let why = kernel
-            .instantiate_many(&var(0), &[number(0), lam(nat(), var(1))], 0, DEPTH)
+            .instantiate_many(
+                &lam(nat(), var(1)),
+                &[number(0), lam(nat(), var(1))],
+                0,
+                DEPTH,
+            )
             .unwrap_err();
         assert!(why.contains("resource limit"), "{why}");
         kernel.reset_budget();
@@ -434,3 +449,7 @@ mod tests {
         assert!(why.contains("allocation limit"), "{why}");
     }
 }
+
+#[cfg(test)]
+#[path = "identity_shift_tests.rs"]
+mod identity_tests;

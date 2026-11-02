@@ -553,6 +553,13 @@ The independent closed GCD probe now gets beyond that depth failure, but
 still exceeds the per-phase transformation budget while reducing its base.
 This is not a checked closed GCD result.
 
+A term shift by zero shares its immutable argument root after the ordinary
+work/depth check. It needs no payload transformation. For a compound argument,
+identity alone does not prove absence of free variables: later nonzero shifts
+still inspect every annotation and binder scope before reusing an invariant
+result. Declaration scope, universe and type checking remain independent and
+still traverse all source terms, including ignored arguments and erased lets.
+
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks
 still run; globals with universe arguments still invoke universe substitution.

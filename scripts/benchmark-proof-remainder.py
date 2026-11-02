@@ -3,6 +3,7 @@
 
 Use compilers built with identical profiles. Cases that the old checker rejects
 are reported as coverage gains, never as successful-check speedups.
+Repeat --case NAME to measure selected cases within the resource guard.
 """
 import argparse
 import json
@@ -21,6 +22,7 @@ def main():
     parser.add_argument("--before", type=Path, required=True)
     parser.add_argument("--after", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=25)
+    parser.add_argument("--case", action="append", help="repeat to select individual cases")
     args = parser.parse_args()
     if not 1 <= args.iterations <= 1000:
         parser.error("iterations must be between 1 and 1000")
@@ -107,6 +109,11 @@ def main():
             "native_computed_subtraction": ["--check-theorem", str(computed_control), "computed-subtraction"],
             "native_computed_subtraction_exhausted": ["--check-theorem", str(computed), "computed-subtraction-exhausted"],
         })
+        if args.case:
+            unknown = set(args.case) - cases.keys()
+            if unknown:
+                parser.error("unknown case(s): " + ", ".join(sorted(unknown)))
+            cases = {name: arguments for name, arguments in cases.items() if name in args.case}
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]
             for iteration in range(args.iterations + 1):
