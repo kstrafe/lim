@@ -33,6 +33,21 @@ that planning scale has not been independently counted in this task. A full
 port includes the transitive mathematical dependency closure, not only the
 short final theorem declaration.
 
+## Availability of elaborated proof input
+
+An input audit on 2026-11-02 found 62,651 tracked files and 60,478 Lean source
+files in the pinned revision, with no tracked `.olean`, `.export`, `.ndjson`
+or archive artifacts. The repository's release endpoint listed no assets;
+`.lake/` and `.verify-work/` are excluded from Git. This is an audit of the
+published repository and releases, not proof that no copy exists elsewhere.
+The [pinned upstream export procedure](https://github.com/anthropics/fermats-last-theorem/blob/6e837e75355538c7f80bab5b956861e86c4eacc2/verification/nanoda/run.sh)
+reports roughly 90 GB resident memory. It has
+not been run under this task's unchanged 2-GiB guard. Full replay needs an
+available elaborated export or compiled products in addition to the remaining
+kernel and storage work; source metadata and another checker's success cannot
+substitute for Lim checking the terms. The pinned source checkout used for
+this audit is `/tmp/lim-flt-upstream`.
+
 ## License and provenance
 
 The metadata identifies the project as Apache-2.0, and the pinned
