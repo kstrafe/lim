@@ -416,3 +416,31 @@ wrappers in ordinary source.
 
 The [kernel's trust assumptions](kernel.md#trust-assumptions) still apply.
 Local rechecking and adversarial tests do not formally verify the checker.
+
+## Measuring replay memory
+
+Run the measurement tools inside the development resource guard:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-memory.py \
+  --lim target/debug/lim --iterations 3 --case raw_gcd_self --case native_gcd_self
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-retention.py \
+  --before /path/to/old/lim --after target/debug/lim --iterations 5
+```
+
+The first tool selects original/native targets and explicit budgets from the
+committed fixture manifests. Each sample starts a fresh Python worker and one
+compiler child, so process peak RSS belongs to that sample rather than an earlier
+larger child. JSON records include input size, selected budget, status, wall/CPU
+time and peak RSS in KiB. Checker failures and finite timeouts fail the tool;
+proof source and receipts are not printed. Repeat `--case` to select cases.
+
+The retention tool generates synthetic protocol stress from the hash-pinned
+identity fixture: by default, 3,000 additional theorem declarations with 32
+well-typed erased lets each. Every theorem is still checked. It records the
+exact input hash and alternates compiler order across samples. The input uses
+an explicit 1-GiB cumulative transformation budget; the default work and phase
+limits stay unchanged. These synthetic tautologies measure storage behavior,
+not new mathematical coverage or a genuine Lean producer output. Temporary
+inputs are removed afterwards. Neither tool invokes the resource guard again
+inside its workers or treats a measurement as proof authority.
