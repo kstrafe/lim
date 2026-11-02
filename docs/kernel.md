@@ -498,6 +498,10 @@ their beta/zeta redex before unfolding the resulting named call. In particular,
 an unused proof binder must not force both copies of an open well-founded
 worker to normalize. Substitution preserves outer variables and checks every
 source annotation even when subsequent reduction erases an argument.
+Consecutive explicit lambda arguments use simultaneous substitution in this
+lazy path too, sharing the eager path's binder and allocation checks. This
+batching never unfolds a global head; partial and overapplication retain their
+remaining lambda or neutral call.
 If no candidate establishes equality, ordinary fallback resumes from the last
 completed reductions of either operand. It does not repeat their completed
 wrapper/beta prefixes. Reuse stays inside the same comparison and typing

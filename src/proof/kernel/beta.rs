@@ -1,8 +1,20 @@
 //! Simultaneous substitution for consecutive, already checked lambda binders.
 use super::*;
 
+#[cfg(test)]
+#[path = "explicit_beta_tests.rs"]
+mod explicit_tests;
+
 impl Kernel {
     pub(super) fn natural_beta_spine(&mut self, value: &T, depth: usize) -> Result<Option<T>> {
+        self.beta_spine(value, true, depth)
+    }
+
+    pub(super) fn explicit_beta_spine(&mut self, value: &T, depth: usize) -> Result<Option<T>> {
+        self.beta_spine(value, false, depth)
+    }
+
+    fn beta_spine(&mut self, value: &T, delta: bool, depth: usize) -> Result<Option<T>> {
         let mut head = value;
         let mut count = 0;
         while let Term::App(function, _) = head.as_ref() {
@@ -12,7 +24,9 @@ impl Kernel {
         }
         let body = match head.as_ref() {
             Term::Lam(..) => Some(head),
-            Term::Global(name, _) => self.declarations.get(name).and_then(|d| d.value.as_ref()),
+            Term::Global(name, _) if delta => {
+                self.declarations.get(name).and_then(|d| d.value.as_ref())
+            }
             _ => None,
         };
         if count < 2
@@ -29,7 +43,11 @@ impl Kernel {
             cursor = function;
         }
         arguments.reverse();
-        let mut body = self.natural_head(head, depth + count)?;
+        let mut body = if delta {
+            self.natural_head(head, depth + count)?
+        } else {
+            head.clone()
+        };
         let mut consumed = 0;
         while consumed < count {
             let Term::Lam(_, next) = body.as_ref() else {

@@ -981,6 +981,15 @@ impl Kernel {
         let mut value = value.clone();
         loop {
             self.tick(depth)?;
+            if !delta
+                && matches!(value.as_ref(), Term::App(function, _)
+                    if matches!(function.as_ref(), Term::App(..)))
+            {
+                if let Some(reduced) = self.explicit_beta_spine(&value, depth + 1)? {
+                    value = reduced;
+                    continue;
+                }
+            }
             if delta && matches!(value.as_ref(), Term::App(..) | Term::Project { .. }) {
                 let head = self.natural_head(&value, depth + 1)?;
                 if !Arc::ptr_eq(&head, &value) {
