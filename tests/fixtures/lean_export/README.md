@@ -73,6 +73,13 @@ and native checks retain `Quot.sound`, `propext` and quotient computation;
 more work never authorizes a missing assumption. Private source attribution
 additionally pins `Init.Data.Nat.Div.Basic`.
 
+The twenty-second [GCD calculation corpus](../lean_export_gcd_calculation/README.md)
+checks the explicit recurrence-based proof of `Nat.gcd 84 30 = 6`, with 278
+raw/native declarations, exactly `Quot.sound`, the quotient primitive package
+and a recorded 1,000,000-work/128-MiB-phase/1-GiB-total profile. It preserves
+source ownership, licenses and hashes. It does not assert that direct `rfl`
+worker unfolding, the full GCD development, or FLT replay is complete.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

@@ -549,9 +549,15 @@ replay, emitted native source and independent native checking retain the same
 basis. The default work budget correctly refuses this larger proof closure;
 selecting its recorded budget changes no proof rule. Source ownership includes
 the independently pinned `Init.Data.Nat.Div.Basic` fuel-congruence proof.
-The independent closed GCD probe now gets beyond that depth failure, but
-still exceeds the per-phase transformation budget while reducing its base.
-This is not a checked closed GCD result.
+The [GCD calculation corpus](../tests/fixtures/lean_export_gcd_calculation/README.md)
+checks `Nat.gcd 84 30 = 6` by applying already checked successor/zero-left
+lemmas and computing the intermediate remainders. All 278 original and native
+declarations check with the same explicit resource profile, exactly
+`Quot.sound`, and the quotient primitive package. No GCD name authorizes an
+equation. This is an explicit mathematical calculation, not direct unfolding
+of the entire worker. The separate `rfl` probe now passes its former depth
+failure but still exceeds per-phase transformation traffic while reducing
+its base. General GCD development and the full FLT proof remain open.
 
 A term shift by zero shares its immutable argument root after the ordinary
 work/depth check. It needs no payload transformation. For a compound argument,

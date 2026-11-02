@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with twenty-one committed genuine
+for this accepted subset, with twenty-two committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -407,10 +407,18 @@ resource choices, recorded independently of the exact `Quot.sound, propext`
 logical basis and quotient primitive foundation. Every original and translated
 native declaration is checked; both paths reject the default work budget.
 The constructive policy still refuses the imported axioms. Source ownership
-and attribution additionally pin `Init.Data.Nat.Div.Basic`. Closed GCD
-computation, other arithmetic, arbitrary course-of-values computation and
-large-environment storage/replay remain open. This does not
-provide the full mathematical dependency closure or its proof.
+and attribution additionally pin `Init.Data.Nat.Div.Basic`.
+
+The twenty-second [GCD calculation corpus](../tests/fixtures/lean_export_gcd_calculation/README.md)
+adds a closed proof of `Nat.gcd 84 30 = 6`. It applies the checked successor
+recurrence four times and the zero-left theorem, with each remainder checked
+by conversion. All 278 raw and native declarations check with the explicit
+resource profile, exactly `Quot.sound`, and the quotient primitive package.
+The unchanged default work budget refuses this larger calculation. Its
+provenance retains all six upstream source owners and notices. Direct closed
+GCD worker evaluation, other arithmetic, arbitrary course-of-values computation
+and large-environment storage/replay remain open. This does not provide the
+full mathematical dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:
 

@@ -156,7 +156,12 @@ report the same `Quot.sound, propext` basis and quotient primitive package.
 Both raw and native checking refuse the unchanged default work budget;
 constructive replay still refuses the imported axioms even with more work.
 Canonical private ownership additionally pins `Init.Data.Nat.Div.Basic`.
-Closed GCD computation and the full FLT dependency closure remain open.
+The [GCD calculation corpus](../tests/fixtures/lean_export_gcd_calculation/README.md)
+checks the closed result `Nat.gcd 84 30 = 6` using actual `Nat.gcd_succ` and
+`Nat.gcd_zero_left` proofs, with remainders checked by ordinary conversion.
+Its 278 declarations replay and translate independently with the same explicit
+budget, exactly `Quot.sound`, and quotient primitive computation. Direct `rfl`
+worker evaluation and the full FLT dependency closure remain open.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

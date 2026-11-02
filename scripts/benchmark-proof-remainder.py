@@ -102,6 +102,16 @@ def main():
             "raw_gcd_self": ["--check-lean-export", gcd_self["export"]["file"], target, "--lean-foundations", *budget_args],
             "native_gcd_self": ["--check-theorem", gcd_self["native"]["file"], gcd_self["native"]["targets"][target], *budget_args],
         })
+        calculation = json.loads((ROOT / "tests/fixtures/lean_export_gcd_calculation/provenance.json").read_bytes())
+        selected = calculation["proof_budget"]
+        calculation_budget = ["--proof-work", str(selected["work_per_phase"]),
+                              "--proof-phase-bytes", str(selected["transformation_bytes_per_phase"]),
+                              "--proof-total-bytes", str(selected["transformation_bytes_total"])]
+        target = calculation["targets"][-1]
+        cases.update({
+            "raw_gcd_calculation": ["--check-lean-export", calculation["export"]["file"], target, "--lean-foundations", *calculation_budget],
+            "native_gcd_calculation": ["--check-theorem", calculation["native"]["file"], calculation["native"]["targets"][target], *calculation_budget],
+        })
         computed = ROOT / "examples/proof_computed_subtraction.lim"
         computed_control = work / "computed-control.lim"
         computed_control.write_text(computed.read_text().split("(#theorem computed-subtraction-exhausted")[0])

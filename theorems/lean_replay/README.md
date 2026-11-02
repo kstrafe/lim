@@ -99,7 +99,8 @@ and zero-right. The first two report exactly `Quot.sound`; zero-right also
 reports `propext`. Raw replay requires `--lean-foundations`. The pinned
 `Init.Data.Nat.Gcd` source, private ownership, exact native mapping and
 assumption inventories are retained in the corpus provenance. The generic
-self theorem and closed GCD computation remain open.
+self theorem is covered separately below; direct closed worker computation
+remains open.
 
 The twenty-first file, [`gcd-self.lim`](gcd-self.lim), translates the
 [GCD self corpus](../../tests/fixtures/lean_export_gcd_self/README.md). All 335
@@ -108,7 +109,7 @@ records the explicit 1,000,000-work/128-MiB-phase/1-GiB-total profile; comments
 do not configure the checker, so standalone checking must supply these flags.
 The exact basis is `Quot.sound, propext` with quotient computation. Canonical
 ownership, mappings, source hashes and attribution include `Init.Data.Nat.Div.Basic`.
-Closed GCD computation and the complete FLT proof remain unfinished.
+Direct closed GCD worker evaluation and the complete FLT proof remain unfinished.
 
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
@@ -151,3 +152,12 @@ replays each export, translates and rechecks its complete native source, then
 invokes ordinary `--check-theorem` on the resulting file. It verifies every
 artifact before publishing changed files. It uses Python's standard library
 and Lim; regeneration needs no Lean installation or external libraries.
+
+The twenty-second file, [`gcd-calculation.lim`](gcd-calculation.lim), translates
+an explicit [closed GCD calculation](../../tests/fixtures/lean_export_gcd_calculation/README.md).
+Its 278 original and independently checked native declarations prove
+`Nat.gcd 84 30 = 6` through checked recurrence lemmas and remainder conversion.
+It records exactly `Quot.sound`, the quotient primitive package and the explicit
+1,000,000-work/128-MiB-phase/1-GiB-total profile. Direct `rfl` worker evaluation
+still exceeds its resource bounds; this adds a mathematical calculation rather
+than claiming that evaluation path is supported. The full FLT proof is open.
