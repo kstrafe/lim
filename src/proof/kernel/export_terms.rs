@@ -66,10 +66,7 @@ impl Replay {
         if self.name_bytes > MAX_NAME_BYTES {
             return Err("export name byte limit exceeded".into());
         }
-        if !self.name_keys.insert(name.key.clone()) {
-            return Err("duplicate interned export name".into());
-        }
-        self.names.push(name);
+        self.names.push(name)?;
         Ok(())
     }
     pub(super) fn level_record(&mut self, value: &Json) -> Result<()> {
@@ -235,10 +232,10 @@ impl Replay {
             Expression::Sort(id) => self.levels[*id].memory_weight(),
             Expression::Global(name, levels) => levels
                 .iter()
-                .fold(self.names[*name].key.len(), |total, id| {
+                .fold(self.names.get(*name)?.key.len(), |total, id| {
                     total.saturating_add(self.levels[*id].memory_weight())
                 }),
-            Expression::Project(name, ..) => self.names[*name].key.len(),
+            Expression::Project(name, ..) => self.names.get(*name)?.key.len(),
             Expression::Alias(id) => self.expressions.payload(*id)?,
             _ => 0,
         };

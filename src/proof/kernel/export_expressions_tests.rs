@@ -13,12 +13,8 @@ fn slots_empty(values: &Expressions) -> bool {
         None => memo.slots.iter().all(Option::is_none),
     }
 }
-fn root_names() -> Vec<Name> {
-    vec![Name {
-        key: "$lean:".into(),
-        display: String::new(),
-        depth: 0,
-    }]
+fn root_names() -> names::Names {
+    names::Names::new()
 }
 
 #[test]
@@ -233,6 +229,47 @@ fn spilling_preserves_live_syntax_and_releases_dead_sparse_handles() {
 }
 
 #[test]
+fn dead_weak_syntax_reconstructs_backward_references_to_spilled_source_names() {
+    let mut replay = Replay::new();
+    replay.names = names::Names::with_limit(0);
+    replay.expressions = Expressions::with_limit(false, 0);
+    for input in [
+        r#"{"in":1,"str":{"pre":0,"str":"Foo"}}"#,
+        r#"{"in":2,"str":{"pre":1,"str":"Bar"}}"#,
+    ] {
+        replay
+            .name_record(&crate::lsp::json::parse(input).unwrap())
+            .unwrap();
+    }
+    record(&mut replay, r#"{"ie":0,"const":{"name":2,"us":[]}}"#).unwrap();
+    record(
+        &mut replay,
+        r#"{"ie":1,"proj":{"typeName":1,"idx":0,"struct":0}}"#,
+    )
+    .unwrap();
+    assert!(replay.names.is_spilled());
+    assert!(replay.expressions.is_spilled());
+
+    let original = replay.expression(&number_json(1)).unwrap();
+    let weak = Arc::downgrade(&original);
+    drop(original);
+    replay.expressions.end_record();
+    assert!(weak.upgrade().is_none());
+    assert!(slots_empty(&replay.expressions));
+
+    let rebuilt = replay.expression(&number_json(1)).unwrap();
+    let Term::Project {
+        family, subject, ..
+    } = rebuilt.as_ref()
+    else {
+        panic!("projection")
+    };
+    assert_eq!(family, "$lean:s3:Foo");
+    assert!(matches!(subject.as_ref(), Term::Global(name, levels)
+        if name == "$lean:s3:Foos3:Bar" && levels.is_empty()));
+}
+
+#[test]
 fn forced_spill_preserves_failures_after_the_selected_target() {
     let original = include_str!("../../../tests/fixtures/lean_export/identity.ndjson");
     let invalids = [
@@ -243,6 +280,7 @@ fn forced_spill_preserves_failures_after_the_selected_target() {
     for source in invalids {
         let normal = check_lean_export(source.as_bytes(), "Audit.identity.theorem").unwrap_err();
         let mut replay = Replay::new();
+        replay.names = names::Names::with_limit(0);
         replay.expressions = Expressions::with_limit(false, 0);
         let spilled = match replay_reader(source.as_bytes(), "Audit.identity.theorem", replay) {
             Ok(_) => panic!("invalid source accepted after spilling"),

@@ -289,9 +289,8 @@ impl Replay {
                 .iter()
                 .map(|ctor| {
                     self.names
-                        .iter()
-                        .find(|name| name.key == ctor.name)
-                        .cloned()
+                        .by_key(&ctor.name)?
+                        .map(std::borrow::Cow::into_owned)
                         .ok_or_else(|| "missing original nested constructor name".to_owned())
                 })
                 .collect::<Result<Vec<_>>>()?;

@@ -141,15 +141,18 @@ fn generate_model() -> Vec<ModelNode> {
     nodes
 }
 
-fn model_names() -> Vec<Name> {
-    ["$lean:", "Model.Pair", "Model.Box"]
-        .into_iter()
-        .map(|key| Name {
-            key: key.into(),
-            display: key.into(),
-            depth: 0,
-        })
-        .collect()
+fn model_names() -> names::Names {
+    let mut names = names::Names::new();
+    for key in ["Model.Pair", "Model.Box"] {
+        names
+            .push(Name {
+                key: key.into(),
+                display: key.into(),
+                depth: 0,
+            })
+            .unwrap();
+    }
+    names
 }
 
 fn assert_model_coverage(nodes: &[ModelNode]) {

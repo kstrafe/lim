@@ -183,7 +183,7 @@ impl Expressions {
         mut expression: Expression,
         depth: usize,
         payload: usize,
-        names: &[Name],
+        names: &names::Names,
         levels: &[Level],
     ) -> Result<()> {
         match &mut self.storage {
@@ -222,7 +222,7 @@ impl Expressions {
         Ok(())
     }
 
-    pub(super) fn get(&self, id: usize, names: &[Name], levels: &[Level]) -> Result<T> {
+    pub(super) fn get(&self, id: usize, names: &names::Names, levels: &[Level]) -> Result<T> {
         match &self.storage {
             Storage::Eager(values) => values
                 .get(id)
@@ -264,7 +264,7 @@ fn materialize(
     entries: &Entries,
     memo: &mut Materialized,
     id: usize,
-    names: &[Name],
+    names: &names::Names,
     levels: &[Level],
     depth: usize,
 ) -> Result<T> {
@@ -292,7 +292,7 @@ fn materialize(
 
 fn construct(
     expression: &Expression,
-    names: &[Name],
+    names: &names::Names,
     levels: &[Level],
     get: &mut impl FnMut(usize) -> Result<T>,
 ) -> Result<T> {
@@ -305,11 +305,7 @@ fn construct(
                 .clone(),
         ),
         Expression::Global(id, arguments) => Term::Global(
-            names
-                .get(*id)
-                .ok_or("invalid source name index")?
-                .key
-                .clone(),
+            names.get(*id)?.key.clone(),
             arguments
                 .iter()
                 .map(|id| {
@@ -325,11 +321,7 @@ fn construct(
         Expression::Pi(a, b) => Term::Pi(get(*a)?, get(*b)?),
         Expression::Let(a, b, c) => Term::Let(get(*a)?, get(*b)?, get(*c)?),
         Expression::Project(name, index, subject) => Term::Project {
-            family: names
-                .get(*name)
-                .ok_or("invalid source name index")?
-                .key
-                .clone(),
+            family: names.get(*name)?.key.clone(),
             index: *index,
             subject: get(*subject)?,
         },

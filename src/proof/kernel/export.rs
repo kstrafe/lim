@@ -14,6 +14,8 @@ mod expressions;
 mod fixtures_tests;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_names.rs"]
+mod names;
 #[path = "export_quotient.rs"]
 mod quotient;
 #[path = "export_report.rs"]
@@ -88,7 +90,7 @@ impl std::fmt::Display for LeanExportError {
 }
 impl std::error::Error for LeanExportError {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Name {
     key: String,
     display: String,
@@ -96,8 +98,7 @@ struct Name {
 }
 struct Replay {
     kernel: Kernel,
-    names: Vec<Name>,
-    name_keys: HashSet<String>,
+    names: names::Names,
     name_bytes: usize,
     levels: Vec<Level>,
     expressions: expressions::Expressions,
@@ -315,12 +316,7 @@ impl Replay {
         }
         Self {
             kernel,
-            names: vec![Name {
-                key: "$lean:".into(),
-                display: String::new(),
-                depth: 0,
-            }],
-            name_keys: HashSet::from(["$lean:".into()]),
+            names: names::Names::new(),
             name_bytes: 0,
             levels: vec![Level::number(0).expect("zero universe")],
             expressions: expressions::Expressions::new(retain_bodies),
@@ -416,13 +412,13 @@ impl Replay {
     }
     fn name_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;
-        self.names
-            .get(id)
-            .ok_or("name reference must refer to an earlier record")?;
+        if id >= self.names.len() {
+            return Err("name reference must refer to an earlier record".into());
+        }
         Ok(id)
     }
     fn name(&self, value: &Json) -> Result<Name> {
-        Ok(self.names[self.name_id(value)?].clone())
+        Ok(self.names.get(self.name_id(value)?)?.into_owned())
     }
     fn level_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;

@@ -313,6 +313,21 @@ original proof body for emission and independent correspondence checking. Input,
 source/table/payload, work/depth and transformation limits remain unchanged.
 This storage change does not provide full-environment replay or an FLT proof.
 
+The expanded name table also spills above a 1-MiB resident allocation estimate,
+in both replay and native emission. Exact key, display spelling and component
+depth move to separate data and fixed-index scratch files, with four 64-KiB
+read pages and one pending page each. An in-memory index retains randomized
+64-bit hashes and numeric candidate IDs. Hash collisions compare complete
+canonical keys, so they cannot merge names or change symbol identity. Lookup
+of original nested-constructor names uses that index. Every name's fields are
+compared independently after encoding before its in-memory form is released.
+Scratch pages remain protected by SHA-256 digests held by this invocation.
+
+Name records are bounded to 32,778 encoded bytes. Input name counts, cumulative
+key/display payload limits, component depth, UTF-8 and backward-ID checks remain
+unchanged, including unused names after the selected theorem. The candidate-ID
+index remains in RAM; this does not make the whole environment constant-space.
+
 Replay also stores completed kernel declarations in invocation-local scratch
 storage when their conservative resident estimate exceeds 8 MiB. It releases
 older declarations down to 4 MiB and keeps later reads within the remaining
@@ -334,8 +349,8 @@ These immediately unlinked files are temporary backing storage for the current
 kernel environment. No earlier process’s judgment or persistent cache can
 insert a declaration. Records are bounded to 32 MiB, one million term nodes and
 depth 256; the scratch file is bounded to 128 MiB. Native source emission keeps
-its environment resident. Nested-family views, names, universe tables and
-receipt inventories still need further work for very large upstream exports.
+its environment resident. Nested-family views, name candidate IDs, universe
+tables and receipt inventories still need further work for very large exports.
 
 ## Native proof-source translation
 
@@ -483,6 +498,7 @@ inside the separate host memory/CPU guard.
 | Input | 64 MiB total; 8 MiB per record line |
 | JSON nesting | 64 |
 | Interned names | 100,000 entries; 256 components; 16,384 bytes per display/key; 16 MiB combined payload |
+| Expanded name storage | 1 MiB resident estimate before spilling; 32,778-byte records; separate protected data/index scratch files |
 | Universe table | 20,000 entries; 64 KiB accounted payload per level |
 | Universe parameter identity | 512 bytes |
 | Expression table | 200,000 entries; graph depth 256 |
@@ -509,8 +525,9 @@ universe payloads, including temporary transformations. These are explicit
 work/payload budgets, not exact process RSS measurements. Input is read one
 bounded line at a time, and replay-only expression nodes can spill to bounded
 scratch storage. Completed raw-replay declarations also have bounded resident
-storage; names, universe values, nested-family views and report metadata remain
-in RAM. This does not provide full-environment storage for enormous exports.
+storage, and expanded names can spill. Name candidate IDs, universe values,
+nested-family views and report metadata remain in RAM. This does not provide
+full-environment storage for enormous exports.
 The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
@@ -616,3 +633,24 @@ Both compilers emit the same 830,046-byte receipt with SHA-256
 The default work/phase limits, explicit 4-GiB cumulative transformation budget
 and separate 2-GiB/two-core host guard match. This measures storage scaling;
 it adds no genuine mathematical theorem or FLT dependency coverage.
+
+The name tool appends 12,000 unused 512-byte name components to the identity
+fixture. They contribute 12,588,126 bytes of expanded keys/displays, while the
+reader must still validate every record after the theorem. Preflight requires
+equal complete receipt fingerprints, then five alternating fresh workers use
+the unchanged default proof budgets and 2-GiB/two-core host guard:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-names.py \
+  --before /path/to/before/lim --after target/debug/lim --iterations 5
+```
+
+Against `a372a85c`, median debug0 compiler RSS falls from 34,472 to 17,764 KiB
+(48.5%). Wall time increases from 343.947 to 625.294 ms (81.8%); this workload
+isolates retained names and pays for protected backing storage. Its
+6,590,262-byte input has SHA-256
+`a8c7195d1d4c13da6be896827a963539f79b9e27dd9f76fbceff0027f841f8e2`.
+Both compilers emit the same 1,012-byte receipt with SHA-256
+`25bed32876f119316c749613a1782491639cee674c60e787972160bf4b429b52`.
+This is synthetic importer storage evidence, not a genuine additional proof
+or a measurement of the full FLT environment.
