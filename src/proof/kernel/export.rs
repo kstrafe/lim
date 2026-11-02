@@ -24,6 +24,8 @@ mod report;
 mod source;
 #[path = "export_spool.rs"]
 mod spool;
+#[path = "export_strings.rs"]
+mod strings;
 #[path = "export_terms.rs"]
 mod terms;
 pub use source::LeanExportTranslation;
@@ -109,6 +111,7 @@ struct Replay {
     dependency_bytes: usize,
     transformation_bytes: usize,
     natural_literals: bool,
+    string_literals: bool,
     line: usize,
     input_hash: hash::Sha256,
     digest: Option<String>,
@@ -328,6 +331,7 @@ impl Replay {
             dependency_bytes: 0,
             transformation_bytes: 0,
             natural_literals: false,
+            string_literals: false,
             line: 0,
             input_hash: hash::Sha256::new(),
             digest: None,

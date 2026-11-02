@@ -35,10 +35,21 @@ fn choose_child(rng: &mut FixedRng, nodes: &[ModelNode], max_depth: usize) -> us
 
 fn generate_model() -> Vec<ModelNode> {
     let mut rng = FixedRng(0x51a7_c0de);
-    let mut nodes = vec![ModelNode {
-        expression: Expression::Var(0),
-        depth: 1,
-    }];
+    let mut nodes = vec![
+        ModelNode {
+            expression: Expression::Var(0),
+            depth: 1,
+        },
+        {
+            let expression = Expression::String("é\0𝄞".into());
+            let (depth, _) = super::super::strings::dimensions(match &expression {
+                Expression::String(value) => value,
+                _ => unreachable!(),
+            })
+            .unwrap();
+            ModelNode { expression, depth }
+        },
+    ];
 
     while nodes.len() < NODE_COUNT {
         let kind = rng.below(16);
@@ -92,16 +103,21 @@ fn generate_model() -> Vec<ModelNode> {
         } else {
             // Leaves make the generated graph mixed and exercise external
             // name/universe lookup and compact natural payload storage.
-            match rng.below(4) {
+            match rng.below(5) {
                 0 => (Expression::Var(rng.below(4)), 1),
                 1 => (Expression::Sort(rng.below(2)), 1),
                 2 => (Expression::Global(1 + rng.below(2), vec![rng.below(2)]), 1),
-                _ => (
+                3 => (
                     Expression::Natural(
                         Natural::parse(&(rng.next() % 1_000_000).to_string()).unwrap(),
                     ),
                     1,
                 ),
+                _ => {
+                    let value = ["", "a", "é", "𝄞\0", "x\u{1}y"][rng.below(5)];
+                    let (depth, _) = super::super::strings::dimensions(value).unwrap();
+                    (Expression::String(value.into()), depth)
+                }
             }
         };
         assert!(depth <= MAX_MODEL_DEPTH);
@@ -112,7 +128,7 @@ fn generate_model() -> Vec<ModelNode> {
         match &expression {
             Expression::Alias(a) => references.push(*a),
             Expression::Sort(_) | Expression::Var(_) => {}
-            Expression::Global(_, _) | Expression::Natural(_) => {}
+            Expression::Global(_, _) | Expression::Natural(_) | Expression::String(_) => {}
             Expression::App(a, b) | Expression::Lam(a, b) | Expression::Pi(a, b) => {
                 references.extend([*a, *b]);
             }
@@ -137,7 +153,7 @@ fn model_names() -> Vec<Name> {
 }
 
 fn assert_model_coverage(nodes: &[ModelNode]) {
-    let mut seen = [false; 10];
+    let mut seen = [false; 11];
     let mut alias_edges = 0;
     let mut incoming_edges = vec![0usize; nodes.len()];
     for node in nodes {
@@ -176,6 +192,7 @@ fn assert_model_coverage(nodes: &[ModelNode]) {
                 alias_edges += 1;
                 incoming_edges[*a] += 1;
             }
+            Expression::String(_) => seen[10] = true,
         }
     }
     assert!(

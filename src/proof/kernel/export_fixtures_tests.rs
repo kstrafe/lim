@@ -406,6 +406,23 @@ fn genuine_gcd_calculation_retains_explicit_budget_mapping_hashes_and_attributio
     );
 }
 
+#[test]
+fn genuine_strings_retain_budgeted_mapping_hashes_and_attribution() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_strings/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_strings/strings.ndjson"),
+        include_str!("../../../theorems/lean_replay/strings.lim"),
+        "StringLiteralProbe.balanced",
+        "lim-lean-strings-fixture-v1",
+        &[],
+        (
+            5,
+            &[],
+            crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap(),
+        ),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

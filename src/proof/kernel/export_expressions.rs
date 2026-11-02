@@ -15,6 +15,7 @@ pub(super) enum Expression {
     Let(usize, usize, usize),
     Project(usize, usize, usize),
     Natural(Natural),
+    String(String),
     Alias(usize),
 }
 
@@ -107,7 +108,7 @@ pub(super) struct Expressions {
 }
 
 enum Storage {
-    Eager(Vec<(T, usize)>),
+    Eager(Vec<(T, usize, usize)>),
     Compact {
         entries: Entries,
         materialized: RefCell<Materialized>,
@@ -143,7 +144,7 @@ impl Expressions {
         match &self.storage {
             Storage::Eager(values) => values
                 .get(id)
-                .map(|(_, depth)| *depth)
+                .map(|(_, depth, _)| *depth)
                 .ok_or_else(reference_error),
             Storage::Compact { entries, .. } => entries.meta(id).map(|meta| meta.depth),
         }
@@ -152,7 +153,7 @@ impl Expressions {
         match &self.storage {
             Storage::Eager(values) => values
                 .get(id)
-                .map(|(value, _)| payload(value))
+                .map(|(_, _, payload)| *payload)
                 .ok_or_else(reference_error),
             Storage::Compact { entries, .. } => entries.meta(id).map(|meta| meta.payload),
         }
@@ -178,10 +179,10 @@ impl Expressions {
                 let value = construct(&expression, names, levels, &mut |id| {
                     values
                         .get(id)
-                        .map(|(value, _)| value.clone())
+                        .map(|(value, _, _)| value.clone())
                         .ok_or_else(reference_error)
                 })?;
-                values.push((value, depth));
+                values.push((value, depth, payload));
             }
             Storage::Compact {
                 entries,
@@ -213,7 +214,7 @@ impl Expressions {
         match &self.storage {
             Storage::Eager(values) => values
                 .get(id)
-                .map(|(value, _)| value.clone())
+                .map(|(value, _, _)| value.clone())
                 .ok_or_else(reference_error),
             Storage::Compact {
                 entries,
@@ -319,11 +320,13 @@ fn construct(
             family: "$lean:s3:Nat".into(),
             value: value.clone(),
         },
+        Expression::String(value) => return strings::expand(value),
         Expression::Alias(id) => return get(*id),
     };
     Ok(term(value))
 }
 
+#[cfg(test)]
 pub(super) fn payload(value: &T) -> usize {
     match value.as_ref() {
         Term::NatLiteral { family, value } => family.len().saturating_add(value.decimal().len()),

@@ -314,6 +314,19 @@ for this accepted subset, with twenty-two committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
+The [genuine string-literal corpus](../tests/fixtures/lean_export_strings/README.md)
+adds five raw/native targets across 378 declarations with empty assumption
+inventories. Unicode scalars, embedded NUL and longer literals expand through
+typed standard helpers using ordinary calls and balanced lambdas. The pinned
+kernel's constructor expansion and byte-length decoding were audited before
+implementation. Helper identities, signatures and universe arities are checked;
+their bodies still undergo complete ordinary replay. Input literals are bounded
+to 4,096 UTF-8 bytes, and expanded storage is accounted before materialization.
+The explicit 1M-work/128-MiB-phase/1-GiB-total profile checks these proofs;
+defaults still refuse an earlier `Char.ofNat` proof. A changed-literal negative
+control exhausts conversion work, which is bounded refusal rather than an
+inequality decision. This supplies neither full Lean parity nor the FLT port.
+
 Natural literals now stay compact as canonical decimal values rather than
 magnitude-sized unary constructor graphs. They have the exact nominal
 zero/successor semantics of the independently checked natural-number family;

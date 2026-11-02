@@ -161,3 +161,13 @@ It records exactly `Quot.sound`, the quotient primitive package and the explicit
 1,000,000-work/128-MiB-phase/1-GiB-total profile. Direct `rfl` worker evaluation
 still exceeds its resource bounds; this adds a mathematical calculation rather
 than claiming that evaluation path is supported. The full FLT proof is open.
+
+The twenty-third file, [`strings.lim`](strings.lim), translates the
+[string-literal corpus](../../tests/fixtures/lean_export_strings/README.md).
+Its 378 declarations check five original proofs covering empty, ASCII,
+Unicode, NUL and longer literal data with empty assumption inventories. All
+literals expand into ordinary checked calls, with balanced lambdas for longer
+sequences. The explicit profile is 1,000,000-work/128-MiB-phase/1-GiB-total;
+unchanged defaults refuse an earlier `Char.ofNat` proof. No primitive string
+rule or proof admission is introduced. Its manifest records private source
+ownership and exact raw/native correspondence; full FLT replay remains open.

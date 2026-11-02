@@ -1,6 +1,7 @@
 //! Bounded source-node storage. The scratch index and data pages are checked
 //! against digests held by this invocation; neither contains checked judgments.
 use super::super::spool::Spool;
+use super::super::strings::MAX_STRING_BYTES;
 use super::*;
 use std::borrow::Cow;
 
@@ -106,6 +107,7 @@ impl Entries {
                     .capacity()
                     .saturating_mul(std::mem::size_of::<usize>()),
                 Expression::Natural(value) => value.decimal().len(),
+                Expression::String(value) => value.capacity(),
                 _ => 0,
             };
             let capacity = if values.len() == values.capacity() {
@@ -238,6 +240,14 @@ fn encode(node: &Expression) -> Result<Vec<u8>> {
             out.extend_from_slice(n.decimal().as_bytes());
         }
         Expression::Alias(a) => numbers!(9, a),
+        Expression::String(value) => {
+            if value.len() > MAX_STRING_BYTES {
+                return Err("replay scratch string byte limit exceeded".into());
+            }
+            out.push(10);
+            out.extend_from_slice(&(value.len() as u16).to_le_bytes());
+            out.extend_from_slice(value.as_bytes());
+        }
     }
     if out.len() > MAX_RECORD {
         return Err("replay scratch record byte limit exceeded".into());
@@ -282,6 +292,15 @@ fn decode(bytes: &[u8], id: usize) -> Result<Expression> {
             Expression::Natural(Natural::parse(text)?)
         }
         9 => Expression::Alias(child(&mut c, id)?),
+        10 => {
+            let count = c.u16()? as usize;
+            if count > MAX_STRING_BYTES {
+                return Err("replay scratch string byte limit exceeded".into());
+            }
+            let text = std::str::from_utf8(c.take(count)?)
+                .map_err(|_| "replay scratch string is not UTF-8")?;
+            Expression::String(text.to_owned())
+        }
         _ => return Err("unknown replay scratch expression tag".into()),
     };
     if !c.0.is_empty() {

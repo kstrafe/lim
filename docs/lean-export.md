@@ -21,7 +21,7 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Fifteen real exports of original small Lean proofs replay and translate to
+The committed genuine exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
 multiply nested, Sigma container, quotient computation and compact natural
 literal cases, standard natural arithmetic, generic discrimination and the
@@ -108,6 +108,28 @@ shifts/universe walks while retaining node, scope and depth/work checks. It reta
 restores enclosing limits on success, decline or error. Expensive expressions
 and larger combined corpora can still exceed the work/allocation limits; these
 fixtures do not establish arbitrary division algorithms or full FLT.
+
+String literals of at most 4,096 UTF-8 bytes expand through the previously
+checked standard `Char.ofNat`, `String.ofList`, `List.nil` and `List.cons`
+identities, following the pinned kernel's
+[constructor expansion](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/kernel/inductive.cpp#L1368-L1399).
+The reader verifies the helper signatures, closed types and universe arities,
+including `Char`, `String`, `List` and the nominal natural-number family.
+Every helper body is independently checked through normal replay. Decoding
+uses Unicode scalars and preserves embedded NUL: the reference
+[string wrapper](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/runtime/string_ref.h#L23-L30)
+and [decoder](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/runtime/utf8.cpp#L198-L207)
+use explicit byte lengths. Invalid UTF-8 and unpaired surrogate escapes fail JSON parsing.
+Larger constructor sequences use closed, balanced lambdas whose ordinary beta
+reduction recovers the exact list. No new string primitive or proof admission
+is installed. Expansion storage and depth are accounted before constructing
+even unused syntax; normal work, depth and transformation limits still apply.
+The [genuine string corpus](../tests/fixtures/lean_export_strings/README.md)
+checks five raw/native targets across 378 declarations, with empty assumption
+inventories and the explicit 1M-work/128-MiB-phase/1-GiB-total profile. Default
+work refusal occurs earlier in `Char.ofNat._proof_2`. A false altered-literal
+control currently exhausts ordinary conversion work; that refusal is not a
+completed string-inequality decision.
 
 The [remainder corpus](../tests/fixtures/lean_export_remainder/README.md) adds
 fifteen targets over 256 genuine declarations, including computed sums/powers
@@ -448,6 +470,7 @@ inside the separate host memory/CPU guard.
 | Expanded nested recursion group | 16 total main and scoped container cases |
 | Parameters, indices, constructors, fields and per-family rules | 64 each |
 | Natural-literal representation | Canonical unsigned decimal string, at most 4,096 digits |
+| String-literal representation | Valid UTF-8, at most 4,096 bytes; Unicode scalar expansion through checked helpers |
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
 | Structural arithmetic | Decimal digit work counts against the core budget before each addition/multiplication; at most 4,096 result digits |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
@@ -465,7 +488,7 @@ The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
 
-String literals, arbitrary axiom declarations, Lean surface syntax/tactics,
+Arbitrary axiom declarations, Lean surface syntax/tactics,
 other standard arithmetic operations and full-environment storage/replay are
 not implemented. Bounded native proof-source translation is supported for the
 accepted export subset. General mathematical Nat and universe

@@ -193,8 +193,12 @@ impl Replay {
             let value = Natural::parse(string(value)?)?;
             self.natural_literals = true;
             Expression::Natural(value)
-        } else if data.contains_key("strVal") {
-            return Err("string literal replay is not implemented".into());
+        } else if let Some(value) = data.get("strVal") {
+            let value = string(value)?;
+            strings::dimensions(value)?;
+            self.ensure_string_signature()?;
+            self.natural_literals = true;
+            Expression::String(value.into())
         } else {
             return Err("unsupported exported expression; free variables, metavariables and unknown term forms are forbidden".into());
         };
@@ -203,7 +207,9 @@ impl Replay {
         let child_depth = |value: &Json, key: &str| {
             self.expression_depth(value.get(key).ok_or("missing expression child")?)
         };
-        let depth = if let Some(value) = data.get("app") {
+        let depth = if let Expression::String(value) = &expression {
+            strings::dimensions(value)?.0
+        } else if let Some(value) = data.get("app") {
             1 + child_depth(value, "fn")?.max(child_depth(value, "arg")?)
         } else if let Some(value) = data.get("lam").or_else(|| data.get("forallE")) {
             1 + child_depth(value, "type")?.max(child_depth(value, "body")?)
@@ -222,6 +228,7 @@ impl Replay {
             return Err("export expression depth limit exceeded".into());
         }
         let payload = match &expression {
+            Expression::String(value) => strings::dimensions(value)?.1,
             Expression::Natural(value) => {
                 "$lean:s3:Nat".len().saturating_add(value.decimal().len())
             }

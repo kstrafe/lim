@@ -14,6 +14,7 @@ fn same_expression(a: &Expression, b: &Expression) -> bool {
             aa == ba && ab == bb && ac == bc
         }
         (Expression::Natural(a), Expression::Natural(b)) => a == b,
+        (Expression::String(a), Expression::String(b)) => a == b,
         _ => false,
     }
 }
@@ -42,6 +43,10 @@ fn expression_codec_roundtrips_every_variant_and_u32_edges() {
         Expression::Natural(Natural::parse("0").unwrap()),
         Expression::Natural(Natural::parse(&format!("1{}", "7".repeat(4095))).unwrap()),
         Expression::Alias(0),
+        Expression::String(String::new()),
+        Expression::String("ASCII\0\u{1} end".into()),
+        Expression::String("é𝄞\0\u{7f}".into()),
+        Expression::String("x".repeat(4096)),
     ];
     for (i, expression) in cases.iter().enumerate() {
         let bytes = encode(expression).unwrap();
@@ -91,6 +96,23 @@ fn codec_rejects_malformed_records_and_forward_references() {
             bytes.first()
         );
     }
+    for bytes in [
+        &[10][..],
+        &[10, 1][..],
+        &[10, 2, 0, 0xc3][..],
+        &[10, 1, 0, b'a', b'b'][..],
+        &[10, 1, 0, 0xff][..],
+    ] {
+        assert!(
+            decode(bytes, 0).is_err(),
+            "malformed string record {bytes:?}"
+        );
+    }
+    let mut overlong = vec![10];
+    overlong.extend_from_slice(&4097u16.to_le_bytes());
+    overlong.extend(std::iter::repeat(b'a').take(4097));
+    assert!(decode(&overlong, 0).is_err());
+    assert!(encode(&Expression::String("x".repeat(4097))).is_err());
     assert!(decode(&[3, 1, 0, 0, 0, 0, 0, 0, 0], 1).is_err());
     assert!(decode(&[9, 1, 0, 0, 0], 1).is_err());
     for natural in [
@@ -119,12 +141,13 @@ fn forced_spill_preserves_entries_metadata_aliases_and_cross_page_reads() {
     let mut spilled = Entries::with_limit(0);
     let mut expected = Vec::with_capacity(count);
     for id in 0..count {
-        let expression = match id % 5 {
+        let expression = match id % 6 {
             0 => Expression::Var((id * 7919) as usize),
             1 => Expression::Natural(Natural::parse(&(id * 13).to_string()).unwrap()),
             2 => Expression::Global((id % 97) as usize, vec![(id - 1) as usize]),
             3 => Expression::App(id - 1, (id - 2) as usize),
-            _ => Expression::Alias((id / 2) as usize),
+            4 => Expression::Alias((id / 2) as usize),
+            _ => Expression::String(if id % 12 == 5 { "é\0𝄞" } else { "scratch" }.into()),
         };
         let value = entry(expression, id);
         expected.push(value.clone());
