@@ -380,6 +380,10 @@ including primitive tables and preceding declarations. Hashing only its final
 JSON record would miss changes hidden behind numeric IDs. Inductive members
 share their block's prefix digest but have separate canonical identities. This
 conservative hashing can also change after an unrelated earlier record changes.
+The reader updates its streaming hash for every record, but finalizes a prefix
+only when a declaration needs it. Multiple members checked from the same record
+reuse that prefix. Unused primitive records still contribute to the final input
+digest, and primitive records between declarations affect every later prefix.
 
 Receipts are audit output. The reader never loads them as proof authority or
 skips checking because a digest matches. The input digest authenticates no
@@ -447,8 +451,9 @@ inside the separate host memory/CPU guard.
 Allocation accounting charges term nodes, owned identifiers and normalized
 universe payloads, including temporary transformations. These are explicit
 work/payload budgets, not exact process RSS measurements. Input is read one
-bounded line at a time, but primitive tables and the checked environment remain
-in RAM. This is not a disk-backed replay implementation for enormous exports.
+bounded line at a time, and replay-only expression nodes can spill to bounded
+scratch storage. Names, universe values and the checked environment remain
+in RAM; this does not provide full-environment storage for enormous exports.
 The execution guard used for development separately limits the process tree to
 2 GiB memory and 200% CPU. Limits and unsupported rules return errors and
 establish no theorem; they never authorize an admission or unchecked cache.
@@ -492,3 +497,10 @@ limits stay unchanged. These synthetic tautologies measure storage behavior,
 not new mathematical coverage or a genuine Lean producer output. Temporary
 inputs are removed afterwards. Neither tool invokes the resource guard again
 inside its workers or treats a measurement as proof authority.
+
+Deferring prefix finalization until a declaration needs it preserves every
+receipt hash while avoiding per-primitive digest work. Against `abad273f`, five
+paired debug0 samples reduce the 3,000-proof/64-let median from 6,573.652 to
+5,970.663 ms (9.2%) and the 190,000-unused-expression median from 1,092.175 to
+597.735 ms (45.3%). Peak RSS is approximately unchanged. The same budgets and
+2-GiB/two-core guard apply; these are synthetic importer measurements.

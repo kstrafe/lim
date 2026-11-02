@@ -175,7 +175,8 @@ struct Replay {
     transformation_bytes: usize,
     natural_literals: bool,
     line: usize,
-    digest: String,
+    input_hash: hash::Sha256,
+    digest: Option<String>,
     retain_bodies: bool,
     bodies: HashMap<String, T>,
     quotient_stage: usize,
@@ -269,7 +270,6 @@ fn replay_reader<R: BufRead>(
     mut replay: Replay,
 ) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
     let budget = replay.kernel.budget;
-    let mut input_hash = hash::Sha256::new();
     let mut total = 0u64;
     let mut line = Vec::new();
     loop {
@@ -297,10 +297,10 @@ fn replay_reader<R: BufRead>(
             let text = std::str::from_utf8(&line).map_err(|_| "export must be UTF-8")?;
             let record = crate::lsp::json::parse(text)
                 .map_err(|why| format!("invalid export JSON: {why}"))?;
-            input_hash.update(&line);
-            // A declaration hash includes its primitive tables and preceding
-            // checked environment, not only JSON IDs in its final record.
-            replay.digest = hash::hex(&input_hash.clone().finish());
+            replay.input_hash.update(&line);
+            // Only declarations need a finalized prefix. Invalidate it for
+            // every record, including unused primitive tables after a target.
+            replay.digest = None;
             if replay.line == 1 {
                 replay.metadata(&record)
             } else {
@@ -353,7 +353,7 @@ fn replay_reader<R: BufRead>(
     let report = LeanExportReport {
         budget,
         target: matches[0].name.clone(),
-        input_sha256: hash::hex(&input_hash.finish()),
+        input_sha256: hash::hex(&replay.input_hash.clone().finish()),
         bytes: total,
         records: replay.line as u64,
         axioms,
@@ -394,7 +394,8 @@ impl Replay {
             transformation_bytes: 0,
             natural_literals: false,
             line: 0,
-            digest: String::new(),
+            input_hash: hash::Sha256::new(),
+            digest: None,
             retain_bodies,
             bodies: HashMap::new(),
             quotient_stage: 0,
@@ -628,13 +629,19 @@ impl Replay {
         if name.depth == 0 || self.checked.contains_key(&name.key) {
             return Err("duplicate or anonymous declaration".into());
         }
+        // Hash the complete prefix through this record, not just the
+        // declaration's JSON IDs. Members of one inductive/quotient record
+        // share this immutable digest; primitive records never finalize it.
+        let digest = self
+            .digest
+            .get_or_insert_with(|| hash::hex(&self.input_hash.clone().finish()));
         self.checked.insert(name.key.clone(), self.reports.len());
         self.reports.push(LeanDeclarationReport {
             name: name.display.clone(),
             identity: name.key.clone(),
             kind: kind.into(),
             line: self.line,
-            sha256: self.digest.clone(),
+            sha256: digest.clone(),
             dependencies,
         });
         Ok(())
