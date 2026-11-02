@@ -2079,3 +2079,118 @@ fn universe_ordering_never_accepts_a_false_concrete_inequality() {
         }
     }
 }
+
+#[test]
+fn checked_monomorphic_unfolding_shares_immutable_bodies_without_copying_graphs() {
+    let mut kernel = Kernel::new();
+    let body = lam(nat(), var(0));
+    let ty = pi(nat(), nat());
+    kernel
+        .definition("identity", vec![], ty.clone(), body.clone(), false)
+        .unwrap();
+    kernel.reset_budget();
+    let reduced = kernel.whnf(&[], &global("identity"), 0).unwrap();
+    assert!(Arc::ptr_eq(&reduced, &body));
+    assert_eq!(kernel.transformed_bytes, 0);
+    let head = kernel.natural_head(&global("identity"), 0).unwrap();
+    assert!(Arc::ptr_eq(&head, &body));
+    assert_eq!(kernel.transformed_bytes, 0);
+    kernel.check(&[], &head, &ty, 0).unwrap();
+    assert!(kernel
+        .convertible(
+            &[],
+            &app(
+                global("identity"),
+                term(Term::NatLiteral {
+                    family: "#pt-nat".into(),
+                    value: Natural::parse("4096").unwrap(),
+                })
+            ),
+            &term(Term::NatLiteral {
+                family: "#pt-nat".into(),
+                value: Natural::parse("4096").unwrap()
+            }),
+            0
+        )
+        .unwrap());
+}
+
+#[test]
+fn polymorphic_unfolding_still_substitutes_each_explicit_universe_without_mutation() {
+    let mut kernel = Kernel::new();
+    let universe = term(Term::Sort(Level::variable("u".into())));
+    let body = lam(universe.clone(), lam(var(0), var(0)));
+    kernel
+        .definition(
+            "polymorphic",
+            vec!["u".into()],
+            pi(universe, pi(var(0), var(1))),
+            body.clone(),
+            false,
+        )
+        .unwrap();
+    for n in [0, 2, 1, 0] {
+        kernel.reset_budget();
+        let value = term(Term::Global("polymorphic".into(), vec![level(n)]));
+        let reduced = kernel.whnf(&[], &value, 0).unwrap();
+        assert!(!Arc::ptr_eq(&reduced, &body));
+        let Term::Lam(domain, _) = reduced.as_ref() else {
+            panic!("expected identity lambda");
+        };
+        assert!(
+            matches!(domain.as_ref(), Term::Sort(actual) if actual.equivalent(&level(n)).unwrap())
+        );
+        kernel
+            .check(&[], &reduced, &pi(sort(n), pi(var(0), var(1))), 0)
+            .unwrap();
+    }
+    let Term::Lam(domain, _) = body.as_ref() else {
+        panic!("expected source identity");
+    };
+    assert!(
+        matches!(domain.as_ref(), Term::Sort(actual) if actual.equivalent(&Level::variable("u".into())).unwrap())
+    );
+}
+
+#[test]
+fn monomorphic_body_reuse_does_not_skip_scope_arity_or_opacity_checks() {
+    let mut kernel = Kernel::new();
+    let invalid = term(Term::Let(
+        sort(0),
+        term(Term::Sort(Level::variable("undeclared".into()))),
+        term(Term::NatLiteral {
+            family: "#pt-nat".into(),
+            value: Natural::parse("0").unwrap(),
+        }),
+    ));
+    let why = kernel
+        .definition("bad", vec![], nat(), invalid, false)
+        .unwrap_err();
+    assert!(why.contains("universe"), "{why}");
+    assert!(!kernel.contains("bad"));
+    let ty = pi(nat(), nat());
+    let body = lam(nat(), var(0));
+    kernel
+        .definition("visible", vec![], ty.clone(), body.clone(), false)
+        .unwrap();
+    let wrong = term(Term::Global("visible".into(), vec![level(1)]));
+    assert!(kernel
+        .whnf(&[], &wrong, 0)
+        .unwrap_err()
+        .contains("requires 0 explicit universe"));
+    assert!(kernel
+        .natural_head(&wrong, 0)
+        .unwrap_err()
+        .contains("requires 0 explicit universe"));
+    kernel
+        .opaque_definition("secret", vec![], ty, body)
+        .unwrap();
+    for value in [
+        kernel.whnf(&[], &global("secret"), 0).unwrap(),
+        kernel.natural_head(&global("secret"), 0).unwrap(),
+    ] {
+        assert!(
+            matches!(value.as_ref(), Term::Global(name, levels) if name == "secret" && levels.is_empty())
+        );
+    }
+}

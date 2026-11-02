@@ -1161,6 +1161,10 @@ Transformation accounting also bounds expansion of shared term graphs during
 substitution and universe instantiation; a small input DAG cannot authorize
 unbounded allocation. It includes temporary nodes and owned identifier/level
 payloads, rather than measuring exact RSS. The
+normalizer reuses an already checked monomorphic declaration's immutable body
+when no universe substitution is needed. Source scope validation still walks
+every declaration, including erased terms; explicit universe arity, polymorphic
+substitution and opacity checks remain in force. The
 [elaborated export reader](lean-export.md) additionally bounds line buffers,
 primitive tables, graph depth, dependency receipts and cumulative transformations
 across declarations. Exported types, bodies and recursor rules are checked by

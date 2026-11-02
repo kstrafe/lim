@@ -106,7 +106,14 @@ impl Kernel {
                     let Some(body) = decl.value else {
                         return Ok(value);
                     };
-                    value = self.universes(&body, &map, depth + 1)?;
+                    // Only checked monomorphic declarations have an empty
+                    // specialization map. Their immutable body is reusable;
+                    // never skip the source-scoping walk in `universes`.
+                    value = if map.is_empty() {
+                        body
+                    } else {
+                        self.universes(&body, &map, depth + 1)?
+                    };
                 }
                 Term::App(function, argument) => {
                     let function = self.natural_head(function, depth + 1)?;

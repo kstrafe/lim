@@ -943,7 +943,15 @@ impl Kernel {
                     let Some(body) = decl.value else {
                         return Ok(value);
                     };
-                    value = self.universes(&body, &map, depth + 1)?;
+                    // Its declaration was fully scoped and checked before
+                    // insertion. With no universe parameters, unfolding needs
+                    // no substitution or copy. Scope validation still always
+                    // traverses source terms, including monomorphic ones.
+                    value = if map.is_empty() {
+                        body
+                    } else {
+                        self.universes(&body, &map, depth + 1)?
+                    };
                 }
                 Term::App(function, arg) => {
                     let f = self.whnf(ctx, function, depth + 1)?;
