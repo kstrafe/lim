@@ -1260,6 +1260,36 @@ the imported target's inventory with the rechecked native theorem.
 
 ## Resource bounds
 
+Mathematical checking accepts an explicit `ProofBudget` through
+`CompileConfig::set_proof_budget`. The checking commands also accept
+`--proof-work N`, `--proof-phase-bytes N`, and `--proof-total-bytes N`.
+Omitted values retain the defaults below. Values must be positive ASCII decimal
+integers; work is limited to 100,000,000, phase traffic to 1 GiB, and cumulative
+traffic to 64 GiB. These are accounting limits, not measurements of live memory.
+The separate host memory/CPU guard, recursion depth, numeral bounds, source
+validation and logical foundation policy remain in force. No limit grows
+automatically, and exhaustion establishes no theorem.
+
+For example, a deliberately selected larger replay budget is:
+
+```sh
+lim --check-theorem proof.lim theorem-name --proof-work 1000000 \
+  --proof-phase-bytes 134217728 --proof-total-bytes 1073741824
+```
+
+A native program accumulates mathematical transformation traffic across its
+checked declarations and complete mutual groups. A raw export accumulates it
+across replay phases. Cumulative accounting is audited at phase boundaries.
+Translation rechecks its native output independently
+using the same selected limits; each check has its own counters. Ordinary
+procedural theorem/SAT budgets are separate. Resource errors identify the
+exhausted counter or fixed recursion depth. The returned `CheckedTheorem`
+records its selected budget.
+
+Nondefault `lim.lsp` contexts retain the same three settings as bare numeric
+`proof-work`, `proof-phase-bytes`, and `proof-total-bytes` entries. This keeps
+editor checking consistent with `--check --write-lsp-config`.
+
 The current implementation applies these limits independently of the
 mathematical meaning of a type:
 
@@ -1267,6 +1297,7 @@ mathematical meaning of a type:
 | --- | --- |
 | Core checking and conversion work | 200,000 core steps per declaration or complete mutual group. |
 | Term transformation allocations | 64 MiB accounted nodes, payloads and traversal/reuse tables per core budget. |
+| Cumulative mathematical transformations | 256 MiB accounted traffic per native program or raw replay. |
 | Recursive kernel depth | 96. |
 | Parsed mathematical nodes | 50,000 per declaration. |
 | Mathematical parser nesting depth | 64. |

@@ -541,6 +541,7 @@ mod tests {
     use super::*;
     fn report(name: &str, kind: &str) -> LeanExportReport {
         LeanExportReport {
+            budget: crate::ProofBudget::default(),
             target: name.into(),
             input_sha256: String::new(),
             bytes: 0,

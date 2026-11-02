@@ -1056,6 +1056,7 @@ fn monomorphize_program<'a>(
         }
     }
     Ok(std::borrow::Cow::Owned(Program {
+        proof_budget: program.proof_budget,
         generated_definition_contexts: program.generated_definition_contexts.clone(),
         items,
         source: program.source.clone(),
@@ -1213,6 +1214,7 @@ fn prepare_checked_program(
         }
     }
     let mut result = Program {
+        proof_budget: program.proof_budget,
         generated_definition_contexts: program.generated_definition_contexts.clone(),
         items: program
             .items

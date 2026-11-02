@@ -332,6 +332,33 @@ kernel replay establishes the accepted theorem's typing judgment.
 
 ## Resource limits and unsupported features
 
+The table lists default counters. Both raw replay and native checking accept
+explicit resource choices through `ProofBudget` or `--proof-work N`,
+`--proof-phase-bytes N`, and `--proof-total-bytes N`. The existing convenience
+APIs keep these defaults. `check_lean_export_with_budget` and
+`translate_lean_export_with_budget` take both the foundation policy and budget;
+selecting more work never authorizes an axiom. Work and allocation failures
+still establish no theorem, and successful receipts record the selected
+`proof_budget` independently of the logical axiom inventories.
+
+For example:
+
+```sh
+lim --check-lean-export proof.ndjson Original.target --lean-foundations \
+  --proof-work 1000000 --proof-phase-bytes 134217728 \
+  --proof-total-bytes 1073741824 --report receipt.json --emit-proof proof.lim
+```
+
+The selected limits also apply to the independent native source recheck.
+Their counters restart for that check; the receipt's raw input hash and full
+declaration/assumption audit retain their existing meaning. No receipt is
+trusted as a replacement for later checking. The CLI prints nondefault budgets
+on successful checking, and native theorem API results expose their budget.
+Maximum selectable work is 100,000,000, phase traffic is 1 GiB and cumulative
+traffic is 64 GiB. Fixed recursion depth, source/table/payload limits and
+explicit axiom authorization are unchanged. Keep demanding replay commands
+inside the separate host memory/CPU guard.
+
 | Resource | Limit |
 | --- | --- |
 | Input | 64 MiB total; 8 MiB per record line |

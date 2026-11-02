@@ -5,9 +5,10 @@ mod core;
 mod level;
 use crate::{Expr, Item};
 pub use core::export::{
-    check_lean_export, check_lean_export_with_policy, translate_lean_export,
-    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReport,
-    LeanExportTranslation, LeanFoundationPolicy,
+    check_lean_export, check_lean_export_with_budget, check_lean_export_with_policy,
+    translate_lean_export, translate_lean_export_with_budget, translate_lean_export_with_policy,
+    LeanDeclarationReport, LeanExportError, LeanExportReport, LeanExportTranslation,
+    LeanFoundationPolicy,
 };
 use core::{
     apps, term, InductiveInput, Kernel, Level, Natural, NestedCase, RecursionCase, Term, T,
@@ -113,7 +114,7 @@ pub(super) fn check(
     program: &crate::Program,
     facts: &HashSet<String>,
 ) -> std::result::Result<(), (String, String)> {
-    let mut kernel = Kernel::new();
+    let mut kernel = Kernel::with_budget(program.proof_budget);
     for fact in facts {
         kernel.certified_program_fact(fact);
     }
@@ -172,6 +173,7 @@ pub(super) fn check(
             }
         }
     }
+    let mut transformation_bytes = 0usize;
     while !pending.is_empty() {
         let positions = pending
             .iter()
@@ -282,6 +284,10 @@ pub(super) fn check(
             result.map_err(|why| (diagnostic.clone(), why))
         };
         result?;
+        transformation_bytes = transformation_bytes.saturating_add(kernel.transformation_bytes());
+        if transformation_bytes > program.proof_budget.total_bytes() {
+            return Err((diagnostic, format!("kernel cumulative transformation allocation limit exceeded ({transformation_bytes} > {} bytes); no theorem was established", program.proof_budget.total_bytes())));
+        }
     }
     Ok(())
 }

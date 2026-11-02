@@ -55,6 +55,14 @@ pub(super) fn render(
     };
     writer.push("; Checked native translation of a Lean export, not an admission.\n")?;
     writer.push(&format!("; Lean: {LEAN_EXPORT_VERSION} ({LEAN_EXPORT_GITHASH})\n; Exporter: {EXPORTER_REVISION}\n; Input SHA-256: {}\n; Native theorem: {target}\n", report.input_sha256))?;
+    if report.budget != crate::ProofBudget::default() {
+        writer.push(&format!(
+            "; Proof budget: work={} phase-bytes={} total-bytes={}\n",
+            report.budget.work(),
+            report.budget.phase_bytes(),
+            report.budget.total_bytes()
+        ))?;
+    }
     writer.push("; Keep the upstream source/license provenance with this translation.\n\n")?;
     if !report.axioms.is_empty() {
         writer.push(&format!(
@@ -130,7 +138,9 @@ pub(super) fn render(
         return Err("formatted proof-source byte limit exceeded".into());
     }
     drop(writer);
-    let program = crate::parse_program(&source)
+    let mut config = crate::CompileConfig::default();
+    config.set_proof_budget(report.budget);
+    let program = crate::parse_program_with_config(&source, &config)
         .map_err(|why| format!("translated source parsing failed: {why}"))?;
     crate::check_types(&program)
         .map_err(|why| format!("translated source recheck failed: {why}"))?;

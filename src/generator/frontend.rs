@@ -100,6 +100,7 @@ pub(crate) fn async_type_environment(
 
 pub(crate) fn copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
     let program = Program {
+        proof_budget: ProofBudget::default(),
         items: items.to_vec(),
         source: None,
         source_files: Vec::new(),
@@ -527,6 +528,7 @@ pub(crate) fn expand_prepared_program(
 }
 
 pub(crate) struct PreparedProgramSyntax {
+    proof_budget: ProofBudget,
     graph_dependency_context: String,
     pub(crate) bundles: syntax_bundle::Bundles,
     pub(crate) capture_cache_directory: Option<PathBuf>,
@@ -878,6 +880,7 @@ pub(crate) fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
+        proof_budget: config.proof_budget(),
         graph_dependency_context: {
             // Current witnesses retain spans; artifact identity retains only
             // semantic dependencies and configuration, independent of location.
@@ -1245,6 +1248,7 @@ pub(crate) fn parse_prepared_program_items(
         )?;
     }
     let mut program = Program {
+        proof_budget: prepared.proof_budget,
         items,
         source: Some(prepared.root_source.clone()),
         source_files,

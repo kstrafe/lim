@@ -38,6 +38,7 @@ pub(super) type T = Arc<Term>;
 pub(super) fn term(t: Term) -> T {
     Arc::new(t)
 }
+#[cfg(test)]
 const WORK: usize = 200_000;
 const DEPTH: usize = 96;
 #[derive(Clone, Debug)]
@@ -180,6 +181,7 @@ struct ReductionProbeBudget {
     depth: usize,
 }
 pub(super) struct Kernel {
+    budget: crate::ProofBudget,
     declarations: HashMap<String, Declaration>,
     nested: HashMap<String, NestedFamily>,
     nested_build: Option<NestedBuild>,
@@ -188,8 +190,13 @@ pub(super) struct Kernel {
     reduction_probe_budget: Option<ReductionProbeBudget>,
 }
 impl Kernel {
+    #[cfg(test)]
     pub fn new() -> Self {
+        Self::with_budget(crate::ProofBudget::default())
+    }
+    pub fn with_budget(budget: crate::ProofBudget) -> Self {
         let mut result = Self {
+            budget,
             declarations: HashMap::new(),
             nested: HashMap::new(),
             nested_build: None,
@@ -268,6 +275,9 @@ impl Kernel {
         self.work = 0;
         self.transformed_bytes = 0;
     }
+    pub(super) fn transformation_bytes(&self) -> usize {
+        self.transformed_bytes
+    }
     fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
         let proposed = self.transformed_bytes.saturating_add(bytes);
         if self
@@ -277,11 +287,11 @@ impl Kernel {
             return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.transformed_bytes = proposed;
-        if self.transformed_bytes > 64 * 1024 * 1024 {
-            return Err(
-                "kernel transformation allocation limit exceeded; no theorem was established"
-                    .into(),
-            );
+        if self.transformed_bytes > self.budget.phase_bytes() {
+            return Err(format!(
+                "kernel transformation allocation limit exceeded ({} > {} bytes); no theorem was established",
+                self.transformed_bytes, self.budget.phase_bytes()
+            ));
         }
         Ok(())
     }
@@ -294,8 +304,12 @@ impl Kernel {
             return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.work = proposed;
-        if self.work > WORK {
-            return Err("kernel resource limit exceeded; no theorem was established".into());
+        if self.work > self.budget.work() {
+            return Err(format!(
+                "kernel resource limit exceeded ({} > {} work units); no theorem was established",
+                self.work,
+                self.budget.work()
+            ));
         }
         Ok(())
     }
@@ -307,8 +321,15 @@ impl Kernel {
             return Err(REDUCTION_PROBE_DECLINED.into());
         }
         self.work = self.work.saturating_add(1);
-        if depth > DEPTH || self.work > WORK {
-            return Err("kernel resource limit exceeded; no theorem was established".into());
+        if depth > DEPTH {
+            return Err(format!("kernel resource limit exceeded (recursion depth {depth} > {DEPTH}); no theorem was established"));
+        }
+        if self.work > self.budget.work() {
+            return Err(format!(
+                "kernel resource limit exceeded ({} > {} work units); no theorem was established",
+                self.work,
+                self.budget.work()
+            ));
         }
         Ok(())
     }
@@ -2094,3 +2115,7 @@ fn contains_recursive(t: &T, name: &str) -> bool {
 #[cfg(test)]
 #[path = "core_tests.rs"]
 mod core_tests;
+
+#[cfg(test)]
+#[path = "budget_tests.rs"]
+mod budget_tests;

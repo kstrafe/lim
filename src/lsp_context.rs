@@ -91,6 +91,42 @@ impl LspContext {
             if !matches!(key, "cfg" | "module-path") && !builder.seen.insert(key.to_owned()) {
                 return Err(error("duplicate context key"));
             }
+            if matches!(
+                key,
+                "proof-work" | "proof-phase-bytes" | "proof-total-bytes"
+            ) {
+                if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(error("proof budget must be an ASCII decimal integer"));
+                }
+                let number = value
+                    .parse::<usize>()
+                    .map_err(|_| error("invalid proof budget"))?;
+                let default = crate::ProofBudget::default();
+                crate::ProofBudget::new(
+                    if key == "proof-work" {
+                        number
+                    } else {
+                        default.work()
+                    },
+                    if key == "proof-phase-bytes" {
+                        number
+                    } else {
+                        default.phase_bytes()
+                    },
+                    if key == "proof-total-bytes" {
+                        number
+                    } else {
+                        default.total_bytes()
+                    },
+                )
+                .map_err(|message| error(&message))?;
+                match key {
+                    "proof-work" => builder.work = Some(number),
+                    "proof-phase-bytes" => builder.phase = Some(number),
+                    _ => builder.total = Some(number),
+                }
+                continue;
+            }
             let decoded =
                 crate::lsp::json::parse(value).map_err(|_| error("expected a quoted string"))?;
             let value = decoded
@@ -106,6 +142,7 @@ impl LspContext {
                 "module-path" if !value.is_empty() => builder
                     .config
                     .add_module_path(crate::editor::path_key(&base.join(value))),
+
                 "cfg" => {
                     let (name, value) = value
                         .split_once('=')
@@ -150,6 +187,7 @@ impl LspContext {
             && self.target == other.target
             && self.config.values == other.config.values
             && self.config.module_paths == other.config.module_paths
+            && self.config.proof_budget() == other.config.proof_budget()
     }
 
     fn normalized(&self) -> Self {
@@ -173,8 +211,19 @@ impl LspContext {
             TargetDescription::AARCH64_LINUX => "aarch64-linux",
             _ => "unsupported",
         };
+        let budget = self.config.proof_budget();
+        let suffix = if budget == crate::ProofBudget::default() {
+            String::new()
+        } else {
+            format!(
+                "; proof-budget: {}/{}/{}",
+                budget.work(),
+                budget.phase_bytes(),
+                budget.total_bytes()
+            )
+        };
         format!(
-            "{} [target: {target}; cfg: {}; module-paths: {}]",
+            "{} [target: {target}; cfg: {}; module-paths: {}{suffix}]",
             self.entry.display(),
             cfg.into_iter()
                 .map(|(key, value)| format!("{key}={value}"))
@@ -316,6 +365,15 @@ impl LspContext {
             })
         );
         let config = self.config.with_target(self.target);
+        let budget = config.proof_budget();
+        if budget != crate::ProofBudget::default() {
+            text.push_str(&format!(
+                "proof-work = {}\nproof-phase-bytes = {}\nproof-total-bytes = {}\n",
+                budget.work(),
+                budget.phase_bytes(),
+                budget.total_bytes()
+            ));
+        }
         let mut keys = config.values.iter().collect::<Vec<_>>();
         keys.sort();
         for (key, value) in keys {
@@ -336,6 +394,9 @@ struct Builder {
     config: CompileConfig,
     seen: HashSet<String>,
     cfg_seen: HashSet<String>,
+    work: Option<usize>,
+    phase: Option<usize>,
+    total: Option<usize>,
 }
 impl Builder {
     fn new() -> Self {
@@ -343,6 +404,7 @@ impl Builder {
             entry: None,
             target: None,
             config: CompileConfig {
+                proof_budget: crate::ProofBudget::default(),
                 values: Default::default(),
                 module_paths: Vec::new(),
                 explicit_keys: HashSet::new(),
@@ -350,16 +412,31 @@ impl Builder {
             },
             seen: HashSet::new(),
             cfg_seen: HashSet::new(),
+            work: None,
+            phase: None,
+            total: None,
         }
     }
     fn finish(self, path: &Path) -> Result<LspContext, String> {
         let target = self.target.map_or_else(TargetDescription::host, Ok)?;
+        let mut config = self.config.with_target(target);
+        if self.work.is_some() || self.phase.is_some() || self.total.is_some() {
+            let d = crate::ProofBudget::default();
+            config.set_proof_budget(
+                crate::ProofBudget::new(
+                    self.work.unwrap_or(d.work()),
+                    self.phase.unwrap_or(d.phase_bytes()),
+                    self.total.unwrap_or(d.total_bytes()),
+                )
+                .map_err(|e| format!("{}: {e}", path.display()))?,
+            );
+        }
         Ok(LspContext {
             entry: self
                 .entry
                 .ok_or_else(|| format!("{}: missing entry", path.display()))?,
             target,
-            config: self.config.with_target(target),
+            config,
         })
     }
 }

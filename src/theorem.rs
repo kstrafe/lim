@@ -22,6 +22,7 @@ pub fn check_theorem_from_path_with_config(
 /// means none of the explicit classical foundation constants is reachable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckedTheorem {
+    pub budget: crate::ProofBudget,
     pub name: String,
     pub foundations: Vec<String>,
 }
@@ -101,6 +102,7 @@ pub fn check_theorem_details_from_path_with_config(
             )
         })?;
     Ok(CheckedTheorem {
+        budget: program.proof_budget,
         name: canonical.to_owned(),
         foundations,
     })

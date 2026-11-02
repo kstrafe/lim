@@ -46,6 +46,8 @@ mod output;
 mod pin_access;
 mod pin_ownership;
 mod proof;
+mod proof_budget;
+pub use proof_budget::ProofBudget;
 mod reachability;
 mod semantic_cache;
 mod source_error;
@@ -84,9 +86,10 @@ pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use proof::{
-    check_lean_export, check_lean_export_with_policy, translate_lean_export,
-    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReport,
-    LeanExportTranslation, LeanFoundationPolicy,
+    check_lean_export, check_lean_export_with_budget, check_lean_export_with_policy,
+    translate_lean_export, translate_lean_export_with_budget, translate_lean_export_with_policy,
+    LeanDeclarationReport, LeanExportError, LeanExportReport, LeanExportTranslation,
+    LeanFoundationPolicy,
 };
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
@@ -1857,6 +1860,7 @@ pub enum Item {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
+    pub(crate) proof_budget: ProofBudget,
     pub items: Vec<Item>,
     pub(crate) source: Option<String>,
     pub(crate) source_files: Vec<SourceFile>,
@@ -1893,6 +1897,7 @@ pub(crate) struct SourceFile {
 /// Compile-time key/value settings used by `#cfg-*` forms.
 #[derive(Clone, Debug)]
 pub struct CompileConfig {
+    proof_budget: ProofBudget,
     values: HashMap<String, String>,
     module_paths: Vec<PathBuf>,
     explicit_keys: HashSet<String>,
@@ -1901,7 +1906,9 @@ pub struct CompileConfig {
 
 impl PartialEq for CompileConfig {
     fn eq(&self, other: &Self) -> bool {
-        self.values == other.values && self.module_paths == other.module_paths
+        self.values == other.values
+            && self.module_paths == other.module_paths
+            && self.proof_budget == other.proof_budget
     }
 }
 impl Eq for CompileConfig {}
@@ -2064,6 +2071,7 @@ impl Default for CompileConfig {
             _ => "unknown",
         };
         Self {
+            proof_budget: ProofBudget::default(),
             values: HashMap::from([
                 ("platform".into(), platform.into()),
                 ("os".into(), platform.into()),
@@ -2078,6 +2086,14 @@ impl Default for CompileConfig {
 }
 
 impl CompileConfig {
+    /// Set accounting limits for mathematical checking, separately from cfgs.
+    pub fn set_proof_budget(&mut self, budget: ProofBudget) {
+        self.proof_budget = budget;
+    }
+    pub fn proof_budget(&self) -> ProofBudget {
+        self.proof_budget
+    }
+
     /// Set or override a configuration key, such as `feature=sorting` or
     /// `platform=linux`.
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {

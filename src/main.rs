@@ -1,3 +1,5 @@
+mod cli_proof_budget;
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -133,6 +135,13 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
         }
         settings.remove(index);
     }
+    let (mut settings, proof_budget) = match cli_proof_budget::parse(&settings) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     match settings.first().map(String::as_str) {
         Some("--check") => {
             settings.remove(0);
@@ -147,7 +156,7 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let (entry, output, config, target, _) = match binary_arguments(&settings) {
+    let (entry, output, mut config, target, _) = match binary_arguments(&settings) {
         Ok(settings) => settings,
         Err(error) => {
             eprintln!("lim: {error}");
@@ -158,6 +167,7 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
         eprintln!("lim: LSP context must not replace compilation output");
         return ExitCode::FAILURE;
     }
+    config.set_proof_budget(proof_budget);
     let context = lim::lsp_context::LspContext {
         entry: entry.into(),
         target,
@@ -203,7 +213,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [PROOF-BUDGET] [--timings]\n       PROOF-BUDGET: [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -448,7 +458,16 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
 }
 
 fn check_lean_export_command(arguments: &[String]) -> ExitCode {
-    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations]";
+    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]";
+    let (arguments, budget) = match cli_proof_budget::parse(arguments) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let arguments = arguments.as_slice();
     if arguments.len() < 3 {
         eprintln!("{usage}");
         return ExitCode::FAILURE;
@@ -538,7 +557,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         }
     };
     let (report, emitted) = if proof_path.is_some() {
-        match lim::translate_lean_export_with_policy(
+        match lim::translate_lean_export_with_budget(
             std::io::BufReader::new(file),
             target,
             if lean_foundations {
@@ -546,6 +565,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             } else {
                 lim::LeanFoundationPolicy::Constructive
             },
+            budget,
         ) {
             Ok(translation) => (
                 translation.report,
@@ -557,7 +577,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             }
         }
     } else {
-        match lim::check_lean_export_with_policy(
+        match lim::check_lean_export_with_budget(
             std::io::BufReader::new(file),
             target,
             if lean_foundations {
@@ -565,6 +585,7 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             } else {
                 lim::LeanFoundationPolicy::Constructive
             },
+            budget,
         ) {
             Ok(report) => (report, None),
             Err(error) => {
@@ -590,6 +611,14 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         target,
         report.declarations.len()
     );
+    if !cli_proof_budget::is_default(budget) {
+        println!(
+            "proof budget: work={} phase-bytes={} total-bytes={}",
+            budget.work(),
+            budget.phase_bytes(),
+            budget.total_bytes()
+        );
+    }
     if !report.axioms.is_empty() {
         println!("declared Lean axioms: {}", report.axioms.join(", "));
         println!(
@@ -780,8 +809,17 @@ fn locate_generated_command(mut arguments: Vec<String>) -> ExitCode {
 }
 
 fn check_command(arguments: &[String]) -> ExitCode {
+    let (arguments, budget) = match cli_proof_budget::parse(arguments) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let arguments = arguments.as_slice();
+    let budget_usage = "[--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]";
     let Some(input_path) = arguments.get(1) else {
-        eprintln!("usage: lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET]");
+        eprintln!("usage: lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] {budget_usage}");
         return ExitCode::FAILURE;
     };
     if input_path.starts_with('-') {
@@ -795,7 +833,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
         match arguments.get(2) {
             Some(name) if !name.is_empty() && !name.starts_with('-') => Some(name.as_str()),
             _ => {
-                eprintln!("usage: lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET]");
+                eprintln!("usage: lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] {budget_usage}");
                 return ExitCode::FAILURE;
             }
         }
@@ -803,6 +841,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
         None
     };
     let mut config = lim::CompileConfig::default();
+    config.set_proof_budget(budget);
     let mut selected_target = None;
     let mut index = if theorem.is_some() { 3 } else { 2 };
     while index < arguments.len() {
@@ -886,6 +925,14 @@ fn check_command(arguments: &[String]) -> ExitCode {
         ) {
             Ok(checked) => {
                 println!("checked theorem {name}");
+                if !cli_proof_budget::is_default(budget) {
+                    println!(
+                        "proof budget: work={} phase-bytes={} total-bytes={}",
+                        budget.work(),
+                        budget.phase_bytes(),
+                        budget.total_bytes()
+                    );
+                }
                 if !checked.foundations.is_empty() {
                     println!("logical foundations: {}", checked.foundations.join(", "));
                 }
@@ -909,7 +956,17 @@ fn check_command(arguments: &[String]) -> ExitCode {
         &cache_directory,
         &generated_directory,
     ) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            if !cli_proof_budget::is_default(budget) {
+                println!(
+                    "proof budget: work={} phase-bytes={} total-bytes={}",
+                    budget.work(),
+                    budget.phase_bytes(),
+                    budget.total_bytes()
+                );
+            }
+            ExitCode::SUCCESS
+        }
         Err(diagnostic) => {
             emit_diagnostic(&diagnostic, &source, input_path);
             ExitCode::FAILURE

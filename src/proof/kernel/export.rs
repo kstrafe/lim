@@ -57,6 +57,7 @@ pub struct LeanDeclarationReport {
 
 #[derive(Clone, Debug)]
 pub struct LeanExportReport {
+    pub budget: crate::ProofBudget,
     pub target: String,
     pub input_sha256: String,
     pub bytes: u64,
@@ -74,6 +75,7 @@ impl LeanExportReport {
     pub fn render_json(&self) -> String {
         object([
             ("schema", text_json("lim-lean-replay-v1")),
+            ("proof_budget", self.budget.json()),
             ("target", text_json(&self.target)),
             ("input_sha256", text_json(&self.input_sha256)),
             ("bytes", number_json(self.bytes)),
@@ -192,8 +194,19 @@ pub fn check_lean_export_with_policy<R: BufRead>(
     target: &str,
     policy: LeanFoundationPolicy,
 ) -> std::result::Result<LeanExportReport, LeanExportError> {
+    check_lean_export_with_budget(reader, target, policy, crate::ProofBudget::default())
+}
+
+/// Replay every declaration with explicitly selected resource accounting.
+/// Budget selection cannot authorize a logical axiom or an unchecked term.
+pub fn check_lean_export_with_budget<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> std::result::Result<LeanExportReport, LeanExportError> {
     let _stage = crate::timing::stage("lean_export_replay");
-    replay_export(reader, target, false, policy).map(|(_, report, _)| report)
+    replay_export(reader, target, false, policy, budget).map(|(_, report, _)| report)
 }
 
 /// Replays the full export, translates its checked environment to ordinary Lim
@@ -212,9 +225,19 @@ pub fn translate_lean_export_with_policy<R: BufRead>(
     target: &str,
     policy: LeanFoundationPolicy,
 ) -> std::result::Result<LeanExportTranslation, LeanExportError> {
+    translate_lean_export_with_budget(reader, target, policy, crate::ProofBudget::default())
+}
+
+/// Independently recheck native output with the selected resource budget.
+pub fn translate_lean_export_with_budget<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> std::result::Result<LeanExportTranslation, LeanExportError> {
     let (mut replay, report, identity) = {
         let _stage = crate::timing::stage("lean_export_replay");
-        replay_export(reader, target, true, policy)?
+        replay_export(reader, target, true, policy, budget)?
     };
     let _stage = crate::timing::stage("lean_export_source");
     let line = replay.line.saturating_add(1);
@@ -229,8 +252,9 @@ fn replay_export<R: BufRead>(
     target: &str,
     retain_bodies: bool,
     policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
 ) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
-    let mut replay = Replay::new();
+    let mut replay = Replay::with_budget(budget);
     replay.foundation_policy = policy;
     replay.retain_bodies = retain_bodies;
     let mut input_hash = hash::Sha256::new();
@@ -315,6 +339,7 @@ fn replay_export<R: BufRead>(
         .into_iter()
         .collect();
     let report = LeanExportReport {
+        budget,
         target: matches[0].name.clone(),
         input_sha256: hash::hex(&input_hash.finish()),
         bytes: total,
@@ -332,8 +357,12 @@ fn replay_export<R: BufRead>(
 }
 
 impl Replay {
+    #[cfg(test)]
     fn new() -> Self {
-        let kernel = Kernel::new();
+        Self::with_budget(crate::ProofBudget::default())
+    }
+    fn with_budget(budget: crate::ProofBudget) -> Self {
+        let kernel = Kernel::with_budget(budget);
         Self {
             kernel,
             names: vec![Name {
@@ -366,8 +395,8 @@ impl Replay {
         self.transformation_bytes = self
             .transformation_bytes
             .saturating_add(self.kernel.transformed_bytes);
-        if self.transformation_bytes > 256 * 1024 * 1024 {
-            return Err("export cumulative transformation allocation limit exceeded; no theorem was established".into());
+        if self.transformation_bytes > self.kernel.budget.total_bytes() {
+            return Err(format!("export cumulative transformation allocation limit exceeded ({} > {} bytes); no theorem was established", self.transformation_bytes, self.kernel.budget.total_bytes()));
         }
         self.kernel.reset_budget();
         Ok(())
