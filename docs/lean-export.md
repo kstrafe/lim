@@ -481,6 +481,24 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-reten
   --before /path/to/old/lim --after target/debug/lim --iterations 5
 ```
 
+Before selecting larger importer limits, inspect an available export without
+retaining its tables:
+
+```sh
+bash scripts/limited-run.sh python3 scripts/audit-lean-export.py proof.ndjson \
+  --max-input-bytes 68719476736
+```
+
+The tool reads bounded records and reports the exact input SHA-256, byte and
+record counts, primary record categories, maximum table IDs, largest record
+and largest direct UTF-8 string value. Its summary state has fixed categories,
+including an unknown bucket. Defaults are 64 MiB total and 8 MiB per line;
+larger total input is explicit and capped at 64 GiB. Read, UTF-8, JSON,
+duplicate-key, nesting and size failures produce a line diagnostic rather
+than a success summary. This is source inspection only: it does not validate
+declarations, establish a theorem, change compiler limits, or supply proof
+authority. Its byte/string metrics are not retained-kernel-memory estimates.
+
 The first tool selects original/native targets and explicit budgets from the
 committed fixture manifests. Each sample starts a fresh Python worker and one
 compiler child, so process peak RSS belongs to that sample rather than an earlier
