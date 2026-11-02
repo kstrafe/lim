@@ -134,8 +134,20 @@ Raw replay requires the existing `--lean-foundations` policy: both declared
 and target axiom inventories contain exactly `Quot.sound`, with
 `quotient-computation-v1` as primitive foundation. The native translation
 independently reports `Quot.sound`. Source hashes, notices and canonical
-ownership include pinned `Init.WF` and `Init.SimpLemmas`. Later GCD equations
-and the full FLT dependency closure remain open.
+ownership include pinned `Init.WF` and `Init.SimpLemmas`.
+
+The [GCD corpus](../tests/fixtures/lean_export_gcd/README.md) adds 284 genuine
+declarations and three unbounded targets: `Nat.gcd_zero_left`, `Nat.gcd_succ`
+and `Nat.gcd_zero_right`. Bounded candidates across both comparison operands
+expose transparent wrappers and selected branches before expanding a common
+worker. Head inspections guide reduction only; the checker still establishes
+every equality by its existing rules. Raw and native target bases are exactly
+`Quot.sound` for zero-left and successor, and `Quot.sound, propext` for
+zero-right. The export registers both axioms and requires explicit
+`--lean-foundations`; its primitive basis is `quotient-computation-v1`.
+Canonical private ownership and source attribution additionally pin
+`Init.Data.Nat.Gcd`. The generic self theorem, closed GCD computation and the
+full FLT dependency closure remain open.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

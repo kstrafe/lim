@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare checked remainder replay under scripts/limited-run.sh.
+"""Compare checked arithmetic and well-founded replay under limited-run.sh.
 
 Use compilers built with identical profiles. Cases that the old checker rejects
 are reported as coverage gains, never as successful-check speedups.
@@ -83,6 +83,11 @@ def main():
         cases.update({
             "raw_well_founded": ["--check-lean-export", well_founded["export"]["file"], well_founded["targets"][-1], "--lean-foundations"],
             "native_well_founded": ["--check-theorem", well_founded["native"]["file"], well_founded["native"]["targets"][well_founded["targets"][-1]]],
+        })
+        gcd = json.loads((ROOT / "tests/fixtures/lean_export_gcd/provenance.json").read_bytes())
+        cases.update({
+            "raw_gcd": ["--check-lean-export", gcd["export"]["file"], gcd["targets"][-1], "--lean-foundations"],
+            "native_gcd": ["--check-theorem", gcd["native"]["file"], gcd["native"]["targets"][gcd["targets"][-1]]],
         })
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]

@@ -480,10 +480,14 @@ all source annotations/proofs still pass initial checking.
 
 Application conversion compares identical global or local heads before
 unfolding their bodies, checking each argument by ordinary conversion. If
-needed, up to eight right-hand delta candidates expose wrappers and selected
-cases. Candidate normalization contracts beta/zeta/iota while leaving unrelated
-global heads neutral, so a common worker can be compared without expanding its
-implementation twice. Every candidate uses at most 16,384 extra work units,
+needed, up to eight candidates across both operands expose wrappers and
+selected cases. A bounded inspection of transparent bodies and computational
+argument heads can select a left reduction before expanding the right worker.
+This inspection only chooses a direction; it proves no equality and cannot
+select an unknown or incorrect branch. Candidate normalization contracts
+beta/zeta/iota while leaving unrelated global heads neutral, so a common worker
+can be compared without expanding its implementation twice. Every candidate
+uses at most 16,384 extra work units,
 2 MiB of transformed payload and 48 extra depth within the enclosing limits.
 Nested probes inherit tighter limits, spent charges remain spent, and only
 explicit internal declines fall back. Unknown names and invalid universes still
@@ -495,9 +499,9 @@ an unused proof binder must not force both copies of an open well-founded
 worker to normalize. Substitution preserves outer variables and checks every
 source annotation even when subsequent reduction erases an argument.
 If no candidate establishes equality, ordinary fallback resumes from the last
-completed reduction of the right operand. It does not repeat the discarded
-wrapper/beta prefix. Reuse stays inside the same comparison and typing context;
-there is no cross-comparison cache or checked-signature shortcut. A declined
+completed reductions of either operand. It does not repeat their completed
+wrapper/beta prefixes. Reuse stays inside the same comparison and typing
+context; there is no cross-comparison cache or checked-signature shortcut. A declined
 attempt publishes no partial result, while earlier completed reductions remain
 usable. All spent work and payload charges remain charged. The original source
 still requires full typing, even when normalization erases a bad annotation.
@@ -515,8 +519,17 @@ declarations and exact native translation require `Quot.sound`, used by
 function extensionality, and the `quotient-computation-v1` primitive foundation.
 Raw replay requires explicit `--lean-foundations`; the constructive default
 refuses it. Native checking reports the same `Quot.sound` logical basis. This
-is not a new axiom or an admission of the equation by its name. The later
-private GCD defining equation and closed GCD computation still exceed work.
+is not a new axiom or an admission of the equation by its name.
+
+The [GCD corpus](../tests/fixtures/lean_export_gcd/README.md) checks 284 genuine
+declarations, including the unary and binary GCD defining equations.
+Three targets quantify over arbitrary naturals: zero on either side and the
+successor recurrence. Exposing checked selectors and lambda wrappers on the
+left avoids prematurely unfolding a matching recursive worker on the right.
+Both raw and native checks report `Quot.sound` for zero-left and successor;
+zero-right additionally requires `propext`. The primitive foundation remains
+`quotient-computation-v1`, and raw replay requires explicit authorization.
+Generic GCD self-equality and closed GCD computation still exceed work.
 
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks

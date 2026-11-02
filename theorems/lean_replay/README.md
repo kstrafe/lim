@@ -92,6 +92,15 @@ extensionality. Native checking reports that logical basis, and raw replay
 requires `--lean-foundations`. Canonical private ownership, exact mappings,
 source hashes and attribution include `Init.WF` and `Init.SimpLemmas`.
 
+The twentieth file, [`gcd.lim`](gcd.lim), translates the
+[GCD corpus](../../tests/fixtures/lean_export_gcd/README.md). Its 284 declarations
+check three targets over arbitrary naturals: zero-left, successor recurrence
+and zero-right. The first two report exactly `Quot.sound`; zero-right also
+reports `propext`. Raw replay requires `--lean-foundations`. The pinned
+`Init.Data.Nat.Gcd` source, private ownership, exact native mapping and
+assumption inventories are retained in the corpus provenance. The generic
+self theorem and closed GCD computation remain open.
+
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps the original nine exports' declarations

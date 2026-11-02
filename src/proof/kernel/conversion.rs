@@ -1,6 +1,6 @@
 //! Compare common application heads before unfolding their definitions.
 //!
-//! Congruence uses ordinary conversion of every argument. A short right-hand
+//! Congruence uses ordinary conversion of every argument. A short bounded
 //! reduction chain can expose the same call through wrappers and selected
 //! cases. Explicit lambda/let heads contract before an unrelated named worker
 //! is unfolded, including under dependent proof and term binders.
@@ -14,6 +14,7 @@ use super::*;
 pub(super) struct ConversionProgress {
     pub(super) equivalent: bool,
     pub(super) right: Option<T>,
+    pub(super) left: Option<T>,
 }
 
 impl Kernel {
@@ -28,18 +29,60 @@ impl Kernel {
             return Ok(ConversionProgress {
                 equivalent: false,
                 right: None,
+                left: None,
             });
         }
         if self.application_congruence(ctx, a, b, depth + 1)? {
             return Ok(ConversionProgress {
                 equivalent: true,
                 right: None,
+                left: None,
             });
         }
+        let mut left = None;
         let mut candidate = b.clone();
-        // This is a heuristic, not a completeness limit: the original
-        // converter still handles longer chains and nonmatching heads.
-        for _ in 0..8 {
+        let mut attempts = 0;
+        let mut left_blocked = false;
+        // Both directions share the existing eight-candidate heuristic.
+        while attempts < 8 {
+            if !left_blocked {
+                let compared_left = left.as_ref().unwrap_or(a);
+                let mut attempted = false;
+                let reduced = self
+                    .reduction_probe(depth, |kernel| {
+                        if kernel.wrapper_may_expose_head(compared_left, &candidate, depth + 1)? {
+                            attempted = true;
+                            kernel.conversion_candidate(ctx, compared_left, depth + 1)
+                        } else {
+                            Ok(None)
+                        }
+                    })?
+                    .flatten();
+                if attempted {
+                    attempts += 1;
+                    left_blocked = reduced.is_none();
+                }
+                if let Some(reduced) = reduced {
+                    left = Some(reduced);
+                    let compared_left = left.as_ref().unwrap();
+                    if self.same_syntax(compared_left, &candidate)?
+                        || self.application_congruence(ctx, compared_left, &candidate, depth + 1)?
+                    {
+                        return Ok(ConversionProgress {
+                            equivalent: true,
+                            right: None,
+                            left: None,
+                        });
+                    }
+                    // Reconsider a completed left reduction before expanding
+                    // the other call: a selected branch may already be it.
+                    continue;
+                }
+            }
+            if attempts == 8 {
+                break;
+            }
+            attempts += 1;
             let reduced = self
                 .reduction_probe(depth, |kernel| {
                     kernel.conversion_candidate(ctx, &candidate, depth + 1)
@@ -48,12 +91,14 @@ impl Kernel {
             let Some(reduced) = reduced else {
                 break;
             };
-            if self.same_syntax(a, &reduced)?
-                || self.application_congruence(ctx, a, &reduced, depth + 1)?
+            let compared_left = left.as_ref().unwrap_or(a);
+            if self.same_syntax(compared_left, &reduced)?
+                || self.application_congruence(ctx, compared_left, &reduced, depth + 1)?
             {
                 return Ok(ConversionProgress {
                     equivalent: true,
                     right: None,
+                    left: None,
                 });
             }
             candidate = reduced;
@@ -61,7 +106,74 @@ impl Kernel {
         Ok(ConversionProgress {
             equivalent: false,
             right: (!Arc::ptr_eq(&candidate, b)).then_some(candidate),
+            left,
         })
+    }
+
+    fn wrapper_may_expose_head(&mut self, left: &T, right: &T, depth: usize) -> Result<bool> {
+        // Inspect only heads. Argument vectors and universe substitution
+        // belong to the real reduction, not this optional prediction.
+        let mut a = left;
+        let mut b = right;
+        let mut steps = 0;
+        while let Term::App(function, _) = a.as_ref() {
+            self.tick(depth + 1 + steps)?;
+            a = function;
+            steps += 1;
+        }
+        steps = 0;
+        while let Term::App(function, _) = b.as_ref() {
+            self.tick(depth + 1 + steps)?;
+            b = function;
+            steps += 1;
+        }
+        let Term::Global(target, _) = b.as_ref() else {
+            return Ok(false);
+        };
+        let body = match a.as_ref() {
+            Term::Global(name, _) if name != target => {
+                let Some(body) = self
+                    .declarations
+                    .get(name)
+                    .and_then(|decl| decl.value.clone())
+                else {
+                    return Ok(false);
+                };
+                body
+            }
+            Term::Lam(..) | Term::Let(..) => a.clone(),
+            _ => return Ok(false),
+        };
+        if self.computational_head_is(&body, target, depth + 1)? {
+            return Ok(true);
+        }
+        // A conditional or selector may return one of its arguments. This
+        // predicts only a useful reduction direction; every actual step and
+        // final argument comparison still uses the ordinary checked rules.
+        let mut value = left;
+        let mut steps = 0;
+        while let Term::App(function, argument) = value.as_ref() {
+            self.tick(depth + 1 + steps)?;
+            if self.computational_head_is(argument, target, depth + 1)? {
+                return Ok(true);
+            }
+            value = function;
+            steps += 1;
+        }
+        Ok(false)
+    }
+
+    fn computational_head_is(&mut self, value: &T, target: &str, depth: usize) -> Result<bool> {
+        let mut cursor = value;
+        for _ in 0..DEPTH {
+            self.tick(depth)?;
+            cursor = match cursor.as_ref() {
+                Term::Lam(_, value) | Term::Let(_, _, value) | Term::App(value, _) => value,
+                Term::Global(name, _) => return Ok(name == target),
+                _ => return Ok(false),
+            };
+        }
+        Ok(false)
     }
 
     #[cfg(test)]
@@ -135,3 +247,7 @@ impl Kernel {
 #[cfg(test)]
 #[path = "conversion_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversion_left_tests.rs"]
+mod left_tests;

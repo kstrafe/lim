@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with eighteen committed genuine
+for this accepted subset, with twenty committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -385,10 +385,22 @@ preserve a shared worker as a neutral call after beta/zeta reduction. All 141
 declarations replay under the existing explicit foundation policy; the sole
 declared/target axiom is `Quot.sound`, with `quotient-computation-v1` primitive
 computation. Native checking reports the same logical basis. The constructive
-default refuses this corpus. The private GCD defining equation and closed GCD
+default refuses this corpus.
+
+The [GCD corpus](../tests/fixtures/lean_export_gcd/README.md) adds a twentieth
+genuine export with 284 declarations and three targets over arbitrary naturals:
+zero-left, successor recurrence and zero-right. Bounded conversion candidates
+can expose left-side wrappers and selectors while preserving a common right
+worker as a neutral call. Computational head inspections only guide actual
+checked reductions; they grant no equation by name. The first two target
+closures use exactly `Quot.sound`; zero-right additionally uses `propext`.
+Both are declared in the export, with `quotient-computation-v1` primitive
+computation, and explicit authorization remains required. Raw and native
+proofs are checked independently. Source attribution includes the pinned
+`Init.Data.Nat.Gcd` private helpers. Generic GCD self-equality and closed GCD
 computation remain limited by work. Other arithmetic, arbitrary course-of-values
-computation and large-environment storage/replay remain open. This does not provide the full mathematical
-dependency closure or its proof.
+computation and large-environment storage/replay remain open. This does not
+provide the full mathematical dependency closure or its proof.
 
 The remaining work is a staged port, not a completed deliverable:
 

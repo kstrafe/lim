@@ -60,6 +60,12 @@ measure fixpoint equation using the explicit `Quot.sound` foundation policy;
 constructive replay refuses it. Exact private ownership, native mapping and
 attribution include independently pinned `Init.WF` and `Init.SimpLemmas`.
 
+The [GCD corpus](../lean_export_gcd/README.md) adds a twentieth genuine export.
+Its 284 declarations check zero-left, successor recurrence and zero-right for
+arbitrary naturals. The first two target closures use `Quot.sound`; zero-right
+also uses `propext`. Explicit foundation authorization, exact native mappings,
+private ownership and attribution include pinned `Init.Data.Nat.Gcd`.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

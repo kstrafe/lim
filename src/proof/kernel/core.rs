@@ -1196,7 +1196,7 @@ impl Kernel {
         if progress.equivalent {
             return Ok(true);
         }
-        let a = self.whnf(ctx, a, depth + 1)?;
+        let a = self.whnf(ctx, progress.left.as_ref().unwrap_or(a), depth + 1)?;
         let b = self.whnf(ctx, progress.right.as_ref().unwrap_or(b), depth + 1)?;
         if Arc::ptr_eq(&a, &b) || self.same_syntax(&a, &b)? {
             return Ok(true);

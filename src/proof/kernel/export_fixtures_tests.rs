@@ -336,6 +336,19 @@ fn genuine_well_founded_equation_retains_checked_mapping_hashes_and_attribution(
     );
 }
 
+#[test]
+fn genuine_gcd_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_gcd/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_gcd/gcd.ndjson"),
+        include_str!("../../../theorems/lean_replay/gcd.lim"),
+        "GcdSource.zeroRight",
+        "lim-lean-gcd-fixture-v1",
+        &["quotient-computation-v1"],
+        (3, &["Quot.sound", "propext"]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],
