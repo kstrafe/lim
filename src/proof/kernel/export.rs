@@ -16,6 +16,8 @@ mod expressions;
 mod fixtures_tests;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_initializers.rs"]
+mod initializers;
 #[path = "export_inventory.rs"]
 mod inventory;
 #[path = "export_levels.rs"]
@@ -165,7 +167,7 @@ struct Replay {
     input_hash: hash::Sha256,
     digest: Option<String>,
     retain_bodies: bool,
-    bodies: HashMap<String, T>,
+    initializers: initializers::Initializers,
     quotient_stage: usize,
     foundation_policy: LeanFoundationPolicy,
 }
@@ -369,15 +371,13 @@ impl Replay {
     }
     fn with_retention(budget: crate::ProofBudget, retain_bodies: bool) -> Self {
         let mut kernel = Kernel::with_budget(budget);
-        if !retain_bodies {
-            kernel.declarations.enable_spilling();
-        }
+        kernel.declarations.enable_spilling();
         Self {
             kernel,
             names: names::Names::new(),
             name_bytes: 0,
             levels: levels::Levels::new(),
-            expressions: expressions::Expressions::new(retain_bodies),
+            expressions: expressions::Expressions::new(false),
             reports: inventory::Inventory::new(),
             checked: checked::Index::new(),
             target: String::new(),
@@ -394,7 +394,7 @@ impl Replay {
             input_hash: hash::Sha256::new(),
             digest: None,
             retain_bodies,
-            bodies: HashMap::new(),
+            initializers: initializers::Initializers::new(retain_bodies),
             quotient_stage: 0,
             foundation_policy: LeanFoundationPolicy::Constructive,
         }
@@ -558,7 +558,13 @@ impl Replay {
         let universes = self.universes(&data["levelParams"])?;
         let ty = self.expression(&data["type"])?;
         let value = self.expression(&data["value"])?;
-        let retained = (self.retain_bodies && tag != "def").then(|| value.clone());
+        let retained = if self.retain_bodies && tag != "def" {
+            Some(initializers::Initializer::Source(
+                self.expression_id(&data["value"])?,
+            ))
+        } else {
+            None
+        };
         let dependencies = dependencies(&[ty.clone(), value.clone()])?;
         self.dependencies_known(&dependencies, &[])?;
         self.room(1)?;
@@ -571,10 +577,7 @@ impl Replay {
                 .definition(&name.key, universes, ty, value, tag == "thm")
         };
         checked.map_err(|why| format!("declaration '{}': {why}", name.display))?;
-        if let Some(value) = retained {
-            self.bodies.insert(name.key.clone(), value);
-        }
-        self.remember(
+        self.remember_initializer(
             &name,
             if tag == "thm" {
                 "theorem"
@@ -584,6 +587,7 @@ impl Replay {
                 "opaque"
             },
             dependencies,
+            retained,
         )
     }
     fn name_list(&self, value: &Json, limit: usize) -> Result<Vec<Name>> {
@@ -624,6 +628,15 @@ impl Replay {
         Ok(())
     }
     fn remember(&mut self, name: &Name, kind: &str, dependencies: Vec<String>) -> Result<()> {
+        self.remember_initializer(name, kind, dependencies, None)
+    }
+    fn remember_initializer(
+        &mut self,
+        name: &Name,
+        kind: &str,
+        dependencies: Vec<String>,
+        initializer: Option<initializers::Initializer>,
+    ) -> Result<()> {
         self.dependency_count = self
             .dependency_count
             .checked_add(dependencies.len())
@@ -654,6 +667,7 @@ impl Replay {
             sha256: digest.clone(),
             dependencies,
         })?;
+        self.initializers.push(index, initializer)?;
         self.checked.insert(&name.key, index)?;
         // Retain only the selector match and the three authorized axiom
         // names. Avoid scanning and decoding the complete paged inventory at

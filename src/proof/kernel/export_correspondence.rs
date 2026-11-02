@@ -35,7 +35,8 @@ pub(super) fn check(
     let records = report
         .declarations
         .iter()
-        .map(|record| (record.identity.as_str(), record))
+        .enumerate()
+        .map(|(index, record)| (record.identity.as_str(), (index, record)))
         .collect::<HashMap<_, _>>();
     let mut remaining = SOURCE_NODES;
     let mut remaining_bytes = 64 * 1024 * 1024usize;
@@ -53,7 +54,7 @@ pub(super) fn check(
         if !seen.insert(original.clone()) {
             return Err("duplicate native declaration in translation".into());
         }
-        let record = records
+        let (index, record) = records
             .get(original.as_str())
             .ok_or("missing original declaration inventory")?;
         let declaration = replay
@@ -104,10 +105,20 @@ pub(super) fn check(
                     replay.kernel.reset_budget();
                     let value = relocate.term(&value, 0)?;
                     replay.kernel.check(&[], &value, &declaration.ty, 0)?;
+                    let retained = if declaration.value.is_none() {
+                        replay.initializers.get(
+                            *index,
+                            &replay.expressions,
+                            &replay.names,
+                            &replay.levels,
+                        )?
+                    } else {
+                        None
+                    };
                     let expected = declaration
                         .value
                         .as_ref()
-                        .or_else(|| replay.bodies.get(original))
+                        .or(retained.as_ref())
                         .ok_or("missing original checked initializer")?;
                     replay.kernel.reset_budget();
                     // Both values have already been checked at this exact type.
@@ -214,6 +225,9 @@ pub(super) fn check(
                 record.name, replay.kernel.work
             )
         })?;
+        drop(relocate);
+        drop(declaration);
+        replay.expressions.end_record();
     }
     Ok(())
 }
@@ -605,7 +619,7 @@ mod tests {
     }
     #[test]
     fn a_proved_different_statement_is_not_the_original_theorem() {
-        let mut replay = Replay::new();
+        let mut replay = Replay::with_retention(crate::ProofBudget::default(), true);
         let proposition = term(Term::Sort(Level::number(0).unwrap()));
         let ty = term(Term::Pi(
             proposition.clone(),
@@ -619,18 +633,24 @@ mod tests {
             .kernel
             .definition("original", vec![], ty, proof.clone(), true)
             .unwrap();
-        replay.bodies.insert("original".into(), proof);
+        replay
+            .initializers
+            .push(0, Some(initializers::Initializer::Native(proof)))
+            .unwrap();
         let error=verify(&mut replay,"theorem","(#theorem native (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))").unwrap_err();
         assert!(error.contains("not definitionally equal"), "{error}");
     }
     #[test]
     fn opacity_is_part_of_source_correspondence() {
-        let mut replay = Replay::new();
+        let mut replay = Replay::with_retention(crate::ProofBudget::default(), true);
         replay
             .kernel
             .opaque_definition("original", vec![], nat(), zero())
             .unwrap();
-        replay.bodies.insert("original".into(), zero());
+        replay
+            .initializers
+            .push(0, Some(initializers::Initializer::Native(zero())))
+            .unwrap();
         verify(
             &mut replay,
             "opaque",

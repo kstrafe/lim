@@ -91,7 +91,7 @@ pub(super) fn render(
             .render()
         ))?;
     }
-    for declaration in &report.declarations {
+    for (index, declaration) in report.declarations.iter().enumerate() {
         let checked = writer
             .kernel
             .declarations
@@ -114,10 +114,20 @@ pub(super) fn render(
         if let Some(family) = &checked.family {
             writer.inductive(&declaration.identity, &checked.universes, family)?;
         } else {
+            let retained = if checked.value.is_none() {
+                replay.initializers.get(
+                    index,
+                    &replay.expressions,
+                    &replay.names,
+                    &replay.levels,
+                )?
+            } else {
+                None
+            };
             let value = checked
                 .value
                 .as_ref()
-                .or_else(|| replay.bodies.get(&declaration.identity))
+                .or(retained.as_ref())
                 .ok_or("checked opaque/theorem initializer was not retained for translation")?;
             writer.definition(
                 &declaration.identity,
@@ -128,6 +138,8 @@ pub(super) fn render(
             )?;
         }
         writer.push("\n\n")?;
+        drop(checked);
+        replay.expressions.end_record();
     }
     // The formatter and ordinary source checker have no export-specific trust
     // path. Resource failures and malformed generated source fail translation.

@@ -457,10 +457,12 @@ GCD worker evaluation, other arithmetic, arbitrary course-of-values computation
 and large-environment storage/replay remain open. This does not provide the
 full mathematical dependency closure or its proof.
 
-Replay-only source storage now uses compact nodes and weak syntax sharing,
-releasing opaque proof trees after their declarations check. Reconstruction
-rechecks source scopes and types; it carries no previous typing result. Native
-emission retains its eager original graph and independent checks. In five paired
+Source storage uses compact nodes and weak syntax sharing in raw replay and
+native emission. Native theorem and opaque initializer slots retain original
+source expression IDs instead of all proof trees; fixed checked axiom adapters
+retain their small native terms. Reconstructed initializers still pass normal
+native checking and independent source correspondence; storage supplies no
+previous typing result. In the earlier raw-replay measurements, five paired
 debug0 runs of a synthetic 3,000-theorem/32-erased-let stream, peak compiler RSS
 falls from median 37,368 to 25,932 KiB (30.6%), with wall medians 2,109.960 and
 2,108.546 ms. This measures storage behavior, not new mathematical coverage.
@@ -468,7 +470,7 @@ The ten genuine raw/native memory cases still check; their small retained graphs
 show nearly unchanged RSS. All source/table limits remain finite and unchanged,
 so the large upstream environment and full FLT proof are still open.
 
-Completed raw-replay kernel declarations can now leave the resident environment
+Completed original kernel declarations can now leave the resident environment
 for temporary backing storage. A bounded working set retains their types,
 transparent bodies and inductive metadata; opaque proofs stay opaque. Exact
 structural round trips precede eviction, and current-process SHA-256 digests

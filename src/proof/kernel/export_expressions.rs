@@ -1,6 +1,6 @@
 //! Source syntax storage, never checked evidence. Replay can release opaque
 //! proof trees after their declaration check while retaining backward IDs.
-//! Emission keeps the original eager graph because it needs every proof body.
+//! Native emission retains original initializer IDs into the same graph.
 use super::*;
 use std::{borrow::Cow, cell::RefCell, sync::Weak};
 
@@ -128,9 +128,9 @@ enum Storage {
 }
 
 impl Expressions {
-    pub(super) fn new(retain_bodies: bool) -> Self {
+    pub(super) fn new(eager: bool) -> Self {
         Self {
-            storage: if retain_bodies {
+            storage: if eager {
                 Storage::Eager(Vec::new())
             } else {
                 Storage::Compact {
@@ -171,8 +171,8 @@ impl Expressions {
         }
     }
     #[cfg(test)]
-    pub(super) fn with_limit(retain_bodies: bool, limit: usize) -> Self {
-        let mut result = Self::new(retain_bodies);
+    pub(super) fn with_limit(eager: bool, limit: usize) -> Self {
+        let mut result = Self::new(eager);
         if let Storage::Compact { entries, .. } = &mut result.storage {
             *entries = Entries::with_limit(limit);
         }

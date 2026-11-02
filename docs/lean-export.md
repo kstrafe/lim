@@ -308,10 +308,16 @@ use fresh compiler processes under the unchanged 2-GiB/two-core guard; the
 first workload explicitly selects a 4-GiB cumulative transformation budget.
 The committed small corpora remain below the spill threshold.
 
-Native source emission uses eager expression retention because it needs every
-original proof body for emission and independent correspondence checking. Input,
-source/table/payload, work/depth and transformation limits remain unchanged.
-This storage change does not provide full-environment replay or an FLT proof.
+Native source emission uses the same compact, paged expression graph. A small
+table indexed by declaration ordinal retains the original source expression ID
+for each theorem or opaque initializer, rather than owning every proof tree.
+Emission and independent correspondence reconstruct the original root when
+needed. The three fixed axiom adapters have no source initializer and retain
+their checked native terms. Dead reconstruction handles are released between
+declarations. There is no persisted typing result or new proof authority.
+Input, source/table/payload, work/depth and transformation limits are unchanged.
+Native output strings and parsed source remain bounded, eager structures; this
+does not provide full-environment replay or an FLT proof.
 
 The expanded name table also spills above a 1-MiB resident allocation estimate,
 in both replay and native emission. Exact key, display spelling and component
@@ -347,8 +353,9 @@ guards per monomial. The 64-KiB accounted payload limit is also enforced during
 decoding, before constructing its trees. Scope, explicit universe arity,
 combined primitive-payload accounting and full-EOF validation still run normally.
 
-Replay also stores completed kernel declarations in invocation-local scratch
-storage when their conservative resident estimate exceeds 8 MiB. It releases
+Replay and native emission store completed original kernel declarations in
+invocation-local scratch storage when their conservative resident estimate
+exceeds 8 MiB. The store releases
 older declarations down to 4 MiB and keeps later reads within the remaining
 8-MiB working-set allowance. A single larger declaration is returned to its
 checking caller without entering the read cache. A declaration being checked,
@@ -367,9 +374,10 @@ representation. I/O errors and integrity failures fail replay.
 These immediately unlinked files are temporary backing storage for the current
 kernel environment. No earlier process’s judgment or persistent cache can
 insert a declaration. Records are bounded to 32 MiB, one million term nodes and
-depth 256; the scratch file is bounded to 128 MiB. Native source emission keeps
-its environment resident. Nested-family views, name candidate IDs and receipt
-inventories still need further work for very large exports.
+depth 256; the scratch file is bounded to 128 MiB. The original export
+environment can spill during native emission too. Nested-family views, name
+candidate IDs, native report inventories and the independently parsed native
+environment still need further work for very large exports.
 
 ## Native proof-source translation
 
@@ -575,7 +583,8 @@ inside the separate host memory/CPU guard.
 | Core checking | 200,000 steps and recursive depth 96 per checking phase |
 | Structural arithmetic | Decimal digit work counts against the core budget before each addition/multiplication; at most 4,096 result digits |
 | Core transformations | 64 MiB accounted allocations per phase; 256 MiB cumulatively per replay |
-| Completed raw declaration storage | 8 MiB resident estimate, eviction down to 4 MiB; 128 MiB invocation-local scratch |
+| Completed original declaration storage | 8 MiB resident estimate in raw replay and native emission, eviction down to 4 MiB; 128 MiB invocation-local scratch |
+| Native initializer inventory | One optional source expression ID per declaration; the three fixed checked axiom adapters retain native terms |
 | Declaration scratch records | 32 MiB encoded bytes, 1,000,000 unique term nodes, depth 256; 256 MiB decode allocation accounting |
 | Native translation source | 8 MiB before and after formatting; 1,000,000 expanded term visits; recursive render depth 96 |
 | Source correspondence | 1,000,000 relocated nodes, depth 256, and 64 MiB accounted node/name/universe allocations across a translation |
@@ -621,6 +630,33 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-reten
 bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-report.py \
   --before /path/to/old/lim --after target/debug/lim --iterations 5
 ```
+
+For native proof emission and independent checking, the native-retention tool
+extends the pinned identity fixture with 100 additional checked theorems,
+four erased typed lets each, and 190,000 unused expression records. It compares
+complete receipt and emitted-proof fingerprints before timing and after every
+fresh-worker sample:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-native-retention.py \
+  --before /path/to/old/lim --after target/debug/lim --iterations 5
+```
+
+Against `88333da4`, five alternating debug0 samples reduce median compiler
+peak RSS from 67,884 to 33,336 KiB (50.9%). Median wall time increases from
+561.130 to 788.445 ms (40.5%); protected source backing storage and later
+reconstruction cost time. Both versions use default work/per-phase limits,
+an explicit 1-GiB cumulative transformation budget and the same 2-GiB/two-core
+host guard. The 4,308,676-byte source has SHA-256
+`26ffe8236f7387a3f3e8ac6de4cee8d6fa61c574c393f56e2edd7ec837f112df`.
+All samples emit the same 23,884-byte receipt, SHA-256
+`48982614e1b238236e07e1c2e6427f6c5e4c3b34b32cb885842484c972bf3357`,
+and 78,448-byte Lim proof source, SHA-256
+`b3cd359380dcc60b01ff34dbb654065cf1e8dac1d6629a06cc0990c4761fc8a6`.
+This isolates retained syntax during native translation; it is synthetic
+storage evidence, not additional FLT proof coverage. Output formatting,
+parsing, native report materialization and independent checking still have
+their existing finite limits.
 
 Before selecting larger importer limits, inspect an available export without
 retaining its tables:

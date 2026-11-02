@@ -55,10 +55,10 @@ impl Replay {
         self.reset_budget()?;
         self.kernel
             .opaque_definition(&name.key, universes, ty, value.clone())?;
-        if self.retain_bodies {
-            self.bodies.insert(name.key.clone(), value);
-        }
-        self.remember(&name, "axiom", dependencies)
+        let initializer = self
+            .retain_bodies
+            .then_some(initializers::Initializer::Native(value));
+        self.remember_initializer(&name, "axiom", dependencies, initializer)
     }
 
     fn axiom_template(&self, source: &str, universes: &[String]) -> Result<T> {
