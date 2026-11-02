@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with seventeen committed genuine
+for this accepted subset, with eighteen committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -368,6 +368,13 @@ Sharing invariant numeral and monomorphic-global leaves during transformations
 allows the composition corpus to check all fifteen combined targets under the
 unchanged cumulative replay payload cap. Node/depth/work checks still run;
 polymorphic universe arguments and initial source arity remain checked.
+The [remainder corpus](../tests/fixtures/lean_export_remainder/README.md)
+adds fourteen independently checked raw/native targets over 216 declarations,
+including unbounded zero controls, computed powers/sums and huge dividends.
+The exact state-return/unchanged-recursion observation preserves the same fuel
+and source checks. Private ownership includes a pinned case-analysis helper
+from `Init.Data.Nat.Basic`. The genuine general `Nat.mod_lt` closure currently
+exhausts work at `Nat.modCoreGo_lt`; the general range proof remains open.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.

@@ -423,8 +423,13 @@ cover three distinct terminals. Work and transformation budgets are unchanged.
 
 A separate Euclidean observation recognizes a particular checked history fold.
 Its selected field must be `Nat -> P -> Nat`, where `P` is a proposition.
-For a positive constant `d`, the successor step must select zero below `d`
-and otherwise apply the previous field to `max(x-d,0)` and add exactly one.
+For a positive constant `d`, the successor step must match one of two exact
+recurrences:
+
+| Observation | State below `d` | State at or above `d` |
+| --- | --- | --- |
+| Quotient | Return zero. | Apply the previous field to `max(x-d,0)`, then add one. |
+| Remainder | Return the current state. | Apply the previous field to `max(x-d,0)` unchanged. |
 The guard's complete paired-predecessor recurrence, predecessor iteration,
 record projection, binders and finite case tags are checked structurally.
 Finite decision fields may contain only propositions; the observer cannot
@@ -459,6 +464,20 @@ execution do not incur their predicted cost. Other errors propagate, and the
 enclosing budget is restored on every result. This adds no arithmetic equation,
 proof admission or cached theorem authority. Initial source inference remains
 mandatory even when normalization erases a malformed annotation or value.
+The [remainder corpus](../tests/fixtures/lean_export_remainder/README.md) checks
+both literal/computed operands and unbounded zero controls against the genuine
+standard definitions. The remainder observation adds a trusted conversion rule
+for the exact state-return/unchanged-recursion pattern; it does not infer that
+behavior from an operation name. Both observations require the same actual fuel
+bound even though their terminal results differ.
+
+The guard's context-independent numeral reduction can also simplify an exactly
+matching application argument before exposing the subtraction recurrence.
+This avoids unfolding the same computed divisor repeatedly. Different syntax
+retains ordinary normalization, and the complete predecessor-iteration shape,
+base state and constant count must still match. This is local value reuse;
+all source annotations/proofs still pass initial checking.
+
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks
 still run; globals with universe arguments still invoke universe substitution.

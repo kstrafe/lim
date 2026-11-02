@@ -310,6 +310,19 @@ fn genuine_division_composition_retains_checked_mapping_hashes_and_attribution()
     );
 }
 
+#[test]
+fn genuine_remainder_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_remainder/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_remainder/remainder.ndjson"),
+        include_str!("../../../theorems/lean_replay/remainder.lim"),
+        "RemainderSource.zeroDivisor",
+        "lim-lean-remainder-fixture-v1",
+        &[],
+        (14, &[]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

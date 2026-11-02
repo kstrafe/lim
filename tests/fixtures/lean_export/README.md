@@ -48,6 +48,12 @@ computed-operand cases, with complete standard dependency bodies, exact native
 translations and empty assumptions.
 It has separate source, ownership, hash and license provenance.
 
+The [remainder corpus](../lean_export_remainder/README.md) adds an eighteenth
+genuine export. Fourteen targets include literal/computed remainders and two
+unbounded zero controls. Its exact native translation, empty assumptions and
+source/module/license provenance include the pinned `Nat.Basic` helper used
+by case analysis.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

@@ -75,6 +75,13 @@ divisor cases and literal division. The 211-declaration corpus retains the full
 standard closure and exact native mapping with empty assumption inventories;
 sharing immutable leaves keeps it inside the original replay allocation cap.
 
+The eighteenth file, [`remainder.lim`](remainder.lim), translates the
+[remainder corpus](../../tests/fixtures/lean_export_remainder/README.md).
+Its 216 declarations check fourteen literal/computed targets and unbounded
+zero controls, with exact original/native mapping and empty assumptions.
+The case-analysis helper's `Init.Data.Nat.Basic` source is independently pinned.
+The general `Nat.mod_lt` dependency proof remains outside this checked corpus.
+
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps the original nine exports' declarations

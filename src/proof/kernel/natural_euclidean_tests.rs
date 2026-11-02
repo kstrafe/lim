@@ -150,6 +150,10 @@ struct Recurrence {
     reversed: bool,
     history_index: usize,
     terminal: usize,
+    terminal_state: bool,
+    divisor_expression: Option<T>,
+    decrement_expression: Option<T>,
+    applied_update: bool,
 }
 impl Recurrence {
     fn division(divisor: usize) -> Self {
@@ -160,6 +164,17 @@ impl Recurrence {
             reversed: false,
             history_index: 0,
             terminal: 0,
+            terminal_state: false,
+            divisor_expression: None,
+            decrement_expression: None,
+            applied_update: false,
+        }
+    }
+    fn remainder(divisor: usize) -> Self {
+        Self {
+            increment: 0,
+            terminal_state: true,
+            ..Self::division(divisor)
         }
     }
     fn parts(&self, k: &mut Kernel) -> (T, T, T) {
@@ -171,16 +186,31 @@ impl Recurrence {
             literal(0),
             lam(nat(), lam(equality(literal(0)), literal(99))),
         );
-        let update = fold(nat(), var(1), predecessor(var(0)), literal(self.decrement));
+        let count = self
+            .decrement_expression
+            .clone()
+            .unwrap_or_else(|| literal(self.decrement));
+        let update = if self.applied_update {
+            app(
+                lam(nat(), fold(nat(), var(2), predecessor(var(0)), var(0))),
+                count,
+            )
+        } else {
+            fold(nat(), var(1), predecessor(var(0)), count)
+        };
         let call = app(
             app(project(var(2), self.history_index), update),
             refl(var(3)),
         );
         let positive = (0..self.increment).fold(call, |n, _| succ(n));
+        let divisor = self
+            .divisor_expression
+            .clone()
+            .unwrap_or_else(|| literal(self.divisor));
         let guard = if self.reversed {
-            le(var(1), literal(self.divisor))
+            le(var(1), divisor)
         } else {
-            le(literal(self.divisor), var(1))
+            le(divisor, var(1))
         };
         let body = term(Term::Induct {
             family: "Tag".into(),
@@ -188,7 +218,14 @@ impl Recurrence {
             parameters: vec![],
             indices: vec![],
             motive: lam(global("Tag"), nat()),
-            branches: vec![literal(self.terminal), positive],
+            branches: vec![
+                if self.terminal_state {
+                    (0..self.terminal).fold(var(1), |value, _| succ(value))
+                } else {
+                    literal(self.terminal)
+                },
+                positive,
+            ],
             subject: guard,
         });
         let function = lam(nat(), lam(equality(succ(var(2))), body));
@@ -483,4 +520,141 @@ fn decision_tags_may_not_erase_data_fields_or_unfinished_families() {
     .unwrap();
     k.reset_budget();
     assert!(k.euclidean_tag_shape("Decision", 0).unwrap().is_some());
+}
+
+#[test]
+fn remainder_observation_matches_materialized_history_records() {
+    let mut k = kernel();
+    for d in 1..=4 {
+        for x in 0..=8 {
+            let recurrence = Recurrence::remainder(d);
+            let fuel = x / d + 1;
+            let fast = recurrence.value(&mut k, literal(x), literal(fuel));
+            let slow = recurrence.materialized(&mut k, literal(x), fuel);
+            k.reset_budget();
+            k.check(&[], &fast, &nat(), 0).unwrap();
+            k.reset_budget();
+            k.check(&[], &slow, &nat(), 0).unwrap();
+            k.reset_budget();
+            let result = k.natural_euclidean_observation(&fast, 0).unwrap().unwrap();
+            assert!(
+                matches!(result.as_ref(),Term::NatLiteral {value,..} if value.decimal()==(x%d).to_string())
+            );
+            k.reset_budget();
+            assert!(k.natural_euclidean_observation(&slow, 0).unwrap().is_none());
+            k.reset_budget();
+            assert!(k.convertible(&[], &slow, &result, 0).unwrap());
+        }
+    }
+}
+
+#[test]
+fn remainder_does_not_assume_that_proof_arguments_guarantee_fuel() {
+    let mut k = kernel();
+    let recurrence = Recurrence::remainder(5);
+    for fuel in 0..=4 {
+        let value = recurrence.value(&mut k, literal(21), literal(fuel));
+        k.reset_budget();
+        k.check(&[], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        assert!(k
+            .natural_euclidean_observation(&value, 0)
+            .unwrap()
+            .is_none());
+        let slow = recurrence.materialized(&mut k, literal(21), fuel);
+        k.reset_budget();
+        assert!(k.convertible(&[], &slow, &literal(99), 0).unwrap());
+    }
+    let value = recurrence.value(&mut k, literal(21), literal(5));
+    k.reset_budget();
+    assert!(
+        matches!(k.natural_euclidean_observation(&value,0).unwrap().as_deref(),Some(Term::NatLiteral {value,..}) if value.decimal()=="1")
+    );
+}
+
+#[test]
+fn altered_remainder_conditions_updates_and_results_are_refused() {
+    let mut k = kernel();
+    let good = Recurrence::remainder(3);
+    for bad in [
+        Recurrence::remainder(0),
+        Recurrence {
+            increment: 1,
+            ..good.clone()
+        },
+        Recurrence {
+            terminal: 1,
+            ..good.clone()
+        },
+        Recurrence {
+            decrement: 2,
+            ..good.clone()
+        },
+        Recurrence {
+            decrement: 4,
+            ..good.clone()
+        },
+        Recurrence {
+            reversed: true,
+            ..good.clone()
+        },
+        Recurrence {
+            terminal_state: false,
+            ..good.clone()
+        },
+    ] {
+        let value = bad.value(&mut k, literal(21), literal(30));
+        k.reset_budget();
+        k.check(&[], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        assert!(k
+            .natural_euclidean_observation(&value, 0)
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[test]
+fn validated_divisor_reuse_preserves_argument_scope_and_equivalent_fallbacks() {
+    let mut k = kernel();
+    for computed_update in [false, true] {
+        let d = power_of_two(literal(3));
+        let recurrence = Recurrence {
+            divisor_expression: Some(d.clone()),
+            decrement_expression: Some(if computed_update { d } else { literal(8) }),
+            applied_update: true,
+            ..Recurrence::remainder(8)
+        };
+        let value = recurrence.value(&mut k, literal(21), literal(3));
+        k.reset_budget();
+        k.check(&[], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        let result = k.natural_euclidean_observation(&value, 0).unwrap().unwrap();
+        assert!(matches!(result.as_ref(),Term::NatLiteral {value,..} if value.decimal()=="5"));
+        let slow = recurrence.materialized(&mut k, literal(21), 3);
+        k.reset_budget();
+        assert!(k.convertible(&[], &result, &slow, 0).unwrap());
+    }
+}
+
+#[test]
+fn matching_a_guard_does_not_authorize_an_unrelated_decrement_argument() {
+    let mut k = kernel();
+    let recurrence = Recurrence {
+        divisor_expression: Some(power_of_two(literal(3))),
+        decrement_expression: Some(literal(9)),
+        applied_update: true,
+        ..Recurrence::remainder(8)
+    };
+    let value = recurrence.value(&mut k, literal(21), literal(3));
+    k.reset_budget();
+    k.check(&[], &value, &nat(), 0).unwrap();
+    k.reset_budget();
+    assert!(k
+        .natural_euclidean_observation(&value, 0)
+        .unwrap()
+        .is_none());
+    let slow = recurrence.materialized(&mut k, literal(21), 3);
+    k.reset_budget();
+    assert!(k.convertible(&[], &slow, &literal(3), 0).unwrap());
 }

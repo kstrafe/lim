@@ -8,8 +8,19 @@ struct TagShape {
     parameters: usize,
 }
 
+#[derive(Clone, Copy)]
+enum EuclideanObservation {
+    Quotient,
+    Remainder,
+}
+
+struct EuclideanDivisor {
+    value: Natural,
+    expression: T,
+}
+
 struct RegionTags {
-    divisor: Option<Natural>,
+    divisor: Option<EuclideanDivisor>,
     // The state is below, equal to, or above the same positive divisor.
     tags: [usize; 3],
 }
@@ -138,14 +149,17 @@ impl Kernel {
             return Ok(None);
         }
         // Under fuel, old record, state and its proof: state=1, record=2.
-        let Some(divisor) = self.euclidean_step(family, record, body, depth + 1)? else {
+        let Some((divisor, observation)) = self.euclidean_step(family, record, body, depth + 1)?
+        else {
             return Ok(None);
         };
         let Some(input) = self.euclidean_number(family, input, depth + 1)? else {
             return Ok(None);
         };
-        self.charge_transformation(512 + 4 * (input.decimal().len() + divisor.decimal().len()))?;
-        let (quotient, _) = input.divide_remainder_metered(&divisor, |work| {
+        self.charge_transformation(
+            512 + 4 * (input.decimal().len() + divisor.value.decimal().len()),
+        )?;
+        let (quotient, remainder) = input.divide_remainder_metered(&divisor.value, |work| {
             self.charge_work(work)?;
             self.tick(depth + 1)
         })?;
@@ -154,10 +168,14 @@ impl Kernel {
         if !self.euclidean_has_fuel(family, fuel, &quotient, depth + 1)? {
             return Ok(None);
         }
-        self.charge_transformation(128 + family.len() + quotient.decimal().len())?;
+        let value = match observation {
+            EuclideanObservation::Quotient => quotient,
+            EuclideanObservation::Remainder => remainder,
+        };
+        self.charge_transformation(128 + family.len() + value.decimal().len())?;
         Ok(Some(term(Term::NatLiteral {
             family: family.clone(),
-            value: quotient,
+            value,
         })))
     }
 
@@ -669,12 +687,24 @@ impl Kernel {
             let Some(divisor) = self.euclidean_number(natural, &right_head, depth + 1)? else {
                 return Ok(None);
             };
-            (divisor, [tags[1], tags[0], tags[2]])
+            (
+                EuclideanDivisor {
+                    value: divisor,
+                    expression: right.clone(),
+                },
+                [tags[1], tags[0], tags[2]],
+            )
         } else if matches!(right_head.as_ref(),Term::Var(i) if *i == state) {
             let Some(divisor) = self.euclidean_number(natural, &left_head, depth + 1)? else {
                 return Ok(None);
             };
-            (divisor, [tags[2], tags[0], tags[1]])
+            (
+                EuclideanDivisor {
+                    value: divisor,
+                    expression: left.clone(),
+                },
+                [tags[2], tags[0], tags[1]],
+            )
         } else {
             return Ok(None);
         };
@@ -690,7 +720,7 @@ impl Kernel {
         record: &str,
         value: &T,
         depth: usize,
-    ) -> Result<Option<Natural>> {
+    ) -> Result<Option<(EuclideanDivisor, EuclideanObservation)>> {
         self.tick(depth)?;
         let value = self.natural_head(value, depth + 1)?;
         let Term::Induct {
@@ -721,7 +751,7 @@ impl Kernel {
         let Some(divisor) = guard.divisor else {
             return Ok(None);
         };
-        if divisor.decimal() == "0"
+        if divisor.value.decimal() == "0"
             || guard.tags[0] == guard.tags[1]
             || guard.tags[1] != guard.tags[2]
         {
@@ -729,7 +759,7 @@ impl Kernel {
         }
         let positive = guard.tags[1];
         let negative = guard.tags[0];
-        let Some(zero) = self.euclidean_drop_fields(
+        let Some(terminal) = self.euclidean_drop_fields(
             &branches[negative],
             shape.constructors[negative].1,
             depth + 1,
@@ -737,17 +767,24 @@ impl Kernel {
         else {
             return Ok(None);
         };
-        if self
-            .euclidean_compact_number(natural, &zero, depth + 1)?
-            .is_none_or(|n| n.decimal() != "0")
+        let terminal = self.natural_head(&terminal, depth + 1)?;
+        let observation = if matches!(terminal.as_ref(), Term::Var(index)
+            if *index == 1 + shape.constructors[negative].1)
         {
+            EuclideanObservation::Remainder
+        } else if self
+            .euclidean_compact_number(natural, &terminal, depth + 1)?
+            .is_some_and(|value| value.decimal() == "0")
+        {
+            EuclideanObservation::Quotient
+        } else {
             return Ok(None);
-        }
+        };
         let fields = shape.constructors[positive].1;
         let Some(body) = self.euclidean_drop_fields(&branches[positive], fields, depth + 1)? else {
             return Ok(None);
         };
-        if !self.euclidean_increment(
+        let Some(bias) = self.euclidean_recursive_bias(
             natural,
             record,
             &body,
@@ -755,23 +792,31 @@ impl Kernel {
             2 + fields,
             &divisor,
             depth + 1,
-        )? {
+        )?
+        else {
+            return Ok(None);
+        };
+        let expected = match observation {
+            EuclideanObservation::Quotient => "1",
+            EuclideanObservation::Remainder => "0",
+        };
+        if bias.decimal() != expected {
             return Ok(None);
         }
-        Ok(Some(divisor))
+        Ok(Some((divisor, observation)))
     }
 
     #[expect(clippy::too_many_arguments)]
-    fn euclidean_increment(
+    fn euclidean_recursive_bias(
         &mut self,
         natural: &str,
         record: &str,
         value: &T,
         state: usize,
         previous: usize,
-        divisor: &Natural,
+        divisor: &EuclideanDivisor,
         depth: usize,
-    ) -> Result<bool> {
+    ) -> Result<Option<Natural>> {
         self.tick(depth)?;
         // Add a fresh Nat-result binder for the recursive call. All existing
         // locals are shifted past it, including locals appearing in types.
@@ -806,11 +851,10 @@ impl Kernel {
             &mut |_,index,_| Ok(term(Term::Var(index))),
             &mut |level| Ok(level.clone()),
         )?;
-        Ok(!refused
-            && found
-            && self
-                .natural_translation_bias(natural, &body, 0, depth + 1)?
-                .is_some_and(|bias| bias.decimal() == "1"))
+        if refused || !found {
+            return Ok(None);
+        }
+        self.natural_translation_bias(natural, &body, 0, depth + 1)
     }
 
     fn euclidean_state_update(
@@ -818,11 +862,30 @@ impl Kernel {
         natural: &str,
         value: &T,
         state: usize,
-        divisor: &Natural,
+        divisor: &EuclideanDivisor,
         depth: usize,
     ) -> Result<bool> {
         self.tick(depth)?;
-        let value = self.natural_head(value, depth + 1)?;
+        // The guard certified a context-independent reduction of this exact
+        // expression. Reuse its value in an application argument, then still
+        // verify the entire predecessor-iteration shape and constant count.
+        let specialized = if let Term::App(function, argument) = value.as_ref() {
+            if self.same_syntax(argument, &divisor.expression)? {
+                self.charge_transformation(256 + natural.len() + divisor.value.decimal().len())?;
+                term(Term::App(
+                    function.clone(),
+                    term(Term::NatLiteral {
+                        family: natural.to_owned(),
+                        value: divisor.value.clone(),
+                    }),
+                ))
+            } else {
+                value.clone()
+            }
+        } else {
+            value.clone()
+        };
+        let value = self.natural_head(&specialized, depth + 1)?;
         let Term::Induct {
             family,
             levels,
@@ -856,7 +919,7 @@ impl Kernel {
         if !matches!(base.as_ref(),Term::Var(i) if *i == state) {
             return Ok(false);
         }
-        if self.euclidean_number(natural, subject, depth + 1)?.as_ref() != Some(divisor) {
+        if self.euclidean_number(natural, subject, depth + 1)?.as_ref() != Some(&divisor.value) {
             return Ok(false);
         }
         let step = self.natural_head(&branches[1], depth + 1)?;
