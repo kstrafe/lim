@@ -48,6 +48,20 @@ const EXPORTS: [(&str, &[u8]); 9] = [
     ),
 ];
 
+fn spilled_report(
+    input: &[u8],
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> LeanExportReport {
+    let mut replay = Replay::with_retention(budget, false);
+    replay.foundation_policy = policy;
+    replay.expressions = expressions::Expressions::with_limit(false, 0);
+    let (replay, report, _) = replay_reader(input, target, replay).unwrap();
+    assert!(replay.expressions.is_spilled());
+    report
+}
+
 fn digest(bytes: &[u8]) -> String {
     let mut digest = hash::Sha256::new();
     digest.update(bytes);
@@ -92,6 +106,13 @@ fn native_proof_artifacts_reproduce_the_checked_genuine_exports() {
         let translated =
             translate_lean_export(input, field(entry, "original_target").string().unwrap())
                 .unwrap();
+        let spilled = spilled_report(
+            input,
+            field(entry, "original_target").string().unwrap(),
+            LeanFoundationPolicy::Constructive,
+            crate::ProofBudget::default(),
+        );
+        assert_eq!(spilled.render_json(), translated.report.render_json());
         assert_eq!(native, translated.source.as_bytes());
         assert_eq!(
             field(entry, "native_target").string(),
@@ -458,6 +479,8 @@ fn assert_primitive_fixture_with_budget(
         LeanFoundationPolicy::Lean4
     };
     let report = check_lean_export_with_budget(input, target, policy, budget).unwrap();
+    let spilled = spilled_report(input, target, policy, budget);
+    assert_eq!(spilled.render_json(), report.render_json());
     assert_eq!(report.axioms, expected_axioms);
     assert_eq!(report.budget, budget);
     assert_eq!(report.foundations, foundations);

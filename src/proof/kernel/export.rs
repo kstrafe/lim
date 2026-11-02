@@ -20,6 +20,8 @@ mod inductives;
 mod quotient;
 #[path = "export_source.rs"]
 mod source;
+#[path = "export_spool.rs"]
+mod spool;
 #[path = "export_terms.rs"]
 mod terms;
 pub use source::LeanExportTranslation;
@@ -250,7 +252,7 @@ pub fn translate_lean_export_with_budget<R: BufRead>(
 }
 
 fn replay_export<R: BufRead>(
-    mut reader: R,
+    reader: R,
     target: &str,
     retain_bodies: bool,
     policy: LeanFoundationPolicy,
@@ -258,6 +260,15 @@ fn replay_export<R: BufRead>(
 ) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
     let mut replay = Replay::with_retention(budget, retain_bodies);
     replay.foundation_policy = policy;
+    replay_reader(reader, target, replay)
+}
+
+fn replay_reader<R: BufRead>(
+    mut reader: R,
+    target: &str,
+    mut replay: Replay,
+) -> std::result::Result<(Replay, LeanExportReport, String), LeanExportError> {
+    let budget = replay.kernel.budget;
     let mut input_hash = hash::Sha256::new();
     let mut total = 0u64;
     let mut line = Vec::new();
@@ -481,15 +492,11 @@ impl Replay {
             .get(index(value)?, &self.names, &self.levels)
     }
     fn expression_depth(&self, value: &Json) -> Result<usize> {
-        self.expressions
-            .depth(index(value)?)
-            .ok_or_else(|| "expression reference must refer to an earlier record".into())
+        self.expressions.depth(index(value)?)
     }
     fn expression_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;
-        self.expressions
-            .depth(id)
-            .ok_or("expression reference must refer to an earlier record")?;
+        self.expressions.depth(id)?;
         Ok(id)
     }
     fn universes(&self, value: &Json) -> Result<Vec<String>> {

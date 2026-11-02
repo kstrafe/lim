@@ -260,6 +260,32 @@ can reconstruct the same source syntax when a later declaration references it.
 Transparent metadata aliases are flattened to avoid adding reconstruction depth.
 Changed universe binders and expected types always trigger ordinary checking.
 
+Compact source graphs spill before growing beyond a 2-MiB allocation estimate.
+The source-node bytes and fixed index use separate append-only temporary files,
+removed from the directory immediately after opening. Each keeps at most four
+64-KiB read pages and one pending page. Completed pages carry SHA-256 digests
+held by the running checker; read errors, truncation and checksum mismatches
+fail replay. The live syntax memo becomes sparse after spilling, so unused
+numeric IDs need no retained tree or dense weak-handle array. Scratch bytes
+and source/table limits remain bounded. These files are local to one invocation
+and contain source syntax, never accepted theorem signatures or judgments.
+
+Spilling trades some replay time for bounded resident source storage. The
+[measurement tools](#measuring-replay-memory) support `--lets 64 --total-bytes
+4294967296` for a larger checked-proof workload and `--declarations 1 --lets 1
+--unused-expressions 190000` for primitive-table retention. Larger traffic
+profiles must be selected explicitly; the tools do not grow a budget after
+failure. Neither workload is a genuine Lean proof corpus or an FLT result.
+
+Against `b3a3f18b`, five alternating debug0 samples of 3,000 checked theorems
+with 64 erased lets each reduce median compiler RSS from 32,984 to 23,936 KiB
+(27.4%), while wall time rises from 5,679.570 to 6,551.998 ms (15.4%). Three
+paired primitive-table samples reduce RSS from 26,288 to 18,172 KiB (30.9%),
+with wall time rising from 849.870 to 1,100.988 ms (29.5%). These measurements
+use fresh compiler processes under the unchanged 2-GiB/two-core guard; the
+first workload explicitly selects a 4-GiB cumulative transformation budget.
+The committed small corpora remain below the spill threshold.
+
 Native source emission uses eager expression retention because it needs every
 original proof body for emission and independent correspondence checking. Input,
 source/table/payload, work/depth and transformation limits remain unchanged.

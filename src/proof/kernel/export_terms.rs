@@ -232,10 +232,7 @@ impl Replay {
                     total.saturating_add(self.levels[*id].memory_weight())
                 }),
             Expression::Project(name, ..) => self.names[*name].key.len(),
-            Expression::Alias(id) => self
-                .expressions
-                .payload(*id)
-                .ok_or("missing expression child")?,
+            Expression::Alias(id) => self.expressions.payload(*id)?,
             _ => 0,
         };
         self.payload_bytes = self

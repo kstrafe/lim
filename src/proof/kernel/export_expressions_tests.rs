@@ -7,7 +7,11 @@ fn slots_empty(values: &Expressions) -> bool {
     let Storage::Compact { materialized, .. } = &values.storage else {
         panic!("compact table")
     };
-    materialized.borrow().slots.iter().all(Option::is_none)
+    let memo = materialized.borrow();
+    match &memo.sparse {
+        Some(slots) => slots.is_empty(),
+        None => memo.slots.iter().all(Option::is_none),
+    }
 }
 fn root_names() -> Vec<Name> {
     vec![Name {
@@ -81,7 +85,10 @@ fn compact_and_eager_modes_reconstruct_all_source_nodes_exactly() {
         let a = eager.expression(&number_json(id as u64)).unwrap();
         let b = compact.expression(&number_json(id as u64)).unwrap();
         assert!(Kernel::new().same_syntax(&a, &b).unwrap());
-        assert_eq!(eager.expressions.depth(id), compact.expressions.depth(id));
+        assert_eq!(
+            eager.expressions.depth(id).unwrap(),
+            compact.expressions.depth(id).unwrap()
+        );
         assert_eq!(
             eager.expressions.payload(id),
             compact.expressions.payload(id)
@@ -103,7 +110,7 @@ fn long_metadata_alias_chains_preserve_depth_without_reconstruction_recursion() 
             ),
         ]);
         replay.expression_record(&row).unwrap();
-        assert_eq!(replay.expressions.depth(id as usize), Some(1));
+        assert_eq!(replay.expressions.depth(id as usize).unwrap(), 1);
     }
     let result = replay.expression(&number_json(4096)).unwrap();
     assert!(matches!(result.as_ref(), Term::Var(0)));
@@ -111,7 +118,7 @@ fn long_metadata_alias_chains_preserve_depth_without_reconstruction_recursion() 
         unreachable!()
     };
     assert!(matches!(
-        entries.last().unwrap().expression,
+        entries.get(entries.len() - 1).unwrap().expression,
         Expression::Alias(0)
     ));
 }
@@ -166,5 +173,57 @@ fn source_validation_is_eager_even_when_expression_trees_are_not_materialized() 
         assert!(record(&mut chain, &input)
             .unwrap_err()
             .contains("expression depth"));
+    }
+}
+
+#[test]
+fn spilling_preserves_live_syntax_and_releases_dead_sparse_handles() {
+    let names = root_names();
+    let levels = [Level::number(0).unwrap()];
+    let mut values = Expressions::with_limit(false, std::mem::size_of::<Entry>() * 12);
+    values
+        .push(Expression::Var(0), 1, 0, &names, &levels)
+        .unwrap();
+    let owner = values.get(0, &names, &levels).unwrap();
+    for _ in 1..9 {
+        values
+            .push(Expression::Var(0), 1, 0, &names, &levels)
+            .unwrap();
+    }
+    assert!(values.is_spilled());
+    values.end_record();
+    assert!(Arc::ptr_eq(
+        &owner,
+        &values.get(0, &names, &levels).unwrap()
+    ));
+    drop(owner);
+    let root = values.get(0, &names, &levels).unwrap();
+    drop(root);
+    values.end_record();
+    assert!(slots_empty(&values));
+    let Storage::Compact { materialized, .. } = &values.storage else {
+        unreachable!()
+    };
+    assert!(materialized.borrow().slots.is_empty());
+    assert!(materialized.borrow().queued.is_empty());
+}
+
+#[test]
+fn forced_spill_preserves_failures_after_the_selected_target() {
+    let original = include_str!("../../../tests/fixtures/lean_export/identity.ndjson");
+    let invalids = [
+        format!("{original}{{\"ie\":20,\"strVal\":\"unsupported\"}}\n"),
+        format!("{original}{{\"ie\":20,\"natVal\":\"0\"}}\n"),
+        original.replacen("\"levelParams\":[4]", "\"levelParams\":[]", 1),
+    ];
+    for source in invalids {
+        let normal = check_lean_export(source.as_bytes(), "Audit.identity.theorem").unwrap_err();
+        let mut replay = Replay::new();
+        replay.expressions = Expressions::with_limit(false, 0);
+        let spilled = match replay_reader(source.as_bytes(), "Audit.identity.theorem", replay) {
+            Ok(_) => panic!("invalid source accepted after spilling"),
+            Err(error) => error,
+        };
+        assert_eq!(normal, spilled);
     }
 }

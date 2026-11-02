@@ -40,7 +40,7 @@ def write_row(stream, row):
     stream.write(json.dumps(row, separators=(",", ":")) + "\n")
 
 
-def generate_export(path, declarations, lets):
+def generate_export(path, declarations, lets, unused=0):
     fixture_bytes = FIXTURE.read_bytes()
     if hashlib.sha256(fixture_bytes).hexdigest() != FIXTURE_SHA256:
         raise ValueError("pinned identity fixture SHA256 does not match")
@@ -70,20 +70,24 @@ def generate_export(path, declarations, lets):
                 "thm": {"name": name, "levelParams": [], "type": 12,
                         "value": body, "all": [name]},
             })
+        for _ in range(unused):
+            write_row(stream, {"ie": expr, "bvar": 0})
+            expr += 1
 
 
 def run_sample(label, compiler, sample_index, export_path, target, source_bytes,
-               source_sha256, declarations, lets, iterations):
+               source_sha256, declarations, lets, iterations, unused, total_bytes):
     compiler_args = [
         "--check-lean-export", str(export_path), target,
-        "--proof-total-bytes", str(PROOF_TOTAL_BYTES),
+        "--proof-total-bytes", str(total_bytes),
     ]
+    budget = dict(BUDGET, transformation_bytes_total=total_bytes)
     command = [
         sys.executable, str(MEMORY_BENCHMARK), "--worker",
         "--lim", str(compiler), "--case-name", target,
         "--argv-json", json.dumps(compiler_args, separators=(",", ":")),
         "--input-bytes", str(source_bytes),
-        "--budget-json", json.dumps(BUDGET, separators=(",", ":")),
+        "--budget-json", json.dumps(budget, separators=(",", ":")),
     ]
     try:
         result = subprocess.run(
@@ -95,7 +99,7 @@ def run_sample(label, compiler, sample_index, export_path, target, source_bytes,
             raise ValueError("worker output is not a JSON object")
     except (subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
         worker_data = {
-            "case": target, "input_bytes": source_bytes, "budget": BUDGET,
+            "case": target, "input_bytes": source_bytes, "budget": budget,
             "status": "worker_error", "wall_ms": None, "cpu_ms": None,
             "peak_rss_kib": None,
             "diagnostic": "worker failed, exceeded its finite timeout, or returned invalid data",
@@ -107,7 +111,7 @@ def run_sample(label, compiler, sample_index, export_path, target, source_bytes,
         "source_bytes": source_bytes,
         "source_sha256": source_sha256,
         "parameters": {"declarations": declarations, "lets": lets,
-                       "iterations": iterations},
+                       "iterations": iterations, "unused_expressions": unused},
     })
     print(json.dumps(worker_data, separators=(",", ":")), flush=True)
     return result is not None and result.returncode == 0 and worker_data.get("status") == "ok"
@@ -122,16 +126,24 @@ def main():
     parser.add_argument("--declarations", type=int, default=3000,
                         help="synthetic theorem declarations (1..3000; default: 3000)")
     parser.add_argument("--lets", type=int, default=32,
-                        help="erased lets per theorem (1..32; default: 32)")
+                        help="erased lets per theorem (1..64; default: 32)")
+    parser.add_argument("--unused-expressions", type=int, default=0,
+                        help="additional checked primitive records (0..190000)")
+    parser.add_argument("--total-bytes", type=int, default=PROOF_TOTAL_BYTES,
+                        help="explicit cumulative traffic budget (1..64 GiB; default: 1 GiB)")
     args = parser.parse_args()
 
     for option, value, low, high in (
         ("--iterations", args.iterations, 1, 25),
         ("--declarations", args.declarations, 1, 3000),
-        ("--lets", args.lets, 1, 32),
+        ("--lets", args.lets, 1, 64),
+        ("--unused-expressions", args.unused_expressions, 0, 190000),
+        ("--total-bytes", args.total_bytes, 1, 64 << 30),
     ):
         if not low <= value <= high:
             parser.error(f"{option} must be between {low} and {high}")
+    if 21 + args.declarations * args.lets + args.unused_expressions > 200000:
+        parser.error("generated source would exceed the expression table limit")
     compilers = {}
     for label in ("before", "after"):
         candidate = getattr(args, label)
@@ -147,7 +159,7 @@ def main():
     target = f"Audit.opaquePayload{args.declarations - 1}"
     with tempfile.TemporaryDirectory(prefix="lim-proof-retention-") as directory:
         export_path = Path(directory) / "synthetic.ndjson"
-        generate_export(export_path, args.declarations, args.lets)
+        generate_export(export_path, args.declarations, args.lets, args.unused_expressions)
         source_bytes = export_path.stat().st_size
         source_sha256 = hashlib.sha256(export_path.read_bytes()).hexdigest()
         for sample_index in range(1, args.iterations + 1):
@@ -155,7 +167,8 @@ def main():
             for label in order:
                 if not run_sample(label, compilers[label], sample_index, export_path,
                                   target, source_bytes, source_sha256,
-                                  args.declarations, args.lets, args.iterations):
+                                  args.declarations, args.lets, args.iterations,
+                                  args.unused_expressions, args.total_bytes):
                     failures += 1
     return 1 if failures else 0
 
