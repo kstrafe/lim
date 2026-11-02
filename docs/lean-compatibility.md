@@ -464,12 +464,19 @@ for temporary backing storage. A bounded working set retains their types,
 transparent bodies and inductive metadata; opaque proofs stay opaque. Exact
 structural round trips precede eviction, and current-process SHA-256 digests
 protect subsequent reads. This is not a persistent checked-result cache. Native
-emission, nested-family views, universe/report tables and name candidate IDs
+emission, nested-family views, report tables and name candidate IDs
 still retain their existing representations. Expanded name keys and displays
 now spill above a 1-MiB estimate through protected data/index pages. A compact
 randomized hash index finds candidates, and exact key comparison preserves
 nominal identity even on collisions. The input and declaration-count limits
 remain unchanged, so the full upstream environment still requires more work.
+
+The source universe table now pages exact computed values above a 2-MiB
+resident estimate. Monomials, guards, offsets and payload-accounting weights
+survive independently compared round trips. Restoring a value neither
+normalizes it nor authorizes a declaration's universe scope or instantiation.
+Raw and native replay still validate those obligations. The existing source,
+universe-count, per-level and aggregate payload limits remain unchanged.
 
 The remaining work is a staged port, not a completed deliverable:
 

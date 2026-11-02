@@ -112,7 +112,7 @@ impl Replay {
         if self.payload_bytes > 64 * 1024 * 1024 {
             return Err("export primitive payload limit exceeded".into());
         }
-        self.levels.push(level);
+        self.levels.push(level)?;
         Ok(())
     }
     pub(super) fn expression_record(&mut self, value: &Json) -> Result<()> {
@@ -229,12 +229,11 @@ impl Replay {
             Expression::Natural(value) => {
                 "$lean:s3:Nat".len().saturating_add(value.decimal().len())
             }
-            Expression::Sort(id) => self.levels[*id].memory_weight(),
-            Expression::Global(name, levels) => levels
-                .iter()
-                .fold(self.names.get(*name)?.key.len(), |total, id| {
-                    total.saturating_add(self.levels[*id].memory_weight())
-                }),
+            Expression::Sort(id) => self.levels.weight(*id)?,
+            Expression::Global(name, levels) => levels.iter().try_fold(
+                self.names.get(*name)?.key.len(),
+                |total, id| -> Result<usize> { Ok(total.saturating_add(self.levels.weight(*id)?)) },
+            )?,
             Expression::Project(name, ..) => self.names.get(*name)?.key.len(),
             Expression::Alias(id) => self.expressions.payload(*id)?,
             _ => 0,

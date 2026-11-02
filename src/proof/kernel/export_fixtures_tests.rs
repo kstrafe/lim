@@ -57,10 +57,12 @@ fn spilled_report(
     let mut replay = Replay::with_retention(budget, false);
     replay.foundation_policy = policy;
     replay.names = names::Names::with_limit(0);
+    replay.levels = levels::Levels::with_limit(0);
     replay.expressions = expressions::Expressions::with_limit(false, 0);
     replay.kernel.declarations.set_limit(0);
     let (replay, report, _) = replay_reader(input, target, replay).unwrap();
     assert!(replay.names.is_spilled());
+    assert!(replay.levels.is_spilled());
     assert!(replay.expressions.is_spilled());
     report
 }

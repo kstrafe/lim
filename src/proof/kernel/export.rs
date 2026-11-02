@@ -14,6 +14,8 @@ mod expressions;
 mod fixtures_tests;
 #[path = "export_inductive.rs"]
 mod inductives;
+#[path = "export_levels.rs"]
+mod levels;
 #[path = "export_names.rs"]
 mod names;
 #[path = "export_quotient.rs"]
@@ -100,7 +102,7 @@ struct Replay {
     kernel: Kernel,
     names: names::Names,
     name_bytes: usize,
-    levels: Vec<Level>,
+    levels: levels::Levels,
     expressions: expressions::Expressions,
     reports: Vec<LeanDeclarationReport>,
     checked: HashMap<String, usize>,
@@ -318,7 +320,7 @@ impl Replay {
             kernel,
             names: names::Names::new(),
             name_bytes: 0,
-            levels: vec![Level::number(0).expect("zero universe")],
+            levels: levels::Levels::new(),
             expressions: expressions::Expressions::new(retain_bodies),
             reports: vec![],
             checked: HashMap::new(),
@@ -422,13 +424,13 @@ impl Replay {
     }
     fn level_id(&self, value: &Json) -> Result<usize> {
         let id = index(value)?;
-        self.levels
-            .get(id)
-            .ok_or("universe reference must refer to an earlier record")?;
+        if id >= self.levels.len() {
+            return Err("universe reference must refer to an earlier record".into());
+        }
         Ok(id)
     }
     fn level(&self, value: &Json) -> Result<Level> {
-        Ok(self.levels[self.level_id(value)?].clone())
+        Ok(self.levels.get(self.level_id(value)?)?.into_owned())
     }
     fn expression(&self, value: &Json) -> Result<T> {
         self.expressions

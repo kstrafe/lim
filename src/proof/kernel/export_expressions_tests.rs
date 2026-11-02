@@ -21,7 +21,7 @@ fn root_names() -> names::Names {
 fn compact_storage_reuses_a_dag_then_releases_dead_weak_allocations() {
     let mut values = Expressions::new(false);
     let names = root_names();
-    let levels = vec![Level::number(0).unwrap()];
+    let levels = levels::Levels::try_from(vec![Level::number(0).unwrap()]).unwrap();
     values
         .push(Expression::Var(0), 1, 0, &names, &levels)
         .unwrap();
@@ -55,7 +55,7 @@ fn compact_storage_reuses_a_dag_then_releases_dead_weak_allocations() {
 fn eviction_sweeps_dead_handles_from_earlier_records_in_both_memo_layouts() {
     for limit in [0, usize::MAX] {
         let names = root_names();
-        let levels = [Level::number(0).unwrap()];
+        let levels = levels::Levels::try_from(vec![Level::number(0).unwrap()]).unwrap();
         let mut values = Expressions::with_limit(false, limit);
         values
             .push(Expression::Var(0), 1, 0, &names, &levels)
@@ -199,7 +199,7 @@ fn source_validation_is_eager_even_when_expression_trees_are_not_materialized() 
 #[test]
 fn spilling_preserves_live_syntax_and_releases_dead_sparse_handles() {
     let names = root_names();
-    let levels = [Level::number(0).unwrap()];
+    let levels = levels::Levels::try_from(vec![Level::number(0).unwrap()]).unwrap();
     let mut values = Expressions::with_limit(false, std::mem::size_of::<Entry>() * 12);
     values
         .push(Expression::Var(0), 1, 0, &names, &levels)
@@ -270,6 +270,66 @@ fn dead_weak_syntax_reconstructs_backward_references_to_spilled_source_names() {
 }
 
 #[test]
+fn dead_weak_syntax_reconstructs_sorts_and_global_arguments_from_spilled_levels() {
+    let mut replay = Replay::new();
+    replay.names = names::Names::with_limit(0);
+    replay.levels = levels::Levels::with_limit(0);
+    replay.expressions = Expressions::with_limit(false, 0);
+    for input in [
+        r#"{"in":1,"str":{"pre":0,"str":"Foo"}}"#,
+        r#"{"in":2,"str":{"pre":0,"str":"u"}}"#,
+    ] {
+        replay
+            .name_record(&crate::lsp::json::parse(input).unwrap())
+            .unwrap();
+    }
+    for input in [r#"{"il":1,"param":2}"#, r#"{"il":2,"succ":1}"#] {
+        replay
+            .level_record(&crate::lsp::json::parse(input).unwrap())
+            .unwrap();
+    }
+    record(&mut replay, r#"{"ie":0,"sort":2}"#).unwrap();
+    record(&mut replay, r#"{"ie":1,"const":{"name":1,"us":[0,1,2]}}"#).unwrap();
+    assert!(replay.levels.is_spilled());
+    assert!(replay.expressions.is_spilled());
+
+    let original_sort = replay.expression(&number_json(0)).unwrap();
+    let original_global = replay.expression(&number_json(1)).unwrap();
+    let weak_sort = Arc::downgrade(&original_sort);
+    let weak_global = Arc::downgrade(&original_global);
+    drop((original_sort, original_global));
+    replay.expressions.end_record();
+    assert!(weak_sort.upgrade().is_none());
+    assert!(weak_global.upgrade().is_none());
+    assert!(slots_empty(&replay.expressions));
+
+    // A later source record extends the spilled table before the earlier
+    // syntax is reconstructed across the completed record boundary.
+    replay
+        .level_record(&crate::lsp::json::parse(r#"{"il":3,"succ":2}"#).unwrap())
+        .unwrap();
+    record(&mut replay, r#"{"ie":2,"sort":3}"#).unwrap();
+    replay.expressions.end_record();
+
+    let parameter = Level::variable("$lean:s1:u".into());
+    let successor = parameter.successor().unwrap();
+    let rebuilt_sort = replay.expression(&number_json(0)).unwrap();
+    let Term::Sort(actual) = rebuilt_sort.as_ref() else {
+        panic!("sort")
+    };
+    assert_eq!(actual, &successor);
+    let rebuilt_global = replay.expression(&number_json(1)).unwrap();
+    let Term::Global(name, arguments) = rebuilt_global.as_ref() else {
+        panic!("global")
+    };
+    assert_eq!(name, "$lean:s3:Foo");
+    assert_eq!(
+        arguments.as_slice(),
+        &[Level::number(0).unwrap(), parameter, successor]
+    );
+}
+
+#[test]
 fn forced_spill_preserves_failures_after_the_selected_target() {
     let original = include_str!("../../../tests/fixtures/lean_export/identity.ndjson");
     let invalids = [
@@ -281,6 +341,7 @@ fn forced_spill_preserves_failures_after_the_selected_target() {
         let normal = check_lean_export(source.as_bytes(), "Audit.identity.theorem").unwrap_err();
         let mut replay = Replay::new();
         replay.names = names::Names::with_limit(0);
+        replay.levels = levels::Levels::with_limit(0);
         replay.expressions = Expressions::with_limit(false, 0);
         let spilled = match replay_reader(source.as_bytes(), "Audit.identity.theorem", replay) {
             Ok(_) => panic!("invalid source accepted after spilling"),

@@ -212,7 +212,9 @@ fn assert_model_coverage(nodes: &[ModelNode]) {
 #[test]
 fn fixed_seed_mixed_dag_matches_eager_across_spill_and_record_cleanup() {
     let names = model_names();
-    let levels = vec![Level::number(0).unwrap(), Level::number(2).unwrap()];
+    let levels =
+        levels::Levels::try_from(vec![Level::number(0).unwrap(), Level::number(2).unwrap()])
+            .unwrap();
     let nodes = generate_model();
     assert_eq!(nodes.len(), NODE_COUNT);
     assert!(nodes.iter().all(|node| node.depth <= MAX_MODEL_DEPTH));

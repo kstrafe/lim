@@ -328,6 +328,25 @@ key/display payload limits, component depth, UTF-8 and backward-ID checks remain
 unchanged, including unused names after the selected theorem. The candidate-ID
 index remains in RAM; this does not make the whole environment constant-space.
 
+The universe table spills above a 2-MiB estimate of its owned representation,
+in replay and native emission. It stores the exact normalized monomials,
+optional bases, sorted nonzero guards and offsets produced by the existing
+arithmetic. Decoding validates fields and restores that representation without
+normalization, approximation or recomputation. Independent equality with the
+original value is required before release. Numeric IDs and duplicates remain
+distinct entries; no typing result or universe substitution is cached. An
+additional cache of at most 32 exact recent values and a 256-KiB allocation
+estimate lets repeated representations reuse data bytes. Every ID keeps its
+original full payload weight, even when its data record is shared. Equality
+here compares stored fields, without semantic normalization.
+
+Protected data and index files keep the same bounded page caches as names.
+The index preserves each value's original payload-accounting weight, checked
+again on materialization. Records are bounded to 64 KiB, 256 monomials and 64
+guards per monomial. The 64-KiB accounted payload limit is also enforced during
+decoding, before constructing its trees. Scope, explicit universe arity,
+combined primitive-payload accounting and full-EOF validation still run normally.
+
 Replay also stores completed kernel declarations in invocation-local scratch
 storage when their conservative resident estimate exceeds 8 MiB. It releases
 older declarations down to 4 MiB and keeps later reads within the remaining
@@ -349,8 +368,8 @@ These immediately unlinked files are temporary backing storage for the current
 kernel environment. No earlier process’s judgment or persistent cache can
 insert a declaration. Records are bounded to 32 MiB, one million term nodes and
 depth 256; the scratch file is bounded to 128 MiB. Native source emission keeps
-its environment resident. Nested-family views, name candidate IDs, universe
-tables and receipt inventories still need further work for very large exports.
+its environment resident. Nested-family views, name candidate IDs and receipt
+inventories still need further work for very large exports.
 
 ## Native proof-source translation
 
@@ -500,6 +519,7 @@ inside the separate host memory/CPU guard.
 | Interned names | 100,000 entries; 256 components; 16,384 bytes per display/key; 16 MiB combined payload |
 | Expanded name storage | 1 MiB resident estimate before spilling; 32,778-byte records; separate protected data/index scratch files |
 | Universe table | 20,000 entries; 64 KiB accounted payload per level |
+| Universe storage | 2 MiB resident estimate before spilling; 64-KiB records; exact values and original accounting weights in protected scratch files |
 | Universe parameter identity | 512 bytes |
 | Expression table | 200,000 entries; graph depth 256 |
 | Primitive payload accounting | 64 MiB, including owned compact decimals, identifiers and universe payloads |
@@ -525,7 +545,7 @@ universe payloads, including temporary transformations. These are explicit
 work/payload budgets, not exact process RSS measurements. Input is read one
 bounded line at a time, and replay-only expression nodes can spill to bounded
 scratch storage. Completed raw-replay declarations also have bounded resident
-storage, and expanded names can spill. Name candidate IDs, universe values,
+storage, and expanded names and universe values can spill. Name candidate IDs,
 nested-family views and report metadata remain in RAM. This does not provide
 full-environment storage for enormous exports.
 The execution guard used for development separately limits the process tree to
@@ -654,3 +674,36 @@ Both compilers emit the same 1,012-byte receipt with SHA-256
 `25bed32876f119316c749613a1782491639cee674c60e787972160bf4b429b52`.
 This is synthetic importer storage evidence, not a genuine additional proof
 or a measurement of the full FLT environment.
+
+The universe tool appends 19,000 parameter levels with 256-byte parameter
+components. The default case repeats one value; `--distinct` uses a different
+parameter for every level. Both retain the original 6,899,797-byte primitive
+payload charge, including the fixture, and require equal complete receipt
+fingerprints before alternating fresh-worker measurements:
+
+```sh
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-levels.py \
+  --before /path/to/before/lim --after target/debug/lim --iterations 5
+bash scripts/limited-run.sh nix develop -c python3 scripts/benchmark-proof-levels.py \
+  --before /path/to/before/lim --after target/debug/lim --iterations 5 --distinct
+```
+
+Against `6465111e`, five paired debug0 samples per case yield:
+
+| Universe values | Median RSS before → after (KiB) | Median wall time before → after (ms) |
+| --- | --- | --- |
+| Repeated | 31,076 → 18,392 (40.8% lower) | 50.919 → 70.806 (39.1% higher) |
+| Distinct | 33,056 → 20,296 (38.6% lower) | 598.329 → 851.445 (42.3% higher) |
+
+The repeated input is 427,540 bytes, SHA-256
+`b8de994d1857f2b01465354103a1a9b6b5343e61d454e7f192db269a660d85dc`;
+its matching 1,011-byte receipt has SHA-256
+`1abbdc1d1b00828daa77ed1a1feb1e5cf72bd4c5b77761913186ffafff55e5e8`.
+The distinct input is 6,067,070 bytes, SHA-256
+`522687fa1c645c2cc5bbb6daffbbbfb7129dba934a670eda09914884185aa3a5`;
+its matching 1,012-byte receipt has SHA-256
+`eea125d06204c32813a18262a539b7722a7b3f6923d1a4ad1e29a46cd520f5e5`.
+Default proof counters and the separate 2-GiB/two-core host guard match.
+Paging and integrity checks trade time for bounded retained values. Recent
+exact-value reuse avoids repeatedly encoding identical representations; it
+does not discount input accounting or add mathematical proof coverage.

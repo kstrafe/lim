@@ -2,7 +2,7 @@
 //! proof trees after their declaration check while retaining backward IDs.
 //! Emission keeps the original eager graph because it needs every proof body.
 use super::*;
-use std::{cell::RefCell, sync::Weak};
+use std::{borrow::Cow, cell::RefCell, sync::Weak};
 
 #[derive(Clone)]
 pub(super) enum Expression {
@@ -184,7 +184,7 @@ impl Expressions {
         depth: usize,
         payload: usize,
         names: &names::Names,
-        levels: &[Level],
+        levels: &levels::Levels,
     ) -> Result<()> {
         match &mut self.storage {
             Storage::Eager(values) => {
@@ -222,7 +222,12 @@ impl Expressions {
         Ok(())
     }
 
-    pub(super) fn get(&self, id: usize, names: &names::Names, levels: &[Level]) -> Result<T> {
+    pub(super) fn get(
+        &self,
+        id: usize,
+        names: &names::Names,
+        levels: &levels::Levels,
+    ) -> Result<T> {
         match &self.storage {
             Storage::Eager(values) => values
                 .get(id)
@@ -265,7 +270,7 @@ fn materialize(
     memo: &mut Materialized,
     id: usize,
     names: &names::Names,
-    levels: &[Level],
+    levels: &levels::Levels,
     depth: usize,
 ) -> Result<T> {
     if depth > MAX_EXPRESSION_DEPTH {
@@ -293,27 +298,17 @@ fn materialize(
 fn construct(
     expression: &Expression,
     names: &names::Names,
-    levels: &[Level],
+    levels: &levels::Levels,
     get: &mut impl FnMut(usize) -> Result<T>,
 ) -> Result<T> {
     let value = match expression {
         Expression::Var(index) => Term::Var(*index),
-        Expression::Sort(id) => Term::Sort(
-            levels
-                .get(*id)
-                .ok_or("invalid source universe index")?
-                .clone(),
-        ),
+        Expression::Sort(id) => Term::Sort(levels.get(*id)?.into_owned()),
         Expression::Global(id, arguments) => Term::Global(
             names.get(*id)?.key.clone(),
             arguments
                 .iter()
-                .map(|id| {
-                    levels
-                        .get(*id)
-                        .cloned()
-                        .ok_or_else(|| "invalid source universe index".into())
-                })
+                .map(|id| levels.get(*id).map(Cow::into_owned))
                 .collect::<Result<_>>()?,
         ),
         Expression::App(a, b) => Term::App(get(*a)?, get(*b)?),
