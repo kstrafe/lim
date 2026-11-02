@@ -116,6 +116,12 @@ impl Kernel {
                     };
                 }
                 Term::App(function, argument) => {
+                    if matches!(function.as_ref(), Term::App(..)) {
+                        if let Some(reduced) = self.natural_beta_spine(&value, depth)? {
+                            value = reduced;
+                            continue;
+                        }
+                    }
                     let function = self.natural_head(function, depth + 1)?;
                     let Term::Lam(_, body) = function.as_ref() else {
                         if let Some(fused) =

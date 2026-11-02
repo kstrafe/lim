@@ -21,7 +21,7 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Fourteen real exports of original small Lean proofs replay and translate to
+Fifteen real exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
 multiply nested, Sigma container, quotient computation and compact natural
 literal cases, standard natural arithmetic, generic discrimination and the
@@ -85,6 +85,13 @@ nonrecursive case application expose Boolean histories. An exact paired-
 predecessor rule checks every zero/successor case and binder, then selects the
 actual terminal by closed decimal comparison. It neither guesses constructor
 truth values nor permits arbitrary changing recursive arguments.
+
+The [generic subtraction bridge](../tests/fixtures/lean_export_subtraction_bridge/README.md)
+checks three universal cancellation proofs across 60 actual declarations,
+including the standard induction and congruence proof for successor
+cancellation. Batched ordinary beta reduction avoids repeated substitutions
+through curried helper bodies under the unchanged work/depth/allocation limits.
+All original and native targets have empty axiom and foundation inventories.
 
 Definitions and opaque definitions must have checked bodies. Theorem bodies
 must inhabit proposition-valued types and stay opaque after checking. Unknown

@@ -847,6 +847,15 @@ being eliminated. These avoid repeated normalization of dependent predicates
 without adding equality rules, trusting declaration names, or skipping source
 typing, erased values, universe validation or opaque-body boundaries.
 
+Consecutive lambda binders can reduce together: the checker substitutes all
+their supplied arguments in one body walk rather than repeatedly copying the
+remaining curried body. Argument order, free-variable shifts and any binders
+remaining in the body retain ordinary beta semantics. Initial source checking
+still validates every domain annotation, argument and erased value. This uses
+the same body-depth bound as the first ordinary substitution and conservatively
+bounds argument walks; temporary argument storage and reuse entries are charged
+before allocation. It adds no mathematical rule or privileged constant name.
+
 Typed function eta and primitive dependent Sigma pair eta are supported:
 
 - At a checked function type, `f` converts to

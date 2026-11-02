@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with fourteen committed genuine
+for this accepted subset, with fifteen committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -349,6 +349,11 @@ dependent Boolean predicate under the existing work, depth and allocation
 limits. The five targets and their exact native translations have empty axiom
 and foundation inventories. Original numeric private-name segments stay intact
 in the provenance query; no helper is trusted or reduced by name.
+The [generic subtraction bridge](../tests/fixtures/lean_export_subtraction_bridge/README.md)
+adds successor, double-successor and arbitrarily mapped cancellation proofs,
+with 60 checked original declarations and exact native translations. Batching
+ordinary curried beta reductions checks the actual induction/congruence body
+within the existing limits; there is no trusted subtraction-cancellation rule.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.

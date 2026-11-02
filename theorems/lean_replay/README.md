@@ -53,6 +53,14 @@ present and checked. All targets have empty axiom and foundation inventories;
 the fixture manifest records original identities and source/module/license
 provenance, including numeric private-name components.
 
+The fifteenth file, [`subtraction-bridge.lim`](subtraction-bridge.lim), translates
+the [generic subtraction bridge](../../tests/fixtures/lean_export_subtraction_bridge/README.md).
+Its 60 declarations retain the actual standard induction/congruence proof and
+check three unbounded cancellation theorems: one successor on both operands,
+two successors, and arbitrary values mapped to naturals. All three targets
+have empty assumption inventories and independently checked source/native
+correspondence. Its fixture guide documents pinned fresh reproduction.
+
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps every original declaration to its native

@@ -267,6 +267,21 @@ fn genuine_discrimination_retains_checked_mapping_hashes_and_attribution() {
     );
 }
 
+#[test]
+fn genuine_subtraction_bridge_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_subtraction_bridge/provenance.json"),
+        include_bytes!(
+            "../../../tests/fixtures/lean_export_subtraction_bridge/subtraction-bridge.ndjson"
+        ),
+        include_str!("../../../theorems/lean_replay/subtraction-bridge.lim"),
+        "SubtractionBridgeSource.mappedCancellation",
+        "lim-lean-subtraction-bridge-fixture-v1",
+        &[],
+        (3, &[]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

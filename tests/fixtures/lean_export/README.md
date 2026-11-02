@@ -30,6 +30,12 @@ bridge, including private Prelude helpers and arbitrary functions into naturals.
 Its raw and native proofs are independently checked with empty assumption
 inventories and reproducible ownership keyed by exact declaration identities.
 
+The [generic subtraction bridge](../lean_export_subtraction_bridge/README.md)
+adds a fifteenth genuine export: three universal cancellation proofs with
+their induction/congruence dependencies, exact native translations and empty
+assumption inventories. Its own manifest and producer retain source, module,
+license and exact-identity provenance.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

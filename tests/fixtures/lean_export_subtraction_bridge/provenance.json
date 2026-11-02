@@ -1,0 +1,1100 @@
+{
+  "axioms": [],
+  "declarations": [
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nat",
+      "kind": "inductive",
+      "line": 51,
+      "module": "Init.Prelude",
+      "name": "Nat",
+      "native_name": "lean-0-Nat",
+      "project": "lean4",
+      "sha256": "b911ec20d3c6c7bfb7cd13362b6f933a96bf40c0880c7ac8c2cabdb4a3fee564",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nats4:zero",
+      "kind": "constructor",
+      "line": 51,
+      "module": "Init.Prelude",
+      "name": "Nat.zero",
+      "native_name": "lean-1-Nat-zero",
+      "project": "lean4",
+      "sha256": "b911ec20d3c6c7bfb7cd13362b6f933a96bf40c0880c7ac8c2cabdb4a3fee564",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat"
+      ],
+      "identity": "$lean:s3:Nats4:succ",
+      "kind": "constructor",
+      "line": 51,
+      "module": "Init.Prelude",
+      "name": "Nat.succ",
+      "native_name": "lean-2-Nat-succ",
+      "project": "lean4",
+      "sha256": "b911ec20d3c6c7bfb7cd13362b6f933a96bf40c0880c7ac8c2cabdb4a3fee564",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero"
+      ],
+      "identity": "$lean:s3:Nats3:rec",
+      "kind": "recursor",
+      "line": 51,
+      "module": "Init.Prelude",
+      "name": "Nat.rec",
+      "native_name": "lean-3-Nat-rec",
+      "project": "lean4",
+      "sha256": "b911ec20d3c6c7bfb7cd13362b6f933a96bf40c0880c7ac8c2cabdb4a3fee564",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq"
+      ],
+      "identity": "$lean:s2:Eq",
+      "kind": "inductive",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Eq",
+      "native_name": "lean-4-Eq",
+      "project": "lean4",
+      "sha256": "58d74daf90466dbdf5814fd7bda23e049657331fb988eabd93d29a7886c3431d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq"
+      ],
+      "identity": "$lean:s2:Eqs4:refl",
+      "kind": "constructor",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Eq.refl",
+      "native_name": "lean-5-Eq-refl",
+      "project": "lean4",
+      "sha256": "58d74daf90466dbdf5814fd7bda23e049657331fb988eabd93d29a7886c3431d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs4:refl"
+      ],
+      "identity": "$lean:s2:Eqs3:rec",
+      "kind": "recursor",
+      "line": 101,
+      "module": "Init.Prelude",
+      "name": "Eq.rec",
+      "native_name": "lean-6-Eq-rec",
+      "project": "lean4",
+      "sha256": "58d74daf90466dbdf5814fd7bda23e049657331fb988eabd93d29a7886c3431d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PUnit"
+      ],
+      "identity": "$lean:s5:PUnit",
+      "kind": "inductive",
+      "line": 115,
+      "module": "Init.Prelude",
+      "name": "PUnit",
+      "native_name": "lean-7-PUnit",
+      "project": "lean4",
+      "sha256": "b3941d290921d4e905ef3cf4f91af59c16222e6a21122b6805888961d90baf6d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PUnit"
+      ],
+      "identity": "$lean:s5:PUnits4:unit",
+      "kind": "constructor",
+      "line": 115,
+      "module": "Init.Prelude",
+      "name": "PUnit.unit",
+      "native_name": "lean-8-PUnit-unit",
+      "project": "lean4",
+      "sha256": "b3941d290921d4e905ef3cf4f91af59c16222e6a21122b6805888961d90baf6d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PUnit",
+        "$lean:s5:PUnits4:unit"
+      ],
+      "identity": "$lean:s5:PUnits3:rec",
+      "kind": "recursor",
+      "line": 115,
+      "module": "Init.Prelude",
+      "name": "PUnit.rec",
+      "native_name": "lean-9-PUnit-rec",
+      "project": "lean4",
+      "sha256": "b3941d290921d4e905ef3cf4f91af59c16222e6a21122b6805888961d90baf6d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PProd"
+      ],
+      "identity": "$lean:s5:PProd",
+      "kind": "inductive",
+      "line": 162,
+      "module": "Init.Prelude",
+      "name": "PProd",
+      "native_name": "lean-10-PProd",
+      "project": "lean4",
+      "sha256": "cea665925480f754744099646795c54ba0f5b9ac7c71b32931084a73b4958bb4",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PProd"
+      ],
+      "identity": "$lean:s5:PProds2:mk",
+      "kind": "constructor",
+      "line": 162,
+      "module": "Init.Prelude",
+      "name": "PProd.mk",
+      "native_name": "lean-11-PProd-mk",
+      "project": "lean4",
+      "sha256": "cea665925480f754744099646795c54ba0f5b9ac7c71b32931084a73b4958bb4",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PProd",
+        "$lean:s5:PProds2:mk"
+      ],
+      "identity": "$lean:s5:PProds3:rec",
+      "kind": "recursor",
+      "line": 162,
+      "module": "Init.Prelude",
+      "name": "PProd.rec",
+      "native_name": "lean-12-PProd-rec",
+      "project": "lean4",
+      "sha256": "cea665925480f754744099646795c54ba0f5b9ac7c71b32931084a73b4958bb4",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s5:PProd",
+        "$lean:s5:PUnit"
+      ],
+      "identity": "$lean:s3:Nats5:below",
+      "kind": "definition",
+      "line": 182,
+      "module": "Init.Prelude",
+      "name": "Nat.below",
+      "native_name": "lean-13-Nat-below",
+      "project": "lean4",
+      "sha256": "4bc829f43c66a182457e5c950aea2b1f3d207017d2c4bcfa3edb391abfa29644",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:Nats5:below",
+        "$lean:s5:PProd",
+        "$lean:s5:PProds2:mk",
+        "$lean:s5:PUnit",
+        "$lean:s5:PUnits4:unit"
+      ],
+      "identity": "$lean:s3:Nats6:brecOns2:go",
+      "kind": "definition",
+      "line": 233,
+      "module": "Init.Prelude",
+      "name": "Nat.brecOn.go",
+      "native_name": "lean-14-Nat-brecOn-go",
+      "project": "lean4",
+      "sha256": "6605f1a1a6d88e022a50d49bbd9b8dd628a5a597955efd363b09fd44718d86b9",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats5:below",
+        "$lean:s3:Nats6:brecOns2:go",
+        "$lean:s5:PProd"
+      ],
+      "identity": "$lean:s3:Nats6:brecOn",
+      "kind": "definition",
+      "line": 245,
+      "module": "Init.Prelude",
+      "name": "Nat.brecOn",
+      "native_name": "lean-15-Nat-brecOn",
+      "project": "lean4",
+      "sha256": "34cf08ac9a5543c22bb290355ee333d783ab3b98f3fba7d5a8e91681766991ec",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNat",
+      "kind": "inductive",
+      "line": 289,
+      "module": "Init.Prelude",
+      "name": "OfNat",
+      "native_name": "lean-16-OfNat",
+      "project": "lean4",
+      "sha256": "cd383d944c97b3fd1dce5d8f33b3371ce84730cb9b6e431f0c66e2a44c7c6961",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNats2:mk",
+      "kind": "constructor",
+      "line": 289,
+      "module": "Init.Prelude",
+      "name": "OfNat.mk",
+      "native_name": "lean-17-OfNat-mk",
+      "project": "lean4",
+      "sha256": "cd383d944c97b3fd1dce5d8f33b3371ce84730cb9b6e431f0c66e2a44c7c6961",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat",
+        "$lean:s5:OfNats2:mk"
+      ],
+      "identity": "$lean:s5:OfNats3:rec",
+      "kind": "recursor",
+      "line": 289,
+      "module": "Init.Prelude",
+      "name": "OfNat.rec",
+      "native_name": "lean-18-OfNat-rec",
+      "project": "lean4",
+      "sha256": "cd383d944c97b3fd1dce5d8f33b3371ce84730cb9b6e431f0c66e2a44c7c6961",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat"
+      ],
+      "identity": "$lean:s5:OfNats5:ofNat",
+      "kind": "definition",
+      "line": 299,
+      "module": "Init.Prelude",
+      "name": "OfNat.ofNat",
+      "native_name": "lean-19-OfNat-ofNat",
+      "project": "lean4",
+      "sha256": "3dd27ea13997ef75da004bf7c2737b859d6e1a58ffb85e5006ddf37ae5a55a6d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s5:OfNat",
+        "$lean:s5:OfNats2:mk"
+      ],
+      "identity": "$lean:s12:instOfNatNat",
+      "kind": "definition",
+      "line": 310,
+      "module": "Init.Prelude",
+      "name": "instOfNatNat",
+      "native_name": "lean-20-instOfNatNat",
+      "project": "lean4",
+      "sha256": "5dd4d08484289550db8c593f07c8cb194d05d2faff58671a91008bf34b0ac2f0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero"
+      ],
+      "identity": "$lean:s3:Nats7:casesOn",
+      "kind": "definition",
+      "line": 331,
+      "module": "Init.Prelude",
+      "name": "Nat.casesOn",
+      "native_name": "lean-21-Nat-casesOn",
+      "project": "lean4",
+      "sha256": "0f12a68cc45634be441cfa1ad9950f7fc9ab871ca59f07895ccdbc4af31f374d",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats7:casesOn",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s3:Nats3:muls7:match_1",
+      "kind": "definition",
+      "line": 402,
+      "module": "Init.Prelude",
+      "name": "Nat.mul.match_1",
+      "native_name": "lean-22-Nat-mul-match_1",
+      "project": "lean4",
+      "sha256": "f75598358b56456a263f86df76048467d4bc6acc10c83b379c9bb5d8894933ed",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s5:PUnit"
+      ],
+      "identity": "$lean:s4:Unit",
+      "kind": "definition",
+      "line": 405,
+      "module": "Init.Prelude",
+      "name": "Unit",
+      "native_name": "lean-23-Unit",
+      "project": "lean4",
+      "sha256": "a8b222470baa7d36c1b1809fb1ef6b774f875011dc85d53dd833458948d50488",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:Unit",
+        "$lean:s5:PUnits4:unit"
+      ],
+      "identity": "$lean:s4:Units4:unit",
+      "kind": "definition",
+      "line": 409,
+      "module": "Init.Prelude",
+      "name": "Unit.unit",
+      "native_name": "lean-24-Unit-unit",
+      "project": "lean4",
+      "sha256": "b89d86afa85cd2ec87d4e68cdf007d1ca9e6f4152d5c21ab8e22f2a6fa00dda2",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats7:casesOn",
+        "$lean:s4:Unit",
+        "$lean:s4:Units4:unit",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s3:Nats3:pows7:match_1",
+      "kind": "definition",
+      "line": 443,
+      "module": "Init.Prelude",
+      "name": "Nat.pow.match_1",
+      "native_name": "lean-25-Nat-pow-match_1",
+      "project": "lean4",
+      "sha256": "ad51872a5b21b20593e3aa04a40479432871cca77c9caa25327dcce0bccce5c9",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:pows7:match_1",
+        "$lean:s4:Unit",
+        "$lean:s5:OfNats5:ofNat"
+      ],
+      "identity": "$lean:s3:Nats4:pred",
+      "kind": "definition",
+      "line": 465,
+      "module": "Init.Prelude",
+      "name": "Nat.pred",
+      "native_name": "lean-26-Nat-pred",
+      "project": "lean4",
+      "sha256": "2b2240b767ee81699f16474ce94af06828698fbe6702c65fa3f408e7a2926ac0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s12:instOfNatNat",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:muls7:match_1",
+        "$lean:s3:Nats4:pred",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats5:below",
+        "$lean:s5:OfNats5:ofNat",
+        "$lean:s5:PProd"
+      ],
+      "identity": "$lean:s3:Nats3:subs2:_f",
+      "kind": "definition",
+      "line": 518,
+      "module": "Init.Prelude",
+      "name": "Nat.sub._f",
+      "native_name": "lean-27-Nat-sub-_f",
+      "project": "lean4",
+      "sha256": "f29dc9ceb7b3b5929154533ea518bf0c77815858110a9af2d0e53b599762ed3a",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:subs2:_f",
+        "$lean:s3:Nats6:brecOn"
+      ],
+      "identity": "$lean:s3:Nats3:sub",
+      "kind": "definition",
+      "line": 528,
+      "module": "Init.Prelude",
+      "name": "Nat.sub",
+      "native_name": "lean-28-Nat-sub",
+      "project": "lean4",
+      "sha256": "c2916010c1c7afb5f1014bbd42419b85f7a4afd5b5cd09017e155f92cd124afa",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [],
+      "identity": "$lean:s8:outParam",
+      "kind": "definition",
+      "line": 532,
+      "module": "Init.Prelude",
+      "name": "outParam",
+      "native_name": "lean-29-outParam",
+      "project": "lean4",
+      "sha256": "895fd6ec295a9cd1126eef955307ce1e5804764767e010fa4e0248e4a909e388",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HSub",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HSub",
+      "kind": "inductive",
+      "line": 593,
+      "module": "Init.Prelude",
+      "name": "HSub",
+      "native_name": "lean-30-HSub",
+      "project": "lean4",
+      "sha256": "f805aa38b462a9892adf282fe487288d6d2dce2bb835f2349a16621c4ec476f0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HSub",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HSubs2:mk",
+      "kind": "constructor",
+      "line": 593,
+      "module": "Init.Prelude",
+      "name": "HSub.mk",
+      "native_name": "lean-31-HSub-mk",
+      "project": "lean4",
+      "sha256": "f805aa38b462a9892adf282fe487288d6d2dce2bb835f2349a16621c4ec476f0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HSub",
+        "$lean:s4:HSubs2:mk"
+      ],
+      "identity": "$lean:s4:HSubs3:rec",
+      "kind": "recursor",
+      "line": 593,
+      "module": "Init.Prelude",
+      "name": "HSub.rec",
+      "native_name": "lean-32-HSub-rec",
+      "project": "lean4",
+      "sha256": "f805aa38b462a9892adf282fe487288d6d2dce2bb835f2349a16621c4ec476f0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HSub",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HSubs4:hSub",
+      "kind": "definition",
+      "line": 604,
+      "module": "Init.Prelude",
+      "name": "HSub.hSub",
+      "native_name": "lean-33-HSub-hSub",
+      "project": "lean4",
+      "sha256": "e2d702e318c2caf1360549c114b95034eca0efe67c6dca0a0c073e1aebf3e749",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Sub"
+      ],
+      "identity": "$lean:s3:Sub",
+      "kind": "inductive",
+      "line": 636,
+      "module": "Init.Prelude",
+      "name": "Sub",
+      "native_name": "lean-34-Sub",
+      "project": "lean4",
+      "sha256": "77fe251e158f5e325184a2011fcc73c33087fe6256e9eecabfd36e89ffe32964",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Sub"
+      ],
+      "identity": "$lean:s3:Subs2:mk",
+      "kind": "constructor",
+      "line": 636,
+      "module": "Init.Prelude",
+      "name": "Sub.mk",
+      "native_name": "lean-35-Sub-mk",
+      "project": "lean4",
+      "sha256": "77fe251e158f5e325184a2011fcc73c33087fe6256e9eecabfd36e89ffe32964",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Sub",
+        "$lean:s3:Subs2:mk"
+      ],
+      "identity": "$lean:s3:Subs3:rec",
+      "kind": "recursor",
+      "line": 636,
+      "module": "Init.Prelude",
+      "name": "Sub.rec",
+      "native_name": "lean-36-Sub-rec",
+      "project": "lean4",
+      "sha256": "77fe251e158f5e325184a2011fcc73c33087fe6256e9eecabfd36e89ffe32964",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Sub"
+      ],
+      "identity": "$lean:s3:Subs3:sub",
+      "kind": "definition",
+      "line": 643,
+      "module": "Init.Prelude",
+      "name": "Sub.sub",
+      "native_name": "lean-37-Sub-sub",
+      "project": "lean4",
+      "sha256": "15574d5be79d8203a1b49890de9b9be762c6c5595a3d2e947946928805abd803",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Sub",
+        "$lean:s3:Subs3:sub",
+        "$lean:s4:HSub",
+        "$lean:s4:HSubs2:mk"
+      ],
+      "identity": "$lean:s8:instHSub",
+      "kind": "definition",
+      "line": 677,
+      "module": "Init.Prelude",
+      "name": "instHSub",
+      "native_name": "lean-38-instHSub",
+      "project": "lean4",
+      "sha256": "52b127f7e66495d83dd55a85679f1e742e911856c603109c7b728c05c3104956",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:sub",
+        "$lean:s3:Sub",
+        "$lean:s3:Subs2:mk"
+      ],
+      "identity": "$lean:s10:instSubNat",
+      "kind": "definition",
+      "line": 685,
+      "module": "Init.Prelude",
+      "name": "instSubNat",
+      "native_name": "lean-39-instSubNat",
+      "project": "lean4",
+      "sha256": "5e6a208dc0e3ee47aa9223b4047cd4a063bb48ffe05b7c643d45bf498578a505",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs4:refl"
+      ],
+      "identity": "$lean:s3:rfl",
+      "kind": "definition",
+      "line": 698,
+      "module": "Init.Prelude",
+      "name": "rfl",
+      "native_name": "lean-40-rfl",
+      "project": "lean4",
+      "sha256": "4abe19fb016aa42806c0e0b54c7e86db9a1f20a3f187635eae4d99f49a7dd7a1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs3:rec",
+        "$lean:s3:rfl"
+      ],
+      "identity": "$lean:s8:congrArg",
+      "kind": "theorem",
+      "line": 754,
+      "module": "Init.Prelude",
+      "name": "congrArg",
+      "native_name": "lean-41-congrArg",
+      "project": "lean4",
+      "sha256": "b9a3893eb75d7a908936889f26ad76e0d6a57638db86ad33f40ff114c8743068",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HAdd",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HAdd",
+      "kind": "inductive",
+      "line": 792,
+      "module": "Init.Prelude",
+      "name": "HAdd",
+      "native_name": "lean-42-HAdd",
+      "project": "lean4",
+      "sha256": "76f1870e875ce129157e499cb927f7309f795bda33805166694c5918e7d820bd",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HAdd",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HAdds2:mk",
+      "kind": "constructor",
+      "line": 792,
+      "module": "Init.Prelude",
+      "name": "HAdd.mk",
+      "native_name": "lean-43-HAdd-mk",
+      "project": "lean4",
+      "sha256": "76f1870e875ce129157e499cb927f7309f795bda33805166694c5918e7d820bd",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HAdd",
+        "$lean:s4:HAdds2:mk"
+      ],
+      "identity": "$lean:s4:HAdds3:rec",
+      "kind": "recursor",
+      "line": 792,
+      "module": "Init.Prelude",
+      "name": "HAdd.rec",
+      "native_name": "lean-44-HAdd-rec",
+      "project": "lean4",
+      "sha256": "76f1870e875ce129157e499cb927f7309f795bda33805166694c5918e7d820bd",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s4:HAdd",
+        "$lean:s8:outParam"
+      ],
+      "identity": "$lean:s4:HAdds4:hAdd",
+      "kind": "definition",
+      "line": 803,
+      "module": "Init.Prelude",
+      "name": "HAdd.hAdd",
+      "native_name": "lean-45-HAdd-hAdd",
+      "project": "lean4",
+      "sha256": "c1fa0b320a3dc76d31771ddd8133bf99cd2ed7ba4c85e79a64c29a07de94acf6",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add"
+      ],
+      "identity": "$lean:s3:Add",
+      "kind": "inductive",
+      "line": 827,
+      "module": "Init.Prelude",
+      "name": "Add",
+      "native_name": "lean-46-Add",
+      "project": "lean4",
+      "sha256": "45f10b59d2d1d4190ca4554fe26450ec548264e6fcacaada1ed3bd2244112b58",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add"
+      ],
+      "identity": "$lean:s3:Adds2:mk",
+      "kind": "constructor",
+      "line": 827,
+      "module": "Init.Prelude",
+      "name": "Add.mk",
+      "native_name": "lean-47-Add-mk",
+      "project": "lean4",
+      "sha256": "45f10b59d2d1d4190ca4554fe26450ec548264e6fcacaada1ed3bd2244112b58",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add",
+        "$lean:s3:Adds2:mk"
+      ],
+      "identity": "$lean:s3:Adds3:rec",
+      "kind": "recursor",
+      "line": 827,
+      "module": "Init.Prelude",
+      "name": "Add.rec",
+      "native_name": "lean-48-Add-rec",
+      "project": "lean4",
+      "sha256": "45f10b59d2d1d4190ca4554fe26450ec548264e6fcacaada1ed3bd2244112b58",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add"
+      ],
+      "identity": "$lean:s3:Adds3:add",
+      "kind": "definition",
+      "line": 834,
+      "module": "Init.Prelude",
+      "name": "Add.add",
+      "native_name": "lean-49-Add-add",
+      "project": "lean4",
+      "sha256": "5b15dd583be29e6885e76fffa7bfe75fe379726b8e803abedd5a417fcf10178b",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add",
+        "$lean:s3:Adds3:add",
+        "$lean:s4:HAdd",
+        "$lean:s4:HAdds2:mk"
+      ],
+      "identity": "$lean:s8:instHAdd",
+      "kind": "definition",
+      "line": 862,
+      "module": "Init.Prelude",
+      "name": "instHAdd",
+      "native_name": "lean-50-instHAdd",
+      "project": "lean4",
+      "sha256": "772ee79cea94f4acd37057740871d342b493c87468f7a235c28798246a2637e6",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:Nats7:casesOn"
+      ],
+      "identity": "$lean:s3:Nats3:adds7:match_1",
+      "kind": "definition",
+      "line": 891,
+      "module": "Init.Prelude",
+      "name": "Nat.add.match_1",
+      "native_name": "lean-51-Nat-add-match_1",
+      "project": "lean4",
+      "sha256": "17c5ff83f42e93776501b3a527921cdc3e21e7ff5fd18720eb8931bab8dba56f",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:adds7:match_1",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:Nats5:below",
+        "$lean:s5:PProd"
+      ],
+      "identity": "$lean:s3:Nats3:adds2:_f",
+      "kind": "definition",
+      "line": 914,
+      "module": "Init.Prelude",
+      "name": "Nat.add._f",
+      "native_name": "lean-52-Nat-add-_f",
+      "project": "lean4",
+      "sha256": "e3ca8f7f468de41438528e38f9217c11f8ff904eef68fbb4c8fd8e429235b44a",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:adds2:_f",
+        "$lean:s3:Nats6:brecOn"
+      ],
+      "identity": "$lean:s3:Nats3:add",
+      "kind": "definition",
+      "line": 920,
+      "module": "Init.Prelude",
+      "name": "Nat.add",
+      "native_name": "lean-53-Nat-add",
+      "project": "lean4",
+      "sha256": "cc412f32a2f7ef5be27288ca1c9f9ca7c58b3a99d59e133a62da6112431ec292",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s3:Add",
+        "$lean:s3:Adds2:mk",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:add"
+      ],
+      "identity": "$lean:s10:instAddNat",
+      "kind": "definition",
+      "line": 928,
+      "module": "Init.Prelude",
+      "name": "instAddNat",
+      "native_name": "lean-54-instAddNat",
+      "project": "lean4",
+      "sha256": "4f78eb2a562436907bbeaac0d9d5dd78e98bbd5e1ecb48f84ccb77c60f5be2a1",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s10:instAddNat",
+        "$lean:s10:instSubNat",
+        "$lean:s12:instOfNatNat",
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats3:rec",
+        "$lean:s3:Nats3:sub",
+        "$lean:s3:Nats4:pred",
+        "$lean:s3:Nats4:succ",
+        "$lean:s3:Nats4:zero",
+        "$lean:s3:rfl",
+        "$lean:s4:HAdds4:hAdd",
+        "$lean:s4:HSubs4:hSub",
+        "$lean:s5:OfNats5:ofNat",
+        "$lean:s8:congrArg",
+        "$lean:s8:instHAdd",
+        "$lean:s8:instHSub"
+      ],
+      "identity": "$lean:s3:Nats20:succ_sub_succ_eq_sub",
+      "kind": "theorem",
+      "line": 1005,
+      "module": "Init.Prelude",
+      "name": "Nat.succ_sub_succ_eq_sub",
+      "native_name": "lean-55-Nat-succ_sub_succ_eq_sub",
+      "project": "lean4",
+      "sha256": "e0a26b80ac35c8035dca3e8753b5cb35b92efd7fb3fee6487603dc7ade9f1fe0",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats20:succ_sub_succ_eq_sub",
+        "$lean:s3:Nats3:sub",
+        "$lean:s3:Nats4:succ"
+      ],
+      "identity": "$lean:s23:SubtractionBridgeSources21:successorCancellation",
+      "kind": "theorem",
+      "line": 1021,
+      "module": "Source",
+      "name": "SubtractionBridgeSource.successorCancellation",
+      "native_name": "lean-56-SubtractionBridgeSource-successorCancellation",
+      "project": "lim-fixture",
+      "sha256": "3d3f630d325cef16deda730ea95a2f46ac36a5ee5e258da42346d77b4d8a0433",
+      "source": "tests/fixtures/lean_export_subtraction_bridge/Source.lean",
+      "source_sha256": "7c25cc0c8760724a82968795b86ab6fe450cdfa0302a435ffc6b0e8e73d09387"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs3:rec"
+      ],
+      "identity": "$lean:s2:Eqs5:trans",
+      "kind": "theorem",
+      "line": 1062,
+      "module": "Init.Prelude",
+      "name": "Eq.trans",
+      "native_name": "lean-57-Eq-trans",
+      "project": "lean4",
+      "sha256": "c7eab4cafc945bd90ebaca60b5294dd22bb434bd438239b64c54a40b32e9e7b2",
+      "source": "src/Init/Prelude.lean",
+      "source_sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+    },
+    {
+      "dependencies": [
+        "$lean:s10:instSubNat",
+        "$lean:s2:Eq",
+        "$lean:s2:Eqs5:trans",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats20:succ_sub_succ_eq_sub",
+        "$lean:s3:Nats3:sub",
+        "$lean:s3:Nats4:succ",
+        "$lean:s4:HSubs4:hSub",
+        "$lean:s8:instHSub"
+      ],
+      "identity": "$lean:s23:SubtractionBridgeSources18:doubleCancellation",
+      "kind": "theorem",
+      "line": 1083,
+      "module": "Source",
+      "name": "SubtractionBridgeSource.doubleCancellation",
+      "native_name": "lean-58-SubtractionBridgeSource-doubleCancellation",
+      "project": "lim-fixture",
+      "sha256": "9435e98052afe8248ca424cfd5ab440a90d4c08e7f6837693ad0d42289129e83",
+      "source": "tests/fixtures/lean_export_subtraction_bridge/Source.lean",
+      "source_sha256": "7c25cc0c8760724a82968795b86ab6fe450cdfa0302a435ffc6b0e8e73d09387"
+    },
+    {
+      "dependencies": [
+        "$lean:s2:Eq",
+        "$lean:s3:Nat",
+        "$lean:s3:Nats20:succ_sub_succ_eq_sub",
+        "$lean:s3:Nats3:sub",
+        "$lean:s3:Nats4:succ"
+      ],
+      "identity": "$lean:s23:SubtractionBridgeSources18:mappedCancellation",
+      "kind": "theorem",
+      "line": 1105,
+      "module": "Source",
+      "name": "SubtractionBridgeSource.mappedCancellation",
+      "native_name": "lean-59-SubtractionBridgeSource-mappedCancellation",
+      "project": "lim-fixture",
+      "sha256": "5f8813fabec536b549fc39c459b712bd6aecbcb2214a94646d28991b21c649d8",
+      "source": "tests/fixtures/lean_export_subtraction_bridge/Source.lean",
+      "source_sha256": "7c25cc0c8760724a82968795b86ab6fe450cdfa0302a435ffc6b0e8e73d09387"
+    }
+  ],
+  "export": {
+    "bytes": 61395,
+    "file": "tests/fixtures/lean_export_subtraction_bridge/subtraction-bridge.ndjson",
+    "sha256": "5f8813fabec536b549fc39c459b712bd6aecbcb2214a94646d28991b21c649d8"
+  },
+  "exporter_revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+  "exporter_source_sha256": {
+    "Export.lean": "1c60d571dc24bfb99e7cbb218d8d489919bbc871238f6db9c76248521fbea998",
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a"
+  },
+  "format_version": "3.1.0",
+  "foundations": [],
+  "lean_revision": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "lean_version": "4.33.1",
+  "licenses": [
+    {
+      "file": "tests/fixtures/lean_export/LEAN-LICENSE.txt",
+      "license": "Apache-2.0",
+      "project": "lean4",
+      "sha256": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"
+    },
+    {
+      "file": "tests/fixtures/lean_export/EXPORTER-LICENSE.txt",
+      "license": "Apache-2.0",
+      "project": "lean4export",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+  ],
+  "native": {
+    "bytes": 52800,
+    "file": "theorems/lean_replay/subtraction-bridge.lim",
+    "sha256": "4280004f87cde99125dc5c5930e25e17f5bf71148fcaf877d01b73cdb3f45175",
+    "targets": {
+      "SubtractionBridgeSource.doubleCancellation": "lean-58-SubtractionBridgeSource-doubleCancellation",
+      "SubtractionBridgeSource.mappedCancellation": "lean-59-SubtractionBridgeSource-mappedCancellation",
+      "SubtractionBridgeSource.successorCancellation": "lean-56-SubtractionBridgeSource-successorCancellation"
+    }
+  },
+  "origin_reader": {
+    "file": "scripts/lean-export-private-origins.lean",
+    "sha256": "6bd9af716b79041ebd0d409bf4337adf893190000fafedcc7f9ebe4d1c357f98"
+  },
+  "producer": {
+    "file": "scripts/regenerate-lean-subtraction-bridge.py",
+    "sha256": "839c39e3808c0d53c20c249ca4ed8623ef4a4da0b835e20bf5db99a49e93a09a"
+  },
+  "schema": "lim-lean-subtraction-bridge-fixture-v1",
+  "source": {
+    "file": "tests/fixtures/lean_export_subtraction_bridge/Source.lean",
+    "sha256": "7c25cc0c8760724a82968795b86ab6fe450cdfa0302a435ffc6b0e8e73d09387"
+  },
+  "targets": [
+    "SubtractionBridgeSource.successorCancellation",
+    "SubtractionBridgeSource.doubleCancellation",
+    "SubtractionBridgeSource.mappedCancellation"
+  ],
+  "upstream_sources": [
+    {
+      "license": "Apache-2.0",
+      "notice": "Copyright (c) 2020 Microsoft Corporation. All rights reserved.\nReleased under Apache 2.0 license as described in the file LICENSE.\nAuthors: Leonardo de Moura, Mario Carneiro",
+      "project": "lean4",
+      "sha256": "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544",
+      "source": "src/Init/Prelude.lean",
+      "url": "https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Init/Prelude.lean"
+    },
+    {
+      "license": "Apache-2.0",
+      "notice": "Copyright (c) 2014 Microsoft Corporation. All rights reserved.\nReleased under Apache 2.0 license as described in the file LICENSE.\nAuthors: Leonardo de Moura\n\nnotation, basic datatypes and type classes",
+      "project": "lean4",
+      "sha256": "8537e234659a281a8f49cc91e2f48c17b6faeacb852d1c4ba3a09b6b5e45ab20",
+      "source": "src/Init/Core.lean",
+      "url": "https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Init/Core.lean"
+    }
+  ]
+}

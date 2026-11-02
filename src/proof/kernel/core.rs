@@ -8,6 +8,8 @@ use super::level::LEVEL;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+#[path = "beta.rs"]
+mod beta;
 #[path = "elimination.rs"]
 mod elimination;
 #[path = "export.rs"]
