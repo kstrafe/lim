@@ -494,6 +494,13 @@ their beta/zeta redex before unfolding the resulting named call. In particular,
 an unused proof binder must not force both copies of an open well-founded
 worker to normalize. Substitution preserves outer variables and checks every
 source annotation even when subsequent reduction erases an argument.
+If no candidate establishes equality, ordinary fallback resumes from the last
+completed reduction of the right operand. It does not repeat the discarded
+wrapper/beta prefix. Reuse stays inside the same comparison and typing context;
+there is no cross-comparison cache or checked-signature shortcut. A declined
+attempt publishes no partial result, while earlier completed reductions remain
+usable. All spent work and payload charges remain charged. The original source
+still requires full typing, even when normalization erases a bad annotation.
 No operation name authorizes conversion. Full source inference remains required.
 
 This reduction strategy checks the genuine general `Nat.mod_lt` theorem and

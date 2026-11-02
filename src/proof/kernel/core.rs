@@ -1192,11 +1192,12 @@ impl Kernel {
         if Arc::ptr_eq(a, b) || self.same_syntax(a, b)? {
             return Ok(true);
         }
-        if self.conversion_congruence(ctx, a, b, depth + 1)? {
+        let progress = self.conversion_progress(ctx, a, b, depth + 1)?;
+        if progress.equivalent {
             return Ok(true);
         }
         let a = self.whnf(ctx, a, depth + 1)?;
-        let b = self.whnf(ctx, b, depth + 1)?;
+        let b = self.whnf(ctx, progress.right.as_ref().unwrap_or(b), depth + 1)?;
         if Arc::ptr_eq(&a, &b) || self.same_syntax(&a, &b)? {
             return Ok(true);
         }

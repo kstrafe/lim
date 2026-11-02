@@ -9,19 +9,32 @@
 //! No declaration name, cached receipt or unverified source term is authority.
 use super::*;
 
+// Completed reductions belong to this comparison's unchanged context only.
+// A declined operation never publishes its partially built result.
+pub(super) struct ConversionProgress {
+    pub(super) equivalent: bool,
+    pub(super) right: Option<T>,
+}
+
 impl Kernel {
-    pub(super) fn conversion_congruence(
+    pub(super) fn conversion_progress(
         &mut self,
         ctx: &[T],
         a: &T,
         b: &T,
         depth: usize,
-    ) -> Result<bool> {
+    ) -> Result<ConversionProgress> {
         if !matches!((a.as_ref(), b.as_ref()), (Term::App(..), Term::App(..))) {
-            return Ok(false);
+            return Ok(ConversionProgress {
+                equivalent: false,
+                right: None,
+            });
         }
         if self.application_congruence(ctx, a, b, depth + 1)? {
-            return Ok(true);
+            return Ok(ConversionProgress {
+                equivalent: true,
+                right: None,
+            });
         }
         let mut candidate = b.clone();
         // This is a heuristic, not a completeness limit: the original
@@ -38,11 +51,23 @@ impl Kernel {
             if self.same_syntax(a, &reduced)?
                 || self.application_congruence(ctx, a, &reduced, depth + 1)?
             {
-                return Ok(true);
+                return Ok(ConversionProgress {
+                    equivalent: true,
+                    right: None,
+                });
             }
             candidate = reduced;
         }
-        Ok(false)
+        Ok(ConversionProgress {
+            equivalent: false,
+            right: (!Arc::ptr_eq(&candidate, b)).then_some(candidate),
+        })
+    }
+
+    #[cfg(test)]
+    fn conversion_congruence(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
+        self.conversion_progress(ctx, a, b, depth)
+            .map(|progress| progress.equivalent)
     }
 
     fn application_spine<'a>(&mut self, value: &'a T, depth: usize) -> Result<(&'a T, Vec<&'a T>)> {

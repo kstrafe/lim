@@ -127,6 +127,9 @@ The [well-founded equation corpus](../tests/fixtures/lean_export_well_founded/RE
 retains 141 genuine declarations and the generic `WellFounded.Nat.fix_eq`
 proof. Explicit lambda/let candidates expose a common call before expanding
 its worker, preserving substitution scope and the same conversion budgets.
+When a common call is not found, fallback reuses only completed reductions
+inside that same comparison, retaining original source checks and all charges.
+Declined operations contribute no partial candidate or theorem authority.
 Raw replay requires the existing `--lean-foundations` policy: both declared
 and target axiom inventories contain exactly `Quot.sound`, with
 `quotient-computation-v1` as primitive foundation. The native translation

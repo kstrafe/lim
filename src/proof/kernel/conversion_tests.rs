@@ -338,3 +338,131 @@ fn explicit_let_heads_expose_the_same_checked_function_call() {
         .is_err());
     assert!(!k.contains("bad-function-alias"));
 }
+
+#[test]
+fn unmatched_checked_candidates_avoid_repeating_the_same_wrappers() {
+    let mut k = Kernel::new();
+    k.opaque_definition(
+        "opaque-worker",
+        vec![],
+        pi(nat(), nat()),
+        lam(nat(), var(0)),
+    )
+    .unwrap();
+    k.definition(
+        "alias-worker",
+        vec![],
+        pi(nat(), nat()),
+        global("opaque-worker"),
+        false,
+    )
+    .unwrap();
+    let left = app(global("opaque-worker"), zero());
+    let right = app(global("alias-worker"), succ(zero()));
+    k.check(&[], &left, &nat(), 0).unwrap();
+    k.check(&[], &right, &nat(), 0).unwrap();
+    k.reset_budget();
+    let progress = k.conversion_progress(&[], &left, &right, 0).unwrap();
+    assert!(!progress.equivalent);
+    let candidate = progress.right.unwrap();
+    let spent = k.work;
+    let reused = k.whnf(&[], &candidate, 0).unwrap();
+    let reused_work = k.work - spent;
+    k.reset_budget();
+    let original = k.whnf(&[], &right, 0).unwrap();
+    assert!(k.work > reused_work);
+    assert!(k.same_syntax(&reused, &original).unwrap());
+    assert!(!k.convertible(&[], &left, &right, 0).unwrap());
+}
+
+#[test]
+fn unmatched_candidates_keep_outer_variables_in_the_same_context() {
+    let mut k = Kernel::new();
+    k.opaque_definition(
+        "opaque-worker",
+        vec![],
+        pi(nat(), nat()),
+        lam(nat(), var(0)),
+    )
+    .unwrap();
+    let left = app(global("opaque-worker"), zero());
+    let right = app(
+        lam(nat(), app(global("opaque-worker"), var(1))),
+        succ(zero()),
+    );
+    let ctx = [nat()];
+    k.check(&ctx, &right, &nat(), 0).unwrap();
+    let progress = k.conversion_progress(&ctx, &left, &right, 0).unwrap();
+    assert!(!progress.equivalent);
+    let candidate = progress.right.unwrap();
+    let expected = app(global("opaque-worker"), var(0));
+    assert!(k.same_syntax(&candidate, &expected).unwrap());
+    k.check(&ctx, &candidate, &nat(), 0).unwrap();
+    assert!(!k.convertible(&ctx, &left, &right, 0).unwrap());
+}
+
+#[test]
+fn declined_candidates_publish_only_prior_completed_reductions() {
+    let mut k = Kernel::new();
+    let function = pi(nat(), nat());
+    k.opaque_definition(
+        "opaque-worker",
+        vec![],
+        function.clone(),
+        lam(nat(), var(0)),
+    )
+    .unwrap();
+    // Iterated self-composition of identity is well typed, but ordinary
+    // beta/iota normalization is deliberately too expensive for a probe.
+    let composed = term(Term::Induct {
+        family: "#pt-nat".into(),
+        levels: vec![],
+        parameters: vec![],
+        indices: vec![],
+        motive: lam(nat(), function.clone()),
+        branches: vec![
+            lam(nat(), var(0)),
+            lam(
+                nat(),
+                lam(
+                    function.clone(),
+                    lam(nat(), app(var(1), app(var(1), var(0)))),
+                ),
+            ),
+        ],
+        subject: term(Term::NatLiteral {
+            family: "#pt-nat".into(),
+            value: Natural::parse("512").unwrap(),
+        }),
+    });
+    k.definition(
+        "expensive",
+        vec![],
+        function.clone(),
+        lam(nat(), app(composed, var(0))),
+        false,
+    )
+    .unwrap();
+    k.definition(
+        "alias-expensive",
+        vec![],
+        function,
+        global("expensive"),
+        false,
+    )
+    .unwrap();
+    let left = app(global("opaque-worker"), succ(zero()));
+    let direct = app(global("expensive"), zero());
+    k.check(&[], &direct, &nat(), 0).unwrap();
+    k.reset_budget();
+    let progress = k.conversion_progress(&[], &left, &direct, 0).unwrap();
+    assert!(!progress.equivalent && progress.right.is_none());
+    assert!(k.work > 0 && k.transformed_bytes > 0);
+    assert!(k.reduction_probe_budget.is_none());
+    k.reset_budget();
+    let alias = app(global("alias-expensive"), zero());
+    let progress = k.conversion_progress(&[], &left, &alias, 0).unwrap();
+    assert!(!progress.equivalent);
+    assert!(k.same_syntax(&progress.right.unwrap(), &direct).unwrap());
+    assert!(k.work > 0 && k.reduction_probe_budget.is_none());
+}
