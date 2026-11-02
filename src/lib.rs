@@ -685,8 +685,10 @@ impl<'a> Lexer<'a> {
                 b'\'' => tokens.push(self.one(TokenKind::Quote)),
                 b'`' => tokens.push(self.one(TokenKind::QuasiQuote)),
                 b',' if self.source.get(self.offset + 1) == Some(&b'@') => {
+                    let mut token = self.one(TokenKind::UnquoteSplicing);
                     self.advance();
-                    tokens.push(self.one(TokenKind::UnquoteSplicing));
+                    token.span.end = self.offset;
+                    tokens.push(token);
                 }
                 b',' => tokens.push(self.one(TokenKind::Unquote)),
                 b'"' => tokens.push(self.string_token()?),
