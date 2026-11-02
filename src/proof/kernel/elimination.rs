@@ -421,6 +421,18 @@ impl Kernel {
         )? {
             return Ok(Some(value));
         }
+        if let Some(value) = self.natural_computed_subtraction(
+            ctx,
+            name,
+            levels,
+            parameters,
+            indices,
+            cases,
+            &subject,
+            depth + 1,
+        )? {
+            return Ok(Some(value));
+        }
         let subject = self.natural_constructor(&subject, depth + 1)?;
         let (desc, map) = self.family(name, levels, depth + 1)?;
         let case = cases

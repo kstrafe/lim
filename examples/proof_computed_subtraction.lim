@@ -1,0 +1,44 @@
+; A checked case expression supplies the base of a repeated-predecessor fold.
+; Conversion computes that base once, rather than growing a chain per step.
+(#math-inductive subtraction-choice () () (#pt-type 0)
+  ((first ()) (second ())))
+
+(#math-definition computed-base () #pt-nat
+  (#pt-induct subtraction-choice () ()
+    (#pt-lambda ((choice (#pt-use subtraction-choice ()))) #pt-nat)
+    ((#pt-nat-literal #pt-nat "84") (#pt-nat-literal #pt-nat "3"))
+    (#pt-construct subtraction-choice () () first ())))
+
+(#math-definition predecessor ()
+  (#pt-pi ((input #pt-nat)) #pt-nat)
+  (#pt-lambda ((input #pt-nat))
+    (#pt-nat-induct (#pt-lambda ((ordinal #pt-nat)) #pt-nat) #pt-zero
+      (#pt-lambda ((previous #pt-nat) (result #pt-nat)) previous) input)))
+
+(#math-definition computed-difference ()
+  (#pt-pi ((count #pt-nat)) #pt-nat)
+  (#pt-lambda ((count #pt-nat))
+    (#pt-nat-induct (#pt-lambda ((ordinal #pt-nat)) #pt-nat)
+      (#pt-use computed-base ())
+      (#pt-lambda ((previous #pt-nat) (result #pt-nat))
+        (#pt-app (#pt-use predecessor ()) result))
+      count)))
+
+(#theorem computed-subtraction
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-app (#pt-use computed-difference ()) (#pt-nat-literal #pt-nat "30"))
+    (#pt-nat-literal #pt-nat "54")))
+  (#proof (#pt-refl #pt-nat (#pt-nat-literal #pt-nat "54"))))
+
+(#theorem computed-subtraction-exhausted
+  (#universes)
+  (#parameters)
+  (#statement (#pt-eq #pt-nat
+    (#pt-app (#pt-use computed-difference ()) (#pt-nat-literal #pt-nat "1000"))
+    #pt-zero))
+  (#proof (#pt-refl #pt-nat #pt-zero)))
+
+(#fn main () #u64
+  (#return 0u64))

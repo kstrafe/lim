@@ -100,6 +100,13 @@ def main():
             "raw_gcd_self": ["--check-lean-export", gcd_self["export"]["file"], target, "--lean-foundations", *budget_args],
             "native_gcd_self": ["--check-theorem", gcd_self["native"]["file"], gcd_self["native"]["targets"][target], *budget_args],
         })
+        computed = ROOT / "examples/proof_computed_subtraction.lim"
+        computed_control = work / "computed-control.lim"
+        computed_control.write_text(computed.read_text().split("(#theorem computed-subtraction-exhausted")[0])
+        cases.update({
+            "native_computed_subtraction": ["--check-theorem", str(computed_control), "computed-subtraction"],
+            "native_computed_subtraction_exhausted": ["--check-theorem", str(computed), "computed-subtraction-exhausted"],
+        })
         for name, arguments in cases.items():
             wall, cpu, statuses, diagnostics = [[], []], [[], []], [set(), set()], ["", ""]
             for iteration in range(args.iterations + 1):

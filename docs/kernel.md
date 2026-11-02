@@ -369,6 +369,14 @@ successor branch, or an opaque predecessor cannot authorize this rule. Unknown
 operands stay symbolic; truncated subtraction is not generally affine in them.
 [`proof_natural_subtraction.lim`](../examples/proof_natural_subtraction.lim)
 shows large subtraction and saturation at zero through ordinary definitions.
+When the checked base is computed by a case or another ordinary reduction,
+conversion verifies the same full predecessor recurrence, normalizes the base
+once in its actual typing context, and subtracts the compact count. It does
+not construct one nested predecessor per count. The
+[`computed-base example`](../examples/proof_computed_subtraction.lim) checks
+both a nonzero result and exhaustion with no additional foundations or budgets.
+Open or opaque bases remain symbolic; changed branches and binder references
+retain their own meaning.
 
 Digit addition, truncated subtraction and grade-school multiplication use exact decimal arithmetic.
 They charge digit work and temporary allocation before computation against the
@@ -541,7 +549,9 @@ replay, emitted native source and independent native checking retain the same
 basis. The default work budget correctly refuses this larger proof closure;
 selecting its recorded budget changes no proof rule. Source ownership includes
 the independently pinned `Init.Data.Nat.Div.Basic` fuel-congruence proof.
-The closed GCD computation remains unsupported within the fixed depth bound.
+The independent closed GCD probe now gets beyond that depth failure, but
+still exceeds the per-phase transformation budget while reducing its base.
+This is not a checked closed GCD result.
 
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks

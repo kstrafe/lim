@@ -214,3 +214,44 @@ fn changed_zero_branches_and_wrong_binder_subjects_keep_their_actual_meaning() {
         rejects(&changed, "type mismatch");
     }
 }
+
+const COMPUTED: &str = include_str!("../examples/proof_computed_subtraction.lim");
+
+#[test]
+fn computed_case_bases_check_without_foundations_or_larger_budgets() {
+    checks(COMPUTED);
+    for target in ["computed-subtraction", "computed-subtraction-exhausted"] {
+        let checked = lim::check_theorem_details_from_path_with_config(
+            COMPUTED,
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("examples/proof_computed_subtraction.lim"),
+            &lim::CompileConfig::default(),
+            target,
+        )
+        .unwrap();
+        assert!(checked.foundations.is_empty());
+        assert_eq!(checked.budget, lim::ProofBudget::default());
+    }
+    checks(
+        &COMPUTED
+            .replace("predecessor", "ordinary-step")
+            .replace("computed-difference", "ordinary-fold"),
+    );
+    checks(&COMPUTED.replace("\"1000\"", &format!("\"{}\"", "9".repeat(4096))));
+}
+
+#[test]
+fn changed_computed_bases_keep_their_actual_value() {
+    for changed in [
+        COMPUTED.replace("\"84\"", "\"85\""),
+        COMPUTED.replace(
+            "subtraction-choice () () first ()",
+            "subtraction-choice () () second ()",
+        ),
+        COMPUTED.replace("(result #pt-nat)) previous", "(result #pt-nat)) result"),
+    ] {
+        assert_ne!(changed, COMPUTED);
+        checks(changed.split("(#theorem").next().unwrap());
+        rejects(&changed, "type mismatch");
+    }
+}

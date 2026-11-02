@@ -2,6 +2,85 @@
 use super::*;
 
 impl Kernel {
+    /// Repeated predecessors need their base, even when affine recognition
+    /// cannot expose it through a checked case or other computation. Normalize
+    /// that base once instead of nesting one recursor per predecessor. The
+    /// recurrence, nominal family and both binder domains must match exactly.
+    #[expect(clippy::too_many_arguments)]
+    pub(in crate::proof::kernel) fn natural_computed_subtraction(
+        &mut self,
+        ctx: &[T],
+        name: &str,
+        levels: &[Level],
+        parameters: &[T],
+        indices: &[T],
+        cases: &[RecursionCase],
+        subject: &T,
+        depth: usize,
+    ) -> Result<Option<T>> {
+        let Term::NatLiteral {
+            family,
+            value: count,
+        } = subject.as_ref()
+        else {
+            return Ok(None);
+        };
+        if family != name
+            || count.decimal() == "0"
+            || !levels.is_empty()
+            || !parameters.is_empty()
+            || !indices.is_empty()
+            || cases.len() != 1
+            || cases[0].family != name
+            || cases[0].branches.len() != 2
+        {
+            return Ok(None);
+        }
+        self.tick(depth)?;
+        self.natural_family(name, depth + 1)?;
+        let motive = self.natural_head(&cases[0].motive, depth + 1)?;
+        let Term::Lam(domain, range) = motive.as_ref() else {
+            return Ok(None);
+        };
+        if !self.natural_type(domain, name, depth + 1)?
+            || !self.natural_type(range, name, depth + 1)?
+        {
+            return Ok(None);
+        }
+        let step = self.natural_head(&cases[0].branches[1], depth + 1)?;
+        let Term::Lam(domain, body) = step.as_ref() else {
+            return Ok(None);
+        };
+        if !self.natural_type(domain, name, depth + 1)? {
+            return Ok(None);
+        }
+        let step = self.natural_head(body, depth + 1)?;
+        let Term::Lam(domain, body) = step.as_ref() else {
+            return Ok(None);
+        };
+        if !self.natural_type(domain, name, depth + 1)? {
+            return Ok(None);
+        }
+        let Some(previous) = self.natural_predecessor_subject(name, body, depth + 1)? else {
+            return Ok(None);
+        };
+        if !matches!(previous.as_ref(), Term::Var(0)) {
+            return Ok(None);
+        }
+        // Only now is evaluating the base required by the verified recurrence.
+        // Keep the actual typing context; an open base is never replaced by zero.
+        let base = self.whnf(ctx, &cases[0].branches[0], depth + 1)?;
+        let Some(base) = self.natural_closed_number(name, &base, depth + 1)? else {
+            return Ok(None);
+        };
+        let value = self.natural_difference(&base, count, depth + 1)?;
+        self.charge_transformation(128 + name.len() + value.decimal().len())?;
+        Ok(Some(term(Term::NatLiteral {
+            family: name.into(),
+            value,
+        })))
+    }
+
     #[expect(clippy::too_many_arguments)]
     pub(super) fn natural_decreasing_fold(
         &mut self,
@@ -273,3 +352,7 @@ mod tests {
             .contains("allocation limit"));
     }
 }
+
+#[cfg(test)]
+#[path = "computed_subtraction_tests.rs"]
+mod computed_tests;
