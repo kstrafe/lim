@@ -31,7 +31,7 @@ fn child(expression: &SpannedExpr, index: usize) -> SpannedExpr {
         .unwrap_or_else(|| SpannedExpr {
             expr: items[index].clone(),
             span: expression.span,
-            children: vec![],
+            children: vec![].into(),
         });
     // Synthetic expansion trees may not carry children for every literal node.
     result.expr = items[index].clone();
@@ -205,19 +205,19 @@ impl Bundles {
                 let splice_head = SpannedExpr {
                     expr: Expr::Symbol("#syntax-splice".into()),
                     span: name.span,
-                    children: vec![],
+                    children: vec![].into(),
                 };
                 let splice = SpannedExpr {
                     expr: Expr::List(vec![splice_head.expr.clone(), name.expr.clone()]),
                     span: name.span,
-                    children: vec![splice_head, name],
+                    children: vec![splice_head, name].into(),
                 };
                 let children = vec![child(&expression, 0), splice, child(&expression, 2)];
                 return self.walk(
                     SpannedExpr {
                         expr: Expr::List(children.iter().map(|child| child.expr.clone()).collect()),
                         span: expression.span,
-                        children,
+                        children: children.into(),
                     },
                     strict,
                     active,
@@ -329,9 +329,9 @@ impl Bundles {
             expr: Expr::List(children.iter().map(|child| child.expr.clone()).collect()),
             span: expression.span,
             children: if preserve_empty_children {
-                vec![]
+                vec![].into()
             } else {
-                children
+                children.into()
             },
         })
     }

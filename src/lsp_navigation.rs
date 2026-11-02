@@ -742,7 +742,8 @@ impl<'a> Index<'a> {
                                 "case-ref" | "case-ref-mut" | "case-pin" | "case-pin-mut"
                             ) {
                                 let mut wrapper = arm.clone();
-                                wrapper.children = vec![arm.children[0].clone(), pattern.clone()];
+                                wrapper.children =
+                                    vec![arm.children[0].clone(), pattern.clone()].into();
                                 self.bind_pattern(&wrapper, kind, &mut inner);
                             } else {
                                 self.bind_pattern(pattern, kind, &mut inner);
@@ -1892,7 +1893,7 @@ impl<'a> Index<'a> {
                     let mut inner = scope.clone();
                     let found = if raw && head(arm) != "case" {
                         let mut wrapper = arm.clone();
-                        wrapper.children = vec![arm.children[0].clone(), pattern.clone()];
+                        wrapper.children = vec![arm.children[0].clone(), pattern.clone()].into();
                         self.bind_pattern(
                             &wrapper,
                             xs.get(1).and_then(|node| self.value_type(node, scope)),

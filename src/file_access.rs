@@ -211,7 +211,7 @@ pub(crate) fn with_dependencies(forms: Vec<Node>) -> Result<Vec<Node>, SourceErr
             result.push(Node {
                 expr: Expr::List(parts),
                 span,
-                children: vec![],
+                children: vec![].into(),
             });
         }
         result.push(form);
@@ -261,7 +261,7 @@ fn proof_children(node: &mut Node) {
                 .map(|expr| Node {
                     expr: expr.clone(),
                     span: node.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
                 .collect();
         }
@@ -887,7 +887,7 @@ impl Resolver<'_> {
                     .map(|expr| Node {
                         expr: expr.clone(),
                         span: node.span,
-                        children: vec![],
+                        children: vec![].into(),
                     })
                     .collect();
             }

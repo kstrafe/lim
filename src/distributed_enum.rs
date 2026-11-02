@@ -167,10 +167,10 @@ pub(crate) fn merge(forms: Vec<SpannedExpr>) -> Result<Vec<SpannedExpr>, SourceE
         result_children.push(SpannedExpr {
             expr: variant_list,
             span: form.span,
-            children: variant_children,
+            children: variant_children.into(),
         });
         form.expr = Expr::List(result);
-        form.children = result_children;
+        form.children = result_children.into();
         output.push(form);
     }
     Ok(output)

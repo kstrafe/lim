@@ -50,6 +50,8 @@ mod proof_budget;
 pub use proof_budget::ProofBudget;
 mod reachability;
 mod semantic_cache;
+mod source_children;
+pub use source_children::SourceChildren;
 mod source_error;
 mod stack_usage;
 mod standard_library;
@@ -1025,7 +1027,7 @@ pub struct SpannedExpr {
     /// Exact source children in expression order. Preserved separately from
     /// `Expr` so later lowering can retain source locations without wrapping
     /// every syntax node in the public AST.
-    pub children: Vec<SpannedExpr>,
+    pub children: SourceChildren,
 }
 
 /// Select the value expression most directly responsible for a statement-level
@@ -4935,13 +4937,13 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                     SpannedExpr {
                         expr: Expr::Symbol("#block".into()),
                         span: first,
-                        children: Vec::new(),
+                        children: Vec::new().into(),
                     },
                 );
                 let block = SpannedExpr {
                     expr: Expr::List(body.iter().map(|child| child.expr.clone()).collect()),
                     span,
-                    children: body,
+                    children: body.into(),
                 };
                 let Expr::List(parts) = &mut arm.expr else {
                     unreachable!()
@@ -4980,7 +4982,7 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                         column: source_case_node.span.column,
                         source_id: source_case_node.span.source_id,
                     },
-                    children: vec![source_case_node, pattern_node],
+                    children: vec![source_case_node, pattern_node].into(),
                 };
             } else {
                 normalized_parts.remove(0);
@@ -9047,7 +9049,7 @@ impl<'a> Parser<'a> {
                         token.span.line,
                         token.span.column,
                     ),
-                    children: vec![quoted],
+                    children: vec![quoted].into(),
                 })
             }
             TokenKind::QuasiQuote | TokenKind::Unquote | TokenKind::UnquoteSplicing => {
@@ -9073,7 +9075,7 @@ impl<'a> Parser<'a> {
                         token.span.line,
                         token.span.column,
                     ),
-                    children: vec![nested],
+                    children: vec![nested].into(),
                 })
             }
             TokenKind::Generate => {
@@ -9081,7 +9083,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Generate,
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::Symbol(value) => {
@@ -9094,7 +9096,7 @@ impl<'a> Parser<'a> {
                             literal,
                         ]),
                         span: token.span,
-                        children: Vec::new(),
+                        children: Vec::new().into(),
                     });
                 }
                 if let Some((literal, ty)) = parse_typed_float_atom(value) {
@@ -9105,13 +9107,13 @@ impl<'a> Parser<'a> {
                             literal,
                         ]),
                         span: token.span,
-                        children: Vec::new(),
+                        children: Vec::new().into(),
                     });
                 }
                 Ok(SpannedExpr {
                     expr: Expr::Symbol(value.clone()),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::Integer(value) => {
@@ -9119,7 +9121,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Integer(*value),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::UnsignedInteger(value) => {
@@ -9127,7 +9129,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::UnsignedInteger(*value),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::Float(value) => {
@@ -9135,7 +9137,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Float(value.clone()),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::Char(value) => {
@@ -9143,7 +9145,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Char(*value),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
             TokenKind::String(value) => {
@@ -9151,7 +9153,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::String(value.clone()),
                     span: token.span,
-                    children: Vec::new(),
+                    children: Vec::new().into(),
                 })
             }
         }
@@ -9182,7 +9184,7 @@ impl<'a> Parser<'a> {
                     return Ok(SpannedExpr {
                         expr: Expr::List(items),
                         span: Span::new(start.start, end, start.line, start.column),
-                        children,
+                        children: children.into(),
                     });
                 }
                 Some(_) => {
@@ -9264,7 +9266,7 @@ impl<'a> Parser<'a> {
                     return Ok(SpannedExpr {
                         expr: Expr::List(groups),
                         span: Span::new(start.start, end, start.line, start.column),
-                        children,
+                        children: children.into(),
                     });
                 }
                 Some(_) => segment.push(self.expression()?),
@@ -9281,7 +9283,7 @@ impl<'a> Parser<'a> {
         SpannedExpr {
             expr: Expr::List(items),
             span: Span::new(separator.start, end, separator.line, separator.column),
-            children,
+            children: children.into(),
         }
     }
 

@@ -4,6 +4,20 @@ This is an incremental internal migration, not a language or syntax change.
 Lim still requires explicit source types and performs the existing type,
 linearity, borrow, and unsafe checks before returning a `CheckedProgram`.
 
+## Source-tree ownership
+
+`SpannedExpr.children` uses `SourceChildren` copy-on-write storage. Empty
+storage is allocation-free. Cloning shares immutable child storage; mutation
+detaches shared storage before changing it. Each `SpannedExpr.expr` payload
+remains owned and is cloned normally. Spans, source IDs, and provenance retain
+their existing values and meaning.
+
+The public API supports conversions to and from `Vec<SpannedExpr>` and
+iteration by value, shared reference, or mutable reference in child order.
+Converting into a vector reuses uniquely owned storage or clones shared
+storage. This ownership mechanism carries no proof authority or checked
+judgment; ordinary validation still applies.
+
 ## Actual internal-owner access contexts
 
 `call_self_loans.rs` maps references stored inside an argument's pointee to

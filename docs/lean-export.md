@@ -688,6 +688,24 @@ receipt or translated proof fingerprint. Source frontend memory remains a
 substantial scaling problem on this synthetic workload, and these identity
 proofs add no genuine FLT dependency coverage.
 
+Sharing source-child storage reduces a second layer of frontend duplication.
+`SpannedExpr` clones share their child vectors until a writer detaches them;
+the underlying `Expr` values remain owned. Against `4ad3f76b`, the same five
+alternating debug0 samples reduce median wall time from 2,188.901 to
+1,867.993 ms (14.7%) and compiler peak RSS from 909,172 to 651,412 KiB
+(28.4%). Input bytes, hash, proof budgets, exact preflight output and the
+2-GiB/two-core host guard are unchanged.
+
+A separate allocation probe on that input counts requested live allocation
+bytes, rather than allocator overhead or RSS. Cloning the parsed source adds
+190,245,780 bytes before sharing and 15,127,890 bytes afterwards (92.0%
+less). Whole-check peak requested allocation falls from 615,952,393 to
+435,951,430 bytes (29.2%). Initial parsing still stores 4,329,000 expression
+nodes across its 396,000 span nodes, because each source node owns its raw
+expression subtree. Sharing does not eliminate that duplication or make
+native-source checking incremental; the complete FLT input and replay remain
+unverified.
+
 Before selecting larger importer limits, inspect an available export without
 retaining its tables:
 

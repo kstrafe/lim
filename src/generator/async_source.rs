@@ -172,7 +172,7 @@ fn atom(value: &str, span: Span) -> SpannedExpr {
     SpannedExpr {
         expr: Expr::Symbol(value.into()),
         span,
-        children: Vec::new(),
+        children: Vec::new().into(),
     }
 }
 
@@ -180,7 +180,7 @@ fn list(children: Vec<SpannedExpr>, span: Span) -> SpannedExpr {
     SpannedExpr {
         expr: Expr::List(children.iter().map(|node| node.expr.clone()).collect()),
         span,
-        children,
+        children: children.into(),
     }
 }
 

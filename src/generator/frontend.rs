@@ -796,7 +796,7 @@ pub(crate) fn prepare_program_syntax(
             with_protocols.push(SpannedExpr {
                 expr: declaration,
                 span: expression.span,
-                children: vec![],
+                children: vec![].into(),
             });
         }
         with_protocols.push(expression);

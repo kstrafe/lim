@@ -33,7 +33,7 @@ fn symbol(name: impl Into<String>, span: Span) -> SpannedExpr {
     SpannedExpr {
         expr: Expr::Symbol(name.into()),
         span,
-        children: vec![],
+        children: vec![].into(),
     }
 }
 
@@ -137,9 +137,8 @@ fn lower(node: &mut SpannedExpr, owners: &HashMap<String, String>) -> Result<(),
     let mut fallback = node.children[3].clone();
     // The internal typed form can also bind a failure pattern. Plain #else
     // deliberately exposes no success or failure bindings.
-    fallback
-        .children
-        .insert(1, symbol("_", fallback.children[0].span));
+    let fallback_head_span = fallback.children[0].span;
+    fallback.children.insert(1, symbol("_", fallback_head_span));
     sync(&mut fallback);
     node.children = vec![
         node.children[0].clone(),
@@ -147,7 +146,8 @@ fn lower(node: &mut SpannedExpr, owners: &HashMap<String, String>) -> Result<(),
         symbol(owner, pattern.span),
         node.children[2].clone(),
         fallback,
-    ];
+    ]
+    .into();
     sync(node);
     Ok(())
 }

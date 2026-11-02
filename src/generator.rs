@@ -693,7 +693,7 @@ fn expand_with_hits_and_origins(
                 children: if unchanged {
                     original_children.clone()
                 } else {
-                    Vec::new()
+                    Vec::new().into()
                 },
             });
         }
