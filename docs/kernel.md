@@ -1174,13 +1174,27 @@ payloads, rather than measuring exact RSS. Structural comparison also charges
 its pending pairs and visited set, and substitution charges its local reuse
 table before inserting entries. The
 normalizer reuses an already checked monomorphic declaration's immutable body
-when no universe substitution is needed. Source scope validation still walks
+when no universe substitution is needed. Global type lookup likewise reuses
+its checked monomorphic signature; polymorphic signatures are still explicitly
+specialized without changing the original. Source scope validation still walks
 every declaration, including erased terms; explicit universe arity, polymorphic
 substitution and opacity checks remain in force. The
 [elaborated export reader](lean-export.md) additionally bounds line buffers,
 primitive tables, graph depth, dependency receipts and cumulative transformations
 across declarations. Exported types, bodies and recursor rules are checked by
 this same kernel; cached receipts and exporter claims cannot bypass it.
+
+For a focused comparison of monomorphic signature reuse, build two compiler
+versions with the same profile and run:
+
+```sh
+bash scripts/limited-run.sh python3 scripts/benchmark-proof-signatures.py \
+  --before /path/to/before/lim --after target/debug/lim
+```
+
+The benchmark checks 200 reflexivity theorems over a function type with 20
+explicit parameters, alternates compiler order and reports wall medians and
+child CPU means. This targeted workload does not predict every corpus's speed.
 
 ## Trust assumptions
 

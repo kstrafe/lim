@@ -506,7 +506,13 @@ impl Kernel {
                     return Err("internal nested family is not a global constant".into());
                 }
                 let (decl, map) = self.specialization(name, levels, depth + 1)?;
-                self.universes(&decl.ty, &map, depth + 1)
+                // A checked monomorphic signature is already closed and
+                // scoped. Reuse it as we do its immutable unfolded body.
+                if map.is_empty() {
+                    Ok(decl.ty)
+                } else {
+                    self.universes(&decl.ty, &map, depth + 1)
+                }
             }
             Term::Pi(domain, body) | Term::Sigma(domain, body) => {
                 let a = self.sort(ctx, domain, depth + 1)?;

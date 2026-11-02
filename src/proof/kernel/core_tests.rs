@@ -2116,6 +2116,72 @@ fn checked_monomorphic_unfolding_shares_immutable_bodies_without_copying_graphs(
 }
 
 #[test]
+fn monomorphic_inference_shares_checked_signatures_and_keeps_lookup_guards() {
+    let mut kernel = Kernel::new();
+    let ty = pi(nat(), nat());
+    kernel
+        .definition(
+            "identity-type",
+            vec![],
+            ty.clone(),
+            lam(nat(), var(0)),
+            false,
+        )
+        .unwrap();
+    kernel.reset_budget();
+    let actual = kernel.infer(&[], &global("identity-type"), 0).unwrap();
+    assert!(Arc::ptr_eq(&actual, &ty));
+    assert_eq!(kernel.transformed_bytes, 0);
+    let wrong = term(Term::Global("identity-type".into(), vec![level(1)]));
+    assert!(kernel
+        .infer(&[], &wrong, 0)
+        .unwrap_err()
+        .contains("requires 0 explicit universe"));
+    assert!(kernel
+        .infer(&[], &global("not-checked"), 0)
+        .unwrap_err()
+        .contains("unknown or unchecked"));
+    assert!(kernel
+        .infer(&[], &global("identity-type"), DEPTH)
+        .unwrap_err()
+        .contains("resource limit"));
+}
+
+#[test]
+fn polymorphic_inferred_signatures_are_specialized_without_mutating_the_source() {
+    let mut kernel = Kernel::new();
+    let universe = term(Term::Sort(Level::variable("u".into())));
+    let ty = pi(universe.clone(), pi(var(0), var(1)));
+    kernel
+        .definition(
+            "polymorphic-type",
+            vec!["u".into()],
+            ty.clone(),
+            lam(universe, lam(var(0), var(0))),
+            false,
+        )
+        .unwrap();
+    for n in [0, 2, 1, 0] {
+        kernel.reset_budget();
+        let inferred = kernel
+            .infer(
+                &[],
+                &term(Term::Global("polymorphic-type".into(), vec![level(n)])),
+                0,
+            )
+            .unwrap();
+        assert!(!Arc::ptr_eq(&inferred, &ty));
+        assert!(kernel
+            .same_syntax(&inferred, &pi(sort(n), pi(var(0), var(1))))
+            .unwrap());
+    }
+    let Term::Pi(domain, _) = ty.as_ref() else {
+        panic!("expected source signature");
+    };
+    assert!(matches!(domain.as_ref(), Term::Sort(u) if *u == Level::variable("u".into())));
+}
+
+#[test]
 fn polymorphic_unfolding_still_substitutes_each_explicit_universe_without_mutation() {
     let mut kernel = Kernel::new();
     let universe = term(Term::Sort(Level::variable("u".into())));
