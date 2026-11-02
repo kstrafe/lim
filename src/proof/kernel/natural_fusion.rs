@@ -414,6 +414,11 @@ impl Kernel {
     /// Return the rewritten term: reusing the original could retain that
     /// local in a discarded argument or type after changing the binder type.
     fn natural_without_variable(&mut self, value: &T, depth: usize) -> Result<Option<T>> {
+        // Syntactic absence already proves independence. Only normalize when
+        // a local actually occurs, retaining the rewritten body if it erases.
+        if !self.uses_bound_variable(value, depth + 1)? {
+            return Ok(Some(value.clone()));
+        }
         let mut found = false;
         let value = self.transform_nodes(
             value,
@@ -786,6 +791,23 @@ mod tests {
             .is_none());
         assert!(kernel
             .natural_observation_type(&var(0), "#pt-nat", 0)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn syntactically_independent_bodies_are_kept_without_unfolding() {
+        let mut kernel = kernel();
+        let body = lam(nat(), term(Term::Let(nat(), literal(7), var(0))));
+        kernel
+            .definition("kept-body", vec![], function(), body, false)
+            .unwrap();
+        let value = term(Term::Global("kept-body".into(), vec![]));
+        let kept = kernel.natural_without_variable(&value, 0).unwrap().unwrap();
+        assert!(Arc::ptr_eq(&value, &kept));
+        // A binding's occurrence in a type still prevents raw independence.
+        assert!(kernel
+            .natural_without_variable(&lam(var(0), literal(0)), 0)
             .unwrap()
             .is_none());
     }

@@ -23,6 +23,13 @@ It retains their course-of-values bodies in source,
 checks them through structural observation fusion, and independently audits
 the native targets with empty assumption inventories.
 
+The [generic discrimination corpus](../lean_export_discrimination/README.md)
+adds a fourteenth genuine export. Five unbounded targets exercise constructor
+discrimination, successor injectivity and the standard equality-to-Boolean
+bridge, including private Prelude helpers and arbitrary functions into naturals.
+Its raw and native proofs are independently checked with empty assumption
+inventories and reproducible ownership keyed by exact declaration identities.
+
 The three files `identity.ndjson`, `inductives.ndjson` and `mutual.ndjson` are
 independently hand-authored protocol fixtures, not exports from Lean or FLT.
 They contain no copied upstream proof text. They use the pinned lean4export

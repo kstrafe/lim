@@ -181,6 +181,13 @@ impl Kernel {
                     branches,
                     subject,
                 } if levels.is_empty() && parameters.is_empty() && indices.is_empty() => {
+                    // This speculative evaluator only performs natural iota.
+                    // A Boolean (or other) recursor cannot reduce here; forcing
+                    // its subject would repeatedly evaluate nested predicates
+                    // while merely inspecting a dependent proposition type.
+                    let Some(desc) = self.natural_recursor_family(family, depth + 1)? else {
+                        return Ok(value);
+                    };
                     let subject = self.natural_head(subject, depth + 1)?;
                     let subject = if matches!(subject.as_ref(), Term::NatLiteral { value, .. } if value.decimal() == "0")
                     {
@@ -201,9 +208,6 @@ impl Kernel {
                     if actual != family || !levels.is_empty() || !parameters.is_empty() {
                         return Ok(value);
                     }
-                    let Some(desc) = self.natural_recursor_family(family, depth + 1)? else {
-                        return Ok(value);
-                    };
                     if branches.len() != 2 {
                         return Ok(value);
                     }
@@ -737,5 +741,54 @@ mod tests {
             .natural_affine_constant(&value, 2, 0)
             .unwrap_err()
             .contains("allocation limit"));
+    }
+
+    #[test]
+    fn speculative_natural_head_leaves_boolean_subjects_to_the_generic_reducer() {
+        let mut kernel = Kernel::new();
+        kernel
+            .inductive(
+                "Flag",
+                vec![],
+                vec![],
+                Level::number(1).unwrap(),
+                vec![("off".into(), vec![]), ("on".into(), vec![])],
+            )
+            .unwrap();
+        let flag = term(Term::Global("Flag".into(), vec![]));
+        let on = term(Term::Ctor {
+            family: "Flag".into(),
+            levels: vec![],
+            parameters: vec![],
+            constructor: "on".into(),
+            fields: vec![],
+        });
+        let subject = term(Term::App(
+            term(Term::Lam(flag.clone(), term(Term::Var(0)))),
+            on,
+        ));
+        let value = term(Term::Induct {
+            family: "Flag".into(),
+            levels: vec![],
+            parameters: vec![],
+            indices: vec![],
+            motive: term(Term::Lam(flag, nat())),
+            branches: vec![literal(10), literal(20)],
+            subject,
+        });
+        kernel.check(&[], &value, &nat(), 0).unwrap();
+        let inspected = kernel.natural_head(&value, 0).unwrap();
+        assert!(Arc::ptr_eq(&value, &inspected));
+        let reduced = kernel.whnf(&[], &value, 0).unwrap();
+        assert!(kernel.same_syntax(&reduced, &literal(20)).unwrap());
+        let mut invalid = value.as_ref().clone();
+        let Term::Induct { subject: bad, .. } = &mut invalid else {
+            unreachable!()
+        };
+        *bad = literal(0);
+        assert!(kernel
+            .check(&[], &term(invalid), &nat(), 0)
+            .unwrap_err()
+            .contains("type mismatch"));
     }
 }

@@ -1134,11 +1134,17 @@ impl Kernel {
     }
     fn conversion(&mut self, ctx: &[T], a: &T, b: &T, eta: bool, depth: usize) -> Result<bool> {
         self.tick(depth)?;
-        if Arc::ptr_eq(a, b) {
+        // Identical syntax needs no reduction. In particular, unfolding two
+        // copies of the same dependent predicate can duplicate its history.
+        // Source typing still happens in check before this comparison.
+        if Arc::ptr_eq(a, b) || self.same_syntax(a, b)? {
             return Ok(true);
         }
         let a = self.whnf(ctx, a, depth + 1)?;
         let b = self.whnf(ctx, b, depth + 1)?;
+        if Arc::ptr_eq(&a, &b) || self.same_syntax(&a, &b)? {
+            return Ok(true);
+        }
         if matches!(
             (a.as_ref(), b.as_ref()),
             (Term::NatLiteral { .. }, Term::Ctor { .. })
@@ -1533,13 +1539,24 @@ impl Kernel {
         )
     }
     fn instantiate(&mut self, body: &T, arg: &T, depth: usize) -> Result<T> {
+        // The argument and traversal depth are fixed for this substitution;
+        // only the number of intervening binders changes its shifted form.
+        // Keep reuse local so neither another argument nor a later declaration
+        // can inherit the result, and charge the table before inserting.
+        let mut shifted = HashMap::<usize, T>::new();
         self.transform(
             body,
             0,
             depth,
             &mut |kernel, index, binders| {
                 if index == binders {
-                    kernel.shift(arg, binders, 0, depth + 1)
+                    if let Some(value) = shifted.get(&binders) {
+                        return Ok(value.clone());
+                    }
+                    let value = kernel.shift(arg, binders, 0, depth + 1)?;
+                    kernel.charge_transformation(256)?;
+                    shifted.insert(binders, value.clone());
+                    Ok(value)
                 } else {
                     Ok(term(Term::Var(if index > binders {
                         index - 1

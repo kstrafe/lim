@@ -295,7 +295,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with thirteen committed genuine
+for this accepted subset, with fourteen committed genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -341,6 +341,14 @@ the case index and the old function is unused after checked normalization.
 The exact four-case paired-predecessor recurrence can then choose its checked
 terminal by decimal comparison, independent of constructor names or order.
 Changing other recursive arguments remains outside fixed-argument fusion.
+The [generic discrimination corpus](../tests/fixtures/lean_export_discrimination/README.md)
+also checks the private Prelude helpers behind `noConfusion_of_Nat`, including
+arbitrary naturals, equality premises and functions into naturals. Structural
+conversion and local substitution reuse avoid repeated normalization of its
+dependent Boolean predicate under the existing work, depth and allocation
+limits. The five targets and their exact native translations have empty axiom
+and foundation inventories. Original numeric private-name segments stay intact
+in the provenance query; no helper is trusted or reduced by name.
 Other arithmetic, arbitrary course-of-values computation and large-environment
 storage/replay remain open. This does not provide the full mathematical
 dependency closure or its proof.

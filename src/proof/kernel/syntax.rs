@@ -4,18 +4,23 @@ use std::collections::HashSet;
 
 impl Kernel {
     pub(super) fn same_syntax(&mut self, left: &T, right: &T) -> Result<bool> {
+        self.charge_transformation(32)?;
         let mut pending = vec![(Arc::clone(left), Arc::clone(right))];
         let mut visited = HashSet::new();
 
         while let Some((left, right)) = pending.pop() {
             let key = (Arc::as_ptr(&left) as usize, Arc::as_ptr(&right) as usize);
-            if !visited.insert(key) {
+            if visited.contains(&key) {
                 continue;
             }
             self.tick(0)?;
+            // Cover the hash table entry and growth before allocating it.
+            self.charge_transformation(64)?;
+            visited.insert(key);
 
             macro_rules! child {
                 ($a:expr, $b:expr) => {{
+                    self.charge_transformation(32)?;
                     pending.push((Arc::clone($a), Arc::clone($b)))
                 }};
             }
@@ -24,6 +29,11 @@ impl Kernel {
                     if $a.len() != $b.len() {
                         return Ok(false);
                     }
+                    self.charge_transformation(
+                        $a.len()
+                            .checked_mul(32)
+                            .ok_or("kernel allocation limit exceeded")?,
+                    )?;
                     pending.extend(
                         $a.iter()
                             .zip($b)
@@ -333,5 +343,26 @@ mod tests {
         let mut kernel = Kernel::new();
         assert!(kernel.same_syntax(&dag, &dag).unwrap());
         assert_eq!(kernel.work, 81);
+    }
+
+    #[test]
+    fn structural_comparison_accounts_for_its_pending_and_visited_storage() {
+        let value = term(Term::Var(0));
+        let mut kernel = Kernel::new();
+        kernel.transformed_bytes = 64 * 1024 * 1024 - 95;
+        assert!(kernel
+            .same_syntax(&value, &value)
+            .unwrap_err()
+            .contains("allocation limit"));
+        kernel.reset_budget();
+        kernel.transformed_bytes = 64 * 1024 * 1024 - 96;
+        assert!(kernel.same_syntax(&value, &value).unwrap());
+        assert_eq!(kernel.transformed_bytes, 64 * 1024 * 1024);
+        kernel.reset_budget();
+        kernel.work = WORK;
+        assert!(kernel
+            .same_syntax(&value, &value)
+            .unwrap_err()
+            .contains("resource limit"));
     }
 }

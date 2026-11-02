@@ -21,10 +21,11 @@ lim --check-lean-export tests/fixtures/lean_export/real-mutual.ndjson \
   ReplaySource.mutualDepth
 ```
 
-Thirteen real exports of original small Lean proofs replay and translate to
+Fourteen real exports of original small Lean proofs replay and translate to
 rechecked native `.lim` source, including universe-polymorphic, indexed,
 multiply nested, Sigma container, quotient computation and compact natural
-literal cases, standard natural arithmetic, plus explicitly authorized logical
+literal cases, standard natural arithmetic, generic discrimination and the
+equality-to-Boolean bridge, plus explicitly authorized logical
 foundations. They do not check the upstream Fermat proof or the complete
 Lean/Mathlib environment. See the
 [port roadmap](lean-compatibility.md) for the remaining work.

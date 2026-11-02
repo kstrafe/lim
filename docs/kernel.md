@@ -837,6 +837,16 @@ well-typed proofs of the same proposition, carrying the local context through
 dependent binders; it does not identify arbitrary proposition types or data.
 Conversion is not an unrestricted simplifier or a tactic search engine.
 
+Exact structural syntax equality is checked before reduction and again after
+weak-head normalization. It compares every binder index, universe, nominal
+family, selector and child; a mismatch falls through to ordinary conversion.
+Each substitution reuses the shifted argument at the same binder depth within
+that substitution only. Natural-fold inspection leaves unrelated recursors
+to the generic reducer and preserves bodies already independent of the local
+being eliminated. These avoid repeated normalization of dependent predicates
+without adding equality rules, trusting declaration names, or skipping source
+typing, erased values, universe validation or opaque-body boundaries.
+
 Typed function eta and primitive dependent Sigma pair eta are supported:
 
 - At a checked function type, `f` converts to
@@ -1117,7 +1127,7 @@ mathematical meaning of a type:
 | Resource | Limit |
 | --- | --- |
 | Core checking and conversion work | 200,000 core steps per declaration or complete mutual group. |
-| Term transformation allocations | 64 MiB accounted node, name and universe payload per core budget. |
+| Term transformation allocations | 64 MiB accounted nodes, payloads and traversal/reuse tables per core budget. |
 | Recursive kernel depth | 96. |
 | Parsed mathematical nodes | 50,000 per declaration. |
 | Mathematical parser nesting depth | 64. |
@@ -1160,7 +1170,9 @@ resources, and universal natural-number proofs remain unbounded.
 Transformation accounting also bounds expansion of shared term graphs during
 substitution and universe instantiation; a small input DAG cannot authorize
 unbounded allocation. It includes temporary nodes and owned identifier/level
-payloads, rather than measuring exact RSS. The
+payloads, rather than measuring exact RSS. Structural comparison also charges
+its pending pairs and visited set, and substitution charges its local reuse
+table before inserting entries. The
 normalizer reuses an already checked monomorphic declaration's immutable body
 when no universe substitution is needed. Source scope validation still walks
 every declaration, including erased terms; explicit universe arity, polymorphic

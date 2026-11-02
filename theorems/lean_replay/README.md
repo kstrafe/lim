@@ -44,6 +44,15 @@ operations and a nonzero-offset affine recurrence;
 all have empty logical-assumption inventories and retained source/module/
 license provenance. Its fixture guide gives the fresh reproduction command.
 
+The fourteenth file, [`discrimination.lim`](discrimination.lim), translates
+the [generic discrimination corpus](../../tests/fixtures/lean_export_discrimination/README.md).
+Its five targets include constructor discrimination, successor injectivity,
+and the standard equality-to-Boolean bridge with arbitrary naturals and
+functions into naturals. The actual private Prelude helper bodies remain
+present and checked. All targets have empty axiom and foundation inventories;
+the fixture manifest records original identities and source/module/license
+provenance, including numeric private-name components.
+
 Each file records its pinned producer, exact input SHA-256, native theorem
 name, and every original declaration's identity, export line and prefix hash.
 [`manifest.json`](manifest.json) maps every original declaration to its native

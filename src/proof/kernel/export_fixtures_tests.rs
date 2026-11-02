@@ -254,6 +254,19 @@ fn genuine_standard_arithmetic_retains_checked_mapping_hashes_and_attribution() 
     );
 }
 
+#[test]
+fn genuine_discrimination_retains_checked_mapping_hashes_and_attribution() {
+    assert_primitive_fixture(
+        include_str!("../../../tests/fixtures/lean_export_discrimination/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_discrimination/discrimination.ndjson"),
+        include_str!("../../../theorems/lean_replay/discrimination.lim"),
+        "DiscriminationSource.mappedDiscrimination",
+        "lim-lean-discrimination-fixture-v1",
+        &[],
+        (5, &[]),
+    );
+}
+
 fn assert_primitive_fixture(
     manifest: &str,
     input: &[u8],

@@ -2194,3 +2194,94 @@ fn monomorphic_body_reuse_does_not_skip_scope_arity_or_opacity_checks() {
         );
     }
 }
+
+#[test]
+fn identical_syntax_converts_without_forcing_reducible_terms() {
+    let mut kernel = Kernel::new();
+    let syntax = || {
+        let mut value = zero();
+        for _ in 0..12 {
+            value = term(Term::Let(nat(), zero(), value));
+        }
+        term(Term::Eq(nat(), value.clone(), value))
+    };
+    let left = syntax();
+    let right = syntax();
+    assert!(!Arc::ptr_eq(&left, &right));
+    assert!(kernel.convertible(&[], &left, &right, 0).unwrap());
+    // The structural comparison visits the shared subtrees only once and
+    // never substitutes through these reducible let bodies.
+    assert!(kernel.work < 64, "{}", kernel.work);
+}
+
+#[test]
+fn syntactic_conversion_never_certifies_an_untyped_reflexive_source() {
+    let mut kernel = Kernel::new();
+    let invalid = app(lam(sort(0), zero()), zero());
+    let claim = term(Term::Eq(nat(), invalid.clone(), invalid.clone()));
+    let proof = term(Term::Refl(nat(), invalid));
+    let why = kernel
+        .definition("untyped-reflexivity", vec![], claim, proof, true)
+        .unwrap_err();
+    assert!(why.contains("type mismatch"), "{why}");
+    assert!(!kernel.contains("untyped-reflexivity"));
+
+    let erased = term(Term::Let(nat(), sort(0), zero()));
+    let why = kernel
+        .definition("bad-erased-value", vec![], nat(), erased, false)
+        .unwrap_err();
+    assert!(why.contains("type mismatch"), "{why}");
+    assert!(!kernel.contains("bad-erased-value"));
+}
+
+#[test]
+fn substitution_reuses_shifts_only_for_the_same_argument_and_binder_depth() {
+    let mut kernel = Kernel::new();
+    let body = app(var(0), app(var(0), var(0)));
+    let argument = lam(nat(), var(1));
+    let result = kernel.instantiate(&body, &argument, 0).unwrap();
+    let Term::App(first, rest) = result.as_ref() else {
+        panic!("expected substituted application");
+    };
+    let Term::App(second, third) = rest.as_ref() else {
+        panic!("expected nested application");
+    };
+    assert!(Arc::ptr_eq(first, second) && Arc::ptr_eq(second, third));
+
+    let body = app(var(0), lam(nat(), app(var(1), var(2))));
+    for argument in [var(0), var(1), zero()] {
+        let expected = app(
+            argument.clone(),
+            lam(
+                nat(),
+                app(kernel.shift(&argument, 1, 0, 0).unwrap(), var(1)),
+            ),
+        );
+        let actual = kernel.instantiate(&body, &argument, 0).unwrap();
+        assert!(kernel.same_syntax(&actual, &expected).unwrap());
+    }
+}
+
+#[test]
+fn substitution_reuse_preserves_depth_overflow_and_allocation_checks() {
+    let mut kernel = Kernel::new();
+    assert!(kernel.instantiate(&var(0), &var(usize::MAX), 0).is_ok());
+    let why = kernel
+        .instantiate(&lam(nat(), var(1)), &var(usize::MAX), 0)
+        .unwrap_err();
+    assert!(why.contains("variable index overflow"), "{why}");
+    let why = kernel
+        .instantiate(&var(0), &lam(nat(), zero()), DEPTH - 1)
+        .unwrap_err();
+    assert!(why.contains("resource limit"), "{why}");
+    kernel.reset_budget();
+    // Body and argument each charge 128 bytes; the local entry charges 256.
+    kernel.transformed_bytes = 64 * 1024 * 1024 - 511;
+    assert!(kernel
+        .instantiate(&var(0), &var(0), 0)
+        .unwrap_err()
+        .contains("allocation limit"));
+    kernel.reset_budget();
+    let actual = kernel.instantiate(&var(0), &zero(), 0).unwrap();
+    assert!(kernel.same_syntax(&actual, &zero()).unwrap());
+}
