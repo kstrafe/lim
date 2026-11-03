@@ -9,6 +9,19 @@ fn config() -> lim::CompileConfig {
 }
 
 fn run_native(source: &str, label: &str) {
+    // Generated async compiler paths can recurse deeply; the CLI stack is
+    // separate from Rust's default test-thread stack.
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn_scoped(scope, || run_native_inner(source, label))
+            .unwrap()
+            .join()
+            .unwrap();
+    });
+}
+
+fn run_native_inner(source: &str, label: &str) {
     let scratch = support::Scratch::new(label);
     let input = scratch.path().join("input.lim");
     let cache = scratch.path().join("cache");
