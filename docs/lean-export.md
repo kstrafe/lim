@@ -706,6 +706,21 @@ expression subtree. Sharing does not eliminate that duplication or make
 native-source checking incremental; the complete FLT input and replay remain
 unverified.
 
+Complete declaration source roots are also shared between the canonical and
+occurrence inventories, including when a program is cloned. Mutable lowering
+and source remapping detach their roots before editing them. Against
+`1f5860a3`, five alternating debug0 theorem-checking samples on the same
+3,000-theorem input reduce median peak RSS from 650,312 to 628,228 KiB (3.4%).
+Wall medians are 1,896.545 and 1,879.671 ms (0.9% lower). Source bytes, proof
+budgets and the 2-GiB/two-core guard are unchanged. Initial expression subtree
+duplication and the complete checked program remain resident.
+
+On the 500-declaration/16-let native emission workload below, sharing roots
+reduces peak RSS from 197,636 to 192,068 KiB (2.8%). Wall time is effectively
+unchanged: 5,712.503 versus 5,730.891 ms (0.3% higher). Input, budgets and
+complete emitted-proof/receipt fingerprints match. All 23 pinned genuine
+exports also reproduce the same committed proof bytes and old/new receipts.
+
 Formatting now parses, renders and releases one top-level source tree at a
 time through the ordinary parser. It preserves input-relative spans, comment
 placement, declaration spacing and parser failures. The complete token and

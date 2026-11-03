@@ -73,12 +73,19 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
             .iter()
             .map(|(key, span)| (key.clone(), remap_span(*span, &sources))),
     );
-    analysis.declaration_expressions.extend(
-        witnesses
-            .declaration_expressions
-            .iter()
-            .map(|(key, expression)| (key.clone(), remap_expression(expression.clone(), &sources))),
-    );
+    analysis
+        .declaration_expressions
+        .extend(
+            witnesses
+                .declaration_expressions
+                .iter()
+                .map(|(key, expression)| {
+                    (
+                        key.clone(),
+                        remap_expression(expression.clone().into(), &sources).into(),
+                    )
+                }),
+        );
     analysis
         .declaration_occurrences
         .extend(
@@ -90,7 +97,9 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
                         key.clone(),
                         expressions
                             .iter()
-                            .map(|expression| remap_expression(expression.clone(), &sources))
+                            .map(|expression| {
+                                remap_expression(expression.clone().into(), &sources).into()
+                            })
                             .collect(),
                     )
                 }),
@@ -196,16 +205,15 @@ mod tests {
         {
             *span = remap_span(*span, sources);
         }
-        for expression in program
-            .statement_expressions
-            .values_mut()
-            .chain(program.declaration_expressions.values_mut())
-        {
+        for expression in program.statement_expressions.values_mut() {
             *expression = remap_expression(expression.clone(), sources);
+        }
+        for expression in program.declaration_expressions.values_mut() {
+            *expression = remap_expression(expression.clone().into(), sources).into();
         }
         for expressions in program.declaration_occurrences.values_mut() {
             for expression in expressions {
-                *expression = remap_expression(expression.clone(), sources);
+                *expression = remap_expression(expression.clone().into(), sources).into();
             }
         }
     }

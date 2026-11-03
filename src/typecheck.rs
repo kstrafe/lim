@@ -2073,7 +2073,10 @@ fn check_types_inner(
                     &program.statement_spans,
                     &program.statement_expressions,
                     &program.source_files,
-                    program.declaration_expressions.get(&function.name),
+                    program
+                        .declaration_expressions
+                        .get(&function.name)
+                        .map(|source| &**source),
                 ) {
                     let missing_generated_body_spans = program
                         .declaration_expressions
@@ -2538,7 +2541,12 @@ fn typed_operator_span(program: &Program, span: crate::Span) -> Option<crate::Sp
     program
         .statement_expressions
         .values()
-        .chain(program.declaration_expressions.values())
+        .chain(
+            program
+                .declaration_expressions
+                .values()
+                .map(|source| &**source),
+        )
         .find_map(|expression| find(expression, span))
 }
 
@@ -2563,7 +2571,12 @@ fn typed_borrow_origin_span(program: &Program, span: crate::Span) -> Option<crat
     program
         .statement_expressions
         .values()
-        .chain(program.declaration_expressions.values())
+        .chain(
+            program
+                .declaration_expressions
+                .values()
+                .map(|source| &**source),
+        )
         .find_map(|expression| find(expression, span))
 }
 

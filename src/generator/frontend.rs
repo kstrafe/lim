@@ -947,7 +947,7 @@ pub(crate) fn parse_prepared_program_items(
     let mut statement_expressions = HashMap::new();
     let mut declaration_spans = HashMap::new();
     let mut declaration_expressions = HashMap::new();
-    let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
+    let mut declaration_occurrences: HashMap<String, Vec<SourceExpression>> = HashMap::new();
     let mut generated_source_invocations = prepared.generated_source_invocations.clone();
     let mut generated_definition_contexts = prepared.generator_origins.definitions.clone();
     let mut async_functions = Vec::new();
@@ -1053,7 +1053,7 @@ pub(crate) fn parse_prepared_program_items(
             })?;
         // Keep the original source tree for diagnostics without recursively
         // copying it. Normalization below works on its own invocation tree.
-        let source_expression = expression;
+        let source_expression = SourceExpression::from(expression);
         let mut expression = normalize_keywords(normalized_invocation.clone());
         normalize_match_cases_expr(&mut expression);
         let mut generated_declarations = HashMap::new();
@@ -1170,10 +1170,10 @@ pub(crate) fn parse_prepared_program_items(
         };
         for item in parsed_items {
             for name in item_declared_names(&item) {
-                let expression = generated_declarations
-                    .get(&name)
-                    .unwrap_or(&source_expression)
-                    .clone();
+                let expression = generated_declarations.get(&name).map_or_else(
+                    || source_expression.clone(),
+                    |generated| SourceExpression::from(generated.clone()),
+                );
                 declaration_occurrences
                     .entry(name.clone())
                     .or_default()

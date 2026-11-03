@@ -7746,6 +7746,7 @@ pub(crate) fn program(
             let item = crate::parse_item(&expression).map_err(|message| {
                 SourceError::new(message, DiagnosticCode::Parse).at(source.span)
             })?;
+            let source = crate::SourceExpression::from(source);
             for name in crate::item_declared_names(&item) {
                 program.declaration_spans.insert(name.clone(), source.span);
                 program

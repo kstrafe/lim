@@ -897,7 +897,15 @@ pub(crate) fn check(
         if !visibility.exported(name, root) {
             continue;
         }
-        visibility.signature(name, types, span, program.declaration_expressions.get(name))?;
+        visibility.signature(
+            name,
+            types,
+            span,
+            program
+                .declaration_expressions
+                .get(name)
+                .map(|source| &**source),
+        )?;
     }
     for item in &program.items {
         let crate::Item::ThreadTask { name, .. } = item else {
@@ -922,7 +930,10 @@ pub(crate) fn check(
                         .iter()
                         .chain(std::iter::once(&signature.return_type)),
                     span,
-                    program.declaration_expressions.get(&name),
+                    program
+                        .declaration_expressions
+                        .get(&name)
+                        .map(|source| &**source),
                 )?;
             }
         }

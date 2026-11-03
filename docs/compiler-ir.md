@@ -18,6 +18,13 @@ Converting into a vector reuses uniquely owned storage or clones shared
 storage. This ownership mechanism carries no proof authority or checked
 judgment; ordinary validation still applies.
 
+Private declaration inventories use `SourceExpression` to share complete
+source roots between canonical declarations, occurrence records and cloned
+programs. Mutable access detaches the root before editing it. Lowering keeps
+the two inventories synchronized explicitly; source-ID remapping cannot edit
+the original program through a shared handle. This wrapper stores source
+metadata and carries no checked judgment or declaration authority.
+
 Formatting retains only the current top-level source tree. It uses the same
 parser as ordinary source loading, keeping input-relative spans and comment
 cursors, and carries the previous declaration's spacing flag across forms.

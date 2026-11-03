@@ -52,6 +52,8 @@ mod reachability;
 mod semantic_cache;
 mod source_children;
 pub use source_children::SourceChildren;
+mod source_expression;
+pub(crate) use source_expression::SourceExpression;
 mod source_error;
 mod stack_usage;
 mod standard_library;
@@ -1879,8 +1881,8 @@ pub struct Program {
     pub(crate) statement_spans: HashMap<(String, usize), Span>,
     pub(crate) statement_expressions: HashMap<(String, usize), SpannedExpr>,
     pub(crate) declaration_spans: HashMap<String, Span>,
-    pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
-    pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
+    pub(crate) declaration_expressions: HashMap<String, SourceExpression>,
+    pub(crate) declaration_occurrences: HashMap<String, Vec<SourceExpression>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
     pub(crate) generated_definition_contexts: HashMap<u32, Span>,
     pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
@@ -3022,7 +3024,7 @@ fn normalize_function_calls(
     statement_spans: &HashMap<(String, usize), Span>,
     statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
-    declaration_expressions: &HashMap<String, SpannedExpr>,
+    declaration_expressions: &HashMap<String, SourceExpression>,
     source_files: &[SourceFile],
 ) -> Result<(), SourceError> {
     let signatures = items
@@ -3511,7 +3513,7 @@ fn normalize_aggregate_literals(
     statement_spans: &HashMap<(String, usize), Span>,
     statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
-    declaration_expressions: &HashMap<String, SpannedExpr>,
+    declaration_expressions: &HashMap<String, SourceExpression>,
     source_files: &[SourceFile],
 ) -> Result<(), SourceError> {
     let structs = items
@@ -6795,7 +6797,7 @@ fn specialize_generic_types(
     statement_spans: &HashMap<(String, usize), Span>,
     statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
-    declaration_expressions: &HashMap<String, SpannedExpr>,
+    declaration_expressions: &HashMap<String, SourceExpression>,
     source_files: &[SourceFile],
 ) -> Result<Vec<Item>, SourceError> {
     for item in &items {

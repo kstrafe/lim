@@ -815,6 +815,7 @@ impl Lowered {
                 crate::source_error::SourceError::new(message, crate::DiagnosticCode::Parse)
                     .at(source.span)
             })?;
+            let source = crate::SourceExpression::from(source);
             for name in crate::item_declared_names(&item) {
                 program.declaration_spans.insert(name.clone(), source.span);
                 program

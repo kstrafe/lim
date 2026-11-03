@@ -1,7 +1,7 @@
 //! Resolve compact enum patterns using declarations, never RHS type inference.
 use std::collections::HashMap;
 
-use crate::{source_error::SourceError, Expr, Item, Span, SpannedExpr};
+use crate::{source_error::SourceError, Expr, Item, SourceExpression, Span, SpannedExpr};
 
 fn head(node: &SpannedExpr) -> &str {
     match &node.expr {
@@ -58,11 +58,11 @@ pub(crate) fn normalize(
     items: &mut [Item],
     statement_spans: &mut HashMap<(String, usize), Span>,
     statement_expressions: &mut HashMap<(String, usize), SpannedExpr>,
-    declaration_expressions: &mut HashMap<String, SpannedExpr>,
-    declaration_occurrences: &mut HashMap<String, Vec<SpannedExpr>>,
+    declaration_expressions: &mut HashMap<String, SourceExpression>,
+    declaration_occurrences: &mut HashMap<String, Vec<SourceExpression>>,
     defer_missing_enums: bool,
 ) -> Result<(), SourceError> {
-    if !declaration_expressions.values().any(needed) {
+    if !declaration_expressions.values().any(|node| needed(node)) {
         return Ok(());
     }
     let owners = items
