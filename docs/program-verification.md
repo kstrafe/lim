@@ -109,6 +109,13 @@ program-shape dependent; this list is not a claim of completeness.
   values, circuit errors, and exhausted execution/storage/solver budgets
   report failure or an inconclusive `unproved` result. They do not discharge
   the theorem.
+- **Checked SAT refutations.** Nonconstant SAT queries can establish
+  unsatisfiability only by returning a clause-derivation certificate. A
+  separate checker replays it against the original CNF and previously proved
+  clauses, without using the searcher's assignments, watches, decision levels
+  or reasons. Invalid derivations and exhausted checking budgets remain
+  failures. Satisfying assignments still receive independent circuit-model
+  validation.
 
 [`examples/symbolic_slices.lim`](../examples/symbolic_slices.lim) demonstrates
 read and mutation contracts over borrowed subranges. Quantify an array or
@@ -420,7 +427,41 @@ Failed checks exit unsuccessfully and write a JSON diagnostic to stderr with
 stderr. Ordinary text output remains available without the JSON option. LSP
 diagnostics carry the typed value in `data.proof_outcome` as well as the
 diagnostic code. These are reports from the current full-program check, not
-independently checkable proof certificates.
+exported full-program proof certificates. SAT refutations are independently
+checked in memory during that check.
+
+## SAT evidence
+
+The circuit layer retains the immutable original query CNF outside the
+searcher. The searcher emits derived clauses and ordered clause hints tied to
+that CNF; a valid refutation of a different query cannot establish this one.
+To check a derived clause, the certificate checker assumes its
+negation, then follows the hints. Each hinted clause must already be proved
+and must either be satisfied, force one literal, or contradict the current
+assumptions. A clause with several distinct unset literals cannot justify an
+assignment. Every derivation must finish with the empty clause, establishing
+that the query has no model.
+
+The checker uses its own assignment array and clears only touched entries
+between steps. It does not run SAT search or reuse the searcher's backtracking
+and propagation implementation. Original duplicate and tautological clauses
+retain their identities even when search normalizes them. Self/forward hints,
+out-of-range variables, zero literals, fabricated learned clauses and missing
+contradictions fail with E4406. Only literal Boolean constants can settle a
+query without invoking search or constructing this certificate.
+
+Search retains its existing 2,000,000-unit work limit and 100,000 learned-literal
+limit. Certificate input/storage is capped at 2,000,000 charged clause, literal
+and hint entries. Certificate production and checking each have a separate
+2,000,000-unit work budget, with at most 100,000 variables. Exhaustion is E4403
+and remains sticky at the circuit boundary. `--timings` reports the aggregate
+checking time as `proof.sat_certificate`.
+
+These certificates cover CNF unsatisfiability. They do not establish the
+correctness of symbolic execution, bitvector encoding, theorem assumptions or
+the native backend. Certificates are currently consumed in memory; portable
+proof exports, source/configuration identities and general native
+counterexample replay remain separate work.
 
 ## Properties Lim should prove about real programs
 

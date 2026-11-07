@@ -3,6 +3,7 @@
 //! Bits are `2 * node_id + negation`; node zero is the constant false.
 use super::{Error, Result};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub(crate) type Bit = u32;
 pub(crate) const FALSE: Bit = 0;
@@ -784,7 +785,11 @@ impl Circuit {
             }
         }
         clause(&mut clauses, &[condition]);
-        let mut solver = Solver { clauses, work: 0 };
+        let original: Arc<[Vec<i32>]> = clauses.into();
+        let mut solver = Solver {
+            clauses: original.to_vec(),
+            work: 0,
+        };
         let inputs = self
             .nodes
             .iter()
@@ -794,7 +799,10 @@ impl Circuit {
                 (needed[index + 1] && matches!(gate, Gate::Input)).then_some(index + 1)
             })
             .collect::<Vec<_>>();
-        match solver.search_with_inputs(self.nodes.len(), &inputs) {
+        match solver
+            .search_with_inputs(self.nodes.len(), &inputs, original.clone())
+            .and_then(|result| result.checked(self.nodes.len(), &original))
+        {
             Ok(Some(assignment)) => {
                 let inputs: Vec<_> = assignment.iter().map(|&v| v == 1).collect();
                 let model = self.evaluate(&inputs);
@@ -817,6 +825,206 @@ impl Circuit {
 struct Solver {
     clauses: Vec<Vec<i32>>,
     work: usize,
+}
+
+/// Search cannot return bare absence of a model. Only the checking boundary
+/// can convert a refutation into the `None` used by symbolic obligations.
+enum SearchResult {
+    Satisfiable(Vec<i8>),
+    Unsatisfiable(super::sat_certificate::Certificate),
+}
+
+impl SearchResult {
+    fn checked(self, variables: usize, original: &Arc<[Vec<i32>]>) -> Result<Option<Vec<i8>>> {
+        match self {
+            Self::Satisfiable(assignment) => Ok(Some(assignment)),
+            Self::Unsatisfiable(certificate) => {
+                certificate.check_against(variables, original)?;
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Search produces a refutation over an immutable copy of the original CNF.
+/// Clause IDs survive normalization; the independent checker never trusts the
+/// searcher's normalized clauses, propagation state or implication reasons.
+struct Refutation {
+    certificate: super::sat_certificate::Certificate,
+    clause_ids: Vec<usize>,
+    assumptions: Vec<u32>,
+    visiting: Vec<u32>,
+    proved: Vec<u32>,
+    generation: u32,
+    work: usize,
+    storage: usize,
+}
+
+impl Refutation {
+    fn new(variables: usize, clauses: Arc<[Vec<i32>]>) -> Result<Self> {
+        let storage = clauses
+            .iter()
+            .map(Vec::len)
+            .fold(clauses.len(), usize::saturating_add);
+        if variables > NODE_LIMIT || storage > WORK_LIMIT {
+            return Err(Error::limit(
+                "SAT certificate input storage budget exhausted",
+            ));
+        }
+        Ok(Self {
+            certificate: super::sat_certificate::Certificate {
+                variables,
+                axioms: clauses,
+                steps: Vec::new(),
+            },
+            clause_ids: Vec::new(),
+            assumptions: vec![0; variables + 1],
+            visiting: vec![0; variables + 1],
+            proved: vec![0; variables + 1],
+            generation: 0,
+            work: 0,
+            storage,
+        })
+    }
+
+    fn tick(&mut self) -> Result<()> {
+        self.work = self.work.saturating_add(1);
+        if self.work > WORK_LIMIT {
+            return Err(Error::limit(
+                "SAT certificate production work budget exhausted",
+            ));
+        }
+        Ok(())
+    }
+
+    fn append(&mut self, clause: Vec<i32>, hints: Vec<usize>) -> Result<usize> {
+        self.storage = self
+            .storage
+            .saturating_add(clause.len())
+            .saturating_add(hints.len())
+            .saturating_add(1);
+        if self.storage > WORK_LIMIT {
+            return Err(Error::limit("SAT certificate storage budget exhausted"));
+        }
+        let id = self.certificate.axioms.len() + self.certificate.steps.len();
+        self.certificate
+            .steps
+            .push(super::sat_certificate::Step { clause, hints });
+        Ok(id)
+    }
+
+    fn hints(
+        &mut self,
+        conflict: usize,
+        target: &[i32],
+        clauses: &[Vec<i32>],
+        assignment: &[i8],
+        reasons: &[Option<usize>],
+    ) -> Result<Vec<usize>> {
+        self.generation += 1;
+        let stamp = self.generation;
+        for &literal in target {
+            self.tick()?;
+            let variable = literal.unsigned_abs() as usize;
+            if variable == 0
+                || variable >= self.assumptions.len()
+                || variable >= assignment.len()
+                || literal_value(literal, assignment) >= 0
+            {
+                return Err(Error::checker("invalid SAT refutation assumption"));
+            }
+            self.assumptions[variable] = stamp;
+        }
+        struct Frame {
+            clause: usize,
+            implied: Option<usize>,
+            cursor: usize,
+            found: bool,
+        }
+        let mut pending = vec![Frame {
+            clause: conflict,
+            implied: None,
+            cursor: 0,
+            found: false,
+        }];
+        let mut hints = Vec::new();
+        while let Some(frame) = pending.last_mut() {
+            self.tick()?;
+            let clause = clauses
+                .get(frame.clause)
+                .ok_or_else(|| Error::checker("invalid SAT refutation reason"))?;
+            if let Some(&literal) = clause.get(frame.cursor) {
+                frame.cursor += 1;
+                let variable = literal.unsigned_abs() as usize;
+                if variable == 0
+                    || variable >= assignment.len()
+                    || variable >= self.assumptions.len()
+                {
+                    return Err(Error::checker("invalid SAT refutation literal"));
+                }
+                if frame.implied == Some(variable) {
+                    if literal_value(literal, assignment) <= 0 {
+                        return Err(Error::checker(
+                            "SAT refutation reason contradicts its conclusion",
+                        ));
+                    }
+                    frame.found = true;
+                    continue;
+                }
+                if literal_value(literal, assignment) >= 0 {
+                    return Err(Error::checker("SAT refutation premise is not false"));
+                }
+                if self.assumptions[variable] == stamp || self.proved[variable] == stamp {
+                    continue;
+                }
+                if self.visiting[variable] == stamp {
+                    return Err(Error::checker("cyclic SAT refutation reasons"));
+                }
+                let reason = reasons.get(variable).copied().flatten().ok_or_else(|| {
+                    Error::checker("SAT refutation depends on an unproved decision")
+                })?;
+                self.visiting[variable] = stamp;
+                pending.push(Frame {
+                    clause: reason,
+                    implied: Some(variable),
+                    cursor: 0,
+                    found: false,
+                });
+            } else {
+                let frame = pending.pop().unwrap();
+                if let Some(variable) = frame.implied {
+                    if !frame.found {
+                        return Err(Error::checker("SAT reason is missing its conclusion"));
+                    }
+                    self.visiting[variable] = 0;
+                    self.proved[variable] = stamp;
+                }
+                hints.push(*self.clause_ids.get(frame.clause).ok_or_else(|| {
+                    Error::checker("SAT reason lost its original clause identity")
+                })?);
+            }
+        }
+        Ok(hints)
+    }
+
+    fn learn(
+        &mut self,
+        clause: &[i32],
+        conflict: usize,
+        clauses: &[Vec<i32>],
+        assignment: &[i8],
+        reasons: &[Option<usize>],
+    ) -> Result<()> {
+        let hints = self.hints(conflict, clause, clauses, assignment, reasons)?;
+        let id = self.append(clause.to_vec(), hints)?;
+        self.clause_ids.push(id);
+        Ok(())
+    }
+
+    fn finish(mut self, hints: Vec<usize>) -> Result<super::sat_certificate::Certificate> {
+        self.append(Vec::new(), hints)?;
+        Ok(self.certificate)
+    }
 }
 fn literal_index(literal: i32) -> usize {
     literal.unsigned_abs() as usize * 2 + usize::from(literal < 0)
@@ -843,14 +1051,22 @@ fn solver_work(work: &mut usize, amount: usize) -> Result<()> {
 impl Solver {
     #[cfg(test)]
     fn search(&mut self, variables: usize) -> Result<Option<Vec<i8>>> {
-        self.search_with_inputs(variables, &(1..=variables).rev().collect::<Vec<_>>())
+        let original: Arc<[Vec<i32>]> = self.clauses.clone().into();
+        self.search_with_inputs(
+            variables,
+            &(1..=variables).rev().collect::<Vec<_>>(),
+            original.clone(),
+        )
+        .and_then(|result| result.checked(variables, &original))
     }
 
     fn search_with_inputs(
         &mut self,
         variables: usize,
         inputs: &[usize],
-    ) -> Result<Option<Vec<i8>>> {
+        original: Arc<[Vec<i32>]>,
+    ) -> Result<SearchResult> {
+        let mut refutation = Refutation::new(variables, original)?;
         let mut assignment = vec![0i8; variables + 1];
         let mut trail = Vec::new();
         let mut decisions = Vec::new();
@@ -871,19 +1087,32 @@ impl Solver {
             clause.sort_unstable();
             clause.dedup();
         }
+        let mut original_id = 0;
         self.clauses.retain(|clause| {
-            !clause
+            let keep = !clause
                 .iter()
-                .any(|literal| clause.binary_search(&-*literal).is_ok())
+                .any(|literal| clause.binary_search(&-*literal).is_ok());
+            if keep {
+                refutation.clause_ids.push(original_id);
+            }
+            original_id += 1;
+            keep
         });
         let mut positions = vec![[0, 0]; self.clauses.len()];
         for (id, clause) in self.clauses.iter().enumerate() {
             match clause.as_slice() {
-                [] => return Ok(None),
+                [] => {
+                    let hints = vec![refutation.clause_ids[id]];
+                    return Ok(SearchResult::Unsatisfiable(refutation.finish(hints)?));
+                }
                 [literal] => {
                     let value = literal_value(*literal, &assignment);
                     if value < 0 {
-                        return Ok(None);
+                        let variable = literal.unsigned_abs() as usize;
+                        let reason = reasons[variable]
+                            .ok_or_else(|| Error::checker("missing conflicting SAT unit reason"))?;
+                        let hints = vec![refutation.clause_ids[reason], refutation.clause_ids[id]];
+                        return Ok(SearchResult::Unsatisfiable(refutation.finish(hints)?));
                     }
                     if value == 0 {
                         let variable = literal.unsigned_abs() as usize;
@@ -953,7 +1182,9 @@ impl Solver {
             }
             if let Some(conflict) = conflict {
                 if decisions.is_empty() {
-                    return Ok(None);
+                    let hints =
+                        refutation.hints(conflict, &[], &self.clauses, &assignment, &reasons)?;
+                    return Ok(SearchResult::Unsatisfiable(refutation.finish(hints)?));
                 }
                 // Resolve implication reasons to the first unique implication
                 // point. The learned clause is a consequence of existing
@@ -970,6 +1201,7 @@ impl Solver {
                 if learned_literals > NODE_LIMIT {
                     return Err(Error::limit("SAT learned clause budget exhausted"));
                 }
+                refutation.learn(&learned, conflict, &self.clauses, &assignment, &reasons)?;
                 let mut backjump = 0;
                 if learned.len() > 1 {
                     let highest = (1..learned.len())
@@ -1035,7 +1267,7 @@ impl Solver {
                             *value = -1;
                         }
                     }
-                    return Ok(Some(assignment));
+                    return Ok(SearchResult::Satisfiable(assignment));
                 };
                 decisions.push(trail.len());
                 assignment[variable] = -1;
@@ -1108,6 +1340,81 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsatisfiable_search_results_require_a_checked_refutation() {
+        let original: Arc<[Vec<i32>]> = vec![vec![1]].into();
+        let certificate = super::super::sat_certificate::Certificate {
+            variables: 1,
+            axioms: original.clone(),
+            steps: vec![super::super::sat_certificate::Step {
+                clause: vec![],
+                hints: vec![0],
+            }],
+        };
+        let error = SearchResult::Unsatisfiable(certificate)
+            .checked(1, &original)
+            .unwrap_err();
+        assert_eq!(
+            error.diagnostic_code().proof_outcome(),
+            Some(crate::ProofOutcome::CheckerError)
+        );
+    }
+
+    #[test]
+    fn certificates_keep_original_ids_across_duplicate_and_tautology_normalization() {
+        for clauses in [
+            vec![vec![1, -1], vec![2, 2], vec![-2, -2]],
+            vec![
+                vec![1, -1],
+                vec![1, 2, 2],
+                vec![1, -2],
+                vec![-1, 2],
+                vec![-1, -2],
+            ],
+        ] {
+            let mut solver = Solver { clauses, work: 0 };
+            assert!(solver.search(2).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn refutation_production_rejects_missing_and_cyclic_reasons() {
+        for (clauses, assignment, reasons, conflict) in [
+            (vec![vec![-1]], vec![0, 1], vec![None, None], 0),
+            (
+                vec![vec![1, -2], vec![-1, 2], vec![-1]],
+                vec![0, 1, 1],
+                vec![None, Some(0), Some(1)],
+                2,
+            ),
+        ] {
+            let mut proof = Refutation::new(assignment.len() - 1, clauses.clone().into()).unwrap();
+            proof.clause_ids.extend(0..clauses.len());
+            let error = proof
+                .hints(conflict, &[], &clauses, &assignment, &reasons)
+                .unwrap_err();
+            assert_eq!(
+                error.diagnostic_code().proof_outcome(),
+                Some(crate::ProofOutcome::CheckerError)
+            );
+        }
+    }
+
+    #[test]
+    fn refutation_production_budget_cannot_be_treated_as_a_refutation() {
+        let clauses = vec![vec![1], vec![-1]];
+        let mut proof = Refutation::new(1, clauses.clone().into()).unwrap();
+        proof.clause_ids.extend(0..clauses.len());
+        proof.work = WORK_LIMIT;
+        let error = proof
+            .hints(1, &[], &clauses, &[0, 1], &[None, Some(0)])
+            .unwrap_err();
+        assert_eq!(
+            error.diagnostic_code().proof_outcome(),
+            Some(crate::ProofOutcome::ResourceLimit)
+        );
+    }
 
     #[test]
     fn constant_relations_to_wrapping_offsets_match_machine_values() {

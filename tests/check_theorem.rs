@@ -247,6 +247,29 @@ fn module_paths_project_defaults_and_explicit_targets_are_honored() {
 }
 
 #[test]
+fn timing_json_exposes_independent_sat_certificate_checking() {
+    let scratch = support::Scratch::new("check-theorem-certificate-timings");
+    write(&scratch, "main.lim", "(#theorem ranges (#proof-for-all (: value #u8) (#proof-implies (#u8::lt value 10u8) (#u8::lt value 20u8))))");
+    let (status, stdout, stderr) = run(
+        &scratch,
+        &[
+            "--timings",
+            "--diagnostic-format=json",
+            "--check-theorem",
+            "main.lim",
+            "ranges",
+        ],
+    );
+    assert!(status.success(), "{stderr}");
+    assert!(stdout.contains("\"proof_outcome\":\"proved\""));
+    assert!(
+        stderr.contains("\"stage\":\"proof.sat_certificate\""),
+        "{stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+}
+
+#[test]
 fn timing_json_keeps_success_stdout_separate_and_has_no_native_emission_stages() {
     let scratch = support::Scratch::new("check-theorem-timings");
     write(&scratch, "main.lim", "(#theorem reflexivity true)");

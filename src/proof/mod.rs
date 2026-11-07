@@ -13,6 +13,7 @@ mod logic;
 mod obligations;
 mod observations;
 mod outcome;
+mod sat_certificate;
 mod symbolic;
 mod validation;
 
