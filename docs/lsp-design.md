@@ -146,6 +146,13 @@ or change navigation of the surrounding user function's declarations.
 
 ## Program proof navigation
 
+Proof diagnostics retain the ordinary source ranges and related locations.
+Their `data.proof_outcome` value records the compiler's typed classification:
+counterexample, unsupported semantics, resource limit, invalid proposition,
+induction failure or checker error. Clients must use this field or the specific
+E4401–E4406 code rather than classify English message text. Generic E4400 and
+non-proof diagnostics do not provide a typed proof outcome.
+
 `(#theorem name proposition)` declares a procedural compile time obligation.
 The theorem name resolves as a declaration; supported proof operands use the
 ordinary runtime expression resolver for Lim functions, locals, fields, and

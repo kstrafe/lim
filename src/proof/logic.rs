@@ -1,6 +1,7 @@
 //! Finite bitvectors and bounded, fail-closed SAT with watched propagation
 //! and conflict-driven clause learning.
 //! Bits are `2 * node_id + negation`; node zero is the constant false.
+use super::{Error, Result};
 use std::collections::HashMap;
 
 pub(crate) type Bit = u32;
@@ -28,7 +29,7 @@ pub(crate) struct Circuit {
     table: HashMap<Gate, Bit>,
     offsets: HashMap<(Vec<Bit>, bool), (Word, u128)>,
     // Shape errors and either resource limit poison every subsequent SAT query.
-    exhausted: bool,
+    failure: Option<Error>,
 }
 impl Circuit {
     pub(crate) fn new() -> Self {
@@ -36,12 +37,12 @@ impl Circuit {
             nodes: Vec::new(),
             table: HashMap::new(),
             offsets: HashMap::new(),
-            exhausted: false,
+            failure: None,
         }
     }
     pub(crate) fn fresh(&mut self) -> Bit {
-        if self.exhausted || self.nodes.len() >= NODE_LIMIT {
-            self.exhausted = true;
+        if self.failure.is_some() || self.nodes.len() >= NODE_LIMIT {
+            self.poison(Error::limit("circuit node budget exhausted"));
             return FALSE;
         }
         self.nodes.push(Gate::Input);
@@ -49,18 +50,20 @@ impl Circuit {
     }
     fn valid_bits(&mut self, bits: &[Bit]) -> bool {
         let ok = bits.iter().all(|&b| (b >> 1) as usize <= self.nodes.len());
-        self.exhausted |= !ok;
+        if !ok {
+            self.poison(Error::checker("invalid circuit node"));
+        }
         ok
     }
     fn gate(&mut self, g: Gate) -> Bit {
-        if self.exhausted {
+        if self.failure.is_some() {
             return FALSE;
         }
         if let Some(&b) = self.table.get(&g) {
             return b;
         }
         if self.nodes.len() >= NODE_LIMIT {
-            self.exhausted = true;
+            self.poison(Error::limit("circuit node budget exhausted"));
             return FALSE;
         }
         self.nodes.push(g);
@@ -71,8 +74,14 @@ impl Circuit {
     pub(crate) fn not(&self, b: Bit) -> Bit {
         b ^ 1
     }
+
+    fn poison(&mut self, error: Error) {
+        if self.failure.is_none() {
+            self.failure = Some(error);
+        }
+    }
     pub(crate) fn and(&mut self, a: Bit, b: Bit) -> Bit {
-        if !self.valid_bits(&[a, b]) || self.exhausted {
+        if !self.valid_bits(&[a, b]) || self.failure.is_some() {
             return FALSE;
         }
         if a == FALSE || b == FALSE || a == (b ^ 1) {
@@ -91,7 +100,7 @@ impl Circuit {
         neither ^ 1
     }
     pub(crate) fn xor(&mut self, a: Bit, b: Bit) -> Bit {
-        if !self.valid_bits(&[a, b]) || self.exhausted {
+        if !self.valid_bits(&[a, b]) || self.failure.is_some() {
             return FALSE;
         }
         if a == FALSE {
@@ -115,7 +124,7 @@ impl Circuit {
         self.gate(Gate::Xor(a.min(b), a.max(b)))
     }
     pub(crate) fn ite(&mut self, c: Bit, t: Bit, f: Bit) -> Bit {
-        if !self.valid_bits(&[c, t, f]) || self.exhausted {
+        if !self.valid_bits(&[c, t, f]) || self.failure.is_some() {
             return FALSE;
         }
         if c == TRUE {
@@ -142,28 +151,30 @@ impl Circuit {
             signed,
         }
     }
-    fn check_word(&mut self, a: &Word) -> Result<(), String> {
-        if a.bits.is_empty() || a.bits.len() > MAX_WIDTH || !self.valid_bits(&a.bits) {
-            self.exhausted = true;
-            return Err("invalid bitvector width or node".into());
+    fn check_word(&mut self, a: &Word) -> Result<()> {
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
         }
-        if self.exhausted {
-            return Err("circuit exhausted or invalid".into());
+        if a.bits.is_empty() || a.bits.len() > MAX_WIDTH || !self.valid_bits(&a.bits) {
+            let error = Error::checker("invalid bitvector width or node");
+            self.poison(error.clone());
+            return Err(error);
         }
         Ok(())
     }
-    fn check(&mut self, a: &Word, b: &Word) -> Result<(), String> {
+    fn check(&mut self, a: &Word, b: &Word) -> Result<()> {
         self.check_word(a)?;
         self.check_word(b)?;
         if a.bits.len() != b.bits.len() || a.signed != b.signed {
-            self.exhausted = true;
-            return Err("bitvector width or signedness mismatch".into());
+            let error = Error::checker("bitvector width or signedness mismatch");
+            self.poison(error.clone());
+            return Err(error);
         }
         Ok(())
     }
     pub(crate) fn word(&mut self, width: usize, signed: bool) -> Word {
         if width == 0 || width > MAX_WIDTH {
-            self.exhausted = true;
+            self.poison(Error::checker("invalid bitvector width"));
             return Word {
                 bits: Vec::new(),
                 signed,
@@ -217,7 +228,7 @@ impl Circuit {
     fn mux_vec(&mut self, c: Bit, a: &[Bit], b: &[Bit]) -> Vec<Bit> {
         a.iter().zip(b).map(|(&x, &y)| self.ite(c, x, y)).collect()
     }
-    pub(crate) fn select(&mut self, c: Bit, a: &Word, b: &Word) -> Result<Word, String> {
+    pub(crate) fn select(&mut self, c: Bit, a: &Word, b: &Word) -> Result<Word> {
         self.check(a, b)?;
         Ok(Word {
             bits: self.mux_vec(c, &a.bits, &b.bits),
@@ -226,7 +237,7 @@ impl Circuit {
     }
     pub(crate) fn cast(&mut self, a: &Word, width: usize, signed: bool) -> Word {
         if self.check_word(a).is_err() || width == 0 || width > MAX_WIDTH {
-            self.exhausted = true;
+            self.poison(Error::checker("invalid bitvector cast width"));
             return Word {
                 bits: Vec::new(),
                 signed,
@@ -266,7 +277,7 @@ impl Circuit {
     fn mul_full(&mut self, a: &[Bit], b: &[Bit]) -> Vec<Bit> {
         let mut acc = vec![FALSE; a.len() + b.len()];
         for (j, &y) in b.iter().enumerate() {
-            if self.exhausted {
+            if self.failure.is_some() {
                 break;
             }
             let mut row = vec![FALSE; acc.len()];
@@ -330,7 +341,7 @@ impl Circuit {
         };
         (result, overflow)
     }
-    pub(crate) fn no_overflow(&mut self, op: &str, a: &Word, b: &Word) -> Result<Bit, String> {
+    pub(crate) fn no_overflow(&mut self, op: &str, a: &Word, b: &Word) -> Result<Bit> {
         self.check(a, b)?;
         let op = match op {
             "+" | "add" => "add",
@@ -442,7 +453,7 @@ impl Circuit {
         mode: Option<&str>,
         a: &Word,
         b: &Word,
-    ) -> Result<(Word, Bit), String> {
+    ) -> Result<(Word, Bit)> {
         self.check(a, b)?;
         if mode.is_some_and(|m| !matches!(m, "wrap" | "saturate")) {
             return Err("unknown arithmetic mode".into());
@@ -571,7 +582,11 @@ impl Circuit {
                 }
                 result
             }
-            _ => return Err(format!("unsupported bitvector operator: {op}")),
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "unsupported bitvector operator: {op}"
+                )))
+            }
         };
         Ok((
             Word {
@@ -623,10 +638,10 @@ impl Circuit {
                 }
             })
     }
-    pub(crate) fn satisfy(&mut self, condition: Bit) -> Result<Option<Vec<bool>>, String> {
+    pub(crate) fn satisfy(&mut self, condition: Bit) -> Result<Option<Vec<bool>>> {
         self.valid_bits(&[condition]);
-        if self.exhausted {
-            return Err("circuit exhausted or invalid".into());
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
         }
         if condition == FALSE {
             return Ok(None);
@@ -705,14 +720,15 @@ impl Circuit {
                 let inputs: Vec<_> = assignment.iter().map(|&v| v == 1).collect();
                 let model = self.evaluate(&inputs);
                 if !Self::bit_value(condition, &model) {
-                    self.exhausted = true;
-                    return Err("SAT model failed circuit validation".into());
+                    let error = Error::checker("SAT model failed circuit validation");
+                    self.poison(error.clone());
+                    return Err(error);
                 }
                 Ok(Some(model))
             }
             Ok(None) => Ok(None),
             Err(e) => {
-                self.exhausted = true;
+                self.poison(e.clone());
                 Err(e)
             }
         }
@@ -736,10 +752,10 @@ fn literal_value(literal: i32, assignment: &[i8]) -> i8 {
     }
 }
 
-fn solver_work(work: &mut usize, amount: usize) -> Result<(), String> {
+fn solver_work(work: &mut usize, amount: usize) -> Result<()> {
     *work = work.saturating_add(amount);
     if *work > WORK_LIMIT {
-        Err("SAT work budget exhausted".into())
+        Err(Error::limit("SAT work budget exhausted"))
     } else {
         Ok(())
     }
@@ -747,7 +763,7 @@ fn solver_work(work: &mut usize, amount: usize) -> Result<(), String> {
 
 impl Solver {
     #[cfg(test)]
-    fn search(&mut self, variables: usize) -> Result<Option<Vec<i8>>, String> {
+    fn search(&mut self, variables: usize) -> Result<Option<Vec<i8>>> {
         self.search_with_inputs(variables, &(1..=variables).rev().collect::<Vec<_>>())
     }
 
@@ -755,7 +771,7 @@ impl Solver {
         &mut self,
         variables: usize,
         inputs: &[usize],
-    ) -> Result<Option<Vec<i8>>, String> {
+    ) -> Result<Option<Vec<i8>>> {
         let mut assignment = vec![0i8; variables + 1];
         let mut trail = Vec::new();
         let mut decisions = Vec::new();
@@ -771,7 +787,7 @@ impl Solver {
                 .iter()
                 .any(|&literal| literal == 0 || literal.unsigned_abs() as usize > variables)
             {
-                return Err("invalid SAT clause variable".into());
+                return Err(Error::checker("invalid SAT clause variable"));
             }
             clause.sort_unstable();
             clause.dedup();
@@ -873,7 +889,7 @@ impl Solver {
                 )?;
                 learned_literals = learned_literals.saturating_add(learned.len());
                 if learned_literals > NODE_LIMIT {
-                    return Err("SAT learned clause budget exhausted".into());
+                    return Err(Error::limit("SAT learned clause budget exhausted"));
                 }
                 let mut backjump = 0;
                 if learned.len() > 1 {
@@ -930,7 +946,9 @@ impl Solver {
                             }
                         }
                         if !satisfied {
-                            return Err("SAT propagation left an unresolved clause".into());
+                            return Err(Error::checker(
+                                "SAT propagation left an unresolved clause",
+                            ));
                         }
                     }
                     for value in assignment.iter_mut().skip(1) {
@@ -957,7 +975,7 @@ impl Solver {
         levels: &[usize],
         reasons: &[Option<usize>],
         current: usize,
-    ) -> Result<Vec<i32>, String> {
+    ) -> Result<Vec<i32>> {
         let mut seen = vec![false; assignment.len()];
         let mut learned = vec![0];
         let mut pending = 0usize;
@@ -980,7 +998,7 @@ impl Solver {
             let variable = loop {
                 solver_work(&mut self.work, 1)?;
                 if cursor == 0 {
-                    return Err("invalid SAT conflict trail".into());
+                    return Err(Error::checker("invalid SAT conflict trail"));
                 }
                 cursor -= 1;
                 let variable = trail[cursor];
@@ -989,7 +1007,7 @@ impl Solver {
                 }
             };
             if pending == 0 {
-                return Err("invalid SAT conflict level".into());
+                return Err(Error::checker("invalid SAT conflict level"));
             }
             pending -= 1;
             seen[variable] = false;
@@ -1001,7 +1019,8 @@ impl Solver {
                 };
                 return Ok(learned);
             }
-            clause = reasons[variable].ok_or("invalid SAT conflict reason")?;
+            clause =
+                reasons[variable].ok_or_else(|| Error::checker("invalid SAT conflict reason"))?;
             resolved = Some(variable);
         }
     }
@@ -1547,15 +1566,36 @@ mod tests {
                 }
                 assert!(c.satisfy(FALSE).is_err());
                 assert!(c.satisfy(TRUE).is_err());
+                assert_eq!(
+                    c.satisfy(FALSE)
+                        .unwrap_err()
+                        .diagnostic_code()
+                        .proof_outcome(),
+                    Some(crate::ProofOutcome::CheckerError)
+                );
             }
         }
         let mut c = Circuit::new();
         for _ in 0..=NODE_LIMIT {
             c.fresh();
         }
-        assert!(c.exhausted);
-        assert!(c.satisfy(FALSE).is_err());
-        assert!(c.satisfy(TRUE).is_err());
+        assert!(c.failure.is_some());
+        assert_eq!(
+            c.satisfy(FALSE)
+                .unwrap_err()
+                .diagnostic_code()
+                .proof_outcome(),
+            Some(crate::ProofOutcome::ResourceLimit)
+        );
+        c.word(0, false);
+        assert_eq!(
+            c.satisfy(TRUE)
+                .unwrap_err()
+                .diagnostic_code()
+                .proof_outcome(),
+            Some(crate::ProofOutcome::ResourceLimit),
+            "a later shape error must not overwrite the original resource failure"
+        );
         // One very long clause must charge literal visits, not merely clauses.
         let mut solver = Solver {
             clauses: vec![vec![1; WORK_LIMIT + 1]],

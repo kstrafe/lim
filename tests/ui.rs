@@ -21,20 +21,26 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "proof-induction-negation",
+            diagnostic_code: "E4405",
+            offending_line: "  (#proof-with-invariants",
+            line_number: 11,
+        },
+        Case {
             name: "proof-mutated-reference",
-            diagnostic_code: "E4400",
+            diagnostic_code: "E4401",
             offending_line: "  (#proof-contract overwrite",
             line_number: 6,
         },
         Case {
             name: "validation-wrong-object",
-            diagnostic_code: "E4400",
+            diagnostic_code: "E4401",
             offending_line: "  (#proof-requires-validation main",
             line_number: 12,
         },
         Case {
             name: "proof-disproved",
-            diagnostic_code: "E4400",
+            diagnostic_code: "E4401",
             offending_line: "  (#proof-eq 1u64 2u64))",
             line_number: 2,
         },
@@ -1298,6 +1304,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "proof-induction-negation" => Some("(#proof-with-invariants"),
             "proof-mutated-reference" => Some("(#proof-contract overwrite"),
             "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),
             "validation-wrong-object" => Some("(#proof-requires-validation main"),

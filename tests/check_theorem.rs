@@ -48,7 +48,7 @@ fn api_checks_program_theorems_and_keeps_whole_program_validation() {
     let error =
         check_theorem_from_path_with_config(&invalid, &path, &CompileConfig::default(), "selected")
             .unwrap_err();
-    assert_eq!(error.code, DiagnosticCode::Proof);
+    assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
     assert!(error.message.contains("disproved"), "{}", error.message);
 }
 
@@ -182,7 +182,7 @@ fn timing_json_keeps_success_stdout_separate_and_has_no_native_emission_stages()
         ],
     );
     assert!(status.success(), "{stderr}");
-    assert_eq!(stdout, "checked theorem reflexivity\n");
+    assert_eq!(stdout, "{\"schema_version\":1,\"category\":\"proof\",\"theorem\":\"reflexivity\",\"proof_outcome\":\"proved\"}\n");
     let lines = stderr.lines().collect::<Vec<_>>();
     assert_eq!(lines.len(), 1, "{stderr}");
     assert!(lines[0].starts_with("{\"timings\":["), "{stderr}");

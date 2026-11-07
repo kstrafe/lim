@@ -154,7 +154,7 @@ impl State {
 impl Engine<'_, '_> {
     fn allocate(&mut self, state: &mut State, value: Value) -> Result<Location> {
         if state.heap.len() >= 4096 {
-            return Err("unproved: symbolic storage budget exhausted".into());
+            return Err(Error::limit("symbolic storage budget exhausted"));
         }
         let place = Location {
             root: state.heap.len(),
@@ -184,11 +184,7 @@ impl Engine<'_, '_> {
         if self.resolve_type(&value.ty())? == self.resolve_type(ty)? {
             Ok(())
         } else {
-            Err(format!(
-                "proof value has type {:?}, expected {:?}",
-                value.ty(),
-                ty
-            ))
+            Err(format!("proof value has type {:?}, expected {:?}", value.ty(), ty).into())
         }
     }
     pub(super) fn fresh_value(
@@ -199,7 +195,7 @@ impl Engine<'_, '_> {
     ) -> Result<Value> {
         self.tick()?;
         if depth > 32 {
-            return Err("unproved: symbolic type nesting budget exhausted".into());
+            return Err(Error::limit("symbolic type nesting budget exhausted"));
         }
         let ty = self.resolve_type(ty)?;
         if let Some((width, signed)) = scalar(&ty) {
@@ -229,7 +225,7 @@ impl Engine<'_, '_> {
             )),
             Type::Array(element, len) => {
                 if *len > 64 {
-                    return Err("unproved: symbolic arrays are limited to 64 elements".into());
+                    return Err(Error::limit("symbolic arrays are limited to 64 elements"));
                 }
                 let values = (0..*len)
                     .map(|_| self.fresh_value(state, element, depth + 1))
@@ -257,7 +253,9 @@ impl Engine<'_, '_> {
             Type::Named(name) if self.enums.contains_key(name) => {
                 let variants = self.enums[name].clone();
                 if variants.is_empty() {
-                    return Err("unproved: empty enum input has no inhabitable state".into());
+                    return Err(Error::unsupported(
+                        "empty enum input has no inhabitable state",
+                    ));
                 }
                 let tag = self.circuit.word(64, false);
                 let limit = Circuit::constant(variants.len() as u128, 64, false);
@@ -275,9 +273,9 @@ impl Engine<'_, '_> {
                 }
                 Ok(Value::Enum(name.clone(), tag, values))
             }
-            _ => Err(format!(
-                "unproved: symbolic inputs of type {ty:?} are unsupported"
-            )),
+            _ => Err(Error::unsupported(format!(
+                "symbolic inputs of type {ty:?} are unsupported"
+            ))),
         }
     }
 
@@ -287,31 +285,57 @@ impl Engine<'_, '_> {
                 "proof equality compares incompatible types {:?} and {:?}",
                 a.ty(),
                 b.ty()
-            ));
+            )
+            .into());
         }
         if a.ty() == Type::Bool {
             let different = self.circuit.xor(a.boolean()?, b.boolean()?);
             return Ok(self.circuit.not(different));
         }
-        match(a,b){
-            (Value::Unit,Value::Unit)=>Ok(TRUE),
-            (Value::Bool(a),Value::Bool(b))=>{let different=self.circuit.xor(*a,*b);Ok(self.circuit.not(different))},
-            (Value::Bits(a,_),Value::Bits(b,_))=>Ok(self.circuit.eq_word(a,b)),
-            (Value::Record(_,a),Value::Record(_,b))=>{
-                let mut equal=TRUE;for((_,a),(_,b))in a.iter().zip(b){let field=self.equal(a,b)?;equal=self.circuit.and(equal,field);}Ok(equal)
+        match (a, b) {
+            (Value::Unit, Value::Unit) => Ok(TRUE),
+            (Value::Bool(a), Value::Bool(b)) => {
+                let different = self.circuit.xor(*a, *b);
+                Ok(self.circuit.not(different))
             }
-            (Value::Array(_,a),Value::Array(_,b))|(Value::Tuple(a),Value::Tuple(b))=>{
-                let mut equal=TRUE;for(a,b)in a.iter().zip(b){let item=self.equal(a,b)?;equal=self.circuit.and(equal,item);}Ok(equal)
+            (Value::Bits(a, _), Value::Bits(b, _)) => Ok(self.circuit.eq_word(a, b)),
+            (Value::Record(_, a), Value::Record(_, b)) => {
+                let mut equal = TRUE;
+                for ((_, a), (_, b)) in a.iter().zip(b) {
+                    let field = self.equal(a, b)?;
+                    equal = self.circuit.and(equal, field);
+                }
+                Ok(equal)
             }
-            (Value::Enum(_,at,a),Value::Enum(_,bt,b))=>{
-                let mut equal=self.circuit.eq_word(at,bt);
-                for(index,(a,b))in a.iter().zip(b).enumerate(){
-                    if let(Some(a),Some(b))=(a,b){let field=self.equal(a,b)?;let tag=Circuit::constant(index as u128,64,false);let active=self.circuit.eq_word(at,&tag);let valid=self.circuit.or(self.circuit.not(active),field);equal=self.circuit.and(equal,valid);}
-                    else if a.is_some()!=b.is_some(){let tag=Circuit::constant(index as u128,64,false);let active=self.circuit.eq_word(at,&tag);equal=self.circuit.and(equal,self.circuit.not(active));}
-                }Ok(equal)
+            (Value::Array(_, a), Value::Array(_, b)) | (Value::Tuple(a), Value::Tuple(b)) => {
+                let mut equal = TRUE;
+                for (a, b) in a.iter().zip(b) {
+                    let item = self.equal(a, b)?;
+                    equal = self.circuit.and(equal, item);
+                }
+                Ok(equal)
             }
-            (Value::Ref{..},Value::Ref{..})=>Err("unproved: reference identity comparisons are not modeled; compare explicit referent values".into()),
-            _=>Err("unproved: unsupported logical equality".into()),
+            (Value::Enum(_, at, a), Value::Enum(_, bt, b)) => {
+                let mut equal = self.circuit.eq_word(at, bt);
+                for (index, (a, b)) in a.iter().zip(b).enumerate() {
+                    if let (Some(a), Some(b)) = (a, b) {
+                        let field = self.equal(a, b)?;
+                        let tag = Circuit::constant(index as u128, 64, false);
+                        let active = self.circuit.eq_word(at, &tag);
+                        let valid = self.circuit.or(self.circuit.not(active), field);
+                        equal = self.circuit.and(equal, valid);
+                    } else if a.is_some() != b.is_some() {
+                        let tag = Circuit::constant(index as u128, 64, false);
+                        let active = self.circuit.eq_word(at, &tag);
+                        equal = self.circuit.and(equal, self.circuit.not(active));
+                    }
+                }
+                Ok(equal)
+            }
+            (Value::Ref { .. }, Value::Ref { .. }) => Err(Error::unsupported(
+                "reference identity comparisons are not modeled; compare explicit referent values",
+            )),
+            _ => Err(Error::unsupported("unsupported logical equality")),
         }
     }
     fn merge(&mut self, condition: Bit, a: &Value, b: &Value) -> Result<Value> {
@@ -356,10 +380,9 @@ impl Engine<'_, '_> {
                     .collect::<Result<_>>()?,
             ),
             _ => {
-                return Err(
-                    "unproved: conditional reference or enum storage requires path splitting"
-                        .into(),
-                )
+                return Err(Error::unsupported(
+                    "conditional reference or enum storage requires path splitting",
+                ))
             }
         })
     }
@@ -379,7 +402,7 @@ impl Engine<'_, '_> {
         if let Some((ty, expr)) = self.constants.get(name).cloned() {
             let values = self.expr_as(state.clone(), &expr, true, &ty)?;
             if values.len() != 1 {
-                return Err("unproved: branching global initialization".into());
+                return Err(Error::unsupported("branching global initialization"));
             }
             let (updated, value) = values.into_iter().next().unwrap();
             *state = updated;
@@ -387,7 +410,7 @@ impl Engine<'_, '_> {
             state.globals.insert(name.into(), place.clone());
             return Ok(place);
         }
-        Err(format!("unknown proof value '{name}'"))
+        Err(format!("unknown proof value '{name}'").into())
     }
     pub(super) fn read(&mut self, state: &State, place: &Location) -> Result<Value> {
         let value = state
@@ -414,7 +437,7 @@ impl Engine<'_, '_> {
                 .get(*index)
                 .cloned()
                 .flatten()
-                .ok_or("unproved: absent enum payload")?,
+                .ok_or_else(|| Error::unsupported("absent enum payload"))?,
             (Segment::Index(index), Value::Array(_, values)) => {
                 self.select_array(&values, index)?
             }
@@ -461,13 +484,13 @@ impl Engine<'_, '_> {
                     *target = self.merge(selected, &replacement, target)?;
                 }
             }
-            _ => return Err("unproved: unsupported write projection".into()),
+            _ => return Err(Error::unsupported("unsupported write projection")),
         }
         Ok(old)
     }
     fn select_array(&mut self, values: &[Value], index: &Word) -> Result<Value> {
         let Some(mut result) = values.last().cloned() else {
-            return Err("unproved: indexing an empty array".into());
+            return Err(Error::unsupported("indexing an empty array"));
         };
         for (i, value) in values.iter().enumerate().rev().skip(1) {
             let tag = Circuit::constant(i as u128, index.bits.len(), false);
@@ -498,15 +521,11 @@ impl Engine<'_, '_> {
             .get(self.span.source_id as usize)
             .ok_or("missing proof source")?;
         if self.opaque.contains(name) && source.path != caller.path {
-            return Err(format!(
-                "proof cannot inspect opaque representation '{name}'"
-            ));
+            return Err(format!("proof cannot inspect opaque representation '{name}'").into());
         }
         if let Some(owner) = crate::library::owner(&source.path) {
             if crate::library::owner(&caller.path).as_ref() != Some(&owner) {
-                return Err(format!(
-                    "proof cannot inspect private representation '{name}'"
-                ));
+                return Err(format!("proof cannot inspect private representation '{name}'").into());
             }
         }
         Ok(())
@@ -594,7 +613,9 @@ impl Engine<'_, '_> {
             }
             return Ok(output);
         }
-        Err(format!("unproved: #{head} is not a modeled storage place"))
+        Err(Error::unsupported(format!(
+            "#{head} is not a modeled storage place"
+        )))
     }
 
     fn expr_as(
@@ -640,7 +661,7 @@ impl Engine<'_, '_> {
         spec: bool,
     ) -> Result<Vec<(State, Value)>> {
         if self.evaluation_depth >= 32 {
-            return Err("unproved: proof evaluation nesting exceeds 32".into());
+            return Err(Error::limit("proof evaluation nesting exceeds 32"));
         }
         self.evaluation_depth += 1;
         let output = self.expr_inner(state, expr, spec);
@@ -691,7 +712,7 @@ impl Engine<'_, '_> {
                 if let Expr::Loop(body) = expression.as_ref() {
                     return self.loop_value(state, Some(label), None, body, None);
                 }
-                return Err("unproved: unsupported labeled proof expression".into());
+                return Err(Error::unsupported("unsupported labeled proof expression"));
             }
             Expr::List(items) if items.is_empty() => return Ok(vec![(state, Value::Unit)]),
             Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) => {
@@ -817,7 +838,11 @@ impl Engine<'_, '_> {
                             "bit-and" => self.circuit.and(a, b),
                             "bit-or" => self.circuit.or(a, b),
                             "bit-xor" => self.circuit.xor(a, b),
-                            _ => return Err("unsupported boolean proof operator".into()),
+                            _ => {
+                                return Err(Error::unsupported(
+                                    "unsupported boolean proof operator",
+                                ))
+                            }
                         };
                         output.push((state, Value::Bool(value)));
                     }
@@ -826,7 +851,9 @@ impl Engine<'_, '_> {
             return Ok(output);
         }
         if scalar(&ty).is_none() {
-            return Err("unproved: floating point arithmetic is not modeled".into());
+            return Err(Error::unsupported(
+                "floating point arithmetic is not modeled",
+            ));
         }
         if op == "not" || op == "bit-not" {
             arity(head, args, 1)?;
@@ -914,7 +941,7 @@ impl Engine<'_, '_> {
                     _ => return Err("integer proof literal requires integer digits".into()),
                 };
                 let (width, signed) = scalar(&self.resolve_type(&ty)?)
-                    .ok_or("unproved: this literal type is unsupported")?;
+                    .ok_or_else(|| Error::unsupported("this literal type is unsupported"))?;
                 if matches!(ty, Type::Char | Type::RawPointer { .. }) {
                     return Err("typed literals require an integer type".into());
                 }
@@ -981,7 +1008,12 @@ impl Engine<'_, '_> {
                             .get(parameter.name.as_str())
                             .copied()
                             .cloned()
-                            .ok_or_else(|| format!("missing proof parameter '{}'", parameter.name))
+                            .ok_or_else(|| {
+                                Error::invalid(format!(
+                                    "missing proof parameter '{}'",
+                                    parameter.name
+                                ))
+                            })
                     })
                     .collect::<Result<Vec<_>>>()?;
                 self.call_arguments(state, function, &values, spec)
@@ -989,7 +1021,7 @@ impl Engine<'_, '_> {
             "block" | "unsafe" => {
                 let statements = args
                     .iter()
-                    .map(crate::parse_statement)
+                    .map(|expression| crate::parse_statement(expression).map_err(Error::from))
                     .collect::<Result<Vec<_>>>()?;
                 if spec {
                     return Err("specifications use expressions and pure function calls, not statement blocks".into());
@@ -1001,9 +1033,12 @@ impl Engine<'_, '_> {
                 let ty = proof_type(&args[1], spec)?;
                 let resolved = self.resolve_type(&ty)?;
                 if matches!(resolved, Type::Char | Type::RawPointer { .. }) {
-                    return Err("unproved: only integer-to-integer casts are modeled".into());
+                    return Err(Error::unsupported(
+                        "only integer-to-integer casts are modeled",
+                    ));
                 }
-                let (width, signed) = scalar(&resolved).ok_or("unproved: noninteger cast")?;
+                let (width, signed) =
+                    scalar(&resolved).ok_or_else(|| Error::unsupported("noninteger cast"))?;
                 let mut output = Vec::new();
                 for (state, value) in self.expr(state, &args[0], spec)? {
                     let Value::Bits(word, _) = value else {
@@ -1016,7 +1051,9 @@ impl Engine<'_, '_> {
                 }
                 Ok(output)
             }
-            _ => Err(format!("unproved: unsupported proof operation #{head}")),
+            _ => Err(Error::unsupported(format!(
+                "unsupported proof operation #{head}"
+            ))),
         }
     }
     fn reference_expr(
@@ -1127,7 +1164,9 @@ impl Engine<'_, '_> {
                 }
                 Ok(output)
             }
-            _ => Err(format!("unproved: unsupported proof operation #{head}")),
+            _ => Err(Error::unsupported(format!(
+                "unsupported proof operation #{head}"
+            ))),
         }
     }
     fn data_expr(
@@ -1177,10 +1216,9 @@ impl Engine<'_, '_> {
                     })
                     .collect())
             }
-            "array-repeat" => Err(
-                "unproved: use #array-of in symbolic code instead of context-dependent repetition"
-                    .into(),
-            ),
+            "array-repeat" => Err(Error::unsupported(
+                "use #array-of in symbolic code instead of context-dependent repetition",
+            )),
             "struct-literal" => self.record_literal(state, args, spec),
             "enum-literal" => {
                 if args.is_empty() || args.len() > 2 {
@@ -1253,7 +1291,9 @@ impl Engine<'_, '_> {
                 Ok(output)
             }
             _ if self.variant(head).is_some() => self.enum_literal(state, head, args, spec),
-            _ => Err(format!("unproved: unsupported proof operation '#{head}'")),
+            _ => Err(Error::unsupported(format!(
+                "unsupported proof operation '#{head}'"
+            ))),
         }
     }
 
@@ -1296,7 +1336,7 @@ impl Engine<'_, '_> {
     ) -> Result<Vec<(State, Value)>> {
         self.tick()?;
         if self.depth >= 128 {
-            return Err("unproved: symbolic call depth budget exhausted".into());
+            return Err(Error::limit("symbolic call depth budget exhausted"));
         }
         if arguments.len() != function.parameters.len() {
             return Err("proof call arity mismatch".into());
@@ -1332,18 +1372,18 @@ impl Engine<'_, '_> {
                     .forbidden_effect(&function.name, effect)?
                     .is_some()
                 {
-                    return Err(format!(
-                        "unproved: specification function '{}' may have {effect} effects",
+                    return Err(Error::unsupported(format!(
+                        "specification function '{}' may have {effect} effects",
                         function.name
-                    ));
+                    )));
                 }
             }
         }
         if function.external {
-            return Err(format!(
-                "unproved: external function '{}' has no checked implementation",
+            return Err(Error::unsupported(format!(
+                "external function '{}' has no checked implementation",
                 function.name
-            ));
+            )));
         }
         let existing = state.heap.len();
         let before = state.heap.clone();
@@ -1369,10 +1409,10 @@ impl Engine<'_, '_> {
                 Flow::Return => state.value.clone(),
                 Flow::Dead => self.fresh_value(&mut state, &function.return_type, 0)?,
                 _ => {
-                    return Err(format!(
-                        "unproved: function '{}' did not reach an explicit return",
+                    return Err(Error::unsupported(format!(
+                        "function '{}' did not reach an explicit return",
                         function.name
-                    ))
+                    )))
                 }
             };
             self.compatible(&value, &function.return_type)?;
@@ -1594,7 +1634,7 @@ impl Engine<'_, '_> {
                         }
                         output
                     }
-                    _ => return Err("unproved: only loop labels are modeled".into()),
+                    _ => return Err(Error::unsupported("only loop labels are modeled")),
                 };
                 Ok(runs.into_iter().map(|(s, _)| s).collect())
             }
@@ -1695,7 +1735,9 @@ impl Engine<'_, '_> {
                 }
                 Ok(output)
             }
-            _ => Err("unproved: unsupported checked statement in symbolic execution".into()),
+            _ => Err(Error::unsupported(
+                "unsupported checked statement in symbolic execution",
+            )),
         }
     }
     fn assign_place(&mut self, state: State, target: &Expr, value: &Expr) -> Result<Vec<State>> {
@@ -1787,7 +1829,7 @@ impl Engine<'_, '_> {
         }
         for state in pending {
             if self.circuit.satisfy(state.guard)?.is_some() {
-                return Err(format!("unproved: loop exceeds {} symbolic iterations; supply a checked invariant and rank or increase #proof-loop-limit",self.loop_limit));
+                return Err(Error::limit(format!("loop exceeds {} symbolic iterations; supply a checked invariant and rank or increase #proof-loop-limit",self.loop_limit)));
             }
         }
         Ok(output)
@@ -1811,30 +1853,32 @@ impl Engine<'_, '_> {
             depth: usize,
         ) -> Result<()> {
             if depth > 64 {
-                return Err("unproved: induction expression nesting exceeds 64".into());
+                return Err(Error::limit("induction expression nesting exceeds 64"));
             }
             match expr {
                 Expr::Symbol(name) if matches!(name.as_str(),"true"|"false")||locals.contains_key(name)=>Ok(()),
                 Expr::Integer(_)|Expr::UnsignedInteger(_)|Expr::Char(_)=>Ok(()),
-                Expr::List(items) if matches!(items.first(),Some(Expr::Function(_)))=>Err("unproved: induction specifications cannot call user functions".into()),
+                Expr::List(items) if matches!(items.first(),Some(Expr::Function(_)))=>Err(Error::unsupported("induction specifications cannot call user functions")),
                 Expr::List(items) if items.is_empty()=>Ok(()),
                 Expr::List(_)=>{
-                    let(head,args)=form(expr).ok_or("unproved: induction specifications cannot call user functions")?;
+                    let(head,args)=form(expr).ok_or_else(|| Error::unsupported("induction specifications cannot call user functions"))?;
                     if numeric(head).is_some()||matches!(head,"proof-and"|"proof-or"|"proof-not"|"proof-implies"|"proof-eq"|"if"|"index"|"deref") {
                         for arg in args{pure(arg,locals,depth+1)?;}return Ok(());
                     }
                     match head {
-                        "literal"=>{arity(head,args,2)?;if !matches!(args[1],Expr::Integer(_)|Expr::UnsignedInteger(_)){return Err("unproved: nonliteral induction literal".into());}Ok(())},
+                        "literal"=>{arity(head,args,2)?;if !matches!(args[1],Expr::Integer(_)|Expr::UnsignedInteger(_)){return Err(Error::invalid("nonliteral induction literal"));}Ok(())},
                         "as"|"get"=>{arity(head,args,2)?;pure(&args[0],locals,depth+1)},
-                        "proof-no-overflow"=>{arity(head,args,3)?;numeric(symbol(&args[0])?).ok_or("unproved: invalid induction overflow operation")?;pure(&args[1],locals,depth+1)?;pure(&args[2],locals,depth+1)},
-                        _=>Err(format!("unproved: #{head} is not a supported pure induction expression")),
+                        "proof-no-overflow"=>{arity(head,args,3)?;numeric(symbol(&args[0])?).ok_or_else(|| Error::invalid("invalid induction overflow operation"))?;pure(&args[1],locals,depth+1)?;pure(&args[2],locals,depth+1)},
+                        _=>Err(Error::unsupported(format!("#{head} is not a supported pure induction expression"))),
                     }
                 }
-                _=>Err("unproved: induction expressions require pure local values; blocks, calls, bindings and global initializers are unsupported".into()),
+                _=>Err(Error::unsupported("induction expressions require pure local values; blocks, calls, bindings and global initializers are unsupported")),
             }
         }
         if self.trace.is_some() {
-            return Err("unproved: trace claims require complete loop exploration".into());
+            return Err(Error::unsupported(
+                "trace claims require complete loop exploration",
+            ));
         }
         let function = state.frames.last().unwrap().function.clone();
         if self
@@ -1842,16 +1886,17 @@ impl Engine<'_, '_> {
             .forbidden_effect(&function, "global-write")?
             .is_some()
         {
-            return Err("unproved: induction over global mutation is unsupported".into());
+            return Err(Error::unsupported(
+                "induction over global mutation is unsupported",
+            ));
         }
         let locals = state.frames.last().unwrap().locals.clone();
         // No alias can be carried through havoc, even via an unmodified
         // reference copied into a new iteration-local binding.
         if state.heap.iter().any(Value::contains_ref) {
-            return Err(
-                "unproved: induction over aliased or reference-bearing storage is unsupported"
-                    .into(),
-            );
+            return Err(Error::unsupported(
+                "induction over aliased or reference-bearing storage is unsupported",
+            ));
         }
         // Lazy lookup of a global/constant can execute an initializer and can
         // introduce references not present in the entry heap. Reject such reads.
@@ -1916,10 +1961,9 @@ impl Engine<'_, '_> {
                             && (self.globals.contains_key(name)
                                 || self.constants.contains_key(name)) =>
                     {
-                        return Err(
-                            "unproved: induction cannot summarize lazy global or constant reads"
-                                .into(),
-                        )
+                        return Err(Error::unsupported(
+                            "induction cannot summarize lazy global or constant reads",
+                        ))
                     }
                     Expr::List(items) => pending.extend(items.iter().map(Visit::Expression)),
                     Expr::Block(body) | Expr::Loop(body) => {
@@ -1954,17 +1998,19 @@ impl Engine<'_, '_> {
                     || state.globals.contains_key(&name)
                     || self.constants.contains_key(&name)
                 {
-                    return Err("unproved: induction cannot havoc global storage".into());
+                    return Err(Error::unsupported("induction cannot havoc global storage"));
                 }
                 // An iteration-local binding is recreated by the body.
                 continue;
             };
             if !place.path.is_empty() {
-                return Err("unproved: induction requires owned root bindings".into());
+                return Err(Error::unsupported("induction requires owned root bindings"));
             }
             let previous = self.read(&state, &place)?;
             if previous.contains_ref() {
-                return Err("unproved: induction cannot havoc reference-bearing state".into());
+                return Err(Error::unsupported(
+                    "induction cannot havoc reference-bearing state",
+                ));
             }
             let value = self.fresh_value(&mut state, &ty, 0)?;
             self.write(&mut state, &place, value)?;
@@ -1972,7 +2018,7 @@ impl Engine<'_, '_> {
         let mut output = Vec::new();
         for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
             if state.flow != Flow::Normal {
-                return Err("unproved: invariant transfers control".into());
+                return Err(Error::unsupported("invariant transfers control"));
             }
             state.guard = self.circuit.and(state.guard, predicate.boolean()?);
             for (state, rank) in self.expr(state, &invariant.rank, true)? {
@@ -1989,7 +2035,7 @@ impl Engine<'_, '_> {
                 };
                 for (state, test) in tests {
                     if state.flow != Flow::Normal {
-                        return Err("unproved: induction condition transfers control".into());
+                        return Err(Error::unsupported("induction condition transfers control"));
                     }
                     let test = test.boolean()?;
                     if condition.is_some() {
@@ -2019,7 +2065,9 @@ impl Engine<'_, '_> {
                             };
                             for mut state in runs {
                                 if state.flow != Flow::Normal {
-                                    return Err("unproved: induction step transfers control".into());
+                                    return Err(Error::unsupported(
+                                        "induction step transfers control",
+                                    ));
                                 }
                                 state.frames.last_mut().unwrap().locals = locals.clone();
                                 let preserved =
@@ -2259,7 +2307,9 @@ impl Engine<'_, '_> {
                     *pinned = head.starts_with("pin-");
                     output.push((name, value));
                 } else {
-                    return Err("unproved: borrowed pattern binding could not be projected".into());
+                    return Err(Error::unsupported(
+                        "borrowed pattern binding could not be projected",
+                    ));
                 }
             }
             return Ok((condition, output));
@@ -2270,7 +2320,7 @@ impl Engine<'_, '_> {
                 let (matched, bindings) =
                     self.pattern(state, pattern, value, location.clone(), spec)?;
                 if !bindings.is_empty() {
-                    return Err("unproved: binding or-pattern".into());
+                    return Err(Error::unsupported("binding or-pattern"));
                 }
                 condition = self.circuit.or(condition, matched);
             }
@@ -2311,7 +2361,9 @@ impl Engine<'_, '_> {
                 if condition == FALSE {
                     return Ok((FALSE, Vec::new()));
                 }
-                return Err("unproved: enum payload has no symbolic representation".into());
+                return Err(Error::unsupported(
+                    "enum payload has no symbolic representation",
+                ));
             };
             let payload = if let Some(mut place) = location {
                 place.path.push(Segment::Payload(index));
@@ -2329,28 +2381,35 @@ impl Engine<'_, '_> {
         }
         let values = self.expr_as(state.clone(), pattern, spec, &value.ty())?;
         if values.len() != 1 {
-            return Err("unproved: nonliteral match pattern".into());
+            return Err(Error::unsupported("nonliteral match pattern"));
         }
         Ok((self.equal(value, &values[0].1)?, Vec::new()))
     }
     fn check_match_guard(&self, expr: &Expr, depth: usize) -> Result<()> {
         if depth > 64 {
-            return Err("unproved: match guard nesting exceeds 64".into());
+            return Err(Error::limit("match guard nesting exceeds 64"));
         }
         match expr {
-            Expr::Symbol(name) if !self.constants.contains_key(name) && !self.globals.contains_key(name)=>Ok(()),
-            Expr::Integer(_)|Expr::UnsignedInteger(_)|Expr::Char(_)=>Ok(()),
+            Expr::Symbol(name)
+                if !self.constants.contains_key(name) && !self.globals.contains_key(name) =>
+            {
+                Ok(())
+            }
+            Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) => Ok(()),
             Expr::List(_) => {
-                let (head,args)=form(expr).ok_or("unproved: unsupported match guard")?;
+                let (head, args) =
+                    form(expr).ok_or_else(|| Error::unsupported("unsupported match guard"))?;
                 match head {
                     "literal"=>Ok(()),
                     "get"|"as"|"variant-is"=> { arity(head,args,2)?; self.check_match_guard(&args[0],depth+1) },
                     "deref"|"index"|"if"=> { for arg in args {self.check_match_guard(arg,depth+1)?;} Ok(()) },
                     _ if numeric(head).is_some()=>{for arg in args {self.check_match_guard(arg,depth+1)?;} Ok(())},
-                    _=>Err("unproved: match guards require pure builtin expressions; calls and blocks are unsupported".into()),
+                    _=>Err(Error::unsupported("match guards require pure builtin expressions; calls and blocks are unsupported")),
                 }
             }
-            _=>Err("unproved: match guards require pure builtin expressions; calls and blocks are unsupported".into()),
+            _ => Err(Error::unsupported(
+                "match guards require pure builtin expressions; calls and blocks are unsupported",
+            )),
         }
     }
     fn match_expr(
@@ -2392,7 +2451,7 @@ impl Engine<'_, '_> {
                     self.check_match_guard(&guard[0], 0)?;
                     let guards = self.expr(arm, &guard[0], spec)?;
                     if guards.len() != 1 {
-                        return Err("unproved: branching match guard".into());
+                        return Err(Error::unsupported("branching match guard"));
                     }
                     let (mut guarded, value) = guards.into_iter().next().unwrap();
                     let accepted = value.boolean()?;
@@ -2440,7 +2499,7 @@ impl Engine<'_, '_> {
                 return Err("array theorem requires a fixed array value".into());
             };
             if a.len() > 64 {
-                return Err("unproved: array properties support at most 64 elements".into());
+                return Err(Error::limit("array properties support at most 64 elements"));
             }
             if head == "proof-sorted" {
                 let comparator = self.function(symbol(&args[1])?)?;
@@ -2486,7 +2545,7 @@ impl Engine<'_, '_> {
                         return Err("permutation theorem requires two arrays".into());
                     };
                     if b.len() > 64 {
-                        return Err("unproved: array properties support at most 64 elements".into());
+                        return Err(Error::limit("array properties support at most 64 elements"));
                     }
                     if self.resolve_type(&element_type)? != self.resolve_type(&other_type)? {
                         return Err("permutation arrays must have the same element type".into());
@@ -2534,27 +2593,28 @@ impl Engine<'_, '_> {
 fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<()> {
     fn expression(expr: &Expr, names: &mut BTreeSet<String>, depth: usize) -> Result<()> {
         if depth > 64 {
-            return Err("unproved: induction effect nesting exceeds 64".into());
+            return Err(Error::limit("induction effect nesting exceeds 64"));
         }
         match expr {
             Expr::Block(body) | Expr::Loop(body) => statements(body, names, depth + 1),
             Expr::Labeled {
                 expression: inner, ..
             } => expression(inner, names, depth + 1),
-            Expr::Function(_) => {
-                Err("unproved: induction cannot summarize user-call effects".into())
-            }
-            Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) => {
-                Err("unproved: induction cannot summarize user-call effects".into())
-            }
+            Expr::Function(_) => Err(Error::unsupported(
+                "induction cannot summarize user-call effects",
+            )),
+            Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) => Err(
+                Error::unsupported("induction cannot summarize user-call effects"),
+            ),
             Expr::List(items) if items.is_empty() => Ok(()),
             Expr::List(_) => {
-                let (head, args) = form(expr)
-                    .ok_or("unproved: induction cannot summarize indirect or user calls")?;
+                let (head, args) = form(expr).ok_or_else(|| {
+                    Error::unsupported("induction cannot summarize indirect or user calls")
+                })?;
                 if matches!(head, "block") {
                     let body = args
                         .iter()
-                        .map(crate::parse_statement)
+                        .map(|expression| crate::parse_statement(expression).map_err(Error::from))
                         .collect::<Result<Vec<_>>>()?;
                     return statements(&body, names, depth + 1);
                 }
@@ -2578,9 +2638,9 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                             | "debug-assert"
                     )
                 {
-                    return Err(format!(
-                        "unproved: induction cannot summarize alias or effect operation #{head}"
-                    ));
+                    return Err(Error::unsupported(format!(
+                        "induction cannot summarize alias or effect operation #{head}"
+                    )));
                 }
                 // Type/field/constructor metadata is not evaluated. Traverse
                 // executable operands, including dynamic array indices.
@@ -2616,12 +2676,12 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                 }
             }
             Expr::Symbol(_) | Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) => Ok(()),
-            _ => Err("unproved: unsupported induction effect syntax".into()),
+            _ => Err(Error::unsupported("unsupported induction effect syntax")),
         }
     }
     fn statements(body: &[Statement], names: &mut BTreeSet<String>, depth: usize) -> Result<()> {
         if depth > 64 {
-            return Err("unproved: induction statement nesting exceeds 64".into());
+            return Err(Error::limit("induction statement nesting exceeds 64"));
         }
         for statement in body {
             match statement {
@@ -2665,10 +2725,9 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                 Statement::Destructure { .. }
                 | Statement::LetElse { .. }
                 | Statement::EnumPayloadAssign { .. } => {
-                    return Err(
-                        "unproved: induction over patterns or enum payload writes is unsupported"
-                            .into(),
-                    )
+                    return Err(Error::unsupported(
+                        "induction over patterns or enum payload writes is unsupported",
+                    ))
                 }
                 Statement::Return(None)
                 | Statement::Break

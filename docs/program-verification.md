@@ -141,6 +141,54 @@ does not provide a complete replay fixture. Rendering reads the solver's
 validated model and frozen state without executing functions or creating new
 symbolic gates.
 
+## Structured outcomes
+
+`CheckedTheorem.outcome`, `Diagnostic::proof_outcome()` and
+`TheoremFileError::proof_outcome()` expose typed results. The checker assigns
+failure kinds where they occur; identifiers, diagnostic wording and added
+context cannot change the classification.
+
+| Outcome | Code | Meaning |
+| --- | --- | --- |
+| `proved` | Success | The checked obligation holds in the supported model. |
+| `counterexample` | E4401 | A model refutes a supported obligation. |
+| `unsupported` | E4402 | Required execution or specification semantics are not modeled. |
+| `resource_limit` | E4403 | A circuit, solver, execution, path or storage bound was exceeded. |
+| `invalid` | E4404 | The proposition or theorem selection is invalid. |
+| `induction_failure` | E4405 | Supplied invariants or a rank do not establish the obligation. |
+| `checker_error` | E4406 | The checker encountered an internal inconsistency or invalid solver model. |
+
+Unsupported operations, resource limits, invalid propositions, failed induction
+and checker errors are errors rather than false Boolean propositions. Logical
+negation cannot turn them into proofs. Concrete counterexamples can still
+refute a universally quantified assertion, including one explored through
+bounded execution. [`examples/proof_induction.lim`](../examples/proof_induction.lim)
+shows a sufficient sum invariant and a decreasing rank for every `#u8` input.
+
+Program parse/type/borrow failures are separate diagnostics with no proof
+outcome. E4400 remains a generic unclassified proof diagnostic for string-only
+interfaces or manually constructed diagnostics; it does not imply a
+counterexample. Use the structured APIs when the distinction matters.
+
+For command line tools, request JSON explicitly:
+
+```sh
+lim --check-theorem examples/proof_induction.lim identity-contract --diagnostic-format=json
+```
+
+The successful check writes this result to stdout:
+
+```json
+{"schema_version":1,"category":"proof","theorem":"identity-contract","proof_outcome":"proved"}
+```
+
+Failed checks exit unsuccessfully and write a JSON diagnostic to stderr with
+`proof_outcome`, the code, source location and labels. Timing output stays on
+stderr. Ordinary text output remains available without the JSON option. LSP
+diagnostics carry the typed value in `data.proof_outcome` as well as the
+diagnostic code. These are reports from the current full-program check, not
+independently checkable proof certificates.
+
 ## Properties Lim should prove about real programs
 
 These are targets for symbolic checking, not promises of current support.

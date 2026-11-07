@@ -37,7 +37,13 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         DiagnosticCode::Borrow => "borrow",
         DiagnosticCode::Linear => "linear",
         DiagnosticCode::Unsafe => "unsafe",
-        DiagnosticCode::Proof => "proof",
+        DiagnosticCode::Proof
+        | DiagnosticCode::ProofCounterexample
+        | DiagnosticCode::ProofUnsupported
+        | DiagnosticCode::ProofResourceLimit
+        | DiagnosticCode::ProofInvalid
+        | DiagnosticCode::ProofInduction
+        | DiagnosticCode::ProofInternal => "proof",
         DiagnosticCode::Codegen => "codegen",
         DiagnosticCode::Link => "link",
         DiagnosticCode::Cli => "cli",
@@ -64,8 +70,8 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         .map(|label| location(label.source_name.as_deref().unwrap_or(path), label.span))
         .collect::<Vec<_>>()
         .join(",");
-    format!("{{\"schema_version\":1,\"severity\":{},\"code\":{},\"category\":{},\"message\":{},\"path\":{},\"location\":{},\"labels\":[{}],\"expansion_provenance\":[{}],\"notes\":[{}]}}",
-        quoted(diagnostic.severity.as_str()), quoted(&diagnostic.code_string()), quoted(phase), quoted(&diagnostic.message), quoted(path),
+    format!("{{\"schema_version\":1,\"severity\":{},\"code\":{},\"category\":{},\"proof_outcome\":{},\"message\":{},\"path\":{},\"location\":{},\"labels\":[{}],\"expansion_provenance\":[{}],\"notes\":[{}]}}",
+        quoted(diagnostic.severity.as_str()), quoted(&diagnostic.code_string()), quoted(phase), diagnostic.proof_outcome().map(|outcome| quoted(outcome.as_str())).unwrap_or_else(|| "null".into()), quoted(&diagnostic.message), quoted(path),
         diagnostic.span.map(|span| location(path, span)).unwrap_or_else(|| "null".into()),
         labels.join(","), expansion, diagnostic.notes.iter().map(|note| quoted(note)).collect::<Vec<_>>().join(","))
 }

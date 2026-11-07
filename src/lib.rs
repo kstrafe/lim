@@ -66,7 +66,8 @@ mod test_process;
 mod theorem;
 pub use theorem::{
     check_theorem_details_from_file_with_config, check_theorem_details_from_path_with_config,
-    check_theorem_from_path_with_config, CheckedTheorem, TheoremFileError,
+    check_theorem_from_path_with_config, render_checked_theorem_json, CheckedTheorem,
+    TheoremFileError,
 };
 mod thread_contract;
 mod timing;
@@ -90,6 +91,7 @@ pub use diagnostic_json::render_diagnostic_json;
 pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
+pub use proof::ProofOutcome;
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
@@ -187,10 +189,43 @@ pub enum DiagnosticCode {
     Linear = 4200,
     Unsafe = 4300,
     Proof = 4400,
+    ProofCounterexample = 4401,
+    ProofUnsupported = 4402,
+    ProofResourceLimit = 4403,
+    ProofInvalid = 4404,
+    ProofInduction = 4405,
+    ProofInternal = 4406,
     Codegen = 5000,
     Link = 6000,
     Cli = 7000,
     UnusedType = 8000,
+}
+
+impl DiagnosticCode {
+    pub fn is_proof(self) -> bool {
+        matches!(
+            self,
+            Self::Proof
+                | Self::ProofCounterexample
+                | Self::ProofUnsupported
+                | Self::ProofResourceLimit
+                | Self::ProofInvalid
+                | Self::ProofInduction
+                | Self::ProofInternal
+        )
+    }
+
+    pub fn proof_outcome(self) -> Option<ProofOutcome> {
+        match self {
+            Self::ProofCounterexample => Some(ProofOutcome::Counterexample),
+            Self::ProofUnsupported => Some(ProofOutcome::Unsupported),
+            Self::ProofResourceLimit => Some(ProofOutcome::ResourceLimit),
+            Self::ProofInvalid => Some(ProofOutcome::Invalid),
+            Self::ProofInduction => Some(ProofOutcome::InductionFailure),
+            Self::ProofInternal => Some(ProofOutcome::CheckerError),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -231,6 +266,9 @@ pub struct DiagnosticLabel {
 }
 
 impl Diagnostic {
+    pub fn proof_outcome(&self) -> Option<ProofOutcome> {
+        self.code.proof_outcome()
+    }
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
         Self {
             severity: DiagnosticSeverity::Error,
@@ -364,6 +402,12 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
         4200 => DiagnosticCode::Linear,
         4300 => DiagnosticCode::Unsafe,
         4400 => DiagnosticCode::Proof,
+        4401 => DiagnosticCode::ProofCounterexample,
+        4402 => DiagnosticCode::ProofUnsupported,
+        4403 => DiagnosticCode::ProofResourceLimit,
+        4404 => DiagnosticCode::ProofInvalid,
+        4405 => DiagnosticCode::ProofInduction,
+        4406 => DiagnosticCode::ProofInternal,
         5000 => DiagnosticCode::Codegen,
         6000 => DiagnosticCode::Link,
         _ => DiagnosticCode::Type,

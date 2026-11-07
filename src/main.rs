@@ -697,8 +697,12 @@ fn check_command(arguments: &[String]) -> ExitCode {
     let input_file = Path::new(input_path);
     if let Some(name) = theorem {
         return match lim::check_theorem_details_from_file_with_config(input_file, &config, name) {
-            Ok(_) => {
-                println!("checked theorem {name}");
+            Ok(checked) => {
+                if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
+                    println!("{}", lim::render_checked_theorem_json(&checked));
+                } else {
+                    println!("checked theorem {name}");
+                }
                 ExitCode::SUCCESS
             }
             Err(error) => {

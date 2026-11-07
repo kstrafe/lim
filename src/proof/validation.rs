@@ -229,13 +229,17 @@ impl<'a, 'p> Engine<'a, 'p> {
         }
         match &arguments[rule.validator_parameter] {
             Value::Ref { place, .. } => Ok(Some(place.clone())),
-            _ => Err("unproved: validation parameter has no symbolic storage identity".into()),
+            _ => Err(Error::unsupported(
+                "validation parameter has no symbolic storage identity",
+            )),
         }
     }
 
     pub(super) fn validated_argument(&mut self, state: &State, argument: &Value) -> Result<Bit> {
         let Value::Ref { place, .. } = argument else {
-            return Err("unproved: action parameter has no symbolic storage identity".into());
+            return Err(Error::unsupported(
+                "action parameter has no symbolic storage identity",
+            ));
         };
         let mut valid = FALSE;
         for fact in &state.validations {
@@ -274,7 +278,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         if state.validations.len() >= FACT_LIMIT
             || total + dependencies.len() > TOTAL_DEPENDENCY_LIMIT
         {
-            return Err("unproved: validation fact budget exhausted".into());
+            return Err(Error::limit("validation fact budget exhausted"));
         }
         state.validations.push(ValidationFact {
             subject: subject.clone(),
@@ -336,7 +340,7 @@ impl<'a, 'p> Engine<'a, 'p> {
     ) -> Result<()> {
         self.tick()?;
         if depth > 32 {
-            return Err("unproved: validation dependency nesting exceeds 32".into());
+            return Err(Error::limit("validation dependency nesting exceeds 32"));
         }
         if active == FALSE {
             return Ok(());
@@ -355,7 +359,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         }
         if !seen {
             if dependencies.len() >= DEPENDENCY_LIMIT {
-                return Err("unproved: validation dependency budget exhausted".into());
+                return Err(Error::limit("validation dependency budget exhausted"));
             }
             dependencies.push(Dependency {
                 place: place.clone(),
@@ -376,7 +380,7 @@ impl<'a, 'p> Engine<'a, 'p> {
     ) -> Result<()> {
         self.tick()?;
         if depth > 32 {
-            return Err("unproved: validation dependency nesting exceeds 32".into());
+            return Err(Error::limit("validation dependency nesting exceeds 32"));
         }
         match value {
             Value::Ref { place, .. } => {
@@ -384,7 +388,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             }
             Value::Slice(view) => {
                 let Value::Array(_, values) = self.read(state, &view.place)? else {
-                    return Err("unproved: a slice lost its backing array".into());
+                    return Err(Error::checker("a slice lost its backing array"));
                 };
                 let end = self
                     .circuit

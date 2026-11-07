@@ -8,9 +8,9 @@ impl Engine<'_, '_> {
             return Err("a symbolic slice requires an array reference or array place".into());
         };
         if values.len() > 64 {
-            return Err(
-                "unproved: symbolic slice backing arrays are limited to 64 elements".into(),
-            );
+            return Err(Error::limit(
+                "symbolic slice backing arrays are limited to 64 elements",
+            ));
         }
         Ok(Slice {
             place,
@@ -86,7 +86,8 @@ impl Engine<'_, '_> {
                 if !matches!(args.len(), 1 | 3) {
                     return Err(format!(
                         "#{head} requires an array place and optional start/end bounds"
-                    ));
+                    )
+                    .into());
                 }
                 if spec && mutable {
                     return Err("mutable borrowing is not a specification operation".into());
@@ -212,7 +213,9 @@ impl Engine<'_, '_> {
                 self.limit_paths(output.len())?;
                 Ok(output)
             }
-            _ => Err(format!("unproved: unsupported slice operation #{head}")),
+            _ => Err(Error::unsupported(format!(
+                "unsupported slice operation #{head}"
+            ))),
         }
     }
 }

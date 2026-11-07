@@ -1,0 +1,18 @@
+(#fn identity-countdown (: count #u8) #u8
+  (#let-mut remaining #u8 count)
+  (#let-mut answer #u8 0u8)
+  (#label again
+    (#while (#u8::gt remaining 0u8)
+      (#set answer (#u8::add-wrap answer 1u8))
+      (#set remaining (#u8::sub-wrap remaining 1u8))))
+  (#return answer))
+
+(#theorem false-negation
+  (#proof-with-invariants
+    ((identity-countdown again true remaining))
+    (#proof-not
+      (#proof-contract identity-countdown true
+        (#proof-eq (#proof-result) count)))))
+
+(#fn main () #u64
+  (#return 0u64))

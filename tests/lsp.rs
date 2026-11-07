@@ -21,6 +21,35 @@ fn notify(method: &str, params: &str) -> String {
 fn start() -> Vec<String> {
     vec![request(1, "initialize", "{}"), notify("initialized", "{}")]
 }
+
+#[test]
+fn proof_diagnostics_expose_typed_outcomes_to_editor_clients() {
+    for (source, code, outcome) in [
+        ("(#theorem wrong false)", "E4401", "counterexample"),
+        (
+            "(#theorem unsupported (#proof-for-all (: value #f32) true))",
+            "E4402",
+            "unsupported",
+        ),
+    ] {
+        let mut messages = start();
+        messages.push(open("file:///tmp/lim-proof-outcome-editor.lim", 1, source));
+        finish(&mut messages);
+        let (_, responses) = session(messages);
+        let reports = publications(&responses);
+        let diagnostic = &reports[0].get("diagnostics").unwrap().array().unwrap()[0];
+        assert_eq!(diagnostic.get("code").unwrap().string(), Some(code));
+        assert_eq!(
+            diagnostic
+                .get("data")
+                .unwrap()
+                .get("proof_outcome")
+                .unwrap()
+                .string(),
+            Some(outcome)
+        );
+    }
+}
 fn open(uri: &str, version: i64, text: &str) -> String {
     notify("textDocument/didOpen", &format!("{{\"textDocument\":{{\"uri\":{},\"languageId\":\"lim\",\"version\":{version},\"text\":{}}}}}", diagnostic_json::quoted(uri), diagnostic_json::quoted(text)))
 }

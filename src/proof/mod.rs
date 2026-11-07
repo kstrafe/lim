@@ -5,6 +5,7 @@ mod graph;
 #[cfg(test)]
 mod induction_tests;
 mod logic;
+mod outcome;
 mod symbolic;
 mod validation;
 
@@ -13,11 +14,13 @@ use crate::{Expr, Function, Item, Span, Type};
 use counterexample::{Evidence, Witness};
 use graph::Graph;
 use logic::{Bit, Circuit, Word, FALSE, TRUE};
+use outcome::Error;
+pub use outcome::ProofOutcome;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use symbolic::{State, Value};
 use validation::ValidationRule;
 
-type Result<T> = std::result::Result<T, String>;
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
 struct Invariant {
@@ -97,15 +100,17 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
             .proposition(State::new(), proposition)
             .and_then(|states| engine.establish(states, "the proposition is false"));
         if let Err(message) = outcome {
+            let code = message.diagnostic_code();
             return Err((
                 format!(
                     "theorem '{}': {message}",
                     crate::file_access::local_name(name)
                 ),
-                crate::DiagnosticCode::Proof,
+                code,
                 Some(span),
                 Vec::new(),
-            ));
+            )
+                .into());
         }
     }
     Ok(())
@@ -177,7 +182,7 @@ impl<'a, 'p> Engine<'a, 'p> {
     fn tick(&mut self) -> Result<()> {
         self.steps += 1;
         if self.steps > 100_000 {
-            return Err("unproved: symbolic execution budget exhausted".into());
+            return Err(Error::limit("symbolic execution budget exhausted"));
         }
         Ok(())
     }
@@ -186,12 +191,14 @@ impl<'a, 'p> Engine<'a, 'p> {
         self.functions
             .get(name)
             .copied()
-            .ok_or_else(|| format!("unknown proof function '{name}'"))
+            .ok_or_else(|| Error::invalid(format!("unknown proof function '{name}'")))
     }
 
     fn establish(&mut self, states: Vec<(State, Value)>, explanation: &str) -> Result<()> {
         if states.is_empty() {
-            return Err("unproved: the proposition produced no logical value".into());
+            return Err(Error::unsupported(
+                "the proposition produced no logical value",
+            ));
         }
         for (state, value) in states {
             let condition = value.boolean()?;
@@ -199,9 +206,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             self.require_unsat_with_evidence(bad, explanation, Some(&value))?;
         }
         // Budget exhaustion remains an error even if simplification returned true.
-        self.circuit
-            .satisfy(FALSE)
-            .map_err(|why| format!("unproved: {why}"))?;
+        self.circuit.satisfy(FALSE)?;
         Ok(())
     }
 
@@ -218,27 +223,27 @@ impl<'a, 'p> Engine<'a, 'p> {
         match self
             .circuit
             .satisfy(bad)
-            .map_err(|why| format!("unproved: {why}; while checking {explanation}"))?
+            .map_err(|why| why.context(format!("while checking {explanation}")))?
         {
             None => Ok(()),
             Some(model) => {
                 if let Some(example) = value.and_then(|value| self.claim_evidence(value, &model)) {
-                    return Err(format!(
-                        "disproved: {explanation}; quantified counterexample: {example}"
-                    ));
+                    return Err(Error::counterexample(format!(
+                        "{explanation}; quantified counterexample: {example}"
+                    )));
                 }
                 let examples = self.render_inputs(0, &model);
                 if self.inductive_witness {
-                    return Err(format!("unproved: {explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}"));
+                    return Err(Error::induction(format!("{explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}")));
                 }
-                Err(format!(
-                    "disproved: {explanation}; counterexample: {}",
+                Err(Error::counterexample(format!(
+                    "{explanation}; counterexample: {}",
                     if examples.is_empty() {
                         "no named input bindings"
                     } else {
                         &examples
                     }
-                ))
+                )))
             }
         }
     }
@@ -250,7 +255,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         input_start: usize,
     ) -> Result<Vec<(State, Value)>> {
         if runs.is_empty() {
-            return Err("unproved: no complete symbolic executions".into());
+            return Err(Error::unsupported("no complete symbolic executions"));
         }
         let mut violations = Vec::with_capacity(runs.len());
         for (state, value) in runs {
@@ -267,7 +272,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             model = self
                 .circuit
                 .satisfy(invalid)
-                .map_err(|why| format!("unproved: {why}; while checking a complete execution"))?;
+                .map_err(|why| why.context("while checking a complete execution"))?;
             if model.is_some() {
                 break;
             }
@@ -278,7 +283,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 // A model of an over-approximated loop state does not refute
                 // the program contract. In particular its negation must not
                 // turn an insufficient invariant into a proved theorem.
-                return Err(format!("unproved: supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}"));
+                return Err(Error::induction(format!("supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")));
             }
             let example = if let Some(Trace::Validated(rule)) = &self.trace {
                 let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));
@@ -313,7 +318,7 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn proposition(&mut self, state: State, expr: &Expr) -> Result<Vec<(State, Value)>> {
         if self.evaluation_depth >= 32 {
-            return Err("unproved: proof evaluation nesting exceeds 32".into());
+            return Err(Error::limit("proof evaluation nesting exceeds 32"));
         }
         self.evaluation_depth += 1;
         let output = self.proposition_inner(state, expr);
@@ -329,7 +334,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         match head {
             "proof-and" | "proof-or" => {
                 if args.is_empty() {
-                    return Err(format!("#{head} requires at least one proposition"));
+                    return Err(format!("#{head} requires at least one proposition").into());
                 }
                 let mut states = vec![(
                     state,
@@ -392,10 +397,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                 if !found {
                     for effect in ["asm", "external"] {
                         if self.graph.forbidden_effect(from, effect)?.is_some() {
-                            return Err(
-                                "unproved: opaque execution prevents establishing call absence"
-                                    .into(),
-                            );
+                            return Err(Error::unsupported(
+                                "opaque execution prevents establishing call absence",
+                            ));
                         }
                     }
                 }
@@ -427,7 +431,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 for name in &allowed {
                     if let Some(builtin) = name.strip_prefix('#') {
                         if !crate::is_builtin_form(builtin) {
-                            return Err(format!("unknown unsafe builtin '{name}'"));
+                            return Err(format!("unknown unsafe builtin '{name}'").into());
                         }
                     } else {
                         self.function(name)?;
@@ -448,11 +452,13 @@ impl<'a, 'p> Engine<'a, 'p> {
                 };
                 let target = crate::TargetDescription::parse(target)?;
                 if target != crate::TargetDescription::X86_64_SYSTEM_V {
-                    return Err("unproved: stack certificates currently require x86_64-sysv".into());
+                    return Err(Error::unsupported(
+                        "stack certificates currently require x86_64-sysv",
+                    ));
                 }
                 let bound = literal_usize(&args[2])?;
                 let assembly = crate::codegen::generate_checked_assembly(self.checked, target)
-                    .map_err(String::from)?;
+                    .map_err(|error| Error::unsupported(error.to_string()))?;
                 let bytes = crate::stack_usage::bounded_entry_stack(
                     &assembly,
                     &crate::codegen::asm_symbol(function),
@@ -462,10 +468,9 @@ impl<'a, 'p> Engine<'a, 'p> {
             "proof-for-all" => {
                 arity(head, args, 2)?;
                 if self.quantified {
-                    return Err(
-                        "nested quantified claims are unsupported; combine #proof-for-all bindings"
-                            .into(),
-                    );
+                    return Err(Error::unsupported(
+                        "nested quantified claims are unsupported; combine #proof-for-all bindings",
+                    ));
                 }
                 self.quantified = true;
                 let original = state.clone();
@@ -478,9 +483,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                     }
                     let name = symbol(&binding[0])?.to_owned();
                     if state.frames.last().unwrap().locals.contains_key(&name) {
-                        return Err(format!(
-                            "proof binding '{name}' shadows an existing binding"
-                        ));
+                        return Err(
+                            format!("proof binding '{name}' shadows an existing binding").into(),
+                        );
                     }
                     let ty = proof_type(&binding[1], true)?;
                     let value = self.fresh_value(&mut state, &ty, 0)?;
@@ -495,7 +500,9 @@ impl<'a, 'p> Engine<'a, 'p> {
             "proof-contract" => {
                 arity(head, args, 3)?;
                 if self.quantified {
-                    return Err("nested quantified claims are unsupported".into());
+                    return Err(Error::unsupported(
+                        "nested quantified claims are unsupported",
+                    ));
                 }
                 self.quantified = true;
                 let original = state.clone();
@@ -541,7 +548,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                 let original = state.clone();
                 let input_start = self.inputs.len();
                 if self.trace.is_some() {
-                    return Err("nested execution-trace claims are unsupported".into());
+                    return Err(Error::unsupported(
+                        "nested execution-trace claims are unsupported",
+                    ));
                 }
                 let (function, trace) = if head == "proof-calls-when" {
                     arity(head, args, 4)?;
@@ -593,7 +602,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 // At least one trace must be analysed; nontermination is never
                 // silently treated as evidence that an operation cannot run.
                 if runs.is_empty() {
-                    return Err("unproved: no complete execution trace".into());
+                    return Err(Error::unsupported("no complete execution trace"));
                 }
                 let safe = self.circuit.not(self.trace_violation);
                 let result =
@@ -656,9 +665,11 @@ impl<'a, 'p> Engine<'a, 'p> {
                         .declarations()
                         .bodies
                         .get(&function)
-                        .ok_or("unproved: invariant function has no checked implementation")?;
+                        .ok_or_else(|| {
+                            Error::unsupported("invariant function has no checked implementation")
+                        })?;
                     if loop_label_count(body, &label) != 1 {
-                        return Err(format!("invariant label '{label}' must identify exactly one loop in '{function}'"));
+                        return Err(format!("invariant label '{label}' must identify exactly one loop in '{function}'").into());
                     }
                     if self
                         .invariants
@@ -680,7 +691,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             }
             "proof-permutation" | "proof-sorted" => self.array_property(state, head, args),
             _ if head.starts_with("proof-") && !matches!(head, "proof-result" | "proof-old") => {
-                Err(format!("unknown or misplaced proof form '#{head}'"))
+                Err(format!("unknown or misplaced proof form '#{head}'").into())
             }
             _ => self.expr(state, expr, true),
         }
@@ -688,7 +699,7 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn limit_paths(&self, count: usize) -> Result<()> {
         if count > 4096 {
-            Err("unproved: symbolic path budget exhausted".into())
+            Err(Error::limit("symbolic path budget exhausted"))
         } else {
             Ok(())
         }
@@ -699,12 +710,12 @@ impl<'a, 'p> Engine<'a, 'p> {
             Value::Bits(word, actual) if self.resolve_type(actual)? == self.resolve_type(ty)? => {
                 Ok(word.clone())
             }
-            _ => Err(format!("proof operand type mismatch: expected {ty:?}")),
+            _ => Err(format!("proof operand type mismatch: expected {ty:?}").into()),
         }
     }
 
     fn resolve_type(&self, ty: &Type) -> Result<Type> {
-        crate::typed_ir::resolve_type(ty, &self.aliases)
+        crate::typed_ir::resolve_type(ty, &self.aliases).map_err(Into::into)
     }
 }
 
@@ -744,7 +755,8 @@ fn arity(head: &str, args: &[Expr], expected: usize) -> Result<()> {
         Err(format!(
             "#{head} expects {expected} operand(s), received {}",
             args.len()
-        ))
+        )
+        .into())
     }
 }
 fn literal_usize(expr: &Expr) -> Result<usize> {
@@ -875,7 +887,7 @@ fn proof_type(expr: &Expr, written: bool) -> Result<Type> {
     if written {
         explicit(expr)?;
     }
-    crate::parse_type(Some(&crate::normalize_keywords(expr.clone())))
+    crate::parse_type(Some(&crate::normalize_keywords(expr.clone()))).map_err(Into::into)
 }
 
 pub(crate) fn declaration_span(program: &crate::Program, name: &str) -> Option<Span> {

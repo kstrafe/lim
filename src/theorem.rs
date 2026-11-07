@@ -1,7 +1,7 @@
 //! Select a theorem only after the complete source graph has been checked.
 use std::path::Path;
 
-use crate::{CompileConfig, Diagnostic, DiagnosticCode, Item, Program};
+use crate::{CompileConfig, Diagnostic, DiagnosticCode, Item, Program, ProofOutcome};
 
 /// A file check can retain a bounded rendered excerpt without cloning the
 /// entire proof source. Structured positions still refer to the authored file.
@@ -31,6 +31,9 @@ impl TheoremFileError {
     /// global spans; use Display for their bounded text excerpt.
     pub fn diagnostic(&self) -> Option<&Diagnostic> {
         self.diagnostic.as_ref()
+    }
+    pub fn proof_outcome(&self) -> Option<ProofOutcome> {
+        self.diagnostic.as_ref().and_then(Diagnostic::proof_outcome)
     }
 }
 impl std::fmt::Display for TheoremFileError {
@@ -70,6 +73,16 @@ pub fn check_theorem_from_path_with_config(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckedTheorem {
     pub name: String,
+    pub outcome: ProofOutcome,
+}
+
+/// Render a successful theorem check as one newline-free JSON object.
+pub fn render_checked_theorem_json(theorem: &CheckedTheorem) -> String {
+    format!(
+        "{{\"schema_version\":1,\"category\":\"proof\",\"theorem\":{},\"proof_outcome\":\"{}\"}}",
+        crate::diagnostic_json::quoted(&theorem.name),
+        theorem.outcome.as_str()
+    )
 }
 
 /// Validate the complete program, then select a root-file theorem.
@@ -113,8 +126,11 @@ pub(crate) fn check_general(
 
     let program = owned.program();
     let canonical = resolve_root_name(program, name).ok_or_else(|| {
-        Diagnostic::new(DiagnosticCode::Proof, format!("unknown theorem '{name}'"))
-            .with_source(path.display().to_string(), source)
+        Diagnostic::new(
+            DiagnosticCode::ProofInvalid,
+            format!("unknown theorem '{name}'"),
+        )
+        .with_source(path.display().to_string(), source)
     })?;
     let proposition = program.items.iter().find_map(|item| match item {
         Item::Proof { name, proposition } if name == canonical => Some(proposition),
@@ -133,6 +149,7 @@ pub(crate) fn check_general(
     crate::warnings::record_program(program);
     Ok(CheckedTheorem {
         name: canonical.to_owned(),
+        outcome: ProofOutcome::Proved,
     })
 }
 
@@ -180,7 +197,7 @@ fn selection_error(
     let span = crate::proof::declaration_span(program, canonical);
     let mut error = crate::analysis_diagnostic(
         format!("'{requested}' {reason}"),
-        DiagnosticCode::Proof,
+        DiagnosticCode::ProofInvalid,
         span,
         Vec::new(),
         program,

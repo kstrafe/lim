@@ -74,7 +74,7 @@ fn cached_generated_claims_recheck_changes_in_the_calling_program() {
     for _ in 0..2 {
         let error = compile(&invalid, &scratch)
             .expect_err("cached theorem trusted a new unvalidated object");
-        assert_eq!(error.code, DiagnosticCode::Proof);
+        assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
         assert!(error.message.contains("same object"), "{}", error.message);
         assert!(error.span.is_some());
     }

@@ -316,7 +316,7 @@ fn all_public_validation_and_emission_paths_reject_false_proofs() {
 }
 
 #[test]
-fn failed_proof_has_e4400_and_a_proposition_span() {
+fn failed_proof_has_e4401_and_a_proposition_span() {
     let scratch = support::Scratch::new("proof-diagnostic");
     let source = "(#fn main () #u64 (#return 42u64))\n(#theorem false-claim (#proof-eq 1u8 2u8))";
     let path = scratch.path().join("main.lim");
@@ -327,8 +327,8 @@ fn failed_proof_has_e4400_and_a_proposition_span() {
         &HashMap::new(),
     )
     .unwrap_err();
-    assert_eq!(error.code, DiagnosticCode::Proof);
-    assert_eq!(error.code_string(), "E4400");
+    assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
+    assert_eq!(error.code_string(), "E4401");
     let span = error.span.expect("proof diagnostic span");
     assert_eq!(&source[span.start..span.end], "(#proof-eq 1u8 2u8)");
     assert!(lim::render_diagnostic_json(&error, "main.lim").contains("\"category\":\"proof\""));
@@ -401,7 +401,7 @@ fn warm_cache_does_not_accept_a_false_proof() {
     for _ in 0..2 {
         let error =
             lim::compile_source_to_assembly(invalid, &path, &config, &cache, target).unwrap_err();
-        assert_eq!(error.code, DiagnosticCode::Proof);
+        assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
         assert!(error.message.contains("disproved"), "{}", error.message);
     }
 }
@@ -780,7 +780,7 @@ fn imported_proofs_are_checked_on_cold_and_warm_compilation() {
     .unwrap();
     for _ in 0..2 {
         let error = compile_fixture(source, &scratch).unwrap_err();
-        assert_eq!(error.code, DiagnosticCode::Proof);
+        assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
         assert_eq!(error.source_name.as_deref(), module.to_str());
         assert!(
             error.message.contains("imported-contract"),
@@ -808,7 +808,7 @@ fn generated_proofs_are_checked_on_cold_and_warm_compilation() {
     fs::write(&path, &invalid).unwrap();
     for _ in 0..2 {
         let error = compile_fixture(&invalid, &scratch).unwrap_err();
-        assert_eq!(error.code, DiagnosticCode::Proof);
+        assert_eq!(error.code, DiagnosticCode::ProofCounterexample);
         assert!(
             error.message.contains("generated-contract"),
             "{}",
