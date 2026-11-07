@@ -43,7 +43,7 @@ impl Value {
             _ => Err("a proof proposition must have type #bool".into()),
         }
     }
-    fn ty(&self) -> Type {
+    pub(super) fn ty(&self) -> Type {
         match self {
             Self::Unit => Type::Unit,
             Self::Bool(_) | Self::Claim(_) => Type::Bool,

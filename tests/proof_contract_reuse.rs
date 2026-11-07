@@ -232,7 +232,7 @@ fn raw_pointer_results_and_effects_are_not_given_an_unmodeled_frame() {
       (#theorem selected (#proof-using (read-contract) true))"#,
         "selected",
         ProofOutcome::Unsupported,
-        "reference-free",
+        "raw pointers",
     );
     rejected(
         r#"

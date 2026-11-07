@@ -183,22 +183,19 @@ fn readonly_reference_contract_can_be_reused() {
 }
 
 #[test]
-fn mutating_reference_bearing_targets_remain_unsupported() {
-    let error = rejected(
+fn mutating_through_a_stored_reference_preserves_its_identity() {
+    proved(
         r#"
       (#fn read (: target (#ref-mut (#ref-mut #u8))) ()
         (#deref-set (#borrow-mut (#deref (#deref target))) 9u8)
         (#return ()))
-      (#theorem read-contract (#proof-contract read true true))
+      (#theorem read-contract (#proof-contract read true
+        (#proof-eq (#deref (#deref target)) 9u8)))
       (#theorem selected
-        (#proof-using (read-contract) true))
+        (#proof-using (read-contract)
+          (#proof-contract read true (#proof-eq (#deref (#deref target)) 9u8))))
     "#,
         "selected",
-    );
-    assert_eq!(
-        error.proof_outcome(),
-        Some(ProofOutcome::Unsupported),
-        "{error:?}"
     );
 }
 

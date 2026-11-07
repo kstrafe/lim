@@ -1,5 +1,5 @@
-//! Explicit reuse of proved contracts. Writable targets remain reference-free;
-//! returned references use checked origins without implicit environment access.
+//! Explicit reuse of proved contracts. Stored and returned references use
+//! checked origins without implicit environment access.
 //! Abstract summary results may establish a claim, but cannot refute one.
 use super::*;
 use symbolic::Frame;
@@ -164,14 +164,10 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn contract_frame(&mut self, contract: &Contract<'p>) -> Result<()> {
         let function = self.function(&contract.function)?;
-        let nested_references = self
-            .graph
-            .forbidden_effect(&function.name, "mutation")?
-            .is_none();
         for parameter in &function.parameters {
-            self.contract_type(&parameter.ty, 0, true, nested_references)?;
+            self.contract_type(&parameter.ty, 0)?;
         }
-        self.contract_type(&function.return_type, 0, true, nested_references)?;
+        self.contract_type(&function.return_type, 0)?;
         for effect in ["unsafe", "io", "allocation", "external", "asm"] {
             if self
                 .graph
@@ -192,13 +188,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         Ok(())
     }
 
-    fn contract_type(
-        &mut self,
-        ty: &Type,
-        depth: usize,
-        allow_references: bool,
-        nested_references: bool,
-    ) -> Result<()> {
+    fn contract_type(&mut self, ty: &Type, depth: usize) -> Result<()> {
         self.tick()?;
         if depth > 32 {
             return Err(Error::limit("contract frame type nesting exceeds 32"));
@@ -210,34 +200,33 @@ impl<'a, 'p> Engine<'a, 'p> {
             return Ok(());
         }
         match ty {
-            Type::Reference { target, .. } | Type::PinnedReference { target, .. }
-                if allow_references =>
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. } =>
             {
-                self.contract_type(&target, depth + 1, nested_references, nested_references)
+                self.contract_type(&target, depth + 1)
             }
-            Type::Array(element, _) => self.contract_type(&element, depth + 1, allow_references, nested_references),
+            Type::Array(element, _) => self.contract_type(&element, depth + 1),
             Type::Tuple(elements) => {
                 for element in elements {
-                    self.contract_type(&element, depth + 1, allow_references, nested_references)?;
+                    self.contract_type(&element, depth + 1)?;
                 }
                 Ok(())
             }
             Type::Named(name) if self.records.contains_key(&name) => {
                 for field in self.records[&name].clone() {
-                    self.contract_type(&field.ty, depth + 1, allow_references, nested_references)?;
+                    self.contract_type(&field.ty, depth + 1)?;
                 }
                 Ok(())
             }
             Type::Named(name) if self.enums.contains_key(&name) => {
                 for variant in self.enums[&name].clone() {
                     for field in variant.fields {
-                        self.contract_type(&field, depth + 1, allow_references, nested_references)?;
+                        self.contract_type(&field, depth + 1)?;
                     }
                 }
                 Ok(())
             }
             _ => Err(Error::unsupported(
-                "reusable mutation contracts require reference-free modeled reference targets; pointer and environment values are not modeled",
+                "reusable contracts require modeled value types; raw pointers and environment values are not modeled",
             )),
         }
     }
@@ -295,7 +284,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 }
                 state.guard = self.circuit.and(state.guard, condition);
                 let states = if mutates {
-                    self.contract_memory_states(state, &arguments)?
+                    self.contract_memory_states(state, function, &arguments)?
                 } else {
                     vec![state]
                 };

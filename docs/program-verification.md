@@ -29,12 +29,12 @@ program-shape dependent; this list is not a claim of completeness.
 - **Explicit contract reuse.** `#proof-using` selects separately verified
   direct contract theorems for calls in its body. Reference results use checked
   parameter-origin summaries, validated against symbolic return values before
-  reuse. Writable reference targets must be reference-free; readonly functions
-  may traverse reference-bearing pointees. Inputs and results may carry
-  references inside owned aggregates.
+  reuse. Checked store-origin summaries also preserve reference identities
+  when a callee changes a reference-bearing pointee. Inputs and results may
+  carry references inside owned aggregates.
   Functions cannot implicitly access globals or perform unsafe, IO, allocation,
   external or assembly operations. Owned local and borrowed-target mutation are
-  modeled without changing reference identities.
+  modeled using the caller's actual storage locations.
   The caller must establish the selected precondition on every feasible path;
   the postcondition constrains a fresh result. Contract dependencies are checked
   in topological order, including forward references, and cycles are rejected.
@@ -155,8 +155,9 @@ Mutable references define the writable frame. For a call that may mutate,
 the checker replaces the contents of each active mutable argument target with
 fresh symbolic values, then constrains them with the verified postcondition.
 References inside owned records, tuples, arrays and active enum payloads also
-contribute targets. Reference handles retain their original locations; shared
-arguments and storage outside the writable targets retain their contents.
+contribute targets, including references reached through other references.
+Reference handles retain their original locations; storage outside the writable
+targets retains its contents. Shared handles do not themselves permit writes.
 Subobject and symbolic element borrows affect only those subobjects/elements,
 including element references obtained from modeled slices. Heap updates use
 the ordinary validation-invalidation path.
@@ -194,8 +195,22 @@ a proof. [`examples/proof_reference_contracts.lim`](../examples/proof_reference_
 demonstrates a projected mutable return updating its caller while preserving a
 sibling field; native replay tests every byte value, including wraparound.
 
-Mutation through reference-bearing pointees, identity-changing stores inside
-summarized callees, direct slice parameters/results, raw pointers, implicit global
+Stored references use the borrow checker's final store-origin summaries. A
+definite replacement can discard the entry reference; a possible write retains
+both the old and replacement alternatives. Sources are loaded from the call-entry
+snapshot before any replacement is applied. This preserves swaps and references
+returned from overwritten slots. Before reuse, symbolic execution checks that
+the summaries cover the actual stored reference identities. Equal referent
+contents do not justify substituting a different location. Missing origins and
+unsupported destinations remain unproved.
+
+Postconditions must still specify numerical contents and unchanged sibling data
+that a caller needs. Store provenance describes locations, not arbitrary scalar
+relations. Composed store alternatives are capped at 256 paths and 4096 prepared
+replacements. Conditional origin correlations beyond the checked possible-source
+set remain conservative.
+
+Direct slice parameters/results, raw pointers, implicit global
 access (including named global constants) and external effects remain outside
 reusable summaries. Ordinary symbolic execution supports some of these cases
 without summary reuse. More precise conditional origin relationships, complete
@@ -335,6 +350,15 @@ modeled and the checker fails closed for everything outside that model.
   borrow exclusivity, and frame conditions for writes. Unsafe operations need
   explicit models or trusted boundaries; address arithmetic alone is not a
   memory-safety proof.
+- **Behavioral equivalence:** compare an optimized implementation with a
+  simple reference implementation over the same modeled inputs and effects;
+  prove encoder/decoder round trips, representation conversions, and helper
+  extraction preserve results and externally visible state. Equivalence must
+  include early exits and error behavior, not just successful return values.
+- **Failure atomicity:** prove invalid inputs and failed operations leave
+  protected state unchanged, return the specified error, and never perform a
+  forbidden action. Allocation and IO failures require explicit nondeterministic
+  effect models before these properties can cover them.
 - **Effects:** specify and check observable IO, global state, allocation and
   deallocation, resource ownership, and failure behavior. A proof must say
   which effects are modeled, which are abstracted, and which invalidate a

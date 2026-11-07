@@ -7,10 +7,11 @@ use symbolic::{Location, Segment};
 
 type Bounds = crate::typed_flow::VariantBounds;
 
-struct Returns<'a> {
-    arguments: &'a [Value],
-    origins: Vec<ParameterLoanSummary>,
-    bounds: Bounds,
+pub(super) struct ReferenceModel<'a> {
+    pub(super) arguments: &'a [Value],
+    pub(super) origins: Vec<ParameterLoanSummary>,
+    pub(super) bounds: Bounds,
+    pub(super) source: Option<&'a State>,
 }
 
 #[derive(Clone)]
@@ -29,7 +30,7 @@ impl Engine<'_, '_> {
         arguments: &[Value],
         value: &Value,
     ) -> Result<()> {
-        if !self.return_has_references(&function.return_type, 0)? {
+        if !self.reference_type(&function.return_type, 0)? {
             return Ok(());
         }
         let declarations = self.checked.declarations();
@@ -40,7 +41,9 @@ impl Engine<'_, '_> {
             .bodies
             .get(&function.name)
             .ok_or_else(|| Error::unsupported("contract has no checked return body"))?;
-        let returns = Returns {
+        let entry = self.old.clone();
+        let returns = ReferenceModel {
+            source: entry.as_ref(),
             arguments,
             origins: body
                 .call_return_origins
@@ -53,7 +56,7 @@ impl Engine<'_, '_> {
                 .cloned()
                 .unwrap_or_default(),
         };
-        let covered = self.return_origin_coverage(state, value, &[], &returns, 0)?;
+        let covered = self.reference_coverage(state, value, &[], &returns, 0)?;
         let missing = self.circuit.and(state.guard, self.circuit.not(covered));
         if self.circuit.satisfy(missing)?.is_some() {
             return Err(Error::unsupported(
@@ -63,12 +66,12 @@ impl Engine<'_, '_> {
         Ok(())
     }
 
-    fn return_origin_coverage(
+    pub(super) fn reference_coverage(
         &mut self,
         state: &State,
         value: &Value,
         path: &[Path],
-        returns: &Returns<'_>,
+        returns: &ReferenceModel<'_>,
         depth: usize,
     ) -> Result<Bit> {
         self.tick()?;
@@ -111,7 +114,7 @@ impl Engine<'_, '_> {
                     let mut nested = path.to_vec();
                     nested.push(Path::Field(id));
                     let valid =
-                        self.return_origin_coverage(state, value, &nested, returns, depth + 1)?;
+                        self.reference_coverage(state, value, &nested, returns, depth + 1)?;
                     covered = self.circuit.and(covered, valid);
                 }
                 Ok(covered)
@@ -127,7 +130,7 @@ impl Engine<'_, '_> {
                         Path::Tuple(index)
                     });
                     let valid =
-                        self.return_origin_coverage(state, element, &nested, returns, depth + 1)?;
+                        self.reference_coverage(state, element, &nested, returns, depth + 1)?;
                     covered = self.circuit.and(covered, valid);
                 }
                 Ok(covered)
@@ -175,7 +178,7 @@ impl Engine<'_, '_> {
                     let mut nested = path.to_vec();
                     nested.push(Path::Payload(id, 0));
                     let valid =
-                        self.return_origin_coverage(&branch, value, &nested, returns, depth + 1)?;
+                        self.reference_coverage(&branch, value, &nested, returns, depth + 1)?;
                     let valid = self.circuit.or(self.circuit.not(active), valid);
                     covered = self.circuit.and(covered, valid);
                 }
@@ -194,7 +197,7 @@ impl Engine<'_, '_> {
         function: &Function,
         arguments: &[Value],
     ) -> Result<Vec<(State, Value)>> {
-        if !self.return_has_references(&function.return_type, 0)? {
+        if !self.reference_type(&function.return_type, 0)? {
             let mut state = state;
             let value = self.fresh_value(&mut state, &function.return_type, 0)?;
             return Ok(vec![(state, value)]);
@@ -207,7 +210,9 @@ impl Engine<'_, '_> {
             .bodies
             .get(&function.name)
             .ok_or_else(|| Error::unsupported("reference contract has no checked body"))?;
-        let returns = Returns {
+        let entry = self.old.clone();
+        let returns = ReferenceModel {
+            source: entry.as_ref(),
             arguments,
             origins: body
                 .call_return_origins
@@ -221,7 +226,7 @@ impl Engine<'_, '_> {
                 .unwrap_or_default(),
         };
         let guard = state.guard;
-        let values = self.return_value(state, &function.return_type, &[], &returns, 0)?;
+        let values = self.reference_value(state, &function.return_type, &[], &returns, 0)?;
         // Reference origins and variant bounds were checked against every
         // executed provider result before its certificate became available.
         // POD result fields are nondeterministic; their fresh validity bits
@@ -234,12 +239,12 @@ impl Engine<'_, '_> {
         Ok(values)
     }
 
-    fn return_value(
+    pub(super) fn reference_value(
         &mut self,
         mut state: State,
         ty: &Type,
         path: &[Path],
-        returns: &Returns<'_>,
+        returns: &ReferenceModel<'_>,
         depth: usize,
     ) -> Result<Vec<(State, Value)>> {
         self.tick()?;
@@ -247,7 +252,7 @@ impl Engine<'_, '_> {
             return Err(Error::limit("contract result nesting exceeds 32"));
         }
         let ty = self.resolve_type(ty)?;
-        if !self.return_has_references(&ty, depth)? {
+        if !self.reference_type(&ty, depth)? {
             let value = self.fresh_value(&mut state, &ty, 0)?;
             return Ok(vec![(state, value)]);
         }
@@ -333,9 +338,13 @@ impl Engine<'_, '_> {
                     if let Some(payload) = variant.fields.first() {
                         let mut nested = path.to_vec();
                         nested.push(Path::Payload(id, 0));
-                        for (state, payload) in
-                            self.return_value(state.clone(), payload, &nested, returns, depth + 1)?
-                        {
+                        for (state, payload) in self.reference_value(
+                            state.clone(),
+                            payload,
+                            &nested,
+                            returns,
+                            depth + 1,
+                        )? {
                             let value = self.construct_enum(name, index, Some(payload))?;
                             output.push((state, value));
                         }
@@ -358,7 +367,7 @@ impl Engine<'_, '_> {
         state: State,
         components: &[(Path, Type)],
         path: &[Path],
-        returns: &Returns<'_>,
+        returns: &ReferenceModel<'_>,
         depth: usize,
     ) -> Result<Vec<(State, Vec<Value>)>> {
         let mut runs = vec![(state, Vec::new())];
@@ -367,7 +376,9 @@ impl Engine<'_, '_> {
             nested.push(component.clone());
             let mut output = Vec::new();
             for (state, values) in runs {
-                for (state, value) in self.return_value(state, ty, &nested, returns, depth + 1)? {
+                for (state, value) in
+                    self.reference_value(state, ty, &nested, returns, depth + 1)?
+                {
                     let mut values = values.clone();
                     values.push(value);
                     output.push((state, values));
@@ -386,7 +397,7 @@ impl Engine<'_, '_> {
         target: &Type,
         mutable: bool,
         pinned: bool,
-        returns: &Returns<'_>,
+        returns: &ReferenceModel<'_>,
     ) -> Result<Vec<(State, Value)>> {
         let sources = returns
             .origins
@@ -423,7 +434,7 @@ impl Engine<'_, '_> {
                 }
             }
             let inputs = self.return_project(
-                &state,
+                returns.source.unwrap_or(&state),
                 vec![Cursor {
                     guard: state.guard,
                     value: argument.clone(),
@@ -667,27 +678,25 @@ impl Engine<'_, '_> {
         }
     }
 
-    fn return_has_references(&mut self, ty: &Type, depth: usize) -> Result<bool> {
+    pub(super) fn reference_type(&mut self, ty: &Type, depth: usize) -> Result<bool> {
         self.tick()?;
         if depth > 32 {
             return Err(Error::limit("contract result type nesting exceeds 32"));
         }
         Ok(match self.resolve_type(ty)? {
             Type::Reference { .. } | Type::PinnedReference { .. } => true,
-            Type::Array(element, len) => {
-                len != 0 && self.return_has_references(&element, depth + 1)?
-            }
+            Type::Array(element, len) => len != 0 && self.reference_type(&element, depth + 1)?,
             Type::Tuple(types) => {
                 let mut found = false;
                 for ty in types {
-                    found |= self.return_has_references(&ty, depth + 1)?;
+                    found |= self.reference_type(&ty, depth + 1)?;
                 }
                 found
             }
             Type::Named(name) if self.records.contains_key(&name) => {
                 let mut found = false;
                 for field in self.records[&name].clone() {
-                    found |= self.return_has_references(&field.ty, depth + 1)?;
+                    found |= self.reference_type(&field.ty, depth + 1)?;
                 }
                 found
             }
@@ -695,7 +704,7 @@ impl Engine<'_, '_> {
                 let mut found = false;
                 for variant in self.enums[&name].clone() {
                     for ty in variant.fields {
-                        found |= self.return_has_references(&ty, depth + 1)?;
+                        found |= self.reference_type(&ty, depth + 1)?;
                     }
                 }
                 found
@@ -705,7 +714,7 @@ impl Engine<'_, '_> {
     }
 }
 
-fn path_matches(schema: &[Path], selected: &[Path]) -> bool {
+pub(super) fn path_matches(schema: &[Path], selected: &[Path]) -> bool {
     schema.len() == selected.len()
         && schema.iter().zip(selected).all(|(a, b)| {
             a == b
@@ -757,23 +766,25 @@ mod tests {
         for origin in &mut origins {
             origin.referent_projection = vec![Path::Field(wrong)];
         }
-        let returns = Returns {
+        let returns = ReferenceModel {
+            source: None,
             arguments: &arguments,
             origins,
             bounds: Bounds::new(),
         };
         let covered = engine
-            .return_origin_coverage(&state, &value, &[], &returns, 0)
+            .reference_coverage(&state, &value, &[], &returns, 0)
             .unwrap();
         let missing = engine.circuit.and(state.guard, engine.circuit.not(covered));
         assert!(engine.circuit.satisfy(missing).unwrap().is_some());
-        let missing = Returns {
+        let missing = ReferenceModel {
+            source: None,
             arguments: &arguments,
             origins: Vec::new(),
             bounds: Bounds::new(),
         };
         let error = engine
-            .return_origin_coverage(&state, &value, &[], &missing, 0)
+            .reference_coverage(&state, &value, &[], &missing, 0)
             .unwrap_err();
         assert_eq!(
             error.diagnostic_code(),
@@ -805,13 +816,14 @@ mod tests {
             .declarations()
             .variant_id(&Type::Named("Maybe".into()), "Maybe.Some")
             .unwrap();
-        let returns = Returns {
+        let returns = ReferenceModel {
+            source: None,
             arguments: &[],
             origins: Vec::new(),
             bounds: Bounds::from([(Vec::new(), std::collections::HashSet::from([wrong]))]),
         };
         let covered = engine
-            .return_origin_coverage(&state, &value, &[], &returns, 0)
+            .reference_coverage(&state, &value, &[], &returns, 0)
             .unwrap();
         let missing = engine.circuit.and(state.guard, engine.circuit.not(covered));
         assert!(engine.circuit.satisfy(missing).unwrap().is_some());

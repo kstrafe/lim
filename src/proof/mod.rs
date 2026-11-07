@@ -2,6 +2,7 @@
 //! No theorem is an assumption: unsupported semantics and exhausted budgets fail.
 mod contract_memory;
 mod contract_return;
+mod contract_store;
 mod contracts;
 mod counterexample;
 mod graph;
@@ -75,7 +76,7 @@ struct Engine<'a, 'p> {
     summary_depth: usize,
     spec_span: Option<Span>,
     checked_expression_depth: usize,
-    verify_return_origins: bool,
+    verify_reference_origins: bool,
     old: Option<State>,
     steps: usize,
     loop_limit: usize,
@@ -120,7 +121,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
             declaration_span(checked.program(), name).unwrap_or_else(|| Span::new(0, 0, 1, 1));
         let mut engine = Engine::new(checked, &graph, span);
         engine.contracts = Some(&verified);
-        engine.verify_return_origins = order.providers.contains(&index)
+        engine.verify_reference_origins = order.providers.contains(&index)
             && engine.verified_contract(name, proposition, span).is_some();
         let outcome = engine
             .proposition(State::new(), proposition)
@@ -168,7 +169,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             summary_depth: 0,
             spec_span: None,
             checked_expression_depth: 0,
-            verify_return_origins: false,
+            verify_reference_origins: false,
             old: None,
             steps: 0,
             loop_limit: 32,
@@ -578,8 +579,13 @@ impl<'a, 'p> Engine<'a, 'p> {
                     for (mut state, result) in
                         self.call(state, function, arguments.clone(), false)?
                     {
-                        if self.verify_return_origins {
+                        if self.verify_reference_origins {
                             self.verify_contract_return(&state, function, &arguments, &result)?;
+                            let entry = self
+                                .old
+                                .clone()
+                                .ok_or_else(|| Error::checker("missing contract entry snapshot"))?;
+                            self.verify_contract_stores(&entry, &state, function, &arguments)?;
                         }
                         state.result = Some(result);
                         output.extend(self.proposition(state, &args[2])?);

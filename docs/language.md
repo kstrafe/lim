@@ -1755,8 +1755,9 @@ resolved and verified; aliases and imported file definitions refer to their
 canonical declarations. The dependency list adds no assumptions or bindings,
 and the proposition body retains its existing scope. Reuse supports reference
 results and references inside owned aggregates using checked caller-storage
-origins. Readonly functions may traverse reference-bearing pointees; mutation
-summaries require reference-free writable targets.
+origins. Reference-bearing writable targets use checked final store origins,
+validated against symbolic provider execution. Possible writes retain old and
+replacement alternatives; all replacement sources are read at call entry.
 Mutable argument targets define the writable frame; postconditions state their
 new contents and any unchanged parts that callers need. Implicit global access,
 unsafe operations and external effects are unsupported. Failed
