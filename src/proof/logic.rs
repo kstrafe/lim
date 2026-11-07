@@ -209,6 +209,29 @@ impl Circuit {
         if self.check(a, b).is_err() {
             return FALSE;
         }
+        if a.bits == b.bits {
+            return FALSE;
+        }
+        let width = a.bits.len();
+        let mask = if width == 128 {
+            u128::MAX
+        } else {
+            (1u128 << width) - 1
+        };
+        if let Some((base, offset)) = self.offsets.get(&(a.bits.clone(), a.signed)).cloned() {
+            if offset == mask && base.bits != a.bits {
+                // In either machine order, the wrapped predecessor of MIN is
+                // MAX. Otherwise (x - 1) < y exactly when x <= y.
+                let minimum = Self::constant(
+                    if a.signed { 1u128 << (width - 1) } else { 0 },
+                    width,
+                    a.signed,
+                );
+                let wraps = self.eq_word(&base, &minimum);
+                let greater = self.lt_word(b, &base);
+                return self.and(self.not(wraps), self.not(greater));
+            }
+        }
         // Canonicalize reversed comparisons so order laws share the same
         // circuit instead of requiring exponential independent search.
         if a.bits > b.bits {
@@ -1029,6 +1052,94 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapping_predecessor_comparisons_match_exhaustive_machine_orders() {
+        for width in 1..=5 {
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let a = circuit.word(width, signed);
+                let b = circuit.word(width, signed);
+                let one = Circuit::constant(1, width, signed);
+                let a_dec = circuit.binary("sub", Some("wrap"), &a, &one).unwrap().0;
+                let b_dec = circuit.binary("sub", Some("wrap"), &b, &one).unwrap().0;
+                let queries = [
+                    circuit.lt_word(&a_dec, &b),
+                    circuit.lt_word(&a, &b_dec),
+                    circuit.lt_word(&a_dec, &b_dec),
+                ];
+                let mask = (1u128 << width) - 1;
+                for x in 0..1 << width {
+                    for y in 0..1 << width {
+                        let model = input_model(&circuit, &a, &b, x, y);
+                        let dx = (x as u128).wrapping_sub(1) & mask;
+                        let dy = (y as u128).wrapping_sub(1) & mask;
+                        for (query, left, right) in [
+                            (queries[0], dx, y as u128),
+                            (queries[1], x as u128, dy),
+                            (queries[2], dx, dy),
+                        ] {
+                            let expected = if signed {
+                                let shift = 128 - width;
+                                ((left << shift) as i128 >> shift)
+                                    < ((right << shift) as i128 >> shift)
+                            } else {
+                                left < right
+                            };
+                            assert_eq!(
+                                circuit.eval(query, &model),
+                                expected,
+                                "width={width} signed={signed} x={x} y={y}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_predecessor_comparisons_preserve_full_width_boundaries() {
+        for width in [8, 16, 32, 64, 128] {
+            let mask = if width == 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let a = circuit.word(width, signed);
+                let b = circuit.word(width, signed);
+                let one = Circuit::constant(1, width, signed);
+                let dec = circuit.binary("sub", Some("wrap"), &a, &one).unwrap().0;
+                let query = circuit.lt_word(&dec, &b);
+                let sign = 1u128 << (width - 1);
+                let values = [0, 1, sign - 1, sign, sign + 1, mask - 1, mask];
+                for x in values {
+                    for y in values {
+                        let mut model = vec![false; circuit.nodes.len() + 1];
+                        for (word, value) in [(&a, x), (&b, y)] {
+                            for (index, bit) in word.bits.iter().enumerate() {
+                                model[(bit >> 1) as usize] = value & (1u128 << index) != 0;
+                            }
+                        }
+                        let left = x.wrapping_sub(1) & mask;
+                        let expected = if signed {
+                            let shift = 128 - width;
+                            ((left << shift) as i128 >> shift) < ((y << shift) as i128 >> shift)
+                        } else {
+                            left < y
+                        };
+                        assert_eq!(
+                            circuit.eval(query, &model),
+                            expected,
+                            "width={width} signed={signed} x={x} y={y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn wrapping_offsets_cancel_and_preserve_exhaustive_small_width_values() {
