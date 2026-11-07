@@ -2026,7 +2026,14 @@ whose reference graph remains stable. Numeric contents are abstracted while
 stored handles keep their original locations. Loop-local mutable borrows
 contribute their source roots to the frame. Every continuing step and forwarded
 exit must preserve existing reference identities and reference-bearing enum tags.
-Global write destinations, changing reference graphs, slice backing storage and
+Slice handles retain their backing location, start and length. Mutable views
+over bounded arrays contribute guarded element regions, preserving storage
+outside their ranges; references inside selected elements retain their actual
+locations. Empty end-boundary ranges permit no writes. Bounds obligations still
+apply to every access, including those used in invariants and ranks. Direct
+unbounded symbolic slice inputs remain unsupported; construct a bounded view in
+the proved wrapper or quantified call.
+Global write destinations, changing reference graphs or slice geometry, and
 trace claims remain unsupported. A valid invariant/rank can avoid fully unrolling
 a supported loop; it does not enable arbitrary hidden execution.
 Loop-body and for-step calls may use direct contracts explicitly selected by

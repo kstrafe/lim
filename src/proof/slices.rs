@@ -163,6 +163,37 @@ impl Engine<'_, '_> {
                             .circuit
                             .binary("add", Some("wrap"), &view.start, &index)?
                             .0;
+                        if self.handle_type(&view.element, 0)? {
+                            // Different stored references cannot be represented
+                            // as numeric muxes. Keep each feasible element's
+                            // actual location in a separate guarded execution.
+                            let Value::Array(_, values) = self.read(&state, &view.place)? else {
+                                return Err(Error::checker("slice lost its array backing"));
+                            };
+                            self.bounds(&state, &index, values.len())?;
+                            for offset in 0..values.len() {
+                                let selected = Circuit::constant(offset as u128, 64, false);
+                                let matches = self.circuit.eq_word(&index, &selected);
+                                let mut branch = state.clone();
+                                branch.guard = self.circuit.and(branch.guard, matches);
+                                if self.circuit.satisfy(branch.guard)?.is_none() {
+                                    continue;
+                                }
+                                let mut place = view.place.clone();
+                                place.path.push(Segment::Index(selected));
+                                output.push((
+                                    branch,
+                                    Value::Ref {
+                                        place,
+                                        target: view.element.clone(),
+                                        mutable,
+                                        pinned: false,
+                                    },
+                                ));
+                            }
+                            self.limit_paths(output.len())?;
+                            continue;
+                        }
                         let mut place = view.place.clone();
                         place.path.push(Segment::Index(index));
                         output.push((

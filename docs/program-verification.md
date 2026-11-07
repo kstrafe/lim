@@ -224,15 +224,36 @@ affected validation facts. Readonly loops retain their borrowed contents.
 
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are
-unchanged. Unsupported graph changes remain unproved even if the pointed-to
-values are equal, and negation cannot turn them into a proof. Frame discovery
-retains its 256-region/alternative and 4096-entry limits. These are conservative
+unchanged. Slice handles also retain their backing location, start and length.
+Unsupported graph changes remain unproved even if the pointed-to values are
+equal, and negation cannot turn them into a proof. Frame discovery is bounded
+to 256 writable regions, 4096 visited values and nesting depth 32. These are conservative
 frames: an invariant must state any unchanged sibling data needed after the loop.
 
+[`examples/proof_slice_induction.lim`](../examples/proof_slice_induction.lim)
+proves that a slice loop completes and preserves every backing element outside
+its input range. The slice's start and end remain symbolic; its backing array
+provides the finite storage bound. The invariant establishes that the remaining
+count never exceeds the view length, allowing every access and the decreasing
+rank to be checked with an unroll limit of one. This theorem states bounds and
+the outside-range frame; it does not assert the final interior contents.
+
+Mutable slice frames use guarded element updates: only membership in the
+selected range permits fresh data. Nested views and slices in aggregates keep
+their storage identity. References or slices stored inside selected elements
+contribute reachable targets under the same membership guard. Empty ranges,
+including one at the end boundary, permit no element writes. Overlapping frames
+merge updates against current storage rather than restoring old snapshot data.
+Native replay checks all valid ranges of the example's array and every byte
+seed, including the actual clearing behavior.
+
 Invariant predicates, ranks and loop conditions remain restricted to pure,
-call-free expressions. Changing reference graphs, slice backing storage, global
-write destinations and implicit environmental effects need additional models;
-selecting a contract does not silently enable them.
+call-free expressions; modeled slice lengths and element reads are permitted.
+Direct unbounded slice inputs remain unsupported: construct a view from a
+bounded array in the proved wrapper or quantified call. Selecting a reusable
+contract still does not provide an implicit slice bound. Changing reference
+graphs or view geometry, global write destinations and implicit environmental
+effects need additional models.
 
 Stored references use the borrow checker's final store-origin summaries. A
 definite replacement can discard the entry reference; a possible write retains

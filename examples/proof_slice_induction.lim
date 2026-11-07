@@ -1,0 +1,49 @@
+; Prove bounds and preservation outside a mutable slice without unrolling it.
+(#fn clear-view (: view (#slice-mut #u8)) #usize
+  (#let-mut remaining #usize (#slice-mut-len view))
+  (#label
+    again
+    (#while (#usize::gt remaining 0usize)
+      (#deref-set (#slice-mut-idx view (#usize::sub-wrap remaining 1usize)) 0u8)
+      (#set remaining (#usize::sub-wrap remaining 1usize))))
+  (#forget view)
+  (#return remaining))
+
+(#fn clear-range (: source (#ref-mut (#array #u8 3)) : start #usize : end #usize) #usize
+  (#let whole (#slice-mut #u8) (#slice-mut-of source))
+  (#let view (#slice-mut #u8) (#slice-mut-range whole start end))
+  (#let result #usize (#call clear-view (: view view)))
+  (#forget whole)
+  (#return result))
+
+(#theorem range-frame
+  (#proof-loop-limit
+    1
+    (#proof-with-invariants
+      ((clear-view again (#usize::le remaining (#slice-mut-len view)) remaining))
+      (#proof-contract
+        clear-range
+        (#bool::and (#usize::le start end) (#usize::le end 3usize))
+        (#proof-and
+          (#proof-eq (#proof-result) 0usize)
+          (#proof-implies
+            (#bool::or (#usize::lt 0usize start) (#usize::le end 0usize))
+            (#proof-eq (#index source 0usize) (#proof-old (#index source 0usize))))
+          (#proof-implies
+            (#bool::or (#usize::lt 1usize start) (#usize::le end 1usize))
+            (#proof-eq (#index source 1usize) (#proof-old (#index source 1usize))))
+          (#proof-implies
+            (#bool::or (#usize::lt 2usize start) (#usize::le end 2usize))
+            (#proof-eq (#index source 2usize) (#proof-old (#index source 2usize)))))))))
+
+(#fn main () #u64
+  (#let-mut values (#array #u8 3) (#array-of (#array #u8 3) 7u8 9u8 11u8))
+  (#let result #usize
+    (#call clear-range (: source (#borrow-mut values) : start 1usize : end 2usize)))
+  (#if (#usize::ne result 0usize)
+    (#block
+      (#return 1u64)))
+  (#if (#u8::ne (#index values 1usize) 0u8)
+    (#block
+      (#return 2u64)))
+  (#return 42u64))

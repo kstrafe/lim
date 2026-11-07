@@ -399,6 +399,23 @@ impl Engine<'_, '_> {
                 }
                 Value::Enum(name.clone(), tag, payloads)
             }
+            (Value::Ref { place: a_place, .. }, Value::Ref { place: b_place, .. })
+                if self.same_location(a_place, b_place) == TRUE =>
+            {
+                a.clone()
+            }
+            (Value::Slice(a_view), Value::Slice(b_view)) => {
+                let place = self.same_location(&a_view.place, &b_view.place);
+                let start = self.circuit.eq_word(&a_view.start, &b_view.start);
+                let len = self.circuit.eq_word(&a_view.len, &b_view.len);
+                let geometry = self.circuit.and(start, len);
+                if self.circuit.and(place, geometry) != TRUE {
+                    return Err(Error::unsupported(
+                        "conditional slice identities require path splitting",
+                    ));
+                }
+                a.clone()
+            }
             _ => {
                 return Err(Error::unsupported(
                     "conditional reference or enum storage requires path splitting",
@@ -1910,7 +1927,7 @@ impl Engine<'_, '_> {
                 Expr::List(items) if items.is_empty()=>Ok(()),
                 Expr::List(_)=>{
                     let(head,args)=form(expr).ok_or_else(|| Error::unsupported("induction specifications cannot call user functions"))?;
-                    if numeric(head).is_some()||matches!(head,"proof-and"|"proof-or"|"proof-not"|"proof-implies"|"proof-eq"|"if"|"index"|"deref") {
+                    if numeric(head).is_some()||matches!(head,"proof-and"|"proof-or"|"proof-not"|"proof-implies"|"proof-eq"|"if"|"index"|"deref"|"slice-len"|"slice-mut-len"|"slice-idx"|"slice-mut-idx") {
                         for arg in args{pure(arg,locals,depth+1)?;}return Ok(());
                     }
                     match head {
@@ -2639,7 +2656,11 @@ fn collect_modified(
         }
         let (head, args) = form(expr)
             .ok_or_else(|| Error::unsupported("induction borrow requires a modeled place"))?;
-        if matches!(head, "deref" | "get" | "index") && !args.is_empty() {
+        if matches!(
+            head,
+            "deref" | "get" | "index" | "slice-idx" | "slice-mut-idx"
+        ) && !args.is_empty()
+        {
             borrowed_root(&args[0], names, depth + 1)
         } else {
             Err(Error::unsupported(
@@ -2708,6 +2729,18 @@ fn collect_modified(
                             | "pin-borrow"
                             | "pin-borrow-mut"
                             | "deref-set"
+                            | "borrow-slice"
+                            | "borrow-slice-mut"
+                            | "slice-of"
+                            | "slice-mut-of"
+                            | "slice-range"
+                            | "slice-mut-range"
+                            | "slice-len"
+                            | "slice-mut-len"
+                            | "slice-idx"
+                            | "slice-mut-idx"
+                            | "slice-mut-split"
+                            | "forget"
                             | "tuple-of"
                             | "array-of"
                             | "tuple"
@@ -2725,6 +2758,16 @@ fn collect_modified(
                 // Type/field/constructor metadata is not evaluated. Traverse
                 // executable operands, including dynamic array indices.
                 match head {
+                    "borrow-slice-mut" => {
+                        if !matches!(args.len(), 1 | 3) {
+                            return Err(Error::invalid("invalid mutable slice borrow"));
+                        }
+                        borrowed_root(&args[0], names, depth + 1)?;
+                        for arg in args {
+                            expression(arg, names, contracts, depth + 1)?;
+                        }
+                        Ok(())
+                    }
                     "borrow-mut" | "pin-borrow-mut" => {
                         arity(head, args, 1)?;
                         borrowed_root(&args[0], names, depth + 1)?;

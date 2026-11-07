@@ -34,6 +34,7 @@ exit 42 proof_borrowed_contracts.lim - -
 exit 42 proof_reference_contracts.lim - -
 exit 42 proof_loop_contracts.lim - -
 exit 42 proof_borrowed_induction.lim - -
+exit 42 proof_slice_induction.lim - -
 exit 42 future_registration.lim - -
 exit 42 future_registration_box.lim - -
 exit 42 static_table.lim - -
