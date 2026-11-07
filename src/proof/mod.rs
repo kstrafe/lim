@@ -1,6 +1,7 @@
 //! Compile-time propositions checked against the validated, expanded program.
 //! No theorem is an assumption: unsupported semantics and exhausted budgets fail.
 mod contract_memory;
+mod contract_return;
 mod contracts;
 mod counterexample;
 mod graph;
@@ -74,6 +75,7 @@ struct Engine<'a, 'p> {
     summary_depth: usize,
     spec_span: Option<Span>,
     checked_expression_depth: usize,
+    verify_return_origins: bool,
     old: Option<State>,
     steps: usize,
     loop_limit: usize,
@@ -112,12 +114,14 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         ))
     })?;
     let mut verified = HashMap::new();
-    for index in order {
+    for index in order.sequence {
         let (name, proposition) = proofs[index];
         let span =
             declaration_span(checked.program(), name).unwrap_or_else(|| Span::new(0, 0, 1, 1));
         let mut engine = Engine::new(checked, &graph, span);
         engine.contracts = Some(&verified);
+        engine.verify_return_origins = order.providers.contains(&index)
+            && engine.verified_contract(name, proposition, span).is_some();
         let outcome = engine
             .proposition(State::new(), proposition)
             .and_then(|states| engine.establish(states, "the proposition is false"));
@@ -164,6 +168,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             summary_depth: 0,
             spec_span: None,
             checked_expression_depth: 0,
+            verify_return_origins: false,
             old: None,
             steps: 0,
             loop_limit: 32,
@@ -573,6 +578,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                     for (mut state, result) in
                         self.call(state, function, arguments.clone(), false)?
                     {
+                        if self.verify_return_origins {
+                            self.verify_contract_return(&state, function, &arguments, &result)?;
+                        }
                         state.result = Some(result);
                         output.extend(self.proposition(state, &args[2])?);
                     }

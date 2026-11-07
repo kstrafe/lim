@@ -27,8 +27,11 @@ program-shape dependent; this list is not a claim of completeness.
   relations, but arbitrary quantified formulas, unbounded domains, and every
   Lim type are not supported.
 - **Explicit contract reuse.** `#proof-using` selects separately verified
-  direct contract theorems for calls in its body. Results and reference targets
-  must be reference-free; inputs may contain references inside owned aggregates.
+  direct contract theorems for calls in its body. Reference results use checked
+  parameter-origin summaries, validated against symbolic return values before
+  reuse. Writable reference targets must be reference-free; readonly functions
+  may traverse reference-bearing pointees. Inputs and results may carry
+  references inside owned aggregates.
   Functions cannot implicitly access globals or perform unsafe, IO, allocation,
   external or assembly operations. Owned local and borrowed-target mutation are
   modeled without changing reference identities.
@@ -172,11 +175,31 @@ Write frames are bounded to 256 mutable locations per alternative, 256
 alternatives and 4096 total writable entries. Exceeding a bound remains an
 unproved resource-limit result, including under logical negation.
 
-Reference-bearing results or reference targets, direct slice parameters,
-raw pointers, implicit global access (including named global constants) and
-external effects remain outside reusable summaries. Ordinary symbolic execution
-supports some of these cases without summary reuse. Returned-reference identity,
-identity-changing writes and complete environment models remain open work.
+Returned references retain actual caller locations. The checker substitutes
+parameter slots, stored-reference loads, fields, enum payloads and array element
+projections from the borrow checker's origin summaries. Returned records, tuples,
+arrays and enums retain their reference slots, including array slot correspondence
+and checked constructor bounds. Before a reference-returning contract can be
+reused, symbolic execution checks that those origins and constructor bounds cover
+its actual returned values. Missing, unsupported or incomplete provenance cannot
+prove a contract by dropping an execution. Reference-free result data remains
+symbolic, including character validity constraints.
+
+Several possible origins remain separate alternatives, capped at 256. Unknown
+indices or range offsets remain conservative choices. Equal referent contents
+do not establish identity: a contract that only relates values may leave a
+caller's later write-through-reference property unproved when several locations
+remain possible. Negation cannot turn that uncertainty or a resource limit into
+a proof. [`examples/proof_reference_contracts.lim`](../examples/proof_reference_contracts.lim)
+demonstrates a projected mutable return updating its caller while preserving a
+sibling field; native replay tests every byte value, including wraparound.
+
+Mutation through reference-bearing pointees, identity-changing stores inside
+summarized callees, direct slice parameters/results, raw pointers, implicit global
+access (including named global constants) and external effects remain outside
+reusable summaries. Ordinary symbolic execution supports some of these cases
+without summary reuse. More precise conditional origin relationships, complete
+environment models and general counterexample replay remain open work.
 
 ## Reading counterexamples
 

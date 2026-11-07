@@ -1,5 +1,5 @@
-//! Explicit reuse of proved contracts. The initial frame rule is deliberately
-//! limited to reference-free referents/results and no implicit environment access.
+//! Explicit reuse of proved contracts. Writable targets remain reference-free;
+//! returned references use checked origins without implicit environment access.
 //! Abstract summary results may establish a claim, but cannot refute one.
 use super::*;
 use symbolic::Frame;
@@ -13,12 +13,17 @@ pub(super) struct Contract<'p> {
     span: Span,
 }
 
+pub(super) struct Order {
+    pub sequence: Vec<usize>,
+    pub providers: BTreeSet<usize>,
+}
+
 /// Check all explicit dependencies before evaluating any theorem. A stable,
 /// iterative topological order permits forward references without assumptions
 /// or an unbounded Rust call stack for long theorem dependency chains.
 pub(super) fn order<'p>(
     proofs: &[(&'p String, &'p Expr)],
-) -> std::result::Result<Vec<usize>, (&'p String, Error)> {
+) -> std::result::Result<Order, (&'p String, Error)> {
     let names = proofs
         .iter()
         .enumerate()
@@ -26,6 +31,7 @@ pub(super) fn order<'p>(
         .collect::<HashMap<_, _>>();
     let mut required = vec![0; proofs.len()];
     let mut users = vec![Vec::new(); proofs.len()];
+    let mut providers = BTreeSet::new();
     for (index, (name, expr)) in proofs.iter().enumerate() {
         let mut dependencies = BTreeSet::new();
         let mut work = vec![*expr];
@@ -58,6 +64,7 @@ pub(super) fn order<'p>(
         }
         required[index] = dependencies.len();
         for dependency in dependencies {
+            providers.insert(dependency);
             users[dependency].push(index);
         }
     }
@@ -83,7 +90,10 @@ pub(super) fn order<'p>(
             Error::invalid("cyclic #proof-using theorem dependencies are not assumptions"),
         ));
     }
-    Ok(output)
+    Ok(Order {
+        sequence: output,
+        providers,
+    })
 }
 
 impl<'a, 'p> Engine<'a, 'p> {
@@ -154,10 +164,14 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn contract_frame(&mut self, contract: &Contract<'p>) -> Result<()> {
         let function = self.function(&contract.function)?;
+        let nested_references = self
+            .graph
+            .forbidden_effect(&function.name, "mutation")?
+            .is_none();
         for parameter in &function.parameters {
-            self.contract_type(&parameter.ty, 0, true)?;
+            self.contract_type(&parameter.ty, 0, true, nested_references)?;
         }
-        self.contract_type(&function.return_type, 0, false)?;
+        self.contract_type(&function.return_type, 0, true, nested_references)?;
         for effect in ["unsafe", "io", "allocation", "external", "asm"] {
             if self
                 .graph
@@ -178,7 +192,13 @@ impl<'a, 'p> Engine<'a, 'p> {
         Ok(())
     }
 
-    fn contract_type(&mut self, ty: &Type, depth: usize, allow_references: bool) -> Result<()> {
+    fn contract_type(
+        &mut self,
+        ty: &Type,
+        depth: usize,
+        allow_references: bool,
+        nested_references: bool,
+    ) -> Result<()> {
         self.tick()?;
         if depth > 32 {
             return Err(Error::limit("contract frame type nesting exceeds 32"));
@@ -193,31 +213,31 @@ impl<'a, 'p> Engine<'a, 'p> {
             Type::Reference { target, .. } | Type::PinnedReference { target, .. }
                 if allow_references =>
             {
-                self.contract_type(&target, depth + 1, false)
+                self.contract_type(&target, depth + 1, nested_references, nested_references)
             }
-            Type::Array(element, _) => self.contract_type(&element, depth + 1, allow_references),
+            Type::Array(element, _) => self.contract_type(&element, depth + 1, allow_references, nested_references),
             Type::Tuple(elements) => {
                 for element in elements {
-                    self.contract_type(&element, depth + 1, allow_references)?;
+                    self.contract_type(&element, depth + 1, allow_references, nested_references)?;
                 }
                 Ok(())
             }
             Type::Named(name) if self.records.contains_key(&name) => {
                 for field in self.records[&name].clone() {
-                    self.contract_type(&field.ty, depth + 1, allow_references)?;
+                    self.contract_type(&field.ty, depth + 1, allow_references, nested_references)?;
                 }
                 Ok(())
             }
             Type::Named(name) if self.enums.contains_key(&name) => {
                 for variant in self.enums[&name].clone() {
                     for field in variant.fields {
-                        self.contract_type(&field, depth + 1, allow_references)?;
+                        self.contract_type(&field, depth + 1, allow_references, nested_references)?;
                     }
                 }
                 Ok(())
             }
             _ => Err(Error::unsupported(
-                "reusable contracts require reference-free modeled results and reference targets",
+                "reusable mutation contracts require reference-free modeled reference targets; pointer and environment values are not modeled",
             )),
         }
     }
@@ -279,14 +299,18 @@ impl<'a, 'p> Engine<'a, 'p> {
                 } else {
                     vec![state]
                 };
-                for mut state in states {
-                    let result = self.fresh_value(&mut state, &function.return_type, 0)?;
-                    state.result = Some(result.clone());
-                    for (mut state, post) in self.proposition(state, contract.post)? {
-                        state.guard = self.circuit.and(state.guard, post.boolean()?);
-                        state.result = saved_result.clone();
-                        state.frames.pop();
-                        output.push((state, result.clone()));
+                for state in states {
+                    for (mut state, result) in
+                        self.contract_return_values(state, function, &arguments)?
+                    {
+                        state.result = Some(result.clone());
+                        for (mut state, post) in self.proposition(state, contract.post)? {
+                            state.guard = self.circuit.and(state.guard, post.boolean()?);
+                            state.result = saved_result.clone();
+                            state.frames.pop();
+                            output.push((state, result.clone()));
+                        }
+                        self.limit_paths(output.len())?;
                     }
                     self.limit_paths(output.len())?;
                 }

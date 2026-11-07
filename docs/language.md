@@ -1753,8 +1753,10 @@ bounds, and planned coverage.
 depend on explicitly named `#theorem` declarations. Every dependency is
 resolved and verified; aliases and imported file definitions refer to their
 canonical declarations. The dependency list adds no assumptions or bindings,
-and the proposition body retains its existing scope. Reuse supports reference-free
-results and reference targets, including references inside owned input aggregates.
+and the proposition body retains its existing scope. Reuse supports reference
+results and references inside owned aggregates using checked caller-storage
+origins. Readonly functions may traverse reference-bearing pointees; mutation
+summaries require reference-free writable targets.
 Mutable argument targets define the writable frame; postconditions state their
 new contents and any unchanged parts that callers need. Implicit global access,
 unsafe operations and external effects are unsupported. Failed

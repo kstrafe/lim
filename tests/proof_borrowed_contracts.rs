@@ -183,11 +183,12 @@ fn readonly_reference_contract_can_be_reused() {
 }
 
 #[test]
-fn reference_bearing_targets_remain_unsupported() {
+fn mutating_reference_bearing_targets_remain_unsupported() {
     let error = rejected(
         r#"
-      (#fn read (: target (#ref (#ref #u8))) #u8
-        (#return (#deref (#deref target))))
+      (#fn read (: target (#ref-mut (#ref-mut #u8))) ()
+        (#deref-set (#borrow-mut (#deref (#deref target))) 9u8)
+        (#return ()))
       (#theorem read-contract (#proof-contract read true true))
       (#theorem selected
         (#proof-using (read-contract) true))
@@ -202,10 +203,10 @@ fn reference_bearing_targets_remain_unsupported() {
 }
 
 #[test]
-fn reference_return_contracts_remain_unsupported() {
+fn raw_pointer_contracts_remain_unsupported() {
     let error = rejected(
         r#"
-      (#fn identity (: source (#ref #u8)) (#ref #u8) (#return source))
+      (#fn identity (: source (#ptr #u8)) (#ptr #u8) (#return source))
       (#theorem identity-contract
         (#proof-contract identity true true))
       (#theorem selected (#proof-using (identity-contract) true))

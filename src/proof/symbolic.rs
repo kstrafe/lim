@@ -184,7 +184,7 @@ impl Engine<'_, '_> {
             .insert(name, (place, ty));
         Ok(())
     }
-    fn compatible(&self, value: &Value, ty: &Type) -> Result<()> {
+    pub(super) fn compatible(&self, value: &Value, ty: &Type) -> Result<()> {
         if self.resolve_type(&value.ty())? == self.resolve_type(ty)? {
             Ok(())
         } else {
@@ -2165,7 +2165,12 @@ impl Engine<'_, '_> {
                 .map(|index| (owner.clone(), index))
         })
     }
-    fn construct_enum(&self, owner: &str, index: usize, payload: Option<Value>) -> Result<Value> {
+    pub(super) fn construct_enum(
+        &self,
+        owner: &str,
+        index: usize,
+        payload: Option<Value>,
+    ) -> Result<Value> {
         let variants = self.enums.get(owner).ok_or("unknown enum type")?;
         let variant = &variants[index];
         if let Some(ty) = variant.fields.first() {
@@ -2485,6 +2490,11 @@ impl Engine<'_, '_> {
                     return Err("match arm needs pattern and value".into());
                 }
                 let (matched, bindings) = self.pattern(&state, &parts[0], &value, None, spec)?;
+                if matched == FALSE {
+                    // An inactive constructor has no payload binding to
+                    // evaluate. Its arm cannot affect the remaining paths.
+                    continue;
+                }
                 let mut arm = state.clone();
                 arm.guard = self.circuit.and(remaining, matched);
                 let old_locals = arm.frames.last().unwrap().locals.clone();
