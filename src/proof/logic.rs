@@ -189,8 +189,40 @@ impl Circuit {
         if self.check(a, b).is_err() {
             return FALSE;
         }
+        let width = a.bits.len();
+        let mask = if width == 128 {
+            u128::MAX
+        } else {
+            (1u128 << width) - 1
+        };
+        for (literal, shifted) in [(a, b), (b, a)] {
+            if let Some(value) = Self::literal(literal) {
+                if let Some((base, offset)) = self
+                    .offsets
+                    .get(&(shifted.bits.clone(), shifted.signed))
+                    .cloned()
+                {
+                    let expected =
+                        Self::constant(value.wrapping_sub(offset) & mask, width, a.signed);
+                    return self.equal_bits(&base.bits, &expected.bits);
+                }
+            }
+        }
+        if let (Some((left, x)), Some((right, y))) = (
+            self.offsets.get(&(a.bits.clone(), a.signed)),
+            self.offsets.get(&(b.bits.clone(), b.signed)),
+        ) {
+            if x == y {
+                let (left, right) = (left.clone(), right.clone());
+                return self.equal_bits(&left.bits, &right.bits);
+            }
+        }
+        self.equal_bits(&a.bits, &b.bits)
+    }
+
+    fn equal_bits(&mut self, a: &[Bit], b: &[Bit]) -> Bit {
         let mut equal = TRUE;
-        for (&x, &y) in a.bits.iter().zip(&b.bits) {
+        for (&x, &y) in a.iter().zip(b) {
             let different = self.xor(x, y);
             equal = self.and(equal, different ^ 1);
         }
@@ -230,6 +262,30 @@ impl Circuit {
                 let wraps = self.eq_word(&base, &minimum);
                 let greater = self.lt_word(b, &base);
                 return self.and(self.not(wraps), self.not(greater));
+            }
+        }
+        if let (Some(bound), Some((base, offset))) = (
+            Self::literal(a),
+            self.offsets.get(&(b.bits.clone(), b.signed)).cloned(),
+        ) {
+            if offset == mask && base.bits != b.bits {
+                let maximum = if a.signed {
+                    (1u128 << (width - 1)) - 1
+                } else {
+                    mask
+                };
+                if bound == maximum {
+                    return FALSE;
+                }
+                let successor = Self::constant(bound.wrapping_add(1) & mask, width, a.signed);
+                let minimum = Self::constant(
+                    if a.signed { 1u128 << (width - 1) } else { 0 },
+                    width,
+                    a.signed,
+                );
+                let wraps = self.eq_word(&base, &minimum);
+                let higher = self.lt_word(&successor, &base);
+                return self.or(wraps, higher);
             }
         }
         // Canonicalize reversed comparisons so order laws share the same
@@ -1052,6 +1108,132 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constant_relations_to_wrapping_offsets_match_machine_values() {
+        for width in [1, 2, 3, 4, 5, 8, 16, 32, 64, 128] {
+            let mask = if width == 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            let sign = 1u128 << (width - 1);
+            let values = if width <= 5 {
+                (0..=mask).collect::<Vec<_>>()
+            } else {
+                vec![0, 1, sign - 1, sign, sign + 1, mask - 1, mask]
+            };
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let input = circuit.word(width, signed);
+                let shifted = [1, 3, mask].map(|offset| {
+                    circuit
+                        .binary(
+                            "sub",
+                            Some("wrap"),
+                            &input,
+                            &Circuit::constant(offset, width, signed),
+                        )
+                        .unwrap()
+                        .0
+                });
+                let equalities = values
+                    .iter()
+                    .map(|&constant| {
+                        shifted
+                            .iter()
+                            .map(|word| {
+                                circuit.eq_word(&Circuit::constant(constant, width, signed), word)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                let comparisons = values
+                    .iter()
+                    .map(|&constant| {
+                        circuit.lt_word(&Circuit::constant(constant, width, signed), &shifted[0])
+                    })
+                    .collect::<Vec<_>>();
+                for &value in &values {
+                    let mut model = vec![false; circuit.nodes.len() + 1];
+                    for (index, bit) in input.bits.iter().enumerate() {
+                        model[(bit >> 1) as usize] = value & (1u128 << index) != 0;
+                    }
+                    for (index, &constant) in values.iter().enumerate() {
+                        for (offset_index, offset) in [1, 3, mask].into_iter().enumerate() {
+                            assert_eq!(circuit.eval(equalities[index][offset_index], &model),
+                                constant == value.wrapping_sub(offset) & mask,
+                                "equality width={width} signed={signed} input={value} constant={constant} offset={offset}");
+                        }
+                        let predecessor = value.wrapping_sub(1) & mask;
+                        let expected = if signed {
+                            let shift = 128 - width;
+                            ((constant << shift) as i128 >> shift)
+                                < ((predecessor << shift) as i128 >> shift)
+                        } else {
+                            constant < predecessor
+                        };
+                        assert_eq!(
+                            circuit.eval(comparisons[index], &model),
+                            expected,
+                            "order width={width} signed={signed} input={value} constant={constant}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn equal_wrapping_offsets_preserve_equality_of_distinct_inputs() {
+        for width in [1, 2, 3, 4, 5, 8, 16, 32, 64, 128] {
+            let mask = if width == 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            let sign = 1u128 << (width - 1);
+            let values = if width <= 5 {
+                (0..=mask).collect::<Vec<_>>()
+            } else {
+                vec![0, 1, sign - 1, sign, sign + 1, mask - 1, mask]
+            };
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let left = circuit.word(width, signed);
+                let right = circuit.word(width, signed);
+                let equalities = [1, 3, mask].map(|offset| {
+                    let shift = Circuit::constant(offset, width, signed);
+                    let shifted_left = circuit
+                        .binary("add", Some("wrap"), &left, &shift)
+                        .unwrap()
+                        .0;
+                    let shifted_right = circuit
+                        .binary("add", Some("wrap"), &right, &shift)
+                        .unwrap()
+                        .0;
+                    circuit.eq_word(&shifted_left, &shifted_right)
+                });
+                for &a in &values {
+                    for &b in &values {
+                        let mut model = vec![false; circuit.nodes.len() + 1];
+                        for (word, value) in [(&left, a), (&right, b)] {
+                            for (index, bit) in word.bits.iter().enumerate() {
+                                model[(bit >> 1) as usize] = value & (1u128 << index) != 0;
+                            }
+                        }
+                        for equality in equalities {
+                            assert_eq!(
+                                circuit.eval(equality, &model),
+                                a == b,
+                                "width={width} signed={signed} left={a} right={b}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn wrapping_predecessor_comparisons_match_exhaustive_machine_orders() {
