@@ -5,6 +5,7 @@ mod contract_return;
 mod contract_store;
 mod contracts;
 mod counterexample;
+mod coverage;
 mod graph;
 #[cfg(test)]
 mod induction_tests;
@@ -88,6 +89,7 @@ struct Engine<'a, 'p> {
     depth: usize,
     quantified: bool,
     evaluation_depth: usize,
+    coverage: coverage::Coverage,
 }
 
 pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), AnalysisError> {
@@ -117,6 +119,8 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         ))
     })?;
     let mut verified = HashMap::new();
+    let mut warnings = Vec::new();
+    let mut warning_budget = coverage::ReportBudget::default();
     for index in order.sequence {
         let (name, proposition) = proofs[index];
         let span =
@@ -126,8 +130,27 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
         engine.verify_reference_origins = order.providers.contains(&index)
             && engine.verified_contract(name, proposition, span).is_some();
         let outcome = engine
-            .proposition(State::new(), proposition)
-            .and_then(|states| engine.establish(states, "the proposition is false"));
+            .coverage
+            .locate(
+                proposition,
+                checked
+                    .program()
+                    .declaration_expressions
+                    .get(name)
+                    .and_then(|source| source.children.get(2)),
+            )
+            .and_then(|()| engine.proposition(State::new(), proposition))
+            .and_then(|states| engine.establish(states, "the proposition is false"))
+            .and_then(|()| {
+                let coverage = std::mem::take(&mut engine.coverage);
+                warnings.extend(coverage.diagnostics(
+                    &mut engine.circuit,
+                    checked.program(),
+                    name,
+                    &mut warning_budget,
+                )?);
+                Ok(())
+            });
         if let Err(message) = outcome {
             let code = message.diagnostic_code();
             return Err((
@@ -145,6 +168,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
             verified.insert(name.clone(), contract);
         }
     }
+    crate::warnings::record(warnings);
     Ok(())
 }
 
@@ -181,6 +205,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             depth: 0,
             quantified: false,
             evaluation_depth: 0,
+            coverage: coverage::Coverage::default(),
         };
         for item in &checked.program().items {
             match item {

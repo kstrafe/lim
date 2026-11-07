@@ -28,7 +28,11 @@ pub(crate) fn record_program(program: &Program) {
     if !WARNINGS.with(|warnings| warnings.borrow().is_some()) {
         return;
     }
-    let diagnostics = unused_type_warnings(program);
+    record(unused_type_warnings(program));
+}
+
+/// Publish diagnostics only after their producing analysis has succeeded.
+pub(crate) fn record(diagnostics: impl IntoIterator<Item = Diagnostic>) {
     WARNINGS.with(|warnings| {
         let mut warnings = warnings.borrow_mut();
         let Some(warnings) = warnings.as_mut() else {

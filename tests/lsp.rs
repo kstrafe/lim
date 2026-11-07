@@ -822,6 +822,52 @@ fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
 }
 
 #[test]
+fn vacuous_proof_warning_has_expression_range_and_clears_after_edit() {
+    let uri = "file:///tmp/lim-lsp-proof-vacuous.lim";
+    let source = "(#fn identity (: value #u8) #u8 (#return value))\n(#theorem claim (#proof-contract identity (#u8::gt value 255u8) false))";
+    let updated = source.replace("(#u8::gt value 255u8) false", "(#u8::lt value 255u8) true");
+    let mut messages = start();
+    messages.push(open(uri, 1, source));
+    messages.push(change(uri, 2, &updated));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let reports = publications(&replies);
+    assert_eq!(reports.len(), 2);
+
+    let diagnostics = reports[0].get("diagnostics").unwrap().array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.get("severity").and_then(Json::integer), Some(2));
+    assert_eq!(diagnostic.get("code").and_then(Json::string), Some("W8001"));
+    assert!(diagnostic
+        .get("message")
+        .and_then(Json::string)
+        .unwrap()
+        .contains("precondition"));
+    let expression = "(#u8::gt value 255u8)";
+    let start = source.find(expression).unwrap();
+    let end = start + expression.len();
+    for (edge, byte) in [("start", start), ("end", end)] {
+        let (line, character) = lsp::byte_position(source, byte);
+        let position = diagnostic.get("range").unwrap().get(edge).unwrap();
+        assert_eq!(
+            position.get("line").and_then(Json::integer),
+            Some(line as i64)
+        );
+        assert_eq!(
+            position.get("character").and_then(Json::integer),
+            Some(character as i64)
+        );
+    }
+    assert!(reports[1]
+        .get("diagnostics")
+        .unwrap()
+        .array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-at-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();

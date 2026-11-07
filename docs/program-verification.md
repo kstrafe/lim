@@ -25,7 +25,9 @@ program-shape dependent; this list is not a claim of completeness.
   function’s result and state to its old inputs. Implications and path guards
   constrain which executions an obligation covers. Contracts can assert
   relations, but arbitrary quantified formulas, unbounded domains, and every
-  Lim type are not supported.
+  Lim type are not supported. A contract covering no inputs produces a
+  nonfatal W8001 warning identifying its impossible precondition or infeasible
+  enclosing proof path.
 - **Explicit contract reuse.** `#proof-using` selects separately verified
   direct contract theorems for calls in its body. Reference results use checked
   parameter-origin summaries, validated against symbolic return values before
@@ -115,6 +117,44 @@ of that array. A contract taking an arbitrary slice directly does not acquire
 an implicit length bound. For old contents, put the entire read inside
 `#proof-old`, for example `(#proof-old (#index values 0usize))`; saving an old
 reference or slice handle alone does not snapshot its referent.
+
+## Contract coverage
+
+A universal contract with an impossible precondition is logically true. It
+does not establish behavior for any execution. For example, this deliberately
+mistaken specification produces W8001, underlining `(#u8::gt value 255u8)`:
+
+```lisp
+(#fn identity (: value #u8) #u8
+  (#return value))
+
+(#theorem empty-domain
+  (#proof-contract identity (#u8::gt value 255u8) false))
+```
+
+The checker tests satisfiability across every evaluated precondition branch;
+one feasible branch is enough to avoid this warning. A contract reached only
+under an infeasible enclosing proof guard has a distinct warning explanation.
+This observation does not change the meaning of negation or turn empty-domain
+proofs into concrete execution evidence. Nor does a feasible precondition
+establish that each runtime branch is reachable: the postcondition must still
+hold on every modeled execution admitted by the precondition.
+
+Warnings are published after all program theorems pass, including dependency
+theorems not explicitly selected by the command line. They retain source
+locations through file aliases and generated code, are recomputed on warm
+generator caches, and appear as LSP warning diagnostics. In JSON mode,
+`--check-theorem` still writes its success record to stdout; warnings go to
+stderr with `"code":"W8001"`, `"severity":"warning"`, `"category":"proof"`
+and `"proof_outcome":null`. Library clients collect them with `with_warnings`.
+An incomplete coverage query fails with its typed checker/resource diagnostic;
+it cannot establish either satisfiability or unsatisfiability by default.
+Coverage source mapping is capped at 100,000 nodes per theorem, with at most
+1,024 source clauses tracked per theorem. Reporting is capped across all
+theorems at 1,024 warnings and 16 MiB of diagnostic storage, including attached
+source and generator-provenance snapshots. Exceeding these limits reports
+E4403 rather than silently dropping coverage observations or retaining
+unbounded diagnostic copies.
 
 ## Reusing checked contracts
 

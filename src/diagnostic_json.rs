@@ -44,7 +44,8 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         | DiagnosticCode::ProofInvalid
         | DiagnosticCode::ProofInduction
         | DiagnosticCode::ProofInternal
-        | DiagnosticCode::ProofContract => "proof",
+        | DiagnosticCode::ProofContract
+        | DiagnosticCode::ProofVacuous => "proof",
         DiagnosticCode::Codegen => "codegen",
         DiagnosticCode::Link => "link",
         DiagnosticCode::Cli => "cli",

@@ -200,6 +200,7 @@ pub enum DiagnosticCode {
     Link = 6000,
     Cli = 7000,
     UnusedType = 8000,
+    ProofVacuous = 8001,
 }
 
 impl DiagnosticCode {
@@ -214,6 +215,7 @@ impl DiagnosticCode {
                 | Self::ProofInduction
                 | Self::ProofInternal
                 | Self::ProofContract
+                | Self::ProofVacuous
         )
     }
 

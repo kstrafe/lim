@@ -10,9 +10,13 @@ Schema version 1 has these fields:
 
 - `schema_version`: integer 1.
 - `severity`: `error` or `warning`. Warnings do not change a successful exit status.
-- `code`: stable high-level code, such as `E4000` or `W8000` (unused type).
+- `code`: stable high-level code, such as `E4000`, `W8000` (unused type),
+  or `W8001` (a contract covering no inputs).
 - `category`: `lex`, `parse`, `generator`, `type`, `borrow`, `linear`,
-  `unsafe`, `codegen`, `link`, `cli` (`E7000`), or `unused_type` (`W8000`).
+  `unsafe`, `proof`, `codegen`, `link`, `cli` (`E7000`), or `unused_type` (`W8000`).
+- `proof_outcome`: a typed proof failure outcome, or null for other diagnostics
+  and nonfatal proof-coverage warnings. Successful theorem checks have their
+  own stdout record; a warning is not a proof failure.
 - `message`: explanatory prose; do not use it as a machine identifier.
 - `path`: source path, or an empty string when no source applies.
 - `location`: a location object, or null for failures without source ranges.

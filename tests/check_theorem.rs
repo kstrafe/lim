@@ -68,6 +68,85 @@ fn missing_and_false_theorems_fail_without_a_success_line() {
 }
 
 #[test]
+fn vacuous_proof_is_a_nonfatal_warning_in_json_and_text() {
+    let scratch = support::Scratch::new("check-theorem-vacuous");
+    let source = "(#fn identity (: value #u8) #u8 (#return value))\n(#theorem claim (#proof-contract identity (#u8::gt value 255u8) false))";
+    write(&scratch, "main.lim", source);
+
+    let (status, stdout, stderr) = run(
+        &scratch,
+        &[
+            "--diagnostic-format=json",
+            "--check-theorem",
+            "main.lim",
+            "claim",
+        ],
+    );
+    assert!(status.success(), "{stderr}");
+    assert_eq!(stdout, "{\"schema_version\":1,\"category\":\"proof\",\"theorem\":\"claim\",\"proof_outcome\":\"proved\"}\n");
+    assert!(stderr.contains("W8001"), "{stderr}");
+    assert!(stderr.contains("\"severity\":\"warning\""), "{stderr}");
+    assert!(stderr.contains("\"category\":\"proof\""), "{stderr}");
+    assert!(stderr.contains("\"proof_outcome\":null"), "{stderr}");
+    assert!(
+        stderr.contains("precondition") && stderr.contains("no inputs"),
+        "{stderr}"
+    );
+    let precondition = "(#u8::gt value 255u8)";
+    let start = source.find(precondition).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "\"byte_start\":{start},\"byte_end\":{}",
+            start + precondition.len()
+        )),
+        "{stderr}"
+    );
+
+    let (status, _, stderr) = run(&scratch, &["--check-theorem", "main.lim", "claim"]);
+    assert!(status.success(), "{stderr}");
+    assert!(stderr.contains("W8001"), "{stderr}");
+    assert!(
+        stderr.contains("precondition") && stderr.contains("no inputs"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("-->"), "expected a source hunk: {stderr}");
+}
+
+#[test]
+fn nonvacuous_contract_has_no_warning_and_failed_theorem_has_no_success_warning() {
+    let scratch = support::Scratch::new("check-theorem-vacuous-controls");
+    let nonvacuous = "(#fn identity (: value #u8) #u8 (#return value))\n(#theorem claim (#proof-contract identity (#u8::lt value 255u8) true))";
+    write(&scratch, "main.lim", nonvacuous);
+    let (status, stdout, stderr) = run(
+        &scratch,
+        &[
+            "--diagnostic-format=json",
+            "--check-theorem",
+            "main.lim",
+            "claim",
+        ],
+    );
+    assert!(status.success(), "{stderr}");
+    assert!(stdout.contains("\"proof_outcome\":\"proved\""), "{stdout}");
+    assert!(!stderr.contains("W8001"), "{stderr}");
+
+    write(&scratch, "main.lim", "(#theorem broken false)");
+    let (status, stdout, stderr) = run(
+        &scratch,
+        &[
+            "--diagnostic-format=json",
+            "--check-theorem",
+            "main.lim",
+            "broken",
+        ],
+    );
+    assert!(!status.success());
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("disproved"), "{stderr}");
+    assert!(!stderr.contains("W8001"), "{stderr}");
+}
+
+#[test]
 fn cfg_and_target_flags_are_shared_with_check_in_either_option_order() {
     let scratch = support::Scratch::new("check-theorem-cfg-target");
     write(

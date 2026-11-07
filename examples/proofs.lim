@@ -20,6 +20,8 @@
 
 (#fn identity ((value #u8)) #u8
   (#return value))
+; A feasible precondition ensures this theorem covers actual inputs.
+; An impossible precondition would be logically true but warn with W8001.
 
 (#theorem identity-contract
   (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))

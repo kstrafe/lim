@@ -74,9 +74,12 @@ impl Engine<'_, '_> {
         self.old = Some(state.clone());
         self.input_state = Some(state.clone());
         let mut output = Vec::new();
+        let entered = state.guard;
+        let mut admitted = FALSE;
         for (mut state, pre) in self.proposition(state, &args[1])? {
             let pre = pre.boolean()?;
             state.guard = self.circuit.and(state.guard, pre);
+            admitted = self.circuit.or(admitted, state.guard);
             for (mut state, result) in self.call(state, function, arguments.clone(), false)? {
                 if self.verify_reference_origins {
                     self.verify_contract_return(&state, function, &arguments, &result)?;
@@ -90,6 +93,14 @@ impl Engine<'_, '_> {
                 output.extend(self.proposition(state, &args[2])?);
             }
         }
+        self.coverage.record(
+            &mut self.circuit,
+            &args[1],
+            &function.name,
+            self.span,
+            entered,
+            admitted,
+        )?;
         self.old = None;
         self.quantified = false;
         self.close_claim(original, output, input_start)
