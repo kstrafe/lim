@@ -510,17 +510,27 @@ impl Circuit {
         }
         model
     }
+    #[cfg(test)]
     pub(crate) fn eval(&self, bit: Bit, model: &[bool]) -> bool {
         Self::bit_value(bit, &self.evaluate(model))
     }
+    #[cfg(test)]
     pub(crate) fn value(&self, word: &Word, model: &[bool]) -> u128 {
         let model = self.evaluate(model);
+        Self::value_in_model(word, &model)
+    }
+    /// Read a complete model already recomputed and validated by `satisfy`.
+    pub(super) fn bit_in_model(bit: Bit, model: &[bool]) -> bool {
+        Self::bit_value(bit, model)
+    }
+    /// Unlike `value`, this consumes a complete model, not partial inputs.
+    pub(super) fn value_in_model(word: &Word, model: &[bool]) -> u128 {
         word.bits
             .iter()
             .take(128)
             .enumerate()
             .fold(0, |acc, (i, &b)| {
-                if Self::bit_value(b, &model) {
+                if Self::bit_value(b, model) {
                     acc | (1u128 << i)
                 } else {
                     acc

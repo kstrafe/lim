@@ -20,6 +20,7 @@ Current major bounds:
 | Symbolic proof circuits | 100,000 Boolean nodes; 128-bit integers | Sticky failure; later simplification cannot discharge an exhausted circuit |
 | Symbolic SAT queries | 2,000,000 charged work units; 100,000 learned literals per query | Report unproved; retain the circuit's exhausted state |
 | Symbolic array inputs and slice backing | 64 elements | Report unsupported input/storage instead of assuming a length bound |
+| Counterexample rendering | 12 inputs; 8 aggregate entries; depth 12; 256 values; 8 compound witnesses; 8192 bytes | Explicitly mark elisions; preserve proof checking and hide inaccessible record fields |
 | Async initialization | 16,384 states per emitted function | Reject with state limit, storage width, and a restructuring suggestion |
 | Async initialization facts | 16,777,216 retained boolean cells across before/after/identity vectors | Reject before adding an over-budget state; report width and configured state limit |
 

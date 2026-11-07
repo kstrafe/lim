@@ -1,5 +1,6 @@
 //! Compile-time propositions checked against the validated, expanded program.
 //! No theorem is an assumption: unsupported semantics and exhausted budgets fail.
+mod counterexample;
 mod graph;
 #[cfg(test)]
 mod induction_tests;
@@ -9,6 +10,7 @@ mod validation;
 
 use crate::typecheck::{AnalysisError, CheckedProgram};
 use crate::{Expr, Function, Item, Span, Type};
+use counterexample::{Evidence, Witness};
 use graph::Graph;
 use logic::{Bit, Circuit, Word, FALSE, TRUE};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -59,6 +61,8 @@ struct Engine<'a, 'p> {
     globals: HashMap<String, Type>,
     span: Span,
     inputs: Vec<(String, Value)>,
+    input_state: Option<State>,
+    inductive_witness: bool,
     old: Option<State>,
     steps: usize,
     loop_limit: usize,
@@ -68,7 +72,6 @@ struct Engine<'a, 'p> {
     depth: usize,
     quantified: bool,
     evaluation_depth: usize,
-    counterexample: Option<String>,
 }
 
 pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), AnalysisError> {
@@ -123,6 +126,8 @@ impl<'a, 'p> Engine<'a, 'p> {
             globals: HashMap::new(),
             span,
             inputs: Vec::new(),
+            input_state: None,
+            inductive_witness: false,
             old: None,
             steps: 0,
             loop_limit: 32,
@@ -132,7 +137,6 @@ impl<'a, 'p> Engine<'a, 'p> {
             depth: 0,
             quantified: false,
             evaluation_depth: 0,
-            counterexample: None,
         };
         for item in &checked.program().items {
             match item {
@@ -190,9 +194,9 @@ impl<'a, 'p> Engine<'a, 'p> {
             return Err("unproved: the proposition produced no logical value".into());
         }
         for (state, value) in states {
-            let value = value.boolean()?;
-            let bad = self.circuit.and(state.guard, self.circuit.not(value));
-            self.require_unsat(bad, explanation)?;
+            let condition = value.boolean()?;
+            let bad = self.circuit.and(state.guard, self.circuit.not(condition));
+            self.require_unsat_with_evidence(bad, explanation, Some(&value))?;
         }
         // Budget exhaustion remains an error even if simplification returned true.
         self.circuit
@@ -202,6 +206,15 @@ impl<'a, 'p> Engine<'a, 'p> {
     }
 
     fn require_unsat(&mut self, bad: Bit, explanation: &str) -> Result<()> {
+        self.require_unsat_with_evidence(bad, explanation, None)
+    }
+
+    fn require_unsat_with_evidence(
+        &mut self,
+        bad: Bit,
+        explanation: &str,
+        value: Option<&Value>,
+    ) -> Result<()> {
         match self
             .circuit
             .satisfy(bad)
@@ -209,23 +222,22 @@ impl<'a, 'p> Engine<'a, 'p> {
         {
             None => Ok(()),
             Some(model) => {
-                if let Some(example) = &self.counterexample {
+                if let Some(example) = value.and_then(|value| self.claim_evidence(value, &model)) {
                     return Err(format!(
                         "disproved: {explanation}; quantified counterexample: {example}"
                     ));
                 }
-                let mut examples = self
-                    .inputs
-                    .iter()
-                    .take(12)
-                    .map(|(name, value)| format!("{name} = {}", self.display_value(value, &model)))
-                    .collect::<Vec<_>>();
-                if examples.is_empty() {
-                    examples.push("the closed proposition evaluates to false".into());
+                let examples = self.render_inputs(0, &model);
+                if self.inductive_witness {
+                    return Err(format!("disproved: {explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}"));
                 }
                 Err(format!(
                     "disproved: {explanation}; counterexample: {}",
-                    examples.join(", ")
+                    if examples.is_empty() {
+                        "no named input bindings"
+                    } else {
+                        &examples
+                    }
                 ))
             }
         }
@@ -260,14 +272,11 @@ impl<'a, 'p> Engine<'a, 'p> {
                 break;
             }
         }
-        if let Some(model) = &model {
-            let inputs = self.inputs[input_start..]
-                .iter()
-                .take(12)
-                .map(|(name, value)| format!("{name} = {}", self.display_value(value, model)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            self.counterexample = Some(if let Some(Trace::Validated(rule)) = &self.trace {
+        let value = if let Some(model) = &model {
+            let inputs = self.render_inputs(input_start, model);
+            let example = if self.inductive_witness {
+                format!("inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")
+            } else if let Some(Trace::Validated(rule)) = &self.trace {
                 let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));
                 if inputs.is_empty() {
                     explanation
@@ -275,11 +284,27 @@ impl<'a, 'p> Engine<'a, 'p> {
                     format!("{explanation}; {inputs}")
                 }
             } else {
-                inputs
-            });
-        }
+                if inputs.is_empty() {
+                    "no named input bindings".into()
+                } else {
+                    inputs
+                }
+            };
+            Value::Claim(Box::new(Evidence {
+                value: FALSE,
+                witnesses: vec![Witness {
+                    guard: TRUE,
+                    text: example.into(),
+                }],
+                omitted: false,
+            }))
+        } else {
+            Value::Bool(TRUE)
+        };
         self.inputs.truncate(input_start);
-        Ok(vec![(original, Value::Bool(bit(model.is_none())))])
+        self.input_state = None;
+        self.inductive_witness = false;
+        Ok(vec![(original, value)])
     }
 
     fn proposition(&mut self, state: State, expr: &Expr) -> Result<Vec<(State, Value)>> {
@@ -310,14 +335,8 @@ impl<'a, 'p> Engine<'a, 'p> {
                     let mut next = Vec::new();
                     for (state, previous) in states {
                         for (state, value) in self.proposition(state, argument)? {
-                            let a = previous.boolean()?;
-                            let b = value.boolean()?;
-                            let result = if head == "proof-and" {
-                                self.circuit.and(a, b)
-                            } else {
-                                self.circuit.or(a, b)
-                            };
-                            next.push((state, Value::Bool(result)));
+                            let result = self.combine_claims(head, &previous, &value)?;
+                            next.push((state, result));
                         }
                     }
                     self.limit_paths(next.len())?;
@@ -464,6 +483,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                     self.inputs.push((name.clone(), value.clone()));
                     self.bind(&mut state, name, ty, value)?;
                 }
+                self.input_state = Some(state.clone());
                 let runs = self.proposition(state, &args[1])?;
                 self.quantified = false;
                 self.close_claim(original, runs, input_start)
@@ -494,6 +514,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                     arguments.push(value);
                 }
                 self.old = Some(state.clone());
+                self.input_state = Some(state.clone());
                 let mut output = Vec::new();
                 for (mut state, pre) in self.proposition(state, &args[1])? {
                     let pre = pre.boolean()?;
@@ -563,6 +584,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                     self.inputs.push((parameter.name.clone(), value.clone()));
                     arguments.push(value);
                 }
+                self.input_state = Some(state.clone());
                 let runs = self.call(state.clone(), function, arguments, false)?;
                 // At least one trace must be analysed; nontermination is never
                 // silently treated as evidence that an operation cannot run.
@@ -679,48 +701,6 @@ impl<'a, 'p> Engine<'a, 'p> {
 
     fn resolve_type(&self, ty: &Type) -> Result<Type> {
         crate::typed_ir::resolve_type(ty, &self.aliases)
-    }
-
-    fn display_value(&self, value: &Value, model: &[bool]) -> String {
-        match value {
-            Value::Unit => "()".into(),
-            Value::Bool(value) => self.circuit.eval(*value, model).to_string(),
-            Value::Bits(word, ty) => {
-                let value = self.circuit.value(word, model);
-                let width = word.bits.len();
-                let signed = if word.signed && width < 128 && value & (1u128 << (width - 1)) != 0 {
-                    (value | (!0u128 << width)) as i128
-                } else {
-                    value as i128
-                };
-                if word.signed {
-                    format!("{signed} {ty:?}")
-                } else {
-                    format!("{value} {ty:?}")
-                }
-            }
-            Value::Ref { .. } => "<reference>".into(),
-            Value::Slice(view) => format!(
-                "<slice start={} length={}>",
-                self.circuit.value(&view.start, model),
-                self.circuit.value(&view.len, model)
-            ),
-            Value::Record(name, _) => format!("<{}>", crate::file_access::local_name(name)),
-            Value::Array(_, values) | Value::Tuple(values) => format!(
-                "[{}]",
-                values
-                    .iter()
-                    .take(8)
-                    .map(|value| self.display_value(value, model))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Value::Enum(name, tag, _) => format!(
-                "{} variant {}",
-                crate::file_access::local_name(name),
-                self.circuit.value(tag, model)
-            ),
-        }
     }
 }
 

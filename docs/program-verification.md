@@ -77,7 +77,11 @@ program-shape dependent; this list is not a claim of completeness.
   reached through slices depend on the elements selected by their ranges,
   including any references stored in those elements.
 - **Proof reports and failure.** A false obligation reports a counterexample
-  when the solver can provide one. Unsupported semantics, malformed proof
+  when the solver can provide one. Scalar witnesses use typed literal
+  spellings. Arrays, records and active enum payloads show their values;
+  references and slices identify their initial storage and contents. Repeated
+  aliases share an identity, and inaccessible record representations stay
+  hidden. Unsupported semantics, malformed proof
   values, circuit errors, and exhausted execution/storage/solver budgets
   report failure or an inconclusive `unproved` result. They do not discharge
   the theorem.
@@ -89,6 +93,52 @@ of that array. A contract taking an arbitrary slice directly does not acquire
 an implicit length bound. For old contents, put the entire read inside
 `#proof-old`, for example `(#proof-old (#index values 0usize))`; saving an old
 reference or slice handle alone does not snapshot its referent.
+
+## Reading counterexamples
+
+The checker freezes symbolic inputs before executing the function. For example,
+this contract is false because `overwrite` replaces the original byte:
+
+```lisp
+(#fn overwrite (: source (#ref-mut #u8)) ()
+  (#deref-set source 7u8)
+  (#return ()))
+
+(#theorem unchanged
+  (#proof-contract overwrite
+    (#u8::eq (#deref source) 1u8)
+    (#proof-eq (#deref source) (#proof-old (#deref source)))))
+```
+
+The error includes `source = mut-ref#0(1u8)`. This is the initial byte, even
+though the final byte is `7u8`. An immutable reference uses `ref#0(...)`; pinned
+references retain a pin label. IDs describe modeled storage within that
+witness, not native addresses. A later alias can appear as `ref#0` without
+repeating the same contents. Slice witnesses include start, length and the
+selected initial elements. A native replay regression verifies this mutation
+example; general automatic witness replay is still future work. These reports
+describe modeled inputs, not a complete capture of global or environmental
+state. A claim with no named inputs says so explicitly.
+
+Witnesses belong to individual logical claims. A successful negation or
+disjunction discards irrelevant failures. A false disjunction of universal
+claims may show several numbered witnesses, each establishing failure of one
+subclaim with its own storage identity scope; they need not be a single shared
+input assignment.
+
+Invariant induction introduces arbitrary loop-head values. Its failure report
+therefore labels an **inductive obligation witness** and explicitly says the
+initial inputs are not a concrete execution replay. Such a result can show
+that an invariant or rank is insufficient without establishing a reachable
+bug in the function. Unsupported semantics and solver exhaustion remain
+unproved results.
+
+Rendering is bounded to 12 inputs, eight entries per aggregate, 12 nested
+levels, 256 visited values, eight compound witnesses and 8192 bytes per rendered
+witness payload. Truncation uses an explicit `...` marker. An elided or private value
+does not provide a complete replay fixture. Rendering reads the solver's
+validated model and frozen state without executing functions or creating new
+symbolic gates.
 
 ## Properties Lim should prove about real programs
 

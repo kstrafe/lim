@@ -1,0 +1,11 @@
+(#fn overwrite (: source (#ref-mut #u8)) ()
+  (#deref-set source 7u8)
+  (#return ()))
+
+(#theorem unchanged
+  (#proof-contract overwrite
+    (#u8::eq (#deref source) 1u8)
+    (#proof-eq (#deref source) (#proof-old (#deref source)))))
+
+(#fn main () #u64
+  (#return 0u64))

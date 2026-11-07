@@ -20,6 +20,7 @@ pub(super) struct Slice {
 pub(super) enum Value {
     Unit,
     Bool(Bit),
+    Claim(Box<Evidence>),
     Bits(Word, Type),
     Record(String, Vec<(String, Value)>),
     Array(Type, Vec<Value>),
@@ -38,13 +39,14 @@ impl Value {
     pub fn boolean(&self) -> Result<Bit> {
         match self {
             Self::Bool(value) => Ok(*value),
+            Self::Claim(evidence) => Ok(evidence.value),
             _ => Err("a proof proposition must have type #bool".into()),
         }
     }
     fn ty(&self) -> Type {
         match self {
             Self::Unit => Type::Unit,
-            Self::Bool(_) => Type::Bool,
+            Self::Bool(_) | Self::Claim(_) => Type::Bool,
             Self::Bits(_, ty) => ty.clone(),
             Self::Record(name, _) | Self::Enum(name, _, _) => Type::Named(name.clone()),
             Self::Array(ty, values) => Type::Array(Box::new(ty.clone()), values.len()),
@@ -126,6 +128,9 @@ pub(super) struct State {
     pub validations: Vec<ValidationFact>,
 }
 impl State {
+    pub(super) fn root_value(&self, root: usize) -> Option<&Value> {
+        self.heap.get(root)
+    }
     pub fn new() -> Self {
         Self {
             guard: TRUE,
@@ -284,6 +289,10 @@ impl Engine<'_, '_> {
                 b.ty()
             ));
         }
+        if a.ty() == Type::Bool {
+            let different = self.circuit.xor(a.boolean()?, b.boolean()?);
+            return Ok(self.circuit.not(different));
+        }
         match(a,b){
             (Value::Unit,Value::Unit)=>Ok(TRUE),
             (Value::Bool(a),Value::Bool(b))=>{let different=self.circuit.xor(*a,*b);Ok(self.circuit.not(different))},
@@ -313,6 +322,13 @@ impl Engine<'_, '_> {
             return Ok(b.clone());
         }
         self.compatible(a, &b.ty())?;
+        if a.ty() == Type::Bool {
+            return Ok(Value::Bool(self.circuit.ite(
+                condition,
+                a.boolean()?,
+                b.boolean()?,
+            )));
+        }
         Ok(match (a, b) {
             (Value::Unit, Value::Unit) => Value::Unit,
             (Value::Bool(a), Value::Bool(b)) => Value::Bool(self.circuit.ite(condition, *a, *b)),
@@ -466,7 +482,7 @@ impl Engine<'_, '_> {
         let bad = self.circuit.and(state.guard, self.circuit.not(valid));
         self.require_unsat(bad, "an array index can be out of bounds")
     }
-    fn representation(&self, name: &str, spec: bool) -> Result<()> {
+    pub(super) fn representation(&self, name: &str, spec: bool) -> Result<()> {
         if !spec {
             return Ok(());
         }
@@ -1928,6 +1944,10 @@ impl Engine<'_, '_> {
         }
         let entry = self.proposition(state.clone(), &invariant.predicate)?;
         self.establish(entry, "loop invariant fails on entry")?;
+        // Subsequent obligations may use an arbitrary loop-head state. Its
+        // model is evidence about the induction obligation, not necessarily
+        // an execution reachable from the original program inputs.
+        self.inductive_witness = true;
         for name in modified {
             let Some((place, ty)) = locals.get(&name).cloned() else {
                 if self.globals.contains_key(&name)
