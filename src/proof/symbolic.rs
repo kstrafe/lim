@@ -4,6 +4,18 @@ use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
+#[path = "slices.rs"]
+mod slices;
+
+#[derive(Clone, Debug)]
+pub(super) struct Slice {
+    pub place: Location,
+    pub element: Type,
+    pub start: Word,
+    pub len: Word,
+    pub mutable: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum Value {
     Unit,
@@ -13,6 +25,7 @@ pub(super) enum Value {
     Array(Type, Vec<Value>),
     Tuple(Vec<Value>),
     Enum(String, Word, Vec<Option<Value>>),
+    Slice(Slice),
     Ref {
         place: Location,
         target: Type,
@@ -36,6 +49,13 @@ impl Value {
             Self::Record(name, _) | Self::Enum(name, _, _) => Type::Named(name.clone()),
             Self::Array(ty, values) => Type::Array(Box::new(ty.clone()), values.len()),
             Self::Tuple(values) => Type::Tuple(values.iter().map(Self::ty).collect()),
+            Self::Slice(view) => {
+                if view.mutable {
+                    Type::MutableSlice(Box::new(view.element.clone()))
+                } else {
+                    Type::Slice(Box::new(view.element.clone()))
+                }
+            }
             Self::Ref {
                 target,
                 mutable,
@@ -58,7 +78,7 @@ impl Value {
     }
     fn contains_ref(&self) -> bool {
         match self {
-            Self::Ref { .. } => true,
+            Self::Ref { .. } | Self::Slice(_) => true,
             Self::Record(_, fields) => fields.iter().any(|(_, value)| value.contains_ref()),
             Self::Array(_, values) | Self::Tuple(values) => values.iter().any(Self::contains_ref),
             Self::Enum(_, _, values) => values.iter().flatten().any(Self::contains_ref),
@@ -811,18 +831,22 @@ impl Engine<'_, '_> {
                 let a = self.word_of(&a, &ty)?;
                 let b = self.word_of(&b, &ty)?;
                 let result = if matches!(op.as_str(), "eq" | "ne" | "lt" | "le" | "gt" | "ge") {
-                    let equal = self.circuit.eq_word(&a, &b);
-                    let less = self.circuit.lt_word(&a, &b);
                     let value = match op.as_str() {
-                        "eq" => equal,
-                        "ne" => self.circuit.not(equal),
-                        "lt" => less,
-                        "le" => self.circuit.or(less, equal),
-                        "gt" => {
-                            let le = self.circuit.or(less, equal);
-                            self.circuit.not(le)
+                        "eq" => self.circuit.eq_word(&a, &b),
+                        "ne" => {
+                            let same = self.circuit.eq_word(&a, &b);
+                            self.circuit.not(same)
                         }
-                        "ge" => self.circuit.not(less),
+                        "lt" => self.circuit.lt_word(&a, &b),
+                        "le" => {
+                            let greater = self.circuit.lt_word(&b, &a);
+                            self.circuit.not(greater)
+                        }
+                        "gt" => self.circuit.lt_word(&b, &a),
+                        "ge" => {
+                            let less = self.circuit.lt_word(&a, &b);
+                            self.circuit.not(less)
+                        }
                         _ => unreachable!(),
                     };
                     Value::Bool(value)
@@ -851,6 +875,9 @@ impl Engine<'_, '_> {
             }
             "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" | "deref" | "pin-read"
             | "deref-set" | "get" | "index" => self.reference_expr(state, head, args, spec),
+            "borrow-slice" | "borrow-slice-mut" | "slice-of" | "slice-mut-of" | "slice-range"
+            | "slice-mut-range" | "slice-len" | "slice-mut-len" | "slice-idx" | "slice-mut-idx"
+            | "slice-mut-split" => self.slice_expr(state, head, args, spec),
             _ => self.data_expr(state, head, args, spec),
         }
     }
@@ -1374,10 +1401,47 @@ impl Engine<'_, '_> {
     }
 
     fn equal_observable(&mut self, a: &Value, b: &Value) -> Result<Bit> {
+        self.compatible(a, &b.ty())?;
+        if let (Value::Slice(a), Value::Slice(b)) = (a, b) {
+            let same = self.same_location(&a.place, &b.place);
+            let start = self.circuit.eq_word(&a.start, &b.start);
+            let len = self.circuit.eq_word(&a.len, &b.len);
+            let same = self.circuit.and(same, start);
+            return Ok(self.circuit.and(same, len));
+        }
         if let (Value::Ref { place: a, .. }, Value::Ref { place: b, .. }) = (a, b) {
-            return Ok(bit(a.root == b.root
-                && a.path.is_empty()
-                && b.path.is_empty()));
+            return Ok(self.same_location(a, b));
+        }
+        if let (Value::Record(_, a), Value::Record(_, b)) = (a, b) {
+            let mut equal = TRUE;
+            for ((_, a), (_, b)) in a.iter().zip(b) {
+                let same = self.equal_observable(a, b)?;
+                equal = self.circuit.and(equal, same);
+            }
+            return Ok(equal);
+        }
+        if let (Value::Array(_, a), Value::Array(_, b)) | (Value::Tuple(a), Value::Tuple(b)) =
+            (a, b)
+        {
+            let mut equal = TRUE;
+            for (a, b) in a.iter().zip(b) {
+                let same = self.equal_observable(a, b)?;
+                equal = self.circuit.and(equal, same);
+            }
+            return Ok(equal);
+        }
+        if let (Value::Enum(_, at, a), Value::Enum(_, bt, b)) = (a, b) {
+            let mut equal = self.circuit.eq_word(at, bt);
+            for (index, (a, b)) in a.iter().zip(b).enumerate() {
+                if let (Some(a), Some(b)) = (a, b) {
+                    let same = self.equal_observable(a, b)?;
+                    let selected = Circuit::constant(index as u128, 64, false);
+                    let selected = self.circuit.eq_word(at, &selected);
+                    let valid = self.circuit.or(self.circuit.not(selected), same);
+                    equal = self.circuit.and(equal, valid);
+                }
+            }
+            return Ok(equal);
         }
         self.equal(a, b)
     }

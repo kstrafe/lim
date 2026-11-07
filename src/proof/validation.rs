@@ -76,6 +76,79 @@ mod tests {
             .require_unsat(wrong, "only the active payload can invalidate the holder")
             .unwrap();
     }
+
+    #[test]
+    fn slice_validation_tracks_only_elements_in_its_symbolic_range() {
+        let program = crate::parse_program("(#struct Holder () ((view (#slice #u8))))").unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let graph = Graph::new(checked.program(), checked.declarations());
+        let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
+        let mut state = State::new();
+        let reference = engine
+            .fresh_value(
+                &mut state,
+                &Type::Reference {
+                    mutable: true,
+                    target: Box::new(Type::Array(Box::new(Type::U8), 3)),
+                },
+                0,
+            )
+            .unwrap();
+        let Value::Ref { place: array, .. } = reference else {
+            panic!("array reference")
+        };
+        let start = engine.circuit.word(64, false);
+        state.guard = engine
+            .circuit
+            .lt_word(&start, &Circuit::constant(3, 64, false));
+        engine
+            .bind(
+                &mut state,
+                "holder".into(),
+                Type::Named("Holder".into()),
+                Value::Record(
+                    "Holder".into(),
+                    vec![(
+                        "view".into(),
+                        Value::Slice(symbolic::Slice {
+                            place: array.clone(),
+                            element: Type::U8,
+                            start: start.clone(),
+                            len: Circuit::constant(1, 64, false),
+                            mutable: false,
+                        }),
+                    )],
+                ),
+            )
+            .unwrap();
+        let subject = state.frames.last().unwrap().locals["holder"].0.clone();
+        engine
+            .complete_validation(&mut state, &subject, TRUE)
+            .unwrap();
+        let argument = Value::Ref {
+            place: subject,
+            target: Type::Named("Holder".into()),
+            mutable: false,
+            pinned: false,
+        };
+        for index in 0..3 {
+            let mut changed = state.clone();
+            let index = Circuit::constant(index, 64, false);
+            let mut written = array.clone();
+            written.path.push(Segment::Index(index.clone()));
+            engine
+                .invalidate_validations(&mut changed, &written)
+                .unwrap();
+            let valid = engine.validated_argument(&changed, &argument).unwrap();
+            let overlaps = engine.circuit.eq_word(&start, &index);
+            let expected = engine.circuit.not(overlaps);
+            let different = engine.circuit.xor(valid, expected);
+            let bad = engine.circuit.and(state.guard, different);
+            engine
+                .require_unsat(bad, "a slice depends only on its selected elements")
+                .unwrap();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -229,7 +302,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         Ok(())
     }
 
-    fn same_location(&mut self, left: &Location, right: &Location) -> Bit {
+    pub(super) fn same_location(&mut self, left: &Location, right: &Location) -> Bit {
         if left.path.len() != right.path.len() {
             return FALSE;
         }
@@ -308,6 +381,26 @@ impl<'a, 'p> Engine<'a, 'p> {
         match value {
             Value::Ref { place, .. } => {
                 self.validation_dependencies(state, place, active, dependencies, depth + 1)
+            }
+            Value::Slice(view) => {
+                let Value::Array(_, values) = self.read(state, &view.place)? else {
+                    return Err("unproved: a slice lost its backing array".into());
+                };
+                let end = self
+                    .circuit
+                    .binary("add", Some("wrap"), &view.start, &view.len)?
+                    .0;
+                for index in 0..values.len() {
+                    let index = Circuit::constant(index as u128, 64, false);
+                    let before = self.circuit.lt_word(&index, &view.start);
+                    let within_end = self.circuit.lt_word(&index, &end);
+                    let within = self.circuit.and(self.circuit.not(before), within_end);
+                    let selected = self.circuit.and(active, within);
+                    let mut place = view.place.clone();
+                    place.path.push(Segment::Index(index));
+                    self.validation_dependencies(state, &place, selected, dependencies, depth + 1)?;
+                }
+                Ok(())
             }
             Value::Record(_, fields) => {
                 for (_, value) in fields {

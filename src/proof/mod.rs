@@ -205,7 +205,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         match self
             .circuit
             .satisfy(bad)
-            .map_err(|why| format!("unproved: {why}"))?
+            .map_err(|why| format!("unproved: {why}; while checking {explanation}"))?
         {
             None => Ok(()),
             Some(model) => {
@@ -240,17 +240,26 @@ impl<'a, 'p> Engine<'a, 'p> {
         if runs.is_empty() {
             return Err("unproved: no complete symbolic executions".into());
         }
-        let mut bad = FALSE;
+        let mut violations = Vec::with_capacity(runs.len());
         for (state, value) in runs {
             let invalid = self
                 .circuit
                 .and(state.guard, self.circuit.not(value.boolean()?));
-            bad = self.circuit.or(bad, invalid);
+            violations.push(invalid);
         }
-        let model = self
-            .circuit
-            .satisfy(bad)
-            .map_err(|why| format!("unproved: {why}"))?;
+        // A claim fails if any complete path admits a counterexample. Checking
+        // each path separately keeps its guard available to propagation, and
+        // avoids a large disjunction of mutually exclusive execution states.
+        let mut model = None;
+        for invalid in violations {
+            model = self
+                .circuit
+                .satisfy(invalid)
+                .map_err(|why| format!("unproved: {why}; while checking a complete execution"))?;
+            if model.is_some() {
+                break;
+            }
+        }
         if let Some(model) = &model {
             let inputs = self.inputs[input_start..]
                 .iter()
@@ -691,6 +700,11 @@ impl<'a, 'p> Engine<'a, 'p> {
                 }
             }
             Value::Ref { .. } => "<reference>".into(),
+            Value::Slice(view) => format!(
+                "<slice start={} length={}>",
+                self.circuit.value(&view.start, model),
+                self.circuit.value(&view.len, model)
+            ),
             Value::Record(name, _) => format!("<{}>", crate::file_access::local_name(name)),
             Value::Array(_, values) | Value::Tuple(values) => format!(
                 "[{}]",

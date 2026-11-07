@@ -63,18 +63,32 @@ program-shape dependent; this list is not a claim of completeness.
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness and permutation within a limit. Indexing and
   supported projections carry path conditions, allowing bounds-related claims
-  when the relevant conditions are modeled. Symbolic arrays are capped at 64
-  elements; slices, arbitrary dynamically sized collections, and broad
-  collection algorithms are not generally modeled.
+  when the relevant conditions are modeled. Borrowed slices over modeled
+  arrays preserve their backing storage, start, length and mutability. Array
+  borrows, nested ranges, element references, length queries and mutable splits
+  carry bounds obligations; writes through a view update the original array.
+  A range may be empty at the end boundary. Symbolic array inputs and slice backing
+  arrays are capped at 64 elements. Arbitrary slice inputs, dynamically sized
+  allocations and broad collection algorithms are not generally modeled.
 - **References and modeled memory.** Ordinary and pinned references denote
   symbolic storage locations; reads, writes, aliases, and projections update
   the modeled heap. Raw pointers may be represented as address bitvectors, but
-  that does not model dereference or unsafe memory effects.
+  that does not model dereference or unsafe memory effects. Validation facts
+  reached through slices depend on the elements selected by their ranges,
+  including any references stored in those elements.
 - **Proof reports and failure.** A false obligation reports a counterexample
   when the solver can provide one. Unsupported semantics, malformed proof
   values, circuit errors, and exhausted execution/storage/solver budgets
   report failure or an inconclusive `unproved` result. They do not discharge
   the theorem.
+
+[`examples/symbolic_slices.lim`](../examples/symbolic_slices.lim) demonstrates
+read and mutation contracts over borrowed subranges. Quantify an array or
+array reference to bound the backing storage, then call a function with a view
+of that array. A contract taking an arbitrary slice directly does not acquire
+an implicit length bound. For old contents, put the entire read inside
+`#proof-old`, for example `(#proof-old (#index values 0usize))`; saving an old
+reference or slice handle alone does not snapshot its referent.
 
 ## Properties Lim should prove about real programs
 
