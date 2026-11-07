@@ -1,5 +1,9 @@
 # Acquiring the pinned full FLT input
 
+This guide concerns the optional elaborated-export replay route. The direct
+mathematical source port uses the pinned Lean source and writes proofs in
+Lim; it does not require this export. See the [source-port map](flt-source-port.md).
+
 Lim has not verified the complete upstream Fermat's Last Theorem proof. The
 producer recipes below are for a separately provisioned external host; none
 was run here. Do not run the full producer locally. The local
@@ -13,6 +17,15 @@ reports a **37.8 GB** export, about **90 GB** of producer memory, and
 **1,052,234** declarations accepted by patched nanoda. Those results were not
 reproduced here; no actual full-export SHA-256 or public binary download URL
 has been established here.
+
+On 2026-11-03 the upstream [releases page](https://github.com/anthropics/fermats-last-theorem/releases)
+still listed no published releases. A bounded metadata check also found no
+public Actions artifacts. The pinned tree contains no `.github` workflows,
+and its [nanoda directory](https://github.com/anthropics/fermats-last-theorem/tree/6e837e75355538c7f80bab5b956861e86c4eacc2/verification/nanoda)
+contains producer configuration, patches and a script rather than an export.
+The configured local export and digest were also absent. This checks those
+public and local locations; it does not rule out a privately held or separately
+hosted export. No download URL or complete-export digest was established.
 
 | Input component | Exact pin or identity |
 | --- | --- |
@@ -178,8 +191,25 @@ and [ATTRIBUTION.md](https://github.com/anthropics/fermats-last-theorem/blob/6e8
 with applicable Lean, exporter, Mathlib and dependency licenses and per-file
 attribution, even when NDJSON omits source comments.
 
-Lim's current raw replay still caps input at **64 MiB** and declarations at
-**4,096** in [src/proof/kernel/export.rs](../src/proof/kernel/export.rs).
-The reported full export exceeds both. The inventory's larger scan bound and
-proof transformation budgets do not lift these caps; no full-FLT replay
-profile is established here.
+Lim's raw replay defaults to **64 MiB** and **4,096 declarations**.
+Explicit `LeanExportLimits` / `--export-*` choices can now select larger
+cumulative input, name, universe, expression, declaration and dependency
+limits, independently of proof transformation budgets. Resident table budgets,
+per-record bounds and raw-store scratch capacities remain separate. Native
+output has its own explicit `NativeProofLimits`
+profile and fresh closed-artifact checker. Raw and native kernel stores now
+accept separate explicit scratch capacities while retaining their 128-MiB
+default and fixed resident thresholds; full-environment residency and kernel
+semantic coverage remain unverified. A checked 4,097-declaration synthetic
+replay exercises the selected count path; no full-FLT replay profile is
+established here.
+The full elaborated export and a trusted acquisition hash are still absent.
+See the [input limit reference](lean-export.md#resource-limits-and-unsupported-features).
+
+
+On 2026-11-04 the upstream [GitHub releases page](https://github.com/anthropics/fermats-last-theorem/releases)
+still listed no releases. This checks the release channel only; it does not
+prove that no export is available through another service or private storage.
+The full elaborated export and acquisition hash remain absent at the local
+paths checked by this work. A source checkout or publisher check log cannot
+replace that proof input.

@@ -1,0 +1,27 @@
+Mathlib point-ideal addition attribution
+
+Pinned mathematical sources:
+Mathlib/RingTheory/Ideal/Operations.lean
+SHA-256: bfc0fd48729b1953ee86d6a7e834f27c1472e73c8e83a40b9d0f49ad7b9f2299
+Mathlib/AlgebraicGeometry/EllipticCurve/Affine/Point.lean
+SHA-256: 541c24503064ca053f3f747e2f8c725bea049a04ca561d6d5be17597fd368339
+Revision: db584cd6d46c92f209a44c0f1c829460d327499d
+
+Copyright (c) 2018 Kenny Lau and 2025 David Kurniadi Angdinata.
+License: Apache-2.0, reproduced in LICENSE.MATHLIB.
+
+The native adaptation proves actual-coordinate evaluation-kernel
+inclusions, actual line evaluations, and the source point-ideal generator
+changes used in the secant and tangent constructions. The required units
+are constructed from the nonzero root difference in the distinct-x case,
+and from a nonzero Jacobian partial in the tangent case. The common-ideal
+unit then gives the actual scaled pair-product identity, conditional on the
+scalar line-norm equation.
+
+That scalar cubic line-factor equation, derived from the two source curve
+equations and the secant or tangent slope, remains open. Consequently this
+conditional scaled identity is not a proof of Mathlib's
+XYIdeal_mul_XYIdeal theorem: its full ideal-product conclusion has not been
+completed. Fractional ideals, class groups, and the full FLT proof are also
+outside this attribution's scope. Native proof authoring carries no proof
+authority; all saved terms are checked by Lim.

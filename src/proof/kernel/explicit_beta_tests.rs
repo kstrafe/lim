@@ -120,7 +120,7 @@ fn global_heads_stay_neutral_and_bad_erased_sources_still_fail() {
         .definition("bad-levels", vec![], nat(), malformed, false)
         .unwrap_err();
     assert!(error.contains("universe"), "{error}");
-    assert!(!k.contains("bad-levels"));
+    assert!(!k.contains("bad-levels").unwrap());
     let source = apps(
         lam(
             nat(),
@@ -132,7 +132,7 @@ fn global_heads_stay_neutral_and_bad_erased_sources_still_fail() {
         .definition("bad-erased", vec![], nat(), source, false)
         .unwrap_err();
     assert!(error.contains("type mismatch"), "{error}");
-    assert!(!k.contains("bad-erased"));
+    assert!(!k.contains("bad-erased").unwrap());
 }
 
 #[test]

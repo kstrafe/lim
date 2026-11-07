@@ -1,0 +1,39 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Exact IsIntegralModelOf relation from Def_FLTPrelim_Modularity:88-89.
+; Actual admissible rational coordinate change, not coefficient equality.
+; Curve equality is represented by proved coefficient cross equivalence.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-map-rational
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-map-rational)
+(#alias
+  rational-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-equivalent)
+(#alias rational-variable-change = ./rational-variable-change-defs.lim::rational-variable-change)
+(#alias
+  rational-variable-change-act
+  =
+  ./rational-variable-change-defs.lim::rational-variable-change-act)
+(#math-definition integer-is-integral-model-of ()
+  (#pt-pi
+    (
+      (model (#pt-use integer-weierstrass-curve ()))
+      (rational-curve (#pt-use rational-weierstrass-curve ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (model (#pt-use integer-weierstrass-curve ()))
+      (rational-curve (#pt-use rational-weierstrass-curve ())))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use rational-variable-change ())
+      (#pt-lambda
+        ((candidate-change (#pt-use rational-variable-change ())))
+        (#pt-app
+          (#pt-use rational-weierstrass-equivalent ())
+          (#pt-app (#pt-use rational-variable-change-act ()) candidate-change rational-curve)
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))))))

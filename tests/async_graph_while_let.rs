@@ -1,4 +1,6 @@
 //! Graph lowering shares the single-evaluation while-let source semantics.
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -30,6 +32,7 @@ fn run(source: &str, expected: i32) {
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .find(|text| text.contains("(#fn Work::poll "))
             .unwrap();
+        let artifact = generated_source::ordinary_source(&artifact);
         let invocation = lim::parse(source)
             .unwrap()
             .into_iter()
@@ -87,7 +90,10 @@ fn awaited_pattern_payload_preserves_an_external_reference() {
             "(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))",
             "(#enum Choice () ((Choice.Chosen (#ref #u64)) Choice.Empty))",
         )
-        .replace("(Start value)))", "(Start (#deref value))))")
+        .replace(
+            "step-poll (Step.Start value)",
+            "step-poll (Step.Start (#deref value))",
+        )
         .replace(
             "(#let chosen #u64",
             "(#let owner #u64 37u64) (#let chosen #u64",

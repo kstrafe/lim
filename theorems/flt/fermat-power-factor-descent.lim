@@ -1,0 +1,725 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Generalization of the earlier native source adaptation of cubic prime removal.
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Common-prime removal for arbitrary positive power exponents.
+; The actual prime divides the third coordinate; all quotient equations
+; are retained. Nonzero power cancellation preserves the equation, all
+; reduced coordinates are nonzero, and the third is strictly smaller.
+; Native adaptation of S_FreyPackage_of_counterexample.lean:17-29,
+; using positive-Nat prime descent instead of the generic integer gcd API.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias power-product = ./natural-power-products.lim::power-product)
+(#alias divides-positive-power = ./natural-power-products.lim::divides-positive-power)
+(#alias natural-power-solution = ./fermat-power-defs.lim::natural-power-solution)
+(#alias
+  has-smaller-natural-power-solution
+  =
+  ./fermat-power-defs.lim::has-smaller-natural-power-solution)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-larger-than-one = ./natural-prime.lim::prime-larger-than-one)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias nonunit-multiple-above = ./natural-square-arithmetic.lim::nonunit-multiple-above)
+(#alias
+  multiply-cancel-left-nonzero
+  =
+  ./natural-square-arithmetic.lim::multiply-cancel-left-nonzero)
+(#alias multiply-add-right = ./natural-multiplication-order.lim::multiply-add-right)
+(#alias power-nonzero = ./natural-nonzero.lim::power-nonzero)
+(#alias natural-factor-nonzero = ./fermat-three-factor-descent.lim::natural-factor-nonzero)
+(#alias divides-add = ./natural-divisibility-addition.lim::divides-add)
+(#alias prime-divides-power = ./natural-prime-divisibility.lim::prime-divides-power)
+(#theorem power-common-prime-divides-third
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter prime-number #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter power-equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use power ()) first exponent) (#pt-app (#pt-use power ()) second exponent)) (#pt-app (#pt-use power ()) third exponent)))
+    (#parameter first-divides (#pt-app (#pt-use divides ()) prime-number first))
+    (#parameter second-divides (#pt-app (#pt-use divides ()) prime-number second)))
+  (#statement (#pt-app (#pt-use divides ()) prime-number third))
+  (#proof
+    (#pt-app
+      (#pt-use prime-divides-power ())
+      prime-number
+      third
+      exponent
+      prime-certificate
+      (#pt-app
+        (#pt-use substitution (0))
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use divides ()) prime-number endpoint))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use power ()) first exponent)
+          (#pt-app (#pt-use power ()) second exponent))
+        (#pt-app (#pt-use power ()) third exponent)
+        power-equation
+        (#pt-app
+          (#pt-use divides-add ())
+          prime-number
+          (#pt-app (#pt-use power ()) first exponent)
+          (#pt-app (#pt-use power ()) second exponent)
+          (#pt-app
+            (#pt-use divides-positive-power ())
+            prime-number
+            first
+            exponent
+            positive-exponent
+            first-divides)
+          (#pt-app
+            (#pt-use divides-positive-power ())
+            prime-number
+            second
+            exponent
+            positive-exponent
+            second-divides))))))
+(#theorem power-remove-common-factor
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter factor #pt-nat)
+    (#parameter reduced-first #pt-nat)
+    (#parameter reduced-second #pt-nat)
+    (#parameter reduced-third #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter power-equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use power ()) first exponent) (#pt-app (#pt-use power ()) second exponent)) (#pt-app (#pt-use power ()) third exponent)))
+    (#parameter first-equation (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) factor reduced-first)))
+    (#parameter second-equation (#pt-eq #pt-nat second (#pt-app (#pt-use multiply ()) factor reduced-second)))
+    (#parameter third-equation (#pt-eq #pt-nat third (#pt-app (#pt-use multiply ()) factor reduced-third))))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use power ()) reduced-first exponent)
+        (#pt-app (#pt-use power ()) reduced-second exponent))
+      (#pt-app (#pt-use power ()) reduced-third exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use multiply-cancel-left-nonzero ())
+      (#pt-app (#pt-use power ()) factor exponent)
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use power ()) reduced-first exponent)
+        (#pt-app (#pt-use power ()) reduced-second exponent))
+      (#pt-app (#pt-use power ()) reduced-third exponent)
+      (#pt-app (#pt-use power-nonzero ()) factor exponent factor-nonzero)
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use multiply ())
+          (#pt-app (#pt-use power ()) factor exponent)
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use power ()) reduced-first exponent)
+            (#pt-app (#pt-use power ()) reduced-second exponent)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use power ()) factor exponent)
+            (#pt-app (#pt-use power ()) reduced-first exponent))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use power ()) factor exponent)
+            (#pt-app (#pt-use power ()) reduced-second exponent)))
+        (#pt-app
+          (#pt-use multiply ())
+          (#pt-app (#pt-use power ()) factor exponent)
+          (#pt-app (#pt-use power ()) reduced-third exponent))
+        (#pt-app
+          (#pt-use multiply-add-right ())
+          (#pt-app (#pt-use power ()) factor exponent)
+          (#pt-app (#pt-use power ()) reduced-first exponent)
+          (#pt-app (#pt-use power ()) reduced-second exponent))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) factor exponent)
+              (#pt-app (#pt-use power ()) reduced-first exponent))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) factor exponent)
+              (#pt-app (#pt-use power ()) reduced-second exponent)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use multiply ()) factor reduced-first)
+              exponent)
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) factor exponent)
+              (#pt-app (#pt-use power ()) reduced-second exponent)))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use power ()) factor exponent)
+            (#pt-app (#pt-use power ()) reduced-third exponent))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app
+                (#pt-use add ())
+                endpoint
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-app (#pt-use power ()) factor exponent)
+                  (#pt-app (#pt-use power ()) reduced-second exponent))))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) factor exponent)
+              (#pt-app (#pt-use power ()) reduced-first exponent))
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use multiply ()) factor reduced-first)
+              exponent)
+            (#pt-app
+              (#pt-use symmetry (0))
+              #pt-nat
+              (#pt-app
+                (#pt-use power ())
+                (#pt-app (#pt-use multiply ()) factor reduced-first)
+                exponent)
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) factor exponent)
+                (#pt-app (#pt-use power ()) reduced-first exponent))
+              (#pt-app (#pt-use power-product ()) factor reduced-first exponent)))
+          (#pt-app
+            (#pt-use transitivity (0))
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use power ())
+                (#pt-app (#pt-use multiply ()) factor reduced-first)
+                exponent)
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) factor exponent)
+                (#pt-app (#pt-use power ()) reduced-second exponent)))
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use power ())
+                (#pt-app (#pt-use multiply ()) factor reduced-first)
+                exponent)
+              (#pt-app
+                (#pt-use power ())
+                (#pt-app (#pt-use multiply ()) factor reduced-second)
+                exponent))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) factor exponent)
+              (#pt-app (#pt-use power ()) reduced-third exponent))
+            (#pt-app
+              (#pt-use congruence (0 0))
+              #pt-nat
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use power ())
+                    (#pt-app (#pt-use multiply ()) factor reduced-first)
+                    exponent)
+                  endpoint))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) factor exponent)
+                (#pt-app (#pt-use power ()) reduced-second exponent))
+              (#pt-app
+                (#pt-use power ())
+                (#pt-app (#pt-use multiply ()) factor reduced-second)
+                exponent)
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use multiply ()) factor reduced-second)
+                  exponent)
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-app (#pt-use power ()) factor exponent)
+                  (#pt-app (#pt-use power ()) reduced-second exponent))
+                (#pt-app (#pt-use power-product ()) factor reduced-second exponent)))
+            (#pt-app
+              (#pt-use transitivity (0))
+              #pt-nat
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use multiply ()) factor reduced-first)
+                  exponent)
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use multiply ()) factor reduced-second)
+                  exponent))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use power ()) first exponent)
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use multiply ()) factor reduced-second)
+                  exponent))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) factor exponent)
+                (#pt-app (#pt-use power ()) reduced-third exponent))
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app
+                    (#pt-use add ())
+                    endpoint
+                    (#pt-app
+                      (#pt-use power ())
+                      (#pt-app (#pt-use multiply ()) factor reduced-second)
+                      exponent)))
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use multiply ()) factor reduced-first)
+                  exponent)
+                (#pt-app (#pt-use power ()) first exponent)
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use power ()) endpoint exponent))
+                  (#pt-app (#pt-use multiply ()) factor reduced-first)
+                  first
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    first
+                    (#pt-app (#pt-use multiply ()) factor reduced-first)
+                    first-equation)))
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use power ()) first exponent)
+                  (#pt-app
+                    (#pt-use power ())
+                    (#pt-app (#pt-use multiply ()) factor reduced-second)
+                    exponent))
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use power ()) first exponent)
+                  (#pt-app (#pt-use power ()) second exponent))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-app (#pt-use power ()) factor exponent)
+                  (#pt-app (#pt-use power ()) reduced-third exponent))
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use add ()) (#pt-app (#pt-use power ()) first exponent) endpoint))
+                  (#pt-app
+                    (#pt-use power ())
+                    (#pt-app (#pt-use multiply ()) factor reduced-second)
+                    exponent)
+                  (#pt-app (#pt-use power ()) second exponent)
+                  (#pt-app
+                    (#pt-use congruence (0 0))
+                    #pt-nat
+                    #pt-nat
+                    (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use power ()) endpoint exponent))
+                    (#pt-app (#pt-use multiply ()) factor reduced-second)
+                    second
+                    (#pt-app
+                      (#pt-use symmetry (0))
+                      #pt-nat
+                      second
+                      (#pt-app (#pt-use multiply ()) factor reduced-second)
+                      second-equation)))
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app (#pt-use power ()) first exponent)
+                    (#pt-app (#pt-use power ()) second exponent))
+                  (#pt-app (#pt-use power ()) third exponent)
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app (#pt-use power ()) factor exponent)
+                    (#pt-app (#pt-use power ()) reduced-third exponent))
+                  power-equation
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app (#pt-use power ()) third exponent)
+                    (#pt-app
+                      (#pt-use power ())
+                      (#pt-app (#pt-use multiply ()) factor reduced-third)
+                      exponent)
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use power ()) factor exponent)
+                      (#pt-app (#pt-use power ()) reduced-third exponent))
+                    (#pt-app
+                      (#pt-use congruence (0 0))
+                      #pt-nat
+                      #pt-nat
+                      (#pt-lambda
+                        ((endpoint #pt-nat))
+                        (#pt-app (#pt-use power ()) endpoint exponent))
+                      third
+                      (#pt-app (#pt-use multiply ()) factor reduced-third)
+                      third-equation)
+                    (#pt-app (#pt-use power-product ()) factor reduced-third exponent)))))))))))
+(#theorem power-solution-remove-prime
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter prime-number #pt-nat)
+    (#parameter reduced-first #pt-nat)
+    (#parameter reduced-second #pt-nat)
+    (#parameter reduced-third #pt-nat)
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first second third))
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-equation (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number reduced-first)))
+    (#parameter second-equation (#pt-eq #pt-nat second (#pt-app (#pt-use multiply ()) prime-number reduced-second)))
+    (#parameter third-equation (#pt-eq #pt-nat third (#pt-app (#pt-use multiply ()) prime-number reduced-third))))
+  (#statement
+    (#pt-app
+      (#pt-use natural-power-solution ())
+      exponent
+      reduced-first
+      reduced-second
+      reduced-third))
+  (#proof
+    (#pt-construct
+      natural-power-solution
+      ()
+      (exponent reduced-first reduced-second reduced-third)
+      introduce
+      (
+        (#pt-app
+          (#pt-use natural-factor-nonzero ())
+          first
+          prime-number
+          reduced-first
+          (#pt-project natural-power-solution 0 solution)
+          first-equation)
+        (#pt-app
+          (#pt-use natural-factor-nonzero ())
+          second
+          prime-number
+          reduced-second
+          (#pt-project natural-power-solution 1 solution)
+          second-equation)
+        (#pt-app
+          (#pt-use natural-factor-nonzero ())
+          third
+          prime-number
+          reduced-third
+          (#pt-project natural-power-solution 2 solution)
+          third-equation)
+        (#pt-app
+          (#pt-use power-remove-common-factor ())
+          exponent
+          first
+          second
+          third
+          prime-number
+          reduced-first
+          reduced-second
+          reduced-third
+          (#pt-app
+            (#pt-use less-than-upper-nonzero ())
+            (#pt-succ #pt-zero)
+            prime-number
+            (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-certificate))
+          (#pt-project natural-power-solution 3 solution)
+          first-equation
+          second-equation
+          third-equation)))))
+(#theorem power-common-prime-descends
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first second third))
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-divides (#pt-app (#pt-use divides ()) prime-number first))
+    (#parameter second-divides (#pt-app (#pt-use divides ()) prime-number second)))
+  (#statement (#pt-app (#pt-use has-smaller-natural-power-solution ()) exponent third))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-factor #pt-nat))
+          (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+        (#pt-app (#pt-use has-smaller-natural-power-solution ()) exponent third))
+      (
+        (#pt-lambda
+          (
+            (reduced-first #pt-nat)
+            (first-equation
+              (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number reduced-first))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  second
+                  (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-factor #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        second
+                        (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+              (#pt-app (#pt-use has-smaller-natural-power-solution ()) exponent third))
+            (
+              (#pt-lambda
+                (
+                  (reduced-second #pt-nat)
+                  (second-equation
+                    (#pt-eq
+                      #pt-nat
+                      second
+                      (#pt-app (#pt-use multiply ()) prime-number reduced-second))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-factor #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        third
+                        (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-factor #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              third
+                              (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+                    (#pt-app (#pt-use has-smaller-natural-power-solution ()) exponent third))
+                  (
+                    (#pt-lambda
+                      (
+                        (reduced-third #pt-nat)
+                        (third-equation
+                          (#pt-eq
+                            #pt-nat
+                            third
+                            (#pt-app (#pt-use multiply ()) prime-number reduced-third))))
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-first #pt-nat))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-second #pt-nat))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-third #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use natural-power-solution ())
+                                        exponent
+                                        candidate-first
+                                        candidate-second
+                                        candidate-third)
+                                      (#pt-app (#pt-use less-than ()) candidate-third third))))))))
+                        introduce
+                        (reduced-first
+                          (#pt-construct
+                            exists
+                            (0)
+                            (#pt-nat
+                              (#pt-lambda
+                                ((candidate-second #pt-nat))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-third #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use natural-power-solution ())
+                                        exponent
+                                        reduced-first
+                                        candidate-second
+                                        candidate-third)
+                                      (#pt-app (#pt-use less-than ()) candidate-third third))))))
+                            introduce
+                            (reduced-second
+                              (#pt-construct
+                                exists
+                                (0)
+                                (#pt-nat
+                                  (#pt-lambda
+                                    ((candidate-third #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use natural-power-solution ())
+                                        exponent
+                                        reduced-first
+                                        reduced-second
+                                        candidate-third)
+                                      (#pt-app (#pt-use less-than ()) candidate-third third))))
+                                introduce
+                                (reduced-third
+                                  (#pt-app
+                                    (#pt-use conjunction-introduce ())
+                                    (#pt-app
+                                      (#pt-use natural-power-solution ())
+                                      exponent
+                                      reduced-first
+                                      reduced-second
+                                      reduced-third)
+                                    (#pt-app (#pt-use less-than ()) reduced-third third)
+                                    (#pt-app
+                                      (#pt-use power-solution-remove-prime ())
+                                      exponent
+                                      first
+                                      second
+                                      third
+                                      prime-number
+                                      reduced-first
+                                      reduced-second
+                                      reduced-third
+                                      solution
+                                      prime-certificate
+                                      first-equation
+                                      second-equation
+                                      third-equation)
+                                    (#pt-app
+                                      (#pt-use substitution (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((endpoint #pt-nat))
+                                        (#pt-app (#pt-use less-than ()) reduced-third endpoint))
+                                      (#pt-app (#pt-use multiply ()) prime-number reduced-third)
+                                      third
+                                      (#pt-app
+                                        (#pt-use symmetry (0))
+                                        #pt-nat
+                                        third
+                                        (#pt-app (#pt-use multiply ()) prime-number reduced-third)
+                                        third-equation)
+                                      (#pt-app
+                                        (#pt-use nonunit-multiple-above ())
+                                        reduced-third
+                                        prime-number
+                                        (#pt-project
+                                          natural-power-solution
+                                          2
+                                          (#pt-app
+                                            (#pt-use power-solution-remove-prime ())
+                                            exponent
+                                            first
+                                            second
+                                            third
+                                            prime-number
+                                            reduced-first
+                                            reduced-second
+                                            reduced-third
+                                            solution
+                                            prime-certificate
+                                            first-equation
+                                            second-equation
+                                            third-equation))
+                                        (#pt-app
+                                          (#pt-use prime-larger-than-one ())
+                                          prime-number
+                                          prime-certificate))))))))))))
+                  (#pt-app
+                    (#pt-use power-common-prime-divides-third ())
+                    exponent
+                    first
+                    second
+                    third
+                    prime-number
+                    positive-exponent
+                    prime-certificate
+                    (#pt-project natural-power-solution 3 solution)
+                    first-divides
+                    second-divides))))
+            second-divides)))
+      first-divides)))

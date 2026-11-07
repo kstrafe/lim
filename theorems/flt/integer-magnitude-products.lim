@@ -1,0 +1,422 @@
+; Multiplicative natural magnitudes, with constructive signed normalization.
+; The power proof is structural Nat induction and includes exponent zero.
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#alias cube = ./natural-ninth-residues.lim::cube)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-cube = ./integer-defs.lim::integer-cube)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-congruent = ./integer-magnitude.lim::integer-magnitude-congruent)
+(#alias integer-natural-magnitude = ./integer-magnitude.lim::integer-natural-magnitude)
+(#alias integer-negative-magnitude = ./integer-magnitude.lim::integer-negative-magnitude)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-negative = ./integer-multiplication.lim::integer-multiply-negative)
+(#alias
+  integer-multiply-negative-second
+  =
+  ./integer-divisibility.lim::integer-multiply-negative-second)
+(#alias integer-multiply-two-negatives = ./integer-divisibility.lim::integer-multiply-two-negatives)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#theorem integer-magnitude-multiply
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-magnitude #pt-nat)
+    (#parameter second-magnitude #pt-nat)
+    (#parameter first-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) first first-magnitude))
+    (#parameter second-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) second second-magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-magnitude ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        first
+        (#pt-app (#pt-use integer-of-natural ()) first-magnitude))
+      (#pt-app
+        (#pt-use integer-equal ())
+        first
+        (#pt-app (#pt-use integer-negative-natural ()) first-magnitude))
+      (#pt-app
+        (#pt-use integer-magnitude ())
+        (#pt-app (#pt-use integer-multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+      (#pt-lambda
+        (
+          (first-sign-positive
+            (#pt-app
+              (#pt-use integer-equal ())
+              first
+              (#pt-app (#pt-use integer-of-natural ()) first-magnitude))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-magnitude ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+          (#pt-lambda
+            (
+              (second-sign-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-magnitude-congruent ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-of-natural ())
+                  (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app (#pt-use integer-multiply ()) first second)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-of-natural ())
+                    (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-multiply-congruent ())
+                    first
+                    second
+                    (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                    first-sign-positive
+                    second-sign-positive)
+                  (#pt-app
+                    (#pt-use integer-multiply-of-natural ())
+                    first-magnitude
+                    second-magnitude)))
+              (#pt-app
+                (#pt-use integer-natural-magnitude ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))))
+          (#pt-lambda
+            (
+              (second-sign-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-magnitude-congruent ())
+              (#pt-app
+                (#pt-use integer-negative-natural ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-negative-natural ())
+                  (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app (#pt-use integer-multiply ()) first second)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-negative-natural ())
+                    (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-multiply-congruent ())
+                    first
+                    second
+                    (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+                    first-sign-positive
+                    second-sign-negative)
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) second-magnitude)))
+                    (#pt-app
+                      (#pt-use integer-negative-natural ())
+                      (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-multiply-negative-second ())
+                      (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-negate-congruent ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                      (#pt-app
+                        (#pt-use integer-multiply-of-natural ())
+                        first-magnitude
+                        second-magnitude)))))
+              (#pt-app
+                (#pt-use integer-negative-magnitude ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))))
+          second-magnitude-proof))
+      (#pt-lambda
+        (
+          (first-sign-negative
+            (#pt-app
+              (#pt-use integer-equal ())
+              first
+              (#pt-app (#pt-use integer-negative-natural ()) first-magnitude))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-magnitude ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+          (#pt-lambda
+            (
+              (second-sign-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-magnitude-congruent ())
+              (#pt-app
+                (#pt-use integer-negative-natural ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-negative-natural ())
+                  (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app (#pt-use integer-multiply ()) first second)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-negative-natural ())
+                    (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-multiply-congruent ())
+                    first
+                    second
+                    (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                    first-sign-negative
+                    second-sign-positive)
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) second-magnitude)))
+                    (#pt-app
+                      (#pt-use integer-negative-natural ())
+                      (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-multiply-negative ())
+                      (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-negate-congruent ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                      (#pt-app
+                        (#pt-use integer-multiply-of-natural ())
+                        first-magnitude
+                        second-magnitude)))))
+              (#pt-app
+                (#pt-use integer-negative-magnitude ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))))
+          (#pt-lambda
+            (
+              (second-sign-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-magnitude-congruent ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-of-natural ())
+                  (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app (#pt-use integer-multiply ()) first second)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-of-natural ())
+                    (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                  (#pt-app
+                    (#pt-use integer-multiply-congruent ())
+                    first
+                    second
+                    (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+                    first-sign-negative
+                    second-sign-negative)
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-of-natural ())
+                      (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-multiply-two-negatives ())
+                      (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+                    (#pt-app
+                      (#pt-use integer-multiply-of-natural ())
+                      first-magnitude
+                      second-magnitude))))
+              (#pt-app
+                (#pt-use integer-natural-magnitude ())
+                (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude))))
+          second-magnitude-proof))
+      first-magnitude-proof)))
+(#theorem integer-magnitude-cube
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter magnitude #pt-nat)
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-magnitude ())
+      (#pt-app (#pt-use integer-cube ()) number)
+      (#pt-app (#pt-use cube ()) magnitude)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-magnitude-multiply ())
+      number
+      (#pt-app (#pt-use integer-multiply ()) number number)
+      magnitude
+      (#pt-app (#pt-use multiply ()) magnitude magnitude)
+      magnitude-proof
+      (#pt-app
+        (#pt-use integer-magnitude-multiply ())
+        number
+        number
+        magnitude
+        magnitude
+        magnitude-proof
+        magnitude-proof))))
+(#theorem integer-magnitude-power
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter magnitude #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-magnitude ())
+      (#pt-app (#pt-use integer-power ()) number exponent)
+      (#pt-app (#pt-use power ()) magnitude exponent)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-app
+          (#pt-use integer-magnitude ())
+          (#pt-app (#pt-use integer-power ()) number ordinal)
+          (#pt-app (#pt-use power ()) magnitude ordinal)))
+      (#pt-app (#pt-use integer-natural-magnitude ()) (#pt-succ #pt-zero))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-magnitude-proof
+            (#pt-app
+              (#pt-use integer-magnitude ())
+              (#pt-app (#pt-use integer-power ()) number previous)
+              (#pt-app (#pt-use power ()) magnitude previous))))
+        (#pt-app
+          (#pt-use integer-magnitude-multiply ())
+          number
+          (#pt-app (#pt-use integer-power ()) number previous)
+          magnitude
+          (#pt-app (#pt-use power ()) magnitude previous)
+          magnitude-proof
+          previous-magnitude-proof))
+      exponent)))

@@ -64,7 +64,7 @@ pub(crate) fn capture_store_summaries(
 }
 
 pub(crate) struct CapturedWorkerContract {
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub worker: FunctionId,
     pub facts: ReferentFunctionEffects,
 }
@@ -376,7 +376,7 @@ pub(crate) fn capture_worker_contract(
         })
         .collect::<Option<HashMap<_, _>>>()?;
     Some(CapturedWorkerContract {
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         worker: _worker,
         facts: ReferentFunctionEffects {
             has_normal_return: facts.has_normal_return,

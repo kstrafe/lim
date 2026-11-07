@@ -209,7 +209,7 @@ pub(crate) fn with_dependencies(forms: Vec<Node>) -> Result<Vec<Node>, SourceErr
                 parts.push(Expr::Symbol("#unstable".into()));
             }
             result.push(Node {
-                expr: Expr::List(parts),
+                expr: Expr::List(parts.into()),
                 span,
                 children: vec![].into(),
             });
@@ -380,6 +380,37 @@ impl Resolver<'_> {
         Ok(())
     }
     fn proof_term(
+        &self,
+        node: &mut Node,
+        file: usize,
+        locals: &HashSet<String>,
+    ) -> Result<(), SourceError> {
+        // Term-only spines must not retain the large scope/family dispatch
+        // frame at each node. In particular, ordinary Peano numerals in an
+        // aliased theorem used to exhaust a 2-MiB caller stack here.
+        if matches!(
+            head(node),
+            "#pt-succ"
+                | "#pt-app"
+                | "#pt-eq"
+                | "#pt-refl"
+                | "#pt-eq-elim"
+                | "#pt-nat-induct"
+                | "#pt-pair"
+                | "#pt-first"
+                | "#pt-second"
+        ) {
+            for child in node.children.iter_mut().skip(1) {
+                self.proof_term(child, file, locals)?;
+            }
+            return rebuild(node);
+        }
+        self.proof_term_scoped(node, file, locals)
+    }
+
+    // Preserve the separate frame even when the compiler enables inlining.
+    #[inline(never)]
+    fn proof_term_scoped(
         &self,
         node: &mut Node,
         file: usize,

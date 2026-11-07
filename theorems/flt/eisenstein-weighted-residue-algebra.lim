@@ -1,0 +1,481 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Native mathematical source adaptation under Apache-2.0; see provenance.json.
+; Actual weighted residues for the four sign cases at
+; FLT/Three.lean:668-688. Additive cancellation retains actual divisor
+; witnesses, and explicit negation handles the negative cube sign.
+; No congruence or residue-cancellation rule is assumed as an axiom.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-one = ./eisenstein-ring.lim::eisenstein-multiply-one)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-negate-congruent = ./eisenstein-equality.lim::eisenstein-negate-congruent)
+(#alias eisenstein-add-commutative = ./eisenstein-ring.lim::eisenstein-add-commutative)
+(#alias
+  eisenstein-multiply-distribute-second
+  =
+  ./eisenstein-ring.lim::eisenstein-multiply-distribute-second)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-product-right
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-product-right)
+(#alias
+  eisenstein-multiply-negative-second
+  =
+  ./eisenstein-ring.lim::eisenstein-multiply-negative-second)
+(#alias eisenstein-negate-involution = ./eisenstein-ring.lim::eisenstein-negate-involution)
+(#alias eisenstein-add-associative = ./eisenstein-ring.lim::eisenstein-add-associative)
+(#alias
+  eisenstein-add-after-subtract
+  =
+  ./eisenstein-additive-divisibility.lim::eisenstein-add-after-subtract)
+(#alias
+  eisenstein-divides-add-cancel-left
+  =
+  ./eisenstein-additive-divisibility.lim::eisenstein-divides-add-cancel-left)
+(#alias
+  eisenstein-divides-negative-target
+  =
+  ./eisenstein-additive-divisibility.lim::eisenstein-divides-negative-target)
+(#alias eisenstein-negate-add = ./eisenstein-ring.lim::eisenstein-negate-add)
+(#theorem eisenstein-divides-replace-residue
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter residue (#pt-use eisenstein ()))
+    (#parameter other (#pt-use eisenstein ()))
+    (#parameter residue-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) number (#pt-app (#pt-use eisenstein-negate ()) residue))))
+    (#parameter sum-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) number other))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      divisor
+      (#pt-app (#pt-use eisenstein-add ()) residue other)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-add-cancel-left ())
+      divisor
+      (#pt-app (#pt-use eisenstein-add ()) number (#pt-app (#pt-use eisenstein-negate ()) residue))
+      (#pt-app (#pt-use eisenstein-add ()) residue other)
+      residue-divides
+      (#pt-app
+        (#pt-use eisenstein-divides-congruent-target ())
+        divisor
+        (#pt-app (#pt-use eisenstein-add ()) number other)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            number
+            (#pt-app (#pt-use eisenstein-negate ()) residue))
+          (#pt-app (#pt-use eisenstein-add ()) residue other))
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) residue))
+            (#pt-app (#pt-use eisenstein-add ()) residue other))
+          (#pt-app (#pt-use eisenstein-add ()) number other)
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) residue))
+              (#pt-app (#pt-use eisenstein-add ()) residue other))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) residue))
+                residue)
+              other)
+            (#pt-app (#pt-use eisenstein-add ()) number other)
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    number
+                    (#pt-app (#pt-use eisenstein-negate ()) residue))
+                  residue)
+                other)
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) residue))
+                (#pt-app (#pt-use eisenstein-add ()) residue other))
+              (#pt-app
+                (#pt-use eisenstein-add-associative ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) residue))
+                residue
+                other))
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) residue))
+                residue)
+              other
+              number
+              other
+              (#pt-app (#pt-use eisenstein-add-after-subtract ()) number residue)
+              (#pt-app (#pt-use eisenstein-reflexive ()) other))))
+        sum-divides))))
+(#theorem eisenstein-weighted-residue-sum
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter coefficient (#pt-use eisenstein ()))
+    (#parameter first-residue (#pt-use eisenstein ()))
+    (#parameter second-residue (#pt-use eisenstein ()))
+    (#parameter first-residue-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-negate ()) first-residue))))
+    (#parameter second-residue-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) second (#pt-app (#pt-use eisenstein-negate ()) second-residue))))
+    (#parameter weighted-sum-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      divisor
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        first-residue
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-congruent-target ())
+      divisor
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue)
+        first-residue)
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        first-residue
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue))
+      (#pt-app
+        (#pt-use eisenstein-add-commutative ())
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue)
+        first-residue)
+      (#pt-app
+        (#pt-use eisenstein-divides-replace-residue ())
+        divisor
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue)
+        first-residue
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          divisor
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            coefficient
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              second
+              (#pt-app (#pt-use eisenstein-negate ()) second-residue)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue)))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              coefficient
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                second
+                (#pt-app (#pt-use eisenstein-negate ()) second-residue)))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                coefficient
+                (#pt-app (#pt-use eisenstein-negate ()) second-residue)))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue)))
+            (#pt-app
+              (#pt-use eisenstein-multiply-distribute-second ())
+              coefficient
+              second
+              (#pt-app (#pt-use eisenstein-negate ()) second-residue))
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                coefficient
+                (#pt-app (#pt-use eisenstein-negate ()) second-residue))
+              (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) coefficient second-residue))
+              (#pt-app
+                (#pt-use eisenstein-reflexive ())
+                (#pt-app (#pt-use eisenstein-multiply ()) coefficient second))
+              (#pt-app (#pt-use eisenstein-multiply-negative-second ()) coefficient second-residue)))
+          (#pt-app
+            (#pt-use eisenstein-divides-product-right ())
+            divisor
+            coefficient
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              second
+              (#pt-app (#pt-use eisenstein-negate ()) second-residue))
+            second-residue-divides))
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          divisor
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first-residue
+            (#pt-app (#pt-use eisenstein-multiply ()) coefficient second))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+            first-residue)
+          (#pt-app
+            (#pt-use eisenstein-add-commutative ())
+            first-residue
+            (#pt-app (#pt-use eisenstein-multiply ()) coefficient second))
+          (#pt-app
+            (#pt-use eisenstein-divides-replace-residue ())
+            divisor
+            first
+            first-residue
+            (#pt-app (#pt-use eisenstein-multiply ()) coefficient second)
+            first-residue-divides
+            weighted-sum-divides))))))
+(#theorem eisenstein-positive-signed-residue
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter coefficient (#pt-use eisenstein ()))
+    (#parameter sign (#pt-use eisenstein ()))
+    (#parameter residue-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) sign (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-use eisenstein-one ()))))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      divisor
+      (#pt-app (#pt-use eisenstein-add ()) coefficient sign)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-congruent-target ())
+      divisor
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        sign
+        (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-use eisenstein-one ())))
+      (#pt-app (#pt-use eisenstein-add ()) coefficient sign)
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          sign
+          (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-use eisenstein-one ())))
+        (#pt-app (#pt-use eisenstein-add ()) sign coefficient)
+        (#pt-app (#pt-use eisenstein-add ()) coefficient sign)
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          sign
+          (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-use eisenstein-one ()))
+          sign
+          coefficient
+          (#pt-app (#pt-use eisenstein-reflexive ()) sign)
+          (#pt-app (#pt-use eisenstein-multiply-one ()) coefficient))
+        (#pt-app (#pt-use eisenstein-add-commutative ()) sign coefficient))
+      residue-divides)))
+(#theorem eisenstein-negative-signed-residue
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter coefficient (#pt-use eisenstein ()))
+    (#parameter sign (#pt-use eisenstein ()))
+    (#parameter residue-divides (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-add ()) sign (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      divisor
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        coefficient
+        (#pt-app (#pt-use eisenstein-negate ()) sign))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-congruent-target ())
+      divisor
+      (#pt-app
+        (#pt-use eisenstein-negate ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          sign
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            coefficient
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        coefficient
+        (#pt-app (#pt-use eisenstein-negate ()) sign))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            sign
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              coefficient
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-negate ()) sign)
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              coefficient
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          coefficient
+          (#pt-app (#pt-use eisenstein-negate ()) sign))
+        (#pt-app
+          (#pt-use eisenstein-negate-add ())
+          sign
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            coefficient
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-negate ()) sign)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                coefficient
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-negate ()) sign)
+            coefficient)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            coefficient
+            (#pt-app (#pt-use eisenstein-negate ()) sign))
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            (#pt-app (#pt-use eisenstein-negate ()) sign)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                coefficient
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+            (#pt-app (#pt-use eisenstein-negate ()) sign)
+            coefficient
+            (#pt-app
+              (#pt-use eisenstein-reflexive ())
+              (#pt-app (#pt-use eisenstein-negate ()) sign))
+            (#pt-app
+              (#pt-use eisenstein-transitive ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  coefficient
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-negate ()) coefficient))
+              coefficient
+              (#pt-app
+                (#pt-use eisenstein-negate-congruent ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  coefficient
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app (#pt-use eisenstein-negate ()) coefficient)
+                (#pt-app
+                  (#pt-use eisenstein-transitive ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    coefficient
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                  (#pt-app
+                    (#pt-use eisenstein-negate ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      coefficient
+                      (#pt-use eisenstein-one ())))
+                  (#pt-app (#pt-use eisenstein-negate ()) coefficient)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply-negative-second ())
+                    coefficient
+                    (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-negate-congruent ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      coefficient
+                      (#pt-use eisenstein-one ()))
+                    coefficient
+                    (#pt-app (#pt-use eisenstein-multiply-one ()) coefficient))))
+              (#pt-app (#pt-use eisenstein-negate-involution ()) coefficient)))
+          (#pt-app
+            (#pt-use eisenstein-add-commutative ())
+            (#pt-app (#pt-use eisenstein-negate ()) sign)
+            coefficient)))
+      (#pt-app
+        (#pt-use eisenstein-divides-negative-target ())
+        divisor
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          sign
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            coefficient
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+        residue-divides))))

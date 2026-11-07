@@ -1,0 +1,83 @@
+; Direct Nat addition cancellation, by induction and constructor injectivity.
+; Source references: Nat.add_left_cancel, Nat.add_right_cancel.
+(#alias add = ../fermat_statement.lim::add)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias successor-injective = ./natural-successor.lim::successor-injective)
+(#theorem add-cancel-left
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter equality (#pt-eq #pt-nat (#pt-app (#pt-use add ()) first second) (#pt-app (#pt-use add ()) first third))))
+  (#statement (#pt-eq #pt-nat second third))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((ordinal #pt-nat))
+          (#pt-pi
+            (
+              (path
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use add ()) ordinal second)
+                  (#pt-app (#pt-use add ()) ordinal third))))
+            (#pt-eq #pt-nat second third)))
+        (#pt-lambda ((path (#pt-eq #pt-nat second third))) path)
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (induction-hypothesis
+              (#pt-pi
+                (
+                  (path
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app (#pt-use add ()) previous second)
+                      (#pt-app (#pt-use add ()) previous third))))
+                (#pt-eq #pt-nat second third)))
+            (path
+              (#pt-eq
+                #pt-nat
+                (#pt-app (#pt-use add ()) (#pt-succ previous) second)
+                (#pt-app (#pt-use add ()) (#pt-succ previous) third))))
+          (#pt-app
+            induction-hypothesis
+            (#pt-app
+              (#pt-use successor-injective ())
+              (#pt-app (#pt-use add ()) previous second)
+              (#pt-app (#pt-use add ()) previous third)
+              path)))
+        first)
+      equality)))
+(#theorem add-cancel-right
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter equality (#pt-eq #pt-nat (#pt-app (#pt-use add ()) first third) (#pt-app (#pt-use add ()) second third))))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-use add-cancel-left ())
+      third
+      first
+      second
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use add ()) third first)
+        (#pt-app (#pt-use add ()) first third)
+        (#pt-app (#pt-use add ()) third second)
+        (#pt-app (#pt-use add-commutative ()) third first)
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app (#pt-use add ()) first third)
+          (#pt-app (#pt-use add ()) second third)
+          (#pt-app (#pt-use add ()) third second)
+          equality
+          (#pt-app (#pt-use add-commutative ()) second third))))))

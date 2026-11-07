@@ -1,0 +1,109 @@
+; Two is prime by the checked no-proper-nonunit-divisor characterization.
+; The first positive gap already excludes a further strict bound below two.
+(#alias add = ../fermat_statement.lim::add)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias not-less-than-addition = ./natural-discrete-order.lim::not-less-than-addition)
+(#alias substitution = ./equality.lim::substitution)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#theorem prime-two
+  (#universes)
+  (#parameters)
+  (#statement (#pt-app (#pt-use prime ()) (#pt-succ (#pt-succ #pt-zero))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-pi
+        (
+          (test-divisor #pt-nat)
+          (nonunit-proof (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) test-divisor))
+          (proper-proof
+            (#pt-app (#pt-use less-than ()) test-divisor (#pt-succ (#pt-succ #pt-zero))))
+          (divisor-proof (#pt-app (#pt-use divides ()) test-divisor (#pt-succ (#pt-succ #pt-zero)))))
+        #pt-false)
+      (#pt-construct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq
+              #pt-nat
+              (#pt-succ (#pt-succ #pt-zero))
+              (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))
+        introduce
+        (#pt-zero (#pt-refl #pt-nat (#pt-succ (#pt-succ #pt-zero)))))
+      (#pt-lambda
+        (
+          (test-divisor #pt-nat)
+          (nonunit-proof (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) test-divisor))
+          (proper-proof
+            (#pt-app (#pt-use less-than ()) test-divisor (#pt-succ (#pt-succ #pt-zero))))
+          (divisor-proof (#pt-app (#pt-use divides ()) test-divisor (#pt-succ (#pt-succ #pt-zero)))))
+        (#pt-induct
+          exists
+          (0)
+          (#pt-nat
+            (#pt-lambda
+              ((candidate-gap #pt-nat))
+              (#pt-eq
+                #pt-nat
+                test-divisor
+                (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))
+          (#pt-lambda
+            (
+              (certificate
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-gap #pt-nat))
+                    (#pt-eq
+                      #pt-nat
+                      test-divisor
+                      (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))))
+            #pt-false)
+          (
+            (#pt-lambda
+              (
+                (gap #pt-nat)
+                (gap-equation
+                  (#pt-eq
+                    #pt-nat
+                    test-divisor
+                    (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) gap))))
+              (#pt-app
+                (#pt-app (#pt-use not-less-than-addition ()) (#pt-succ (#pt-succ #pt-zero)) gap)
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use less-than ()) endpoint (#pt-succ (#pt-succ #pt-zero))))
+                  test-divisor
+                  (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) gap)
+                  gap-equation
+                  proper-proof))))
+          nonunit-proof)))))
+(#theorem two-not-divides-one
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-succ #pt-zero))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (divides-proof
+          (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-succ #pt-zero))))
+      (#pt-app
+        (#pt-app (#pt-use prime-not-one ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-use prime-two ()))
+        (#pt-app (#pt-use divides-one ()) (#pt-succ (#pt-succ #pt-zero)) divides-proof)))))

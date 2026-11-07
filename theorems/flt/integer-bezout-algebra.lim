@@ -1,0 +1,652 @@
+; Signed algebra for the extended Euclidean coefficient update.
+; Each rearrangement cites a previously checked ring/equivalence law.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-add-zero = ./integer-addition.lim::integer-add-zero)
+(#alias integer-add-inverse = ./integer-addition.lim::integer-add-inverse)
+(#alias integer-add-commutative = ./integer-addition.lim::integer-add-commutative)
+(#alias integer-add-associative = ./integer-addition.lim::integer-add-associative)
+(#alias integer-multiply-one = ./integer-multiplication.lim::integer-multiply-one)
+(#alias integer-multiply-zero = ./integer-multiplication.lim::integer-multiply-zero)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias integer-multiply-distributive = ./integer-multiplication.lim::integer-multiply-distributive)
+(#alias
+  integer-multiply-distribute-second
+  =
+  ./integer-divisibility-addition.lim::integer-multiply-distribute-second)
+(#alias integer-multiply-negative = ./integer-multiplication.lim::integer-multiply-negative)
+(#alias
+  integer-multiply-congruent-second
+  =
+  ./integer-multiplication.lim::integer-multiply-congruent-second)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias congruence = ./equality.lim::congruence)
+(#theorem integer-one-multiply
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+      first))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+      (#pt-app (#pt-use integer-multiply ()) first (#pt-use integer-one ()))
+      first
+      (#pt-app (#pt-use integer-multiply-commutative ()) (#pt-use integer-one ()) first)
+      (#pt-app (#pt-use integer-multiply-one ()) first))))
+(#theorem integer-zero-multiply
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-zero ()) first)
+      (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-zero ()) first)
+      (#pt-app (#pt-use integer-multiply ()) first (#pt-use integer-zero ()))
+      (#pt-use integer-zero ())
+      (#pt-app (#pt-use integer-multiply-commutative ()) (#pt-use integer-zero ()) first)
+      (#pt-app (#pt-use integer-multiply-zero ()) first))))
+(#theorem integer-add-three-rotate
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+      (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) second third) first)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+      (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-add ()) second third))
+      (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) second third) first)
+      (#pt-app (#pt-use integer-add-associative ()) first second third)
+      (#pt-app
+        (#pt-use integer-add-commutative ())
+        first
+        (#pt-app (#pt-use integer-add ()) second third)))))
+(#theorem integer-add-opposite-cancel-four
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-add ()) first second)
+        (#pt-app (#pt-use integer-add ()) third (#pt-app (#pt-use integer-negate ()) first)))
+      (#pt-app (#pt-use integer-add ()) third second)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-add ()) first second)
+        (#pt-app (#pt-use integer-add ()) third (#pt-app (#pt-use integer-negate ()) first)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+        (#pt-app (#pt-use integer-negate ()) first))
+      (#pt-app (#pt-use integer-add ()) third second)
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+          (#pt-app (#pt-use integer-negate ()) first))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) first second)
+          (#pt-app (#pt-use integer-add ()) third (#pt-app (#pt-use integer-negate ()) first)))
+        (#pt-app
+          (#pt-use integer-add-associative ())
+          (#pt-app (#pt-use integer-add ()) first second)
+          third
+          (#pt-app (#pt-use integer-negate ()) first)))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+          (#pt-app (#pt-use integer-negate ()) first))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) second third) first)
+          (#pt-app (#pt-use integer-negate ()) first))
+        (#pt-app (#pt-use integer-add ()) third second)
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first second) third)
+          (#pt-app (#pt-use integer-negate ()) first)
+          (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) second third) first)
+          (#pt-app (#pt-use integer-negate ()) first)
+          (#pt-app (#pt-use integer-add-three-rotate ()) first second third)
+          (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-negate ()) first)))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) second third) first)
+            (#pt-app (#pt-use integer-negate ()) first))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-add ()) second third)
+            (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) first)))
+          (#pt-app (#pt-use integer-add ()) third second)
+          (#pt-app
+            (#pt-use integer-add-associative ())
+            (#pt-app (#pt-use integer-add ()) second third)
+            first
+            (#pt-app (#pt-use integer-negate ()) first))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-add ()) second third)
+              (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) first)))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-add ()) second third)
+              (#pt-use integer-zero ()))
+            (#pt-app (#pt-use integer-add ()) third second)
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app (#pt-use integer-add ()) second third)
+              (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) first))
+              (#pt-app (#pt-use integer-add ()) second third)
+              (#pt-use integer-zero ())
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-add ()) second third))
+              (#pt-app (#pt-use integer-add-inverse ()) first))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-add ()) second third)
+                (#pt-use integer-zero ()))
+              (#pt-app (#pt-use integer-add ()) second third)
+              (#pt-app (#pt-use integer-add ()) third second)
+              (#pt-app
+                (#pt-use integer-add-zero ())
+                (#pt-app (#pt-use integer-add ()) second third))
+              (#pt-app (#pt-use integer-add-commutative ()) second third))))))))
+(#theorem integer-of-natural-congruent
+  (#universes)
+  (#parameters
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter natural-equation (#pt-eq #pt-nat first-natural second-natural)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-of-natural ()) first-natural)
+      (#pt-app (#pt-use integer-of-natural ()) second-natural)))
+  (#proof
+    (#pt-app
+      (#pt-use congruence (0 0))
+      #pt-nat
+      #pt-nat
+      (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint #pt-zero))
+      first-natural
+      second-natural
+      natural-equation)))
+(#theorem integer-natural-division-equation
+  (#universes)
+  (#parameters
+    (#parameter dividend #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter quotient #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter division-equation (#pt-eq #pt-nat dividend (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-of-natural ()) dividend)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) remainder))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-of-natural ()) dividend)
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) remainder))
+      (#pt-app
+        (#pt-use integer-of-natural-congruent ())
+        dividend
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder)
+        division-equation)
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use multiply ()) quotient divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) quotient)
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) quotient divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder))
+          (#pt-app
+            (#pt-use integer-add-of-natural ())
+            (#pt-app (#pt-use multiply ()) quotient divisor)
+            remainder))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use multiply ()) quotient divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) quotient)
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) quotient divisor))
+            (#pt-app (#pt-use integer-multiply-of-natural ()) quotient divisor))
+          (#pt-app
+            (#pt-use integer-reflexive ())
+            (#pt-app (#pt-use integer-of-natural ()) remainder)))))))
+(#theorem integer-bezout-euclidean-update
+  (#universes)
+  (#parameters
+    (#parameter dividend-value (#pt-use integer ()))
+    (#parameter divisor-value (#pt-use integer ()))
+    (#parameter remainder-value (#pt-use integer ()))
+    (#parameter quotient-value (#pt-use integer ()))
+    (#parameter old-left-coefficient (#pt-use integer ()))
+    (#parameter old-right-coefficient (#pt-use integer ()))
+    (#parameter division-equivalence (#pt-app (#pt-use integer-equal ()) dividend-value (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value) remainder-value))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) old-right-coefficient dividend-value)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            old-left-coefficient
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)))
+          divisor-value))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+        (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) old-right-coefficient dividend-value)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            old-left-coefficient
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)))
+          divisor-value))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          old-right-coefficient
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+            remainder-value))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+            divisor-value)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+        (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app (#pt-use integer-multiply ()) old-right-coefficient dividend-value)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            old-left-coefficient
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)))
+          divisor-value)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          old-right-coefficient
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+            remainder-value))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+            divisor-value))
+        (#pt-app
+          (#pt-use integer-multiply-congruent-second ())
+          old-right-coefficient
+          dividend-value
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+            remainder-value)
+          division-equivalence)
+        (#pt-app
+          (#pt-use integer-multiply-distributive ())
+          old-left-coefficient
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+          divisor-value))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            old-right-coefficient
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+              remainder-value))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+              divisor-value)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              old-right-coefficient
+              (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+            (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value))))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+          (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            old-right-coefficient
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+              remainder-value))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+              divisor-value))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              old-right-coefficient
+              (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+            (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value)))
+          (#pt-app
+            (#pt-use integer-multiply-distribute-second ())
+            old-right-coefficient
+            (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value)
+            remainder-value)
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value))
+              divisor-value)
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value))
+            (#pt-app
+              (#pt-use integer-multiply-negative ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+              divisor-value)))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                old-right-coefficient
+                (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                  divisor-value))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value)
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                  divisor-value))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+            (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                old-right-coefficient
+                (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                  divisor-value)))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value)
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                  divisor-value)))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                old-right-coefficient
+                (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                divisor-value)
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                  divisor-value)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  old-right-coefficient
+                  (#pt-app (#pt-use integer-multiply ()) quotient-value divisor-value))
+                (#pt-app
+                  (#pt-use integer-multiply-associative ())
+                  old-right-coefficient
+                  quotient-value
+                  divisor-value))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value)))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+                    divisor-value)))))
+          (#pt-app
+            (#pt-use integer-add-opposite-cancel-four ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) old-right-coefficient quotient-value)
+              divisor-value)
+            (#pt-app (#pt-use integer-multiply ()) old-right-coefficient remainder-value)
+            (#pt-app (#pt-use integer-multiply ()) old-left-coefficient divisor-value)))))))

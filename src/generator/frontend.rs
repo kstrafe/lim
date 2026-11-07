@@ -1524,7 +1524,7 @@ fn write_prepared_generated_sources_reusing_graph(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod async_migration_tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};

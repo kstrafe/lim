@@ -1,0 +1,118 @@
+; Direct source-level port of Mathlib FermatLastTheoremFor.mono.
+; Copyright (c) 2023 Kevin Buzzard. All rights reserved.
+; Released under Apache 2.0; authors Kevin Buzzard, Yaël Dillies, Jineon Baek.
+; Mathematical proof adaptation: see provenance.json and LICENSE.MATHLIB.
+; This theorem transports an already proved exponent case along divisibility.
+; It proves neither the odd-prime cases nor the final FLT statement by itself.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias power-nonzero = ./natural-nonzero.lim::power-nonzero)
+(#alias regroup-power-equation = ./exponent-reduction.lim::regroup-power-equation)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#math-definition fermat-for ()
+  (#pt-pi ((exponent #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((exponent #pt-nat))
+    (#pt-pi
+      (
+        (first #pt-nat)
+        (second #pt-nat)
+        (third #pt-nat)
+        (first-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+        (second-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat third #pt-zero))) #pt-false))
+        (equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first exponent)
+              (#pt-app (#pt-use power ()) second exponent))
+            (#pt-app (#pt-use power ()) third exponent))))
+      #pt-false)))
+(#theorem fermat-for-factor
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter factor #pt-nat)
+    (#parameter smaller-proof (#pt-app (#pt-use fermat-for ()) exponent)))
+  (#statement (#pt-app (#pt-use fermat-for ()) (#pt-app (#pt-use multiply ()) exponent factor)))
+  (#proof
+    (#pt-lambda
+      (
+        (first #pt-nat)
+        (second #pt-nat)
+        (third #pt-nat)
+        (first-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+        (second-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat third #pt-zero))) #pt-false))
+        (equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-app (#pt-use multiply ()) exponent factor))
+              (#pt-app (#pt-use power ()) second (#pt-app (#pt-use multiply ()) exponent factor)))
+            (#pt-app (#pt-use power ()) third (#pt-app (#pt-use multiply ()) exponent factor)))))
+      (#pt-app
+        smaller-proof
+        (#pt-app (#pt-use power ()) first factor)
+        (#pt-app (#pt-use power ()) second factor)
+        (#pt-app (#pt-use power ()) third factor)
+        (#pt-app (#pt-use power-nonzero ()) first factor first-nonzero)
+        (#pt-app (#pt-use power-nonzero ()) second factor second-nonzero)
+        (#pt-app (#pt-use power-nonzero ()) third factor third-nonzero)
+        (#pt-app (#pt-use regroup-power-equation ()) first second third exponent factor equation)))))
+(#theorem fermat-for-monotone
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter multiple #pt-nat)
+    (#parameter divisibility-proof (#pt-app (#pt-use divides ()) divisor multiple))
+    (#parameter smaller-proof (#pt-app (#pt-use fermat-for ()) divisor)))
+  (#statement (#pt-app (#pt-use fermat-for ()) multiple))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((factor #pt-nat))
+          (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor factor))))
+      (#pt-lambda
+        (
+          (divisibility-evidence
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((factor #pt-nat))
+                (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor factor))))))
+        (#pt-app (#pt-use fermat-for ()) multiple))
+      (
+        (#pt-lambda
+          (
+            (factor #pt-nat)
+            (factor-equation
+              (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor factor))))
+          (#pt-eq-elim
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) divisor factor)
+            (#pt-lambda
+              (
+                (result-exponent #pt-nat)
+                (identification
+                  (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) divisor factor) result-exponent)))
+              (#pt-app (#pt-use fermat-for ()) result-exponent))
+            (#pt-app (#pt-use fermat-for-factor ()) divisor factor smaller-proof)
+            multiple
+            (#pt-app
+              (#pt-use symmetry (0))
+              #pt-nat
+              multiple
+              (#pt-app (#pt-use multiply ()) divisor factor)
+              factor-equation))))
+      divisibility-proof)))

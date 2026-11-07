@@ -1,0 +1,269 @@
+; Nonzero divisor bounds, divisibility antisymmetry and divisors of one.
+; These supply uniqueness of the Euclidean gcd specification.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias one-divides = ./natural-divisibility.lim::one-divides)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-addition = ./natural-discrete-order.lim::not-less-than-addition)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#alias
+  multiply-successor-right
+  =
+  ./natural-multiplication-commutative.lim::multiply-successor-right)
+(#alias zero-divisor-equation = ./decidable-divisibility.lim::zero-divisor-equation)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem divisor-nonzero
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter multiple #pt-nat)
+    (#parameter multiple-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat multiple #pt-zero))) #pt-false))
+    (#parameter divides-proof (#pt-app (#pt-use divides ()) divisor multiple)))
+  (#statement (#pt-pi ((denied-proof (#pt-eq #pt-nat divisor #pt-zero))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((zero-divisor (#pt-eq #pt-nat divisor #pt-zero)))
+      (#pt-app
+        multiple-nonzero
+        (#pt-app
+          (#pt-use zero-divisor-equation ())
+          multiple
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use divides ()) endpoint multiple))
+            divisor
+            #pt-zero
+            zero-divisor
+            divides-proof))))))
+(#theorem divisor-not-above
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter multiple #pt-nat)
+    (#parameter multiple-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat multiple #pt-zero))) #pt-false))
+    (#parameter divides-proof (#pt-app (#pt-use divides ()) divisor multiple)))
+  (#statement (#pt-pi ((denied-proof (#pt-app (#pt-use less-than ()) multiple divisor))) #pt-false))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-factor #pt-nat))
+          (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor candidate-factor))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor candidate-factor))))))
+        (#pt-pi ((denied-proof (#pt-app (#pt-use less-than ()) multiple divisor))) #pt-false))
+      (
+        (#pt-lambda
+          (
+            (factor #pt-nat)
+            (witness-equation
+              (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor factor))))
+          (#pt-app
+            (#pt-nat-induct
+              (#pt-lambda
+                ((index #pt-nat))
+                (#pt-pi
+                  (
+                    (factor-evidence
+                      (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor index))))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use less-than ()) multiple divisor)))
+                    #pt-false)))
+              (#pt-lambda
+                (
+                  (zero-factor-equation
+                    (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor #pt-zero))))
+                (#pt-app
+                  (#pt-use false-elimination ())
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use less-than ()) multiple divisor)))
+                    #pt-false)
+                  (#pt-app
+                    multiple-nonzero
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      multiple
+                      (#pt-app (#pt-use multiply ()) divisor #pt-zero)
+                      #pt-zero
+                      zero-factor-equation
+                      (#pt-app (#pt-use multiply-zero-right ()) divisor)))))
+              (#pt-lambda
+                (
+                  (previous-factor #pt-nat)
+                  (unused-factor
+                    (#pt-pi
+                      (
+                        (factor-equation
+                          (#pt-eq
+                            #pt-nat
+                            multiple
+                            (#pt-app (#pt-use multiply ()) divisor previous-factor))))
+                      (#pt-pi
+                        ((denied-proof (#pt-app (#pt-use less-than ()) multiple divisor)))
+                        #pt-false)))
+                  (positive-factor-equation
+                    (#pt-eq
+                      #pt-nat
+                      multiple
+                      (#pt-app (#pt-use multiply ()) divisor (#pt-succ previous-factor))))
+                  (too-large (#pt-app (#pt-use less-than ()) multiple divisor)))
+                (#pt-app
+                  (#pt-app
+                    (#pt-use not-less-than-addition ())
+                    divisor
+                    (#pt-app (#pt-use multiply ()) divisor previous-factor))
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app (#pt-use less-than ()) endpoint divisor))
+                    multiple
+                    (#pt-app
+                      (#pt-use add ())
+                      divisor
+                      (#pt-app (#pt-use multiply ()) divisor previous-factor))
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      multiple
+                      (#pt-app (#pt-use multiply ()) divisor (#pt-succ previous-factor))
+                      (#pt-app
+                        (#pt-use add ())
+                        divisor
+                        (#pt-app (#pt-use multiply ()) divisor previous-factor))
+                      positive-factor-equation
+                      (#pt-app (#pt-use multiply-successor-right ()) divisor previous-factor))
+                    too-large)))
+              factor)
+            witness-equation)))
+      divides-proof)))
+(#theorem divides-antisymmetric
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter given-first-divides (#pt-app (#pt-use divides ()) first second))
+    (#parameter given-second-divides (#pt-app (#pt-use divides ()) second first)))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (first-divides (#pt-app (#pt-use divides ()) index second))
+              (second-divides (#pt-app (#pt-use divides ()) second index)))
+            (#pt-eq #pt-nat index second)))
+        (#pt-lambda
+          (
+            (first-divides (#pt-app (#pt-use divides ()) #pt-zero second))
+            (second-divides (#pt-app (#pt-use divides ()) second #pt-zero)))
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            second
+            #pt-zero
+            (#pt-app (#pt-use zero-divisor-equation ()) second first-divides)))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (first-divides (#pt-app (#pt-use divides ()) previous second))
+                  (second-divides (#pt-app (#pt-use divides ()) second previous)))
+                (#pt-eq #pt-nat previous second)))
+            (first-divides (#pt-app (#pt-use divides ()) (#pt-succ previous) second))
+            (second-divides (#pt-app (#pt-use divides ()) second (#pt-succ previous))))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app (#pt-use less-than ()) (#pt-succ previous) second)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat (#pt-succ previous) second)
+              (#pt-app (#pt-use less-than ()) second (#pt-succ previous)))
+            (#pt-eq #pt-nat (#pt-succ previous) second)
+            (#pt-lambda
+              ((first-less (#pt-app (#pt-use less-than ()) (#pt-succ previous) second)))
+              (#pt-app
+                (#pt-use false-elimination ())
+                (#pt-eq #pt-nat (#pt-succ previous) second)
+                (#pt-app
+                  (#pt-app
+                    (#pt-use divisor-not-above ())
+                    second
+                    (#pt-succ previous)
+                    (#pt-app (#pt-use successor-not-zero ()) previous)
+                    second-divides)
+                  first-less)))
+            (#pt-lambda
+              (
+                (remaining-case
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat (#pt-succ previous) second)
+                    (#pt-app (#pt-use less-than ()) second (#pt-succ previous)))))
+              (#pt-app
+                (#pt-use disjunction-eliminate ())
+                (#pt-eq #pt-nat (#pt-succ previous) second)
+                (#pt-app (#pt-use less-than ()) second (#pt-succ previous))
+                (#pt-eq #pt-nat (#pt-succ previous) second)
+                (#pt-lambda ((equal-proof (#pt-eq #pt-nat (#pt-succ previous) second))) equal-proof)
+                (#pt-lambda
+                  ((second-less (#pt-app (#pt-use less-than ()) second (#pt-succ previous))))
+                  (#pt-app
+                    (#pt-use false-elimination ())
+                    (#pt-eq #pt-nat (#pt-succ previous) second)
+                    (#pt-app
+                      (#pt-app
+                        (#pt-use divisor-not-above ())
+                        (#pt-succ previous)
+                        second
+                        (#pt-app
+                          (#pt-use divisor-nonzero ())
+                          second
+                          (#pt-succ previous)
+                          (#pt-app (#pt-use successor-not-zero ()) previous)
+                          second-divides)
+                        first-divides)
+                      second-less)))
+                remaining-case))
+            (#pt-app (#pt-use natural-trichotomy ()) (#pt-succ previous) second)))
+        first)
+      given-first-divides
+      given-second-divides)))
+(#theorem divides-one
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter divides-proof (#pt-app (#pt-use divides ()) divisor (#pt-succ #pt-zero))))
+  (#statement (#pt-eq #pt-nat divisor (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use divides-antisymmetric ())
+      divisor
+      (#pt-succ #pt-zero)
+      divides-proof
+      (#pt-app (#pt-use one-divides ()) divisor))))

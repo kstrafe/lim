@@ -1,0 +1,528 @@
+; Primitive signed cubic equations have pairwise gcd one.
+; This proves the gcd content needed by FLT/Three.lean:82-146, rather than
+; assuming the coprimality of a selected pair. The separate Bezout/cast
+; interface used by the later cyclotomic proof is not claimed here.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias exists-prime-divisor = ./natural-prime.lim::exists-prime-divisor)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-cube = ./integer-defs.lim::integer-cube)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-gcd-exists = ./integer-gcd.lim::integer-gcd-exists)
+(#alias integer-gcd-three-spec = ./integer-gcd-three.lim::integer-gcd-three-spec)
+(#alias
+  integer-gcd-three-one-common-divisor
+  =
+  ./integer-gcd-three.lim::integer-gcd-three-one-common-divisor)
+(#alias integer-gcd-three-rotate = ./integer-gcd-three.lim::integer-gcd-three-rotate)
+(#alias
+  integer-prime-common-cubes-third
+  =
+  ./integer-prime-divisibility.lim::integer-prime-common-cubes-third)
+(#alias integer-divides-of-natural = ./integer-divisibility.lim::integer-divides-of-natural)
+(#alias integer-divides-transitive = ./integer-divisibility.lim::integer-divides-transitive)
+(#alias
+  integer-natural-divisibility-reflects
+  =
+  ./integer-natural-bridge.lim::integer-natural-divisibility-reflects)
+(#alias
+  integer-zero-divisor-equivalence
+  =
+  ./integer-divisibility-addition.lim::integer-zero-divisor-equivalence)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-associative = ./integer-addition.lim::integer-add-associative)
+(#alias integer-add-commutative = ./integer-addition.lim::integer-add-commutative)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem integer-primitive-cubic-common-prime-impossible
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) first))
+    (#parameter second-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) second)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof)
+      (#pt-app
+        (#pt-use divides-one ())
+        prime-number
+        (#pt-app
+          (#pt-use integer-natural-divisibility-reflects ())
+          prime-number
+          (#pt-succ #pt-zero)
+          (#pt-app
+            (#pt-use integer-gcd-three-one-common-divisor ())
+            first
+            second
+            third
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            triple-gcd-one-proof
+            first-divides
+            second-divides
+            (#pt-app
+              (#pt-use integer-prime-common-cubes-third ())
+              prime-number
+              first
+              second
+              third
+              prime-proof
+              first-divides
+              second-divides
+              cubic-sum-zero)))))))
+(#theorem integer-primitive-cubic-first-excludes-second-prime
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) first)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            second)))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (second-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            second)))
+      (#pt-app
+        (#pt-use integer-primitive-cubic-common-prime-impossible ())
+        prime-number
+        first
+        second
+        third
+        triple-gcd-one-proof
+        cubic-sum-zero
+        prime-proof
+        first-divides
+        second-divides))))
+(#theorem integer-cubic-pair-gcd-is-one
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter pair-gcd #pt-nat)
+    (#parameter first-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false))
+    (#parameter pair-gcd-proof (#pt-app (#pt-use integer-gcd-spec ()) first second pair-gcd)))
+  (#statement (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-eq #pt-nat pair-gcd #pt-zero)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+        (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) pair-gcd))
+      (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+      (#pt-lambda
+        ((zero-equation (#pt-eq #pt-nat pair-gcd #pt-zero)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+          (#pt-app
+            first-nonzero
+            (#pt-app
+              (#pt-use integer-zero-divisor-equivalence ())
+              first
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app
+                    (#pt-use integer-divides ())
+                    (#pt-app (#pt-use integer-of-natural ()) endpoint)
+                    first))
+                pair-gcd
+                #pt-zero
+                zero-equation
+                (#pt-app
+                  (#pt-use conjunction-left ())
+                  (#pt-app
+                    (#pt-use integer-divides ())
+                    (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                    first)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-divides ())
+                      (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                      second)
+                    (#pt-pi
+                      (
+                        (candidate-integer (#pt-use integer ()))
+                        (candidate-first
+                          (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+                        (candidate-second
+                          (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+                      (#pt-app
+                        (#pt-use integer-divides ())
+                        candidate-integer
+                        (#pt-app (#pt-use integer-of-natural ()) pair-gcd))))
+                  pair-gcd-proof))))))
+      (#pt-lambda
+        (
+          (unit-or-large
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+              (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) pair-gcd))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+          (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) pair-gcd)
+          (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+          (#pt-lambda ((one-equation (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero)))) one-equation)
+          (#pt-lambda
+            ((larger-than-one (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) pair-gcd)))
+            (#pt-induct
+              exists
+              (0)
+              (#pt-nat
+                (#pt-lambda
+                  ((candidate-prime #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use prime ()) candidate-prime)
+                    (#pt-app (#pt-use divides ()) candidate-prime pair-gcd))))
+              (#pt-lambda
+                (
+                  (certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-prime #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app (#pt-use prime ()) candidate-prime)
+                          (#pt-app (#pt-use divides ()) candidate-prime pair-gcd))))))
+                (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero)))
+              (
+                (#pt-lambda
+                  (
+                    (prime-number #pt-nat)
+                    (prime-certificate
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app (#pt-use prime ()) prime-number)
+                        (#pt-app (#pt-use divides ()) prime-number pair-gcd))))
+                  (#pt-app
+                    (#pt-use false-elimination ())
+                    (#pt-eq #pt-nat pair-gcd (#pt-succ #pt-zero))
+                    (#pt-app
+                      (#pt-use integer-primitive-cubic-common-prime-impossible ())
+                      prime-number
+                      first
+                      second
+                      third
+                      triple-gcd-one-proof
+                      cubic-sum-zero
+                      (#pt-app
+                        (#pt-use conjunction-left ())
+                        (#pt-app (#pt-use prime ()) prime-number)
+                        (#pt-app (#pt-use divides ()) prime-number pair-gcd)
+                        prime-certificate)
+                      (#pt-app
+                        (#pt-use integer-divides-transitive ())
+                        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                        (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                        first
+                        (#pt-app
+                          (#pt-use integer-divides-of-natural ())
+                          prime-number
+                          pair-gcd
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app (#pt-use prime ()) prime-number)
+                            (#pt-app (#pt-use divides ()) prime-number pair-gcd)
+                            prime-certificate))
+                        (#pt-app
+                          (#pt-use conjunction-left ())
+                          (#pt-app
+                            (#pt-use integer-divides ())
+                            (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                            first)
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app
+                              (#pt-use integer-divides ())
+                              (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                              second)
+                            (#pt-pi
+                              (
+                                (candidate-integer (#pt-use integer ()))
+                                (candidate-first
+                                  (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+                                (candidate-second
+                                  (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+                              (#pt-app
+                                (#pt-use integer-divides ())
+                                candidate-integer
+                                (#pt-app (#pt-use integer-of-natural ()) pair-gcd))))
+                          pair-gcd-proof))
+                      (#pt-app
+                        (#pt-use integer-divides-transitive ())
+                        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                        (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                        second
+                        (#pt-app
+                          (#pt-use integer-divides-of-natural ())
+                          prime-number
+                          pair-gcd
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app (#pt-use prime ()) prime-number)
+                            (#pt-app (#pt-use divides ()) prime-number pair-gcd)
+                            prime-certificate))
+                        (#pt-app
+                          (#pt-use conjunction-left ())
+                          (#pt-app
+                            (#pt-use integer-divides ())
+                            (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                            second)
+                          (#pt-pi
+                            (
+                              (candidate-integer (#pt-use integer ()))
+                              (candidate-first
+                                (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+                              (candidate-second
+                                (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+                            (#pt-app
+                              (#pt-use integer-divides ())
+                              candidate-integer
+                              (#pt-app (#pt-use integer-of-natural ()) pair-gcd)))
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app
+                              (#pt-use integer-divides ())
+                              (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                              first)
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app
+                                (#pt-use integer-divides ())
+                                (#pt-app (#pt-use integer-of-natural ()) pair-gcd)
+                                second)
+                              (#pt-pi
+                                (
+                                  (candidate-integer (#pt-use integer ()))
+                                  (candidate-first
+                                    (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+                                  (candidate-second
+                                    (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+                                (#pt-app
+                                  (#pt-use integer-divides ())
+                                  candidate-integer
+                                  (#pt-app (#pt-use integer-of-natural ()) pair-gcd))))
+                            pair-gcd-proof)))))))
+              (#pt-app (#pt-use exists-prime-divisor ()) pair-gcd larger-than-one)))
+          unit-or-large))
+      (#pt-app (#pt-use zero-one-or-large ()) pair-gcd))))
+(#theorem integer-cubic-gcd-one-first-pair
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter first-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false)))
+  (#statement (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gcd #pt-nat))
+          (#pt-app (#pt-use integer-gcd-spec ()) first second candidate-gcd)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gcd #pt-nat))
+                (#pt-app (#pt-use integer-gcd-spec ()) first second candidate-gcd)))))
+        (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+      (
+        (#pt-lambda
+          (
+            (pair-gcd #pt-nat)
+            (pair-gcd-proof (#pt-app (#pt-use integer-gcd-spec ()) first second pair-gcd)))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app (#pt-use integer-gcd-spec ()) first second endpoint))
+            pair-gcd
+            (#pt-succ #pt-zero)
+            (#pt-app
+              (#pt-use integer-cubic-pair-gcd-is-one ())
+              first
+              second
+              third
+              triple-gcd-one-proof
+              cubic-sum-zero
+              pair-gcd
+              first-nonzero
+              pair-gcd-proof)
+            pair-gcd-proof)))
+      (#pt-app (#pt-use integer-gcd-exists ()) first second))))
+(#theorem integer-three-sum-zero-rotate
+  (#universes)
+  (#parameters
+    (#parameter first-value (#pt-use integer ()))
+    (#parameter second-value (#pt-use integer ()))
+    (#parameter third-value (#pt-use integer ()))
+    (#parameter sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) first-value second-value) third-value) (#pt-use integer-zero ()))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-add ()) third-value first-value)
+        second-value)
+      (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-add ()) third-value first-value)
+        second-value)
+      (#pt-app
+        (#pt-use integer-add ())
+        third-value
+        (#pt-app (#pt-use integer-add ()) first-value second-value))
+      (#pt-use integer-zero ())
+      (#pt-app (#pt-use integer-add-associative ()) third-value first-value second-value)
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          third-value
+          (#pt-app (#pt-use integer-add ()) first-value second-value))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) first-value second-value)
+          third-value)
+        (#pt-use integer-zero ())
+        (#pt-app
+          (#pt-use integer-add-commutative ())
+          third-value
+          (#pt-app (#pt-use integer-add ()) first-value second-value))
+        sum-zero))))
+(#theorem integer-cubic-gcd-one-third-pair
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter third-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) third (#pt-use integer-zero ())))) #pt-false)))
+  (#statement (#pt-app (#pt-use integer-gcd-spec ()) third first (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-cubic-gcd-one-first-pair ())
+      third
+      first
+      second
+      (#pt-app
+        (#pt-use integer-gcd-three-rotate ())
+        first
+        second
+        third
+        (#pt-succ #pt-zero)
+        triple-gcd-one-proof)
+      (#pt-app
+        (#pt-use integer-three-sum-zero-rotate ())
+        (#pt-app (#pt-use integer-cube ()) first)
+        (#pt-app (#pt-use integer-cube ()) second)
+        (#pt-app (#pt-use integer-cube ()) third)
+        cubic-sum-zero)
+      third-nonzero)))
+(#theorem integer-cubic-gcd-one-second-pair
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter triple-gcd-one-proof (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+    (#parameter cubic-sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-cube ()) first) (#pt-app (#pt-use integer-cube ()) second)) (#pt-app (#pt-use integer-cube ()) third)) (#pt-use integer-zero ())))
+    (#parameter second-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ())))) #pt-false)))
+  (#statement (#pt-app (#pt-use integer-gcd-spec ()) second third (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-cubic-gcd-one-first-pair ())
+      second
+      third
+      first
+      (#pt-app
+        (#pt-use integer-gcd-three-rotate ())
+        third
+        first
+        second
+        (#pt-succ #pt-zero)
+        (#pt-app
+          (#pt-use integer-gcd-three-rotate ())
+          first
+          second
+          third
+          (#pt-succ #pt-zero)
+          triple-gcd-one-proof))
+      (#pt-app
+        (#pt-use integer-three-sum-zero-rotate ())
+        (#pt-app (#pt-use integer-cube ()) third)
+        (#pt-app (#pt-use integer-cube ()) first)
+        (#pt-app (#pt-use integer-cube ()) second)
+        (#pt-app
+          (#pt-use integer-three-sum-zero-rotate ())
+          (#pt-app (#pt-use integer-cube ()) first)
+          (#pt-app (#pt-use integer-cube ()) second)
+          (#pt-app (#pt-use integer-cube ()) third)
+          cubic-sum-zero))
+      second-nonzero)))

@@ -470,7 +470,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
                 matches!(part, lim::Expr::List(items)
                     if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#match")
                         && matches!(items.get(1), Some(lim::Expr::List(selector))
-                            if selector == &vec![lim::Expr::Symbol("#get".into()), lim::Expr::Symbol("task".into()), lim::Expr::Symbol("pc".into())]))
+                    if selector.as_slice() == &[lim::Expr::Symbol("#get".into()), lim::Expr::Symbol("task".into()), lim::Expr::Symbol("pc".into())]))
                     || matches!(part, lim::Expr::List(items) if items.iter().any(has_state_match))
             }
             assert!(parts.iter().any(has_state_match), "{generated}");

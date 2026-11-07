@@ -3,7 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 
@@ -1455,13 +1455,13 @@ impl EmissionTypes {
             .or_else(|| self.synthesized_by_address.get(&address))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn insert_synthesized(&mut self, expression: &Expr, node: EmissionNode) {
         self.synthesized_by_address
             .insert(std::ptr::from_ref(expression) as usize, node);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn get_mut_synthesized(&mut self, expression: &Expr) -> Option<&mut EmissionNode> {
         self.synthesized_by_address
             .get_mut(&(std::ptr::from_ref(expression) as usize))
@@ -1799,7 +1799,7 @@ impl Body {
                 if let Some(callee) = callee {
                     items[0] = Expr::Function(self.callees[callee].clone());
                 }
-                Expr::List(items)
+                Expr::List(items.into())
             }
             NodeKind::If {
                 head,
@@ -1815,7 +1815,7 @@ impl Body {
                 if let Some(value) = else_value {
                     items.push(self.syntax(*value, erase_unsafe));
                 }
-                Expr::List(items)
+                Expr::List(items.into())
             }
             NodeKind::Match { head, value, arms } => {
                 let mut items = vec![
@@ -1823,12 +1823,12 @@ impl Body {
                     self.syntax(*value, erase_unsafe),
                 ];
                 items.extend(arms.iter().map(|arm| self.syntax(*arm, erase_unsafe)));
-                Expr::List(items)
+                Expr::List(items.into())
             }
             NodeKind::MatchArm { pattern, values } => {
                 let mut items = vec![self.syntax(*pattern, erase_unsafe)];
                 items.extend(values.iter().map(|value| self.syntax(*value, erase_unsafe)));
-                Expr::List(items)
+                Expr::List(items.into())
             }
             NodeKind::Syntax(children) => Expr::List(
                 children

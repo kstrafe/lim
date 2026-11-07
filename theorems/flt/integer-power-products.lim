@@ -1,0 +1,285 @@
+; Arbitrary signed product powers and nonzero powers, proved by
+; Nat induction with actual integer ring and domain laws. These connect
+; the Frey invariant formulas to powers of the package coordinates.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias integer-multiply-one = ./integer-multiplication.lim::integer-multiply-one)
+(#alias integer-natural-embedding-nonzero = ./integer-domain.lim::integer-natural-embedding-nonzero)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias integer-multiply-swap-inner = ./integer-cross-products.lim::integer-multiply-swap-inner)
+(#alias integer-nonzero-product = ./integer-domain.lim::integer-nonzero-product)
+(#theorem integer-power-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-multiply ()) first second)
+        exponent)
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-power ()) second exponent))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            index)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-power ()) first index)
+            (#pt-app (#pt-use integer-power ()) second index))))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) (#pt-use integer-one ()))
+        (#pt-use integer-one ())
+        (#pt-app (#pt-use integer-multiply-one ()) (#pt-use integer-one ())))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-product
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                previous-exponent)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                (#pt-app (#pt-use integer-power ()) second previous-exponent)))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              previous-exponent))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-power ()) first previous-exponent)
+              (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-power ()) first previous-exponent))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              second
+              (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              previous-exponent)
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-power ()) first previous-exponent)
+              (#pt-app (#pt-use integer-power ()) second previous-exponent))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-multiply ()) first second))
+            previous-product)
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                  (#pt-app (#pt-use integer-power ()) second previous-exponent))))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app (#pt-use integer-power ()) first previous-exponent))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+            (#pt-app
+              (#pt-use integer-multiply-associative ())
+              first
+              second
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent))))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent))))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  first
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second
+                  (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+              (#pt-app
+                (#pt-use integer-multiply-congruent ())
+                first
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+                first
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+                (#pt-app (#pt-use integer-reflexive ()) first)
+                (#pt-app
+                  (#pt-use integer-multiply-swap-inner ())
+                  second
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                  (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    first
+                    (#pt-app (#pt-use integer-power ()) first previous-exponent))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent)))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  first
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      second
+                      (#pt-app (#pt-use integer-power ()) second previous-exponent))))
+                (#pt-app
+                  (#pt-use integer-multiply-associative ())
+                  first
+                  (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second
+                    (#pt-app (#pt-use integer-power ()) second previous-exponent))))))))
+      exponent)))
+(#theorem integer-power-nonzero
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter base-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-power ()) first exponent)
+            (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app (#pt-use integer-power ()) first index)
+                (#pt-use integer-zero ()))))
+          #pt-false))
+      (#pt-app
+        (#pt-use integer-natural-embedding-nonzero ())
+        (#pt-succ #pt-zero)
+        (#pt-app (#pt-use successor-not-zero ()) #pt-zero))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-nonzero
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    (#pt-app (#pt-use integer-power ()) first previous-exponent)
+                    (#pt-use integer-zero ()))))
+              #pt-false)))
+        (#pt-app
+          (#pt-use integer-nonzero-product ())
+          first
+          (#pt-app (#pt-use integer-power ()) first previous-exponent)
+          base-nonzero
+          previous-nonzero))
+      exponent)))

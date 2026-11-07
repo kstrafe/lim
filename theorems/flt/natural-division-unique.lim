@@ -1,0 +1,672 @@
+; Uniqueness of constructive natural quotient/remainder certificates.
+; The cancellation proof follows structural induction on the quotient pair.
+; This supplies the residue uniqueness needed by the exponent-three mod-nine proof.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-addition = ./natural-discrete-order.lim::not-less-than-addition)
+(#alias division-spec = ./natural-division.lim::division-spec)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias add-associative = ./natural-addition.lim::add-associative)
+(#alias add-cancel-left = ./natural-cancellation.lim::add-cancel-left)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem small-remainder-excludes-positive-quotient
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter quotient-predecessor #pt-nat)
+    (#parameter tail #pt-nat)
+    (#parameter remainder-bound (#pt-app (#pt-use less-than ()) remainder divisor))
+    (#parameter positive-quotient-equation (#pt-eq #pt-nat remainder (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) (#pt-succ quotient-predecessor) divisor) tail))))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use not-less-than-addition ())
+        divisor
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient-predecessor divisor) tail))
+      (#pt-app
+        (#pt-use substitution (0))
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use less-than ()) endpoint divisor))
+        remainder
+        (#pt-app
+          (#pt-use add ())
+          divisor
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) quotient-predecessor divisor)
+            tail))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          remainder
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) (#pt-succ quotient-predecessor) divisor)
+            tail)
+          (#pt-app
+            (#pt-use add ())
+            divisor
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) quotient-predecessor divisor)
+              tail))
+          positive-quotient-equation
+          (#pt-app
+            (#pt-use add-associative ())
+            divisor
+            (#pt-app (#pt-use multiply ()) quotient-predecessor divisor)
+            tail))
+        remainder-bound))))
+(#theorem quotient-remainder-unique
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter first-quotient #pt-nat)
+    (#parameter second-quotient #pt-nat)
+    (#parameter first-remainder #pt-nat)
+    (#parameter second-remainder #pt-nat)
+    (#parameter uniqueness-first-bound (#pt-app (#pt-use less-than ()) first-remainder divisor))
+    (#parameter uniqueness-second-bound (#pt-app (#pt-use less-than ()) second-remainder divisor))
+    (#parameter uniqueness-sum-equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first-quotient divisor) first-remainder) (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) second-quotient divisor) second-remainder))))
+  (#statement
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-eq #pt-nat first-quotient second-quotient)
+      (#pt-eq #pt-nat first-remainder second-remainder)))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((first-index #pt-nat))
+          (#pt-pi
+            (
+              (candidate-second-quotient #pt-nat)
+              (candidate-first-remainder #pt-nat)
+              (candidate-second-remainder #pt-nat)
+              (candidate-first-bound
+                (#pt-app (#pt-use less-than ()) candidate-first-remainder divisor))
+              (candidate-second-bound
+                (#pt-app (#pt-use less-than ()) candidate-second-remainder divisor))
+              (candidate-sum-equation
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app (#pt-use multiply ()) first-index divisor)
+                    candidate-first-remainder)
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app (#pt-use multiply ()) candidate-second-quotient divisor)
+                    candidate-second-remainder))))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-eq #pt-nat first-index candidate-second-quotient)
+              (#pt-eq #pt-nat candidate-first-remainder candidate-second-remainder))))
+        (#pt-lambda
+          ((base-second-quotient #pt-nat))
+          (#pt-nat-induct
+            (#pt-lambda
+              ((base-second-index #pt-nat))
+              (#pt-pi
+                (
+                  (base-first-remainder #pt-nat)
+                  (base-second-remainder #pt-nat)
+                  (base-test-first-bound
+                    (#pt-app (#pt-use less-than ()) base-first-remainder divisor))
+                  (base-test-second-bound
+                    (#pt-app (#pt-use less-than ()) base-second-remainder divisor))
+                  (base-test-sum-equation
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                        base-first-remainder)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) base-second-index divisor)
+                        base-second-remainder))))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat #pt-zero base-second-index)
+                  (#pt-eq #pt-nat base-first-remainder base-second-remainder))))
+            (#pt-lambda
+              (
+                (base-first-remainder #pt-nat)
+                (base-second-remainder #pt-nat)
+                (base-zero-first-bound
+                  (#pt-app (#pt-use less-than ()) base-first-remainder divisor))
+                (base-zero-second-bound
+                  (#pt-app (#pt-use less-than ()) base-second-remainder divisor))
+                (base-zero-sum-equation
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                      base-first-remainder)
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                      base-second-remainder))))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-eq #pt-nat #pt-zero #pt-zero)
+                (#pt-eq #pt-nat base-first-remainder base-second-remainder)
+                (#pt-refl #pt-nat #pt-zero)
+                base-zero-sum-equation))
+            (#pt-lambda
+              (
+                (base-second-predecessor #pt-nat)
+                (base-unused-earlier
+                  (#pt-pi
+                    (
+                      (base-first-remainder #pt-nat)
+                      (base-second-remainder #pt-nat)
+                      (base-earlier-first-bound
+                        (#pt-app (#pt-use less-than ()) base-first-remainder divisor))
+                      (base-earlier-second-bound
+                        (#pt-app (#pt-use less-than ()) base-second-remainder divisor))
+                      (base-earlier-sum-equation
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                            base-first-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) base-second-predecessor divisor)
+                            base-second-remainder))))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-eq #pt-nat #pt-zero base-second-predecessor)
+                      (#pt-eq #pt-nat base-first-remainder base-second-remainder))))
+                (base-first-remainder #pt-nat)
+                (base-second-remainder #pt-nat)
+                (base-positive-first-bound
+                  (#pt-app (#pt-use less-than ()) base-first-remainder divisor))
+                (base-positive-second-bound
+                  (#pt-app (#pt-use less-than ()) base-second-remainder divisor))
+                (base-positive-sum-equation
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                      base-first-remainder)
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ base-second-predecessor) divisor)
+                      base-second-remainder))))
+              (#pt-app
+                (#pt-use false-elimination ())
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat #pt-zero (#pt-succ base-second-predecessor))
+                  (#pt-eq #pt-nat base-first-remainder base-second-remainder))
+                (#pt-app
+                  (#pt-use small-remainder-excludes-positive-quotient ())
+                  divisor
+                  base-first-remainder
+                  base-second-predecessor
+                  base-second-remainder
+                  base-positive-first-bound
+                  base-positive-sum-equation)))
+            base-second-quotient))
+        (#pt-lambda
+          (
+            (previous-first-quotient #pt-nat)
+            (previous-uniqueness
+              (#pt-pi
+                (
+                  (candidate-second-quotient #pt-nat)
+                  (candidate-first-remainder #pt-nat)
+                  (candidate-second-remainder #pt-nat)
+                  (candidate-first-bound
+                    (#pt-app (#pt-use less-than ()) candidate-first-remainder divisor))
+                  (candidate-second-bound
+                    (#pt-app (#pt-use less-than ()) candidate-second-remainder divisor))
+                  (candidate-sum-equation
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                        candidate-first-remainder)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) candidate-second-quotient divisor)
+                        candidate-second-remainder))))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat previous-first-quotient candidate-second-quotient)
+                  (#pt-eq #pt-nat candidate-first-remainder candidate-second-remainder))))
+            (step-second-quotient #pt-nat))
+          (#pt-nat-induct
+            (#pt-lambda
+              ((step-second-index #pt-nat))
+              (#pt-pi
+                (
+                  (step-first-remainder #pt-nat)
+                  (step-second-remainder #pt-nat)
+                  (step-test-first-bound
+                    (#pt-app (#pt-use less-than ()) step-first-remainder divisor))
+                  (step-test-second-bound
+                    (#pt-app (#pt-use less-than ()) step-second-remainder divisor))
+                  (step-test-sum-equation
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) (#pt-succ previous-first-quotient) divisor)
+                        step-first-remainder)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) step-second-index divisor)
+                        step-second-remainder))))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat (#pt-succ previous-first-quotient) step-second-index)
+                  (#pt-eq #pt-nat step-first-remainder step-second-remainder))))
+            (#pt-lambda
+              (
+                (step-first-remainder #pt-nat)
+                (step-second-remainder #pt-nat)
+                (step-zero-first-bound
+                  (#pt-app (#pt-use less-than ()) step-first-remainder divisor))
+                (step-zero-second-bound
+                  (#pt-app (#pt-use less-than ()) step-second-remainder divisor))
+                (step-zero-sum-equation
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ previous-first-quotient) divisor)
+                      step-first-remainder)
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) #pt-zero divisor)
+                      step-second-remainder))))
+              (#pt-app
+                (#pt-use false-elimination ())
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat (#pt-succ previous-first-quotient) #pt-zero)
+                  (#pt-eq #pt-nat step-first-remainder step-second-remainder))
+                (#pt-app
+                  (#pt-use small-remainder-excludes-positive-quotient ())
+                  divisor
+                  step-second-remainder
+                  previous-first-quotient
+                  step-first-remainder
+                  step-zero-second-bound
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ previous-first-quotient) divisor)
+                      step-first-remainder)
+                    step-second-remainder
+                    step-zero-sum-equation))))
+            (#pt-lambda
+              (
+                (step-second-predecessor #pt-nat)
+                (step-unused-earlier
+                  (#pt-pi
+                    (
+                      (step-first-remainder #pt-nat)
+                      (step-second-remainder #pt-nat)
+                      (step-earlier-first-bound
+                        (#pt-app (#pt-use less-than ()) step-first-remainder divisor))
+                      (step-earlier-second-bound
+                        (#pt-app (#pt-use less-than ()) step-second-remainder divisor))
+                      (step-earlier-sum-equation
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ previous-first-quotient)
+                              divisor)
+                            step-first-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                            step-second-remainder))))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-eq #pt-nat (#pt-succ previous-first-quotient) step-second-predecessor)
+                      (#pt-eq #pt-nat step-first-remainder step-second-remainder))))
+                (step-first-remainder #pt-nat)
+                (step-second-remainder #pt-nat)
+                (step-positive-first-bound
+                  (#pt-app (#pt-use less-than ()) step-first-remainder divisor))
+                (step-positive-second-bound
+                  (#pt-app (#pt-use less-than ()) step-second-remainder divisor))
+                (step-positive-sum-equation
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ previous-first-quotient) divisor)
+                      step-first-remainder)
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ step-second-predecessor) divisor)
+                      step-second-remainder))))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ previous-first-quotient)
+                  (#pt-succ step-second-predecessor))
+                (#pt-eq #pt-nat step-first-remainder step-second-remainder)
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda ((endpoint #pt-nat)) (#pt-succ endpoint))
+                  previous-first-quotient
+                  step-second-predecessor
+                  (#pt-app
+                    (#pt-use conjunction-left ())
+                    (#pt-eq #pt-nat previous-first-quotient step-second-predecessor)
+                    (#pt-eq #pt-nat step-first-remainder step-second-remainder)
+                    (#pt-app
+                      previous-uniqueness
+                      step-second-predecessor
+                      step-first-remainder
+                      step-second-remainder
+                      step-positive-first-bound
+                      step-positive-second-bound
+                      (#pt-app
+                        (#pt-use add-cancel-left ())
+                        divisor
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                          step-first-remainder)
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                          step-second-remainder)
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            divisor
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                              step-first-remainder))
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ previous-first-quotient)
+                              divisor)
+                            step-first-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            divisor
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                              step-second-remainder))
+                          (#pt-app
+                            (#pt-use symmetry (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ previous-first-quotient)
+                                divisor)
+                              step-first-remainder)
+                            (#pt-app
+                              (#pt-use add ())
+                              divisor
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                                step-first-remainder))
+                            (#pt-app
+                              (#pt-use add-associative ())
+                              divisor
+                              (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                              step-first-remainder))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ previous-first-quotient)
+                                divisor)
+                              step-first-remainder)
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ step-second-predecessor)
+                                divisor)
+                              step-second-remainder)
+                            (#pt-app
+                              (#pt-use add ())
+                              divisor
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                                step-second-remainder))
+                            step-positive-sum-equation
+                            (#pt-app
+                              (#pt-use add-associative ())
+                              divisor
+                              (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                              step-second-remainder)))))))
+                (#pt-app
+                  (#pt-use conjunction-right ())
+                  (#pt-eq #pt-nat previous-first-quotient step-second-predecessor)
+                  (#pt-eq #pt-nat step-first-remainder step-second-remainder)
+                  (#pt-app
+                    previous-uniqueness
+                    step-second-predecessor
+                    step-first-remainder
+                    step-second-remainder
+                    step-positive-first-bound
+                    step-positive-second-bound
+                    (#pt-app
+                      (#pt-use add-cancel-left ())
+                      divisor
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                        step-first-remainder)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                        step-second-remainder)
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        (#pt-app
+                          (#pt-use add ())
+                          divisor
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                            step-first-remainder))
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) (#pt-succ previous-first-quotient) divisor)
+                          step-first-remainder)
+                        (#pt-app
+                          (#pt-use add ())
+                          divisor
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                            step-second-remainder))
+                        (#pt-app
+                          (#pt-use symmetry (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ previous-first-quotient)
+                              divisor)
+                            step-first-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            divisor
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                              step-first-remainder))
+                          (#pt-app
+                            (#pt-use add-associative ())
+                            divisor
+                            (#pt-app (#pt-use multiply ()) previous-first-quotient divisor)
+                            step-first-remainder))
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ previous-first-quotient)
+                              divisor)
+                            step-first-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ step-second-predecessor)
+                              divisor)
+                            step-second-remainder)
+                          (#pt-app
+                            (#pt-use add ())
+                            divisor
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                              step-second-remainder))
+                          step-positive-sum-equation
+                          (#pt-app
+                            (#pt-use add-associative ())
+                            divisor
+                            (#pt-app (#pt-use multiply ()) step-second-predecessor divisor)
+                            step-second-remainder))))))))
+            step-second-quotient))
+        first-quotient)
+      second-quotient
+      first-remainder
+      second-remainder
+      uniqueness-first-bound
+      uniqueness-second-bound
+      uniqueness-sum-equation)))
+(#theorem division-unique
+  (#universes)
+  (#parameters
+    (#parameter dividend #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter first-quotient #pt-nat)
+    (#parameter first-remainder #pt-nat)
+    (#parameter second-quotient #pt-nat)
+    (#parameter second-remainder #pt-nat)
+    (#parameter first-certificate (#pt-app (#pt-use division-spec ()) dividend divisor first-quotient first-remainder))
+    (#parameter second-certificate (#pt-app (#pt-use division-spec ()) dividend divisor second-quotient second-remainder)))
+  (#statement
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-eq #pt-nat first-quotient second-quotient)
+      (#pt-eq #pt-nat first-remainder second-remainder)))
+  (#proof
+    (#pt-app
+      (#pt-use quotient-remainder-unique ())
+      divisor
+      first-quotient
+      second-quotient
+      first-remainder
+      second-remainder
+      (#pt-app
+        (#pt-use conjunction-right ())
+        (#pt-eq
+          #pt-nat
+          dividend
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) first-quotient divisor)
+            first-remainder))
+        (#pt-app (#pt-use less-than ()) first-remainder divisor)
+        first-certificate)
+      (#pt-app
+        (#pt-use conjunction-right ())
+        (#pt-eq
+          #pt-nat
+          dividend
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) second-quotient divisor)
+            second-remainder))
+        (#pt-app (#pt-use less-than ()) second-remainder divisor)
+        second-certificate)
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first-quotient divisor)
+          first-remainder)
+        dividend
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) second-quotient divisor)
+          second-remainder)
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          dividend
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) first-quotient divisor)
+            first-remainder)
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-eq
+              #pt-nat
+              dividend
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use multiply ()) first-quotient divisor)
+                first-remainder))
+            (#pt-app (#pt-use less-than ()) first-remainder divisor)
+            first-certificate))
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-eq
+            #pt-nat
+            dividend
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) second-quotient divisor)
+              second-remainder))
+          (#pt-app (#pt-use less-than ()) second-remainder divisor)
+          second-certificate)))))

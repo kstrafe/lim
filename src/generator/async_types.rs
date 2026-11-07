@@ -1,10 +1,10 @@
 //! Shared declaration shapes and pattern bindings for generator analysis.
 //! No body rewriting, storage layout, or legacy lowering lives here.
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 use crate::{normalize_keywords, parse_type, Expr, Type};
 use std::collections::HashMap;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -20,7 +20,7 @@ pub(crate) struct AsyncTypeEnvironment {
     pub struct_field_order: HashMap<String, Vec<String>>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn resolve_async_enum_name<'a>(
     type_name: &'a str,
     environment: &'a AsyncTypeEnvironment,
@@ -35,7 +35,7 @@ fn resolve_async_enum_name<'a>(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn collect_enum_pattern_bindings(
     pattern: &Expr,
     type_name: &str,
@@ -156,7 +156,7 @@ pub(crate) fn collect_enum_pattern_bindings(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

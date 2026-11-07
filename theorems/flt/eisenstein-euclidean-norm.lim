@@ -1,0 +1,432 @@
+; Strict decrease of the actual remainder norm in Eisenstein division.
+; r*conjugate(y)=a+b*omega gives N(r)*N(y)=N(a+b*omega).
+; The bounded-coordinate estimate and nonzero multiplier reflection
+; prove N(r)<N(y); all norm representatives are actual witnesses.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias
+  eisenstein-coordinate-division-spec
+  =
+  ./eisenstein-coordinate-division.lim::eisenstein-coordinate-division-spec)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  eisenstein-division-remainder
+  =
+  ./eisenstein-euclidean-algebra.lim::eisenstein-division-remainder)
+(#alias
+  eisenstein-remainder-conjugate-from-coordinates
+  =
+  ./eisenstein-euclidean-algebra.lim::eisenstein-remainder-conjugate-from-coordinates)
+(#alias
+  eisenstein-natural-norm-conjugate
+  =
+  ./eisenstein-natural-norm-transport.lim::eisenstein-natural-norm-conjugate)
+(#alias
+  eisenstein-product-natural-norm-equation
+  =
+  ./eisenstein-natural-norm-transport.lim::eisenstein-product-natural-norm-equation)
+(#alias
+  eisenstein-natural-norm-nonzero
+  =
+  ./eisenstein-natural-norm-properties.lim::eisenstein-natural-norm-nonzero)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias
+  eisenstein-natural-coordinate-norm-bound
+  =
+  ./eisenstein-coordinate-norm-bound.lim::eisenstein-natural-coordinate-norm-bound)
+(#alias
+  natural-multiply-strict-reflect
+  =
+  ./natural-product-order-reflection.lim::natural-multiply-strict-reflect)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem eisenstein-remainder-natural-norm-equation
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter remainder-norm #pt-nat)
+    (#parameter small-norm #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter coordinate-certificate (#pt-app (#pt-use eisenstein-coordinate-division-spec ()) (#pt-app (#pt-use eisenstein-multiply ()) dividend (#pt-app (#pt-use eisenstein-conjugate ()) divisor)) divisor-norm quotient real-remainder omega-remainder))
+    (#parameter remainder-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient) remainder-norm))
+    (#parameter small-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) (#pt-construct eisenstein () () pair ((#pt-app (#pt-use integer-of-natural ()) real-remainder) (#pt-app (#pt-use integer-of-natural ()) omega-remainder))) small-norm)))
+  (#statement
+    (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) remainder-norm divisor-norm) small-norm))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-product-natural-norm-equation ())
+      (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+      (#pt-app (#pt-use eisenstein-conjugate ()) divisor)
+      (#pt-construct
+        eisenstein
+        ()
+        ()
+        pair
+        (
+          (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+          (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+      remainder-norm
+      divisor-norm
+      small-norm
+      (#pt-app
+        (#pt-use eisenstein-remainder-conjugate-from-coordinates ())
+        dividend
+        divisor
+        quotient
+        divisor-norm
+        real-remainder
+        omega-remainder
+        divisor-norm-certificate
+        coordinate-certificate)
+      remainder-norm-certificate
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-conjugate ())
+        divisor
+        divisor-norm
+        divisor-norm-certificate)
+      small-norm-certificate)))
+(#theorem eisenstein-remainder-natural-norm-decreases
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter remainder-norm #pt-nat)
+    (#parameter small-norm #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter coordinate-certificate (#pt-app (#pt-use eisenstein-coordinate-division-spec ()) (#pt-app (#pt-use eisenstein-multiply ()) dividend (#pt-app (#pt-use eisenstein-conjugate ()) divisor)) divisor-norm quotient real-remainder omega-remainder))
+    (#parameter remainder-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient) remainder-norm))
+    (#parameter small-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) (#pt-construct eisenstein () () pair ((#pt-app (#pt-use integer-of-natural ()) real-remainder) (#pt-app (#pt-use integer-of-natural ()) omega-remainder))) small-norm))
+    (#parameter divisor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) divisor (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement (#pt-app (#pt-use less-than ()) remainder-norm divisor-norm))
+  (#proof
+    (#pt-app
+      (#pt-use natural-multiply-strict-reflect ())
+      divisor-norm
+      remainder-norm
+      divisor-norm
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-nonzero ())
+        divisor
+        divisor-norm
+        divisor-norm-certificate
+        divisor-nonzero)
+      (#pt-app
+        (#pt-use substitution (0))
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use less-than ())
+            endpoint
+            (#pt-app (#pt-use multiply ()) divisor-norm divisor-norm)))
+        small-norm
+        (#pt-app (#pt-use multiply ()) remainder-norm divisor-norm)
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) remainder-norm divisor-norm)
+          small-norm
+          (#pt-app
+            (#pt-use eisenstein-remainder-natural-norm-equation ())
+            dividend
+            divisor
+            quotient
+            divisor-norm
+            real-remainder
+            omega-remainder
+            remainder-norm
+            small-norm
+            divisor-norm-certificate
+            coordinate-certificate
+            remainder-norm-certificate
+            small-norm-certificate))
+        (#pt-app
+          (#pt-use eisenstein-natural-coordinate-norm-bound ())
+          real-remainder
+          omega-remainder
+          small-norm
+          divisor-norm
+          small-norm-certificate
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-app (#pt-use less-than ()) real-remainder divisor-norm)
+            (#pt-app (#pt-use less-than ()) omega-remainder divisor-norm)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  dividend
+                  (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                    quotient)
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                      (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app (#pt-use less-than ()) real-remainder divisor-norm)
+                (#pt-app (#pt-use less-than ()) omega-remainder divisor-norm))
+              coordinate-certificate))
+          (#pt-app
+            (#pt-use conjunction-right ())
+            (#pt-app (#pt-use less-than ()) real-remainder divisor-norm)
+            (#pt-app (#pt-use less-than ()) omega-remainder divisor-norm)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  dividend
+                  (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                    quotient)
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                      (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app (#pt-use less-than ()) real-remainder divisor-norm)
+                (#pt-app (#pt-use less-than ()) omega-remainder divisor-norm))
+              coordinate-certificate)))))))
+(#theorem eisenstein-remainder-small-norm-exists
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter coordinate-certificate (#pt-app (#pt-use eisenstein-coordinate-division-spec ()) (#pt-app (#pt-use eisenstein-multiply ()) dividend (#pt-app (#pt-use eisenstein-conjugate ()) divisor)) divisor-norm quotient real-remainder omega-remainder))
+    (#parameter divisor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) divisor (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-remainder-norm #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use eisenstein-natural-norm ())
+            (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+            candidate-remainder-norm)
+          (#pt-app (#pt-use less-than ()) candidate-remainder-norm divisor-norm)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural-norm #pt-nat))
+          (#pt-app
+            (#pt-use eisenstein-natural-norm ())
+            (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+            candidate-natural-norm)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural-norm #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-natural-norm ())
+                  (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                  candidate-natural-norm)))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-remainder-norm #pt-nat))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use eisenstein-natural-norm ())
+                (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                candidate-remainder-norm)
+              (#pt-app (#pt-use less-than ()) candidate-remainder-norm divisor-norm)))))
+      (
+        (#pt-lambda
+          (
+            (remainder-norm #pt-nat)
+            (remainder-norm-certificate
+              (#pt-app
+                (#pt-use eisenstein-natural-norm ())
+                (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                remainder-norm)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-small-norm #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-natural-norm ())
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                      (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+                  candidate-small-norm)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-small-norm #pt-nat))
+                      (#pt-app
+                        (#pt-use eisenstein-natural-norm ())
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+                        candidate-small-norm)))))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-remainder-norm #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-natural-norm ())
+                      (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                      candidate-remainder-norm)
+                    (#pt-app (#pt-use less-than ()) candidate-remainder-norm divisor-norm)))))
+            (
+              (#pt-lambda
+                (
+                  (small-norm #pt-nat)
+                  (small-norm-certificate
+                    (#pt-app
+                      (#pt-use eisenstein-natural-norm ())
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                          (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+                      small-norm)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-remainder-norm #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm ())
+                          (#pt-app
+                            (#pt-use eisenstein-division-remainder ())
+                            dividend
+                            divisor
+                            quotient)
+                          candidate-remainder-norm)
+                        (#pt-app (#pt-use less-than ()) candidate-remainder-norm divisor-norm))))
+                  introduce
+                  (remainder-norm
+                    (#pt-app
+                      (#pt-use conjunction-introduce ())
+                      (#pt-app
+                        (#pt-use eisenstein-natural-norm ())
+                        (#pt-app
+                          (#pt-use eisenstein-division-remainder ())
+                          dividend
+                          divisor
+                          quotient)
+                        remainder-norm)
+                      (#pt-app (#pt-use less-than ()) remainder-norm divisor-norm)
+                      remainder-norm-certificate
+                      (#pt-app
+                        (#pt-use eisenstein-remainder-natural-norm-decreases ())
+                        dividend
+                        divisor
+                        quotient
+                        divisor-norm
+                        real-remainder
+                        omega-remainder
+                        remainder-norm
+                        small-norm
+                        divisor-norm-certificate
+                        coordinate-certificate
+                        remainder-norm-certificate
+                        small-norm-certificate
+                        divisor-nonzero))))))
+            (#pt-app
+              (#pt-use eisenstein-natural-norm-exists ())
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))))
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-exists ())
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)))))

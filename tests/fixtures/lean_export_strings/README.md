@@ -41,8 +41,12 @@ Lean worker, checks all five raw and independently translated native targets,
 and compares exact bytes without writing in `--check` mode. Cargo uses the
 committed artifacts without Lean or network access. Corrupt helper identities,
 types, universe arities, proof evidence and literal bounds are tested. An
-altered ASCII equality currently exhausts conversion work; it is recorded as
-bounded refusal rather than a completed inequality decision.
+altered ASCII equality now produces a type mismatch within the recorded
+profile, in both raw and native checking, including with an earlier valid
+target. Separate local Lim theorems observe character scalar values,
+surrogate fallback, and UTF-8 byte counts for empty, ASCII, Unicode and NUL
+strings. These observations use the checked imported definitions and ordinary
+projections/List induction; they are not additional Lean-exported artifacts.
 
 These fixtures cover a pinned literal-import prerequisite. They are not the
 full Lean environment or the unbounded Fermat proof.

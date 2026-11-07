@@ -87,7 +87,8 @@ fn scope_unchecked_projections(source: &str) -> Result<String, String> {
                     } else {
                         statement
                     };
-                    *target = Expr::List(vec![Expr::Symbol("#unsafe".into()), target.clone()]);
+                    *target =
+                        Expr::List(vec![Expr::Symbol("#unsafe".into()), target.clone()].into());
                 }
             }
         }
@@ -6445,13 +6446,13 @@ impl<'a> Emitter<'a> {
         }
         // Keep the former union solver only as an independent test oracle.
         // Production cleanup must use the plan that determines the emitted PC.
-        #[cfg(not(test))]
+        #[cfg(any(not(test), feature = "proof-kernel-tests"))]
         panic!("async cleanup requires specialized physical initialization");
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         self.legacy_cleanup_occupied()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn legacy_cleanup_occupied(&self) -> HashSet<usize> {
         use crate::generator::async_cells::Cell;
         crate::generator::async_cells::Plan::cancellation(
@@ -7667,12 +7668,12 @@ pub(crate) fn generate_function(
     planning: &Planning,
     function: &Function,
 ) -> Result<Generated, Error> {
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     EMISSION_COUNT.with(|count| count.set(count.get() + 1));
     Emitter::new(planning, function)?.emit()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 thread_local! {
     pub(crate) static EMISSION_COUNT: Cell<usize> = const { Cell::new(0) };
 }
@@ -7796,11 +7797,11 @@ pub(crate) fn program(
     Ok(program)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[path = "../../tests/regressions/selected_address_snapshots.rs"]
 mod selected_address_snapshots;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

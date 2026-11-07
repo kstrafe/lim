@@ -74,7 +74,7 @@ impl Kernel {
             return Ok(None);
         };
         let value = self.natural_difference(&base, count, depth + 1)?;
-        self.charge_transformation(128 + name.len() + value.decimal().len())?;
+        self.charge_transformation(TERM_NODE_BYTES + name.len() + value.decimal().len())?;
         Ok(Some(term(Term::NatLiteral {
             family: name.into(),
             value,

@@ -32,21 +32,22 @@ use spilled::Entries;
 
 #[derive(Default)]
 struct Materialized {
-    slots: Vec<Option<Weak<Term>>>,
+    slots: Vec<Option<Weak<TermNode>>>,
     queued: Vec<bool>,
     recent: Vec<usize>,
-    sparse: Option<HashMap<usize, (Weak<Term>, bool)>>,
+    sparse: Option<HashMap<usize, (Weak<TermNode>, bool)>>,
 }
 impl Materialized {
     fn get(&self, id: usize) -> Option<T> {
-        match &self.sparse {
+        (match &self.sparse {
             Some(slots) => slots.get(&id).and_then(|(value, _)| value.upgrade()),
             None => self
                 .slots
                 .get(id)
                 .and_then(Option::as_ref)
                 .and_then(Weak::upgrade),
-        }
+        })
+        .map(T::from_shared)
     }
     fn insert(&mut self, id: usize, value: &T) {
         if let Some(slots) = &mut self.sparse {
@@ -140,6 +141,18 @@ impl Expressions {
             },
         }
     }
+    pub(super) fn with_scratch_limit(eager: bool, max_scratch_bytes: u64) -> Self {
+        Self {
+            storage: if eager {
+                Storage::Eager(Vec::new())
+            } else {
+                Storage::Compact {
+                    entries: Entries::with_scratch_limit(max_scratch_bytes),
+                    materialized: RefCell::new(Materialized::default()),
+                }
+            },
+        }
+    }
 
     #[cfg(test)]
     pub(super) fn is_spilled(&self) -> bool {
@@ -175,6 +188,18 @@ impl Expressions {
         let mut result = Self::new(eager);
         if let Storage::Compact { entries, .. } = &mut result.storage {
             *entries = Entries::with_limit(limit);
+        }
+        result
+    }
+    #[cfg(test)]
+    pub(super) fn with_storage_limits(
+        eager: bool,
+        memory_limit: usize,
+        scratch_limit: u64,
+    ) -> Self {
+        let mut result = Self::with_scratch_limit(eager, scratch_limit);
+        if let Storage::Compact { entries, .. } = &mut result.storage {
+            *entries = Entries::with_storage_limits(memory_limit, scratch_limit);
         }
         result
     }

@@ -1,0 +1,27 @@
+Mathlib point-ideal products attribution
+
+Pinned mathematical sources:
+Mathlib/RingTheory/Ideal/Operations.lean
+SHA-256: bfc0fd48729b1953ee86d6a7e834f27c1472e73c8e83a40b9d0f49ad7b9f2299
+Mathlib/AlgebraicGeometry/EllipticCurve/Affine/Point.lean
+SHA-256: 541c24503064ca053f3f747e2f8c725bea049a04ca561d6d5be17597fd368339
+Revision: db584cd6d46c92f209a44c0f1c829460d327499d
+
+Copyright (c) 2018 Kenny Lau, 2023 Junyan Xu, and 2025 David Kurniadi
+Angdinata.
+License: Apache-2.0, reproduced in LICENSE.MATHLIB.
+
+The native adaptation proves generic two-generator ideal congruence and
+product factorization from actual ideal operations, together with the
+image-unit criterion using an actual section, kernel, and checked unit
+image. Checked field data supplies inverse witnesses; separate
+constructions provide the rational and prime-residue field instances.
+
+For the actual Weierstrass coordinate ring, it proves the opposite-point
+ideal product identity with the curve equation, Jacobian partials,
+nonsingularity branch, and field data visible in the hypotheses. The source
+identity is Mathlib's XYIdeal_neg_mul. The native development supplies the
+generator changes and unit arguments needed for that identity; it does not
+assume the desired product theorem, an ideal inverse, or a class-group
+result. Secant and tangent ideal products, fractional ideals, class groups,
+and the full FLT proof remain outside this attribution's scope.

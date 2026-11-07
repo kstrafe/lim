@@ -1,0 +1,181 @@
+; Direct FLT source port: regroup a hypothetical power equation.
+; This is the exponent-rewrite part of FermatLastTheoremFor.mono.
+; It proves no exponent case of FLT and does not assume FLT as an axiom.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias power-multiply = ./natural-powers.lim::power-multiply)
+(#theorem regroup-power-equation
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter outer-exponent #pt-nat)
+    (#parameter inner-exponent #pt-nat)
+    (#parameter equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use power ()) first (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)) (#pt-app (#pt-use power ()) second (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))) (#pt-app (#pt-use power ()) third (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use power ())
+          (#pt-app (#pt-use power ()) first inner-exponent)
+          outer-exponent)
+        (#pt-app
+          (#pt-use power ())
+          (#pt-app (#pt-use power ()) second inner-exponent)
+          outer-exponent))
+      (#pt-app (#pt-use power ()) (#pt-app (#pt-use power ()) third inner-exponent) outer-exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use power ())
+          (#pt-app (#pt-use power ()) first inner-exponent)
+          outer-exponent)
+        (#pt-app
+          (#pt-use power ())
+          (#pt-app (#pt-use power ()) second inner-exponent)
+          outer-exponent))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use power ())
+          first
+          (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+        (#pt-app
+          (#pt-use power ())
+          second
+          (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))
+      (#pt-app (#pt-use power ()) (#pt-app (#pt-use power ()) third inner-exponent) outer-exponent)
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use power ())
+            first
+            (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+          (#pt-app
+            (#pt-use power ())
+            second
+            (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use power ())
+            (#pt-app (#pt-use power ()) first inner-exponent)
+            outer-exponent)
+          (#pt-app
+            (#pt-use power ())
+            (#pt-app (#pt-use power ()) second inner-exponent)
+            outer-exponent))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use power ())
+              first
+              (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+            (#pt-app
+              (#pt-use power ())
+              second
+              (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use power ()) first inner-exponent)
+              outer-exponent)
+            (#pt-app
+              (#pt-use power ())
+              second
+              (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use power ()) first inner-exponent)
+              outer-exponent)
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use power ()) second inner-exponent)
+              outer-exponent))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda
+              ((value #pt-nat))
+              (#pt-app
+                (#pt-use add ())
+                value
+                (#pt-app
+                  (#pt-use power ())
+                  second
+                  (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))))
+            (#pt-app
+              (#pt-use power ())
+              first
+              (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use power ()) first inner-exponent)
+              outer-exponent)
+            (#pt-app (#pt-use power-multiply ()) first outer-exponent inner-exponent))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda
+              ((value #pt-nat))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use power ())
+                  (#pt-app (#pt-use power ()) first inner-exponent)
+                  outer-exponent)
+                value))
+            (#pt-app
+              (#pt-use power ())
+              second
+              (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+            (#pt-app
+              (#pt-use power ())
+              (#pt-app (#pt-use power ()) second inner-exponent)
+              outer-exponent)
+            (#pt-app (#pt-use power-multiply ()) second outer-exponent inner-exponent))))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use power ())
+            first
+            (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+          (#pt-app
+            (#pt-use power ())
+            second
+            (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent)))
+        (#pt-app
+          (#pt-use power ())
+          third
+          (#pt-app (#pt-use multiply ()) outer-exponent inner-exponent))
+        (#pt-app
+          (#pt-use power ())
+          (#pt-app (#pt-use power ()) third inner-exponent)
+          outer-exponent)
+        equation
+        (#pt-app (#pt-use power-multiply ()) third outer-exponent inner-exponent)))))

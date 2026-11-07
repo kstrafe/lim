@@ -1,0 +1,1005 @@
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Actual signed even-second-coordinate normalization for
+; S_FreyPackage_of_counterexample.lean:31-43. Keep an even b, swap an
+; even a into second place, or reorder (a,-c,-b) when both are odd.
+; Every branch retains actual nonzero, integer gcd-one, evenness and
+; arbitrary-power equation certificates. No normalized packet is assumed.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias natural-power-solution = ./fermat-power-defs.lim::natural-power-solution)
+(#alias
+  natural-power-integer-equation
+  =
+  ./frey-signed-power-equations.lim::natural-power-integer-equation)
+(#alias
+  integer-odd-power-reorder-equation
+  =
+  ./frey-signed-power-equations.lim::integer-odd-power-reorder-equation)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-gcd-of-naturals = ./integer-gcd.lim::integer-gcd-of-naturals)
+(#alias integer-gcd-negative-second = ./integer-gcd.lim::integer-gcd-negative-second)
+(#alias integer-natural-nonzero = ./fermat-three-signed-bridge.lim::integer-natural-nonzero)
+(#alias integer-negative-nonzero = ./integer-divisibility-decision.lim::integer-negative-nonzero)
+(#alias integer-divides-of-natural = ./integer-divisibility.lim::integer-divides-of-natural)
+(#alias
+  integer-divides-negative-target
+  =
+  ./integer-divisibility.lim::integer-divides-negative-target)
+(#alias coprime-gcd-one = ./natural-euclid.lim::coprime-gcd-one)
+(#alias coprime-symmetric = ./natural-coprime.lim::coprime-symmetric)
+(#alias
+  power-solution-first-third-coprime
+  =
+  ./fermat-power-coprimality.lim::power-solution-first-third-coprime)
+(#alias
+  power-solution-odd-first-second-third-even
+  =
+  ./fermat-power-coprimality.lim::power-solution-odd-first-second-third-even)
+(#alias even-or-odd = ./natural-parity.lim::even-or-odd)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#math-definition integer-even-power-packet ()
+  (#pt-pi
+    (
+      (exponent #pt-nat)
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (third (#pt-use integer ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (exponent #pt-nat)
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (third (#pt-use integer ())))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-pi
+        ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))))
+        #pt-false)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-pi
+          ((denied-proof (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))))
+          #pt-false)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            ((denied-proof (#pt-app (#pt-use integer-equal ()) third (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                second)
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first exponent)
+                  (#pt-app (#pt-use integer-power ()) second exponent))
+                (#pt-app (#pt-use integer-power ()) third exponent)))))))))
+(#math-definition has-integer-even-power-packet ()
+  (#pt-pi ((exponent #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((exponent #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer ())
+      (#pt-lambda
+        ((candidate-first (#pt-use integer ())))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use integer ())
+          (#pt-lambda
+            ((candidate-second (#pt-use integer ())))
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-third (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-even-power-packet ())
+                  exponent
+                  candidate-first
+                  candidate-second
+                  candidate-third)))))))))
+(#theorem natural-power-positive-even-packet
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter third-natural #pt-nat)
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first-natural second-natural third-natural))
+    (#parameter coprime-certificate (#pt-app (#pt-use coprime ()) first-natural second-natural))
+    (#parameter second-even (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) second-natural)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-even-power-packet ())
+      exponent
+      (#pt-app (#pt-use integer-of-natural ()) first-natural)
+      (#pt-app (#pt-use integer-of-natural ()) second-natural)
+      (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-use integer-zero ()))))
+        #pt-false)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                (#pt-use integer-zero ()))))
+          #pt-false)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app (#pt-use integer-of-natural ()) second-natural)
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) second-natural))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  exponent))))))
+      (#pt-app
+        (#pt-use integer-natural-nonzero ())
+        first-natural
+        (#pt-project natural-power-solution 0 solution))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                (#pt-use integer-zero ()))))
+          #pt-false)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app (#pt-use integer-of-natural ()) second-natural)
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) second-natural))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  exponent)))))
+        (#pt-app
+          (#pt-use integer-natural-nonzero ())
+          second-natural
+          (#pt-project natural-power-solution 1 solution))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app (#pt-use integer-of-natural ()) second-natural)
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) second-natural))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  exponent))))
+          (#pt-app
+            (#pt-use integer-natural-nonzero ())
+            third-natural
+            (#pt-project natural-power-solution 2 solution))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app (#pt-use integer-of-natural ()) second-natural)
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) second-natural))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  exponent)))
+            (#pt-app
+              (#pt-use integer-gcd-of-naturals ())
+              first-natural
+              second-natural
+              (#pt-succ #pt-zero)
+              (#pt-app
+                (#pt-use coprime-gcd-one ())
+                first-natural
+                second-natural
+                coprime-certificate))
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) second-natural))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                  exponent))
+              (#pt-app
+                (#pt-use integer-divides-of-natural ())
+                (#pt-succ (#pt-succ #pt-zero))
+                second-natural
+                second-even)
+              (#pt-app
+                (#pt-use natural-power-integer-equation ())
+                exponent
+                first-natural
+                second-natural
+                third-natural
+                (#pt-project natural-power-solution 3 solution)))))))))
+(#theorem natural-power-reordered-even-packet
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter third-natural #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first-natural second-natural third-natural))
+    (#parameter coprime-certificate (#pt-app (#pt-use coprime ()) first-natural second-natural))
+    (#parameter first-odd (#pt-app (#pt-use odd ()) first-natural))
+    (#parameter second-odd (#pt-app (#pt-use odd ()) second-natural)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-even-power-packet ())
+      exponent
+      (#pt-app (#pt-use integer-of-natural ()) first-natural)
+      (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) third-natural))
+      (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) second-natural))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-use integer-zero ()))))
+        #pt-false)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                (#pt-use integer-zero ()))))
+          #pt-false)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-of-natural ()) third-natural))
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  exponent))))))
+      (#pt-app
+        (#pt-use integer-natural-nonzero ())
+        first-natural
+        (#pt-project natural-power-solution 0 solution))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                (#pt-use integer-zero ()))))
+          #pt-false)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-of-natural ()) third-natural))
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  exponent)))))
+        (#pt-app
+          (#pt-use integer-negative-nonzero ())
+          (#pt-app (#pt-use integer-of-natural ()) third-natural)
+          (#pt-app
+            (#pt-use integer-natural-nonzero ())
+            third-natural
+            (#pt-project natural-power-solution 2 solution)))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  (#pt-use integer-zero ()))))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-of-natural ()) third-natural))
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  exponent))))
+          (#pt-app
+            (#pt-use integer-negative-nonzero ())
+            (#pt-app (#pt-use integer-of-natural ()) second-natural)
+            (#pt-app
+              (#pt-use integer-natural-nonzero ())
+              second-natural
+              (#pt-project natural-power-solution 1 solution)))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use integer-gcd-spec ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-of-natural ()) third-natural))
+              (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  exponent)))
+            (#pt-app
+              (#pt-use integer-gcd-negative-second ())
+              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+              (#pt-app (#pt-use integer-of-natural ()) third-natural)
+              (#pt-succ #pt-zero)
+              (#pt-app
+                (#pt-use integer-gcd-of-naturals ())
+                first-natural
+                third-natural
+                (#pt-succ #pt-zero)
+                (#pt-app
+                  (#pt-use coprime-gcd-one ())
+                  first-natural
+                  third-natural
+                  (#pt-app
+                    (#pt-use power-solution-first-third-coprime ())
+                    exponent
+                    first-natural
+                    second-natural
+                    third-natural
+                    positive-exponent
+                    coprime-certificate
+                    (#pt-project natural-power-solution 3 solution)))))
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-of-natural ()) third-natural)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    exponent)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    exponent))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                  exponent))
+              (#pt-app
+                (#pt-use integer-divides-negative-target ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                (#pt-app
+                  (#pt-use integer-divides-of-natural ())
+                  (#pt-succ (#pt-succ #pt-zero))
+                  third-natural
+                  (#pt-app
+                    (#pt-use power-solution-odd-first-second-third-even ())
+                    exponent
+                    first-natural
+                    second-natural
+                    third-natural
+                    first-odd
+                    second-odd
+                    (#pt-project natural-power-solution 3 solution))))
+              (#pt-app
+                (#pt-use integer-odd-power-reorder-equation ())
+                exponent
+                (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                odd-exponent
+                (#pt-app
+                  (#pt-use natural-power-integer-equation ())
+                  exponent
+                  first-natural
+                  second-natural
+                  third-natural
+                  (#pt-project natural-power-solution 3 solution))))))))))
+(#theorem natural-primitive-power-has-even-signed-packet
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter third-natural #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first-natural second-natural third-natural))
+    (#parameter coprime-certificate (#pt-app (#pt-use coprime ()) first-natural second-natural)))
+  (#statement (#pt-app (#pt-use has-integer-even-power-packet ()) exponent))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) second-natural)
+      (#pt-app (#pt-use odd ()) second-natural)
+      (#pt-app (#pt-use has-integer-even-power-packet ()) exponent)
+      (#pt-lambda
+        ((second-even (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) second-natural)))
+        (#pt-construct
+          exists
+          (0)
+          (
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-first (#pt-use integer ())))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-second (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-even-power-packet ())
+                        exponent
+                        candidate-first
+                        candidate-second
+                        candidate-third)))))))
+          introduce
+          (
+            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-second (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-even-power-packet ())
+                        exponent
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        candidate-second
+                        candidate-third)))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-even-power-packet ())
+                        exponent
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                        candidate-third)))
+                  introduce
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                    (#pt-app
+                      (#pt-use natural-power-positive-even-packet ())
+                      exponent
+                      first-natural
+                      second-natural
+                      third-natural
+                      solution
+                      coprime-certificate
+                      second-even))))))))
+      (#pt-lambda
+        ((second-odd (#pt-app (#pt-use odd ()) second-natural)))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) first-natural)
+          (#pt-app (#pt-use odd ()) first-natural)
+          (#pt-app (#pt-use has-integer-even-power-packet ()) exponent)
+          (#pt-lambda
+            (
+              (first-even
+                (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) first-natural)))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-first (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            candidate-first
+                            candidate-second
+                            candidate-third)))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                            candidate-second
+                            candidate-third)))))
+                  introduce
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                            candidate-third)))
+                      introduce
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) third-natural)
+                        (#pt-app
+                          (#pt-use natural-power-positive-even-packet ())
+                          exponent
+                          second-natural
+                          first-natural
+                          third-natural
+                          (#pt-construct
+                            natural-power-solution
+                            ()
+                            (exponent second-natural first-natural third-natural)
+                            introduce
+                            (
+                              (#pt-project natural-power-solution 1 solution)
+                              (#pt-project natural-power-solution 0 solution)
+                              (#pt-project natural-power-solution 2 solution)
+                              (#pt-app
+                                (#pt-use transitivity (0))
+                                #pt-nat
+                                (#pt-app
+                                  (#pt-use add ())
+                                  (#pt-app (#pt-use power ()) second-natural exponent)
+                                  (#pt-app (#pt-use power ()) first-natural exponent))
+                                (#pt-app
+                                  (#pt-use add ())
+                                  (#pt-app (#pt-use power ()) first-natural exponent)
+                                  (#pt-app (#pt-use power ()) second-natural exponent))
+                                (#pt-app (#pt-use power ()) third-natural exponent)
+                                (#pt-app
+                                  (#pt-use add-commutative ())
+                                  (#pt-app (#pt-use power ()) second-natural exponent)
+                                  (#pt-app (#pt-use power ()) first-natural exponent))
+                                (#pt-project natural-power-solution 3 solution))))
+                          (#pt-app
+                            (#pt-use coprime-symmetric ())
+                            first-natural
+                            second-natural
+                            coprime-certificate)
+                          first-even))))))))
+          (#pt-lambda
+            ((first-odd (#pt-app (#pt-use odd ()) first-natural)))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-first (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            candidate-first
+                            candidate-second
+                            candidate-third)))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                            candidate-second
+                            candidate-third)))))
+                  introduce
+                  (
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-even-power-packet ())
+                            exponent
+                            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                            (#pt-app
+                              (#pt-use integer-negate ())
+                              (#pt-app (#pt-use integer-of-natural ()) third-natural))
+                            candidate-third)))
+                      introduce
+                      (
+                        (#pt-app
+                          (#pt-use integer-negate ())
+                          (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                        (#pt-app
+                          (#pt-use natural-power-reordered-even-packet ())
+                          exponent
+                          first-natural
+                          second-natural
+                          third-natural
+                          positive-exponent
+                          odd-exponent
+                          solution
+                          coprime-certificate
+                          first-odd
+                          second-odd))))))))
+          (#pt-app (#pt-use even-or-odd ()) first-natural)))
+      (#pt-app (#pt-use even-or-odd ()) second-natural))))

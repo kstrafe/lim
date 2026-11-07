@@ -61,7 +61,7 @@ impl ReachableNodes {
         self.order.iter()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn len(&self) -> usize {
         self.order.len()
     }
@@ -417,7 +417,7 @@ pub(crate) struct FlowLiveness {
     before: Vec<Vec<u64>>,
     after: Vec<Vec<u64>>,
     binding_count: usize,
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     worklist_visits: usize,
 }
 
@@ -753,7 +753,7 @@ pub(crate) struct FlowConsumptions {
 #[derive(Clone, Copy, Debug)]
 enum ConsumptionSharing {
     Shared,
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     Eager,
 }
 
@@ -774,7 +774,7 @@ impl ConsumptionSnapshot {
     }
 
     fn retain(&mut self, mut keep: impl FnMut(&Place, &Vec<Option<Span>>) -> bool) {
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         if matches!(self.sharing, ConsumptionSharing::Eager) {
             std::sync::Arc::make_mut(&mut self.entries).retain(|place, spans| keep(place, spans));
             return;
@@ -799,7 +799,7 @@ impl ConsumptionSnapshot {
     }
 
     fn join(&mut self, incoming: &Self) -> bool {
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         if matches!(self.sharing, ConsumptionSharing::Eager) {
             let mut changed = false;
             for (place, spans) in incoming.entries.iter() {
@@ -843,7 +843,7 @@ impl ConsumptionSnapshot {
 
 impl Clone for ConsumptionSnapshot {
     fn clone(&self) -> Self {
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         if matches!(self.sharing, ConsumptionSharing::Eager) {
             return Self::new((*self.entries).clone(), self.sharing);
         }
@@ -888,7 +888,7 @@ pub(crate) struct StorageFacts {
 impl StorageFacts {
     /// Entry capture planning precedes every body effect. It need not stage
     /// callee ownership contracts, but cannot authorize any later snapshot.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn for_entry(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
         let origins = flow.loan_origins(body);
         let pins = flow.local_pin_accesses_with_origins(body, types, Some(&origins));
@@ -903,7 +903,7 @@ impl StorageFacts {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn local_for_test(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
         let mut facts = Self::for_entry(body, flow, types);
         facts.entry_only = false;
@@ -1208,7 +1208,7 @@ impl FlowConsumptions {
         unknown
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
         &self.unresolved
     }
@@ -2778,7 +2778,7 @@ impl FlowGraph {
     /// Must-known enum constructors in owned storage. This staged table uses
     /// actual write/outcome summaries, never callee restoration alone.
     /// Borrowed writes require one exact concrete referent from loan snapshots.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn variant_facts(&self, body: &Body) -> Vec<Option<HashMap<Place, VariantId>>> {
         self.variant_facts_with_origins(body, &self.loan_origins(body))
     }
@@ -3873,7 +3873,7 @@ impl FlowGraph {
 
     /// Refine direct call results only while their destination contents are
     /// still the contents written by that call. This remains test-only.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_variant_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
         self.solve_loan_origins(body, true, true, false)
     }
@@ -4211,7 +4211,7 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn call_result_sources(
         &self,
         body: &Body,
@@ -4227,7 +4227,7 @@ impl FlowGraph {
 
     /// Identify an actual call and the owned output storage selected from it.
     /// Nonempty paths are not interchangeable with root outcome contracts.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn call_result_producers(
         &self,
         body: &Body,
@@ -5001,7 +5001,7 @@ impl FlowGraph {
     /// Conditional final contents for explicit returned enum constructors.
     /// Unknown return values remain possible for every selected variant.
     /// Original event IDs and all writes after construction are preserved.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn parameter_store_variant_summaries(
         &self,
         body: &Body,
@@ -5013,7 +5013,7 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn parameter_output_store_variant_summaries(
         &self,
         body: &Body,
@@ -5808,7 +5808,7 @@ impl FlowGraph {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn parameter_output_clear_variant_summaries(
         &self,
         body: &Body,
@@ -5822,7 +5822,7 @@ impl FlowGraph {
 
     /// Remove only incompatible explicit constructors. Unknown alternatives
     /// remain possible for every selected variant; event IDs stay unchanged.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn return_variant_graphs(&self, body: &Body) -> HashMap<VariantId, Self> {
         self.return_output_variant_graphs(body)
             .into_iter()
@@ -6791,7 +6791,7 @@ impl FlowGraph {
     /// Production ownership can already resolve whole local pinned storage.
     /// Projected, parameter, global, ambiguous and anchored targets still
     /// require the full referent-contract migration; never guess their roots.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn local_pin_accesses(&self, body: &Body, types: &LinearTypes) -> HashMap<NodeId, Place> {
         self.local_pin_accesses_with_origins(body, types, None)
     }
@@ -6849,13 +6849,13 @@ impl FlowGraph {
     /// Staging analysis for borrowed-storage ownership. Resolve reference
     /// projections to loan roots and retain those facts across alias cleanup.
     /// Ambiguous writes cannot definitely restore any one possible referent.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
         let origins = self.loan_origins(body);
         self.consumptions_with_origins(body, types, Some(&origins))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_reads(&self, body: &Body) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
         let origins = self.loan_origins(body);
         self.referent_reads_with_origins(body, &origins)
@@ -6971,7 +6971,7 @@ impl FlowGraph {
 
     /// Staged exit facts plus unresolved accesses that can reach each exit.
     /// Entry requirements and caller transfer are not complete contracts yet.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_exit_effects(
         &self,
         body: &Body,
@@ -7037,7 +7037,7 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_function_effects(
         &self,
         body: &Body,
@@ -7054,7 +7054,7 @@ impl FlowGraph {
 
     /// Include mapped callee effects when summarizing a forwarding helper.
     /// This remains staged until entry and restoration contracts are available.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_function_effects_with_calls(
         &self,
         body: &Body,
@@ -7064,7 +7064,7 @@ impl FlowGraph {
         self.referent_function_effects_with_restorations(body, types, calls, &[])
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_function_effects_with_restorations(
         &self,
         body: &Body,
@@ -7103,7 +7103,7 @@ impl FlowGraph {
     /// Summarize all paths that can normally return each explicit outcome.
     /// Unknown alternatives participate in every group; consumed-entry states
     /// remain distinct from the initialized-entry profile.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_variant_exit_effects(
         &self,
         body: &Body,
@@ -7230,7 +7230,7 @@ impl FlowGraph {
 
     /// Preserve residual entry assumptions separately from initialized-entry
     /// effects. A surviving seed does not imply an access by the callee.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_exit_state_from_entry(
         &self,
         body: &Body,
@@ -7348,7 +7348,7 @@ impl FlowGraph {
 
     /// Map consumed-entry restoration postconditions without transferring
     /// state or proving the callee's write-entry preconditions.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn map_referent_call_restorations(
         &self,
         body: &Body,
@@ -7420,7 +7420,7 @@ impl FlowGraph {
 
     /// Entry obligations apply to every possible destination, unlike a
     /// restoration guarantee which needs one exact definite destination.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn map_referent_call_consumed_entry(
         &self,
         body: &Body,
@@ -7472,7 +7472,7 @@ impl FlowGraph {
     /// Staged call mapping only; does not yet mutate caller ownership state.
     /// Map read identities without transferring ownership or treating these
     /// facts as complete entry requirements.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn map_referent_call_reads(
         &self,
         body: &Body,
@@ -7574,7 +7574,7 @@ impl FlowGraph {
     }
 
     /// Staged outgoing consumption mapping; no state transfer on its own.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn map_referent_call_effects(
         &self,
         body: &Body,
@@ -8285,7 +8285,7 @@ impl FlowGraph {
 
     /// Symbolic entry state for deriving initialization contracts. Seeded
     /// storage has no source consumption span because it is an assumption.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_consumptions_from_entry(
         &self,
         body: &Body,
@@ -8300,7 +8300,7 @@ impl FlowGraph {
     /// Whole parameter-referent initialization on every normal return when
     /// those referents start consumed. Write-entry permissions/preconditions
     /// remain separate and are not established by this postcondition.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_restoration_guarantees(
         &self,
         body: &Body,
@@ -8310,7 +8310,7 @@ impl FlowGraph {
         self.referent_restoration_guarantees_with_calls(body, types, calls, &[])
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn referent_restoration_guarantees_with_calls(
         &self,
         body: &Body,
@@ -8385,7 +8385,7 @@ impl FlowGraph {
     /// Direct-read entry requirements under symbolic input initialization.
     /// Callee reads/restoration, write preconditions, and validity of local
     /// consumption are separate obligations, not proven by this filter.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn direct_referent_entry_reads(
         &self,
         body: &Body,
@@ -8398,7 +8398,7 @@ impl FlowGraph {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn filter_referent_entry_reads(
         &self,
         body: &Body,
@@ -8408,7 +8408,7 @@ impl FlowGraph {
         self.filter_referent_entry_reads_with_calls(body, types, reads, &[])
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn filter_referent_entry_reads_with_calls(
         &self,
         body: &Body,
@@ -8419,7 +8419,7 @@ impl FlowGraph {
         self.filter_referent_entry_reads_with_restorations(body, types, reads, calls, &[])
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn filter_referent_entry_reads_with_restorations(
         &self,
         body: &Body,
@@ -9199,7 +9199,7 @@ impl FlowGraph {
     /// Reject use or explicit destruction after a possible linear move on
     /// any reachable predecessor path. Exit obligations remain with the
     /// existing linear checker until the full ownership migration.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_linear_consumptions(
         &self,
         body: &Body,
@@ -9275,7 +9275,7 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_referent_call_consumed_entry(
         &self,
         body: &Body,
@@ -9467,7 +9467,7 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn check_linear_consumptions_with_moves(
         &self,
         body: &Body,
@@ -9476,7 +9476,7 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, moves, None)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_referent_uses_from_entry(
         &self,
         body: &Body,
@@ -9490,7 +9490,7 @@ impl FlowGraph {
 
     /// Direct-body validation under specified referent entry assumptions.
     /// This does not infer or validate interprocedural entry/exit contracts.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_referent_body_from_entry(
         &self,
         body: &Body,
@@ -9666,7 +9666,7 @@ impl FlowGraph {
 
     /// Verify every indivisible linear leaf in locals and parameters has a
     /// definite consumption before replacement, lexical cleanup, or return.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_linear_exit_obligations(
         &self,
         body: &Body,
@@ -9678,7 +9678,7 @@ impl FlowGraph {
 
     /// Share the move-flow solution between use checks and exit diagnostics.
     /// Keep individual results so callers retain their diagnostic priority.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_linear_ownership(
         &self,
         body: &Body,
@@ -9739,7 +9739,7 @@ impl FlowGraph {
 
     /// Access permissions are independent of referent restoration and call
     /// effects, which remain separate ownership obligations.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_referent_consumption_permissions(
         &self,
         body: &Body,
@@ -9834,7 +9834,7 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn check_referent_replacements(
         &self,
         body: &Body,
@@ -9878,7 +9878,7 @@ impl FlowGraph {
 
     /// Infer direct-body consumed-entry obligations and validate the body
     /// under them. Calls and complete exit contracts are not handled here.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn infer_direct_referent_consumed_entry(
         &self,
         body: &Body,
@@ -9902,7 +9902,7 @@ impl FlowGraph {
 
     /// Combined staged inference; owned exits and escaping-reference
     /// initialization remain separate obligations before production use.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn infer_referent_consumed_entry_with_call_facts(
         &self,
         body: &Body,
@@ -11650,7 +11650,7 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     fn obligation_consumptions(
         &self,
         body: &Body,
@@ -12492,11 +12492,11 @@ impl FlowGraph {
         for id in reachable {
             queued[id.0] = true;
         }
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         let mut worklist_visits = 0;
         while let Some(id) = pending.pop_front() {
             {
-                #[cfg(test)]
+                #[cfg(all(test, not(feature = "proof-kernel-tests")))]
                 {
                     worklist_visits += 1;
                 }
@@ -12529,7 +12529,7 @@ impl FlowGraph {
             before,
             after,
             binding_count: count,
-            #[cfg(test)]
+            #[cfg(all(test, not(feature = "proof-kernel-tests")))]
             worklist_visits,
         }
     }
@@ -15772,7 +15772,7 @@ fn allocation_identity_is_fresh(state: Option<&LoanState>, root: &PlaceRoot) -> 
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn allocation_tag_initialization_requires_a_fresh_identity() {
     let root = PlaceRoot::Allocation(NodeId(12), Vec::new());
@@ -15887,7 +15887,7 @@ fn identity_pointer_borrow(body: &Body, children: &[NodeId]) -> bool {
             NodeKind::Symbol { binding: Some(source), .. } if source == owner)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod identity_pointer_borrow_tests {
     #[test]
     fn exact_exclusive_pointer_round_trips_keep_their_reborrow_parent() {
@@ -15968,7 +15968,7 @@ mod identity_pointer_borrow_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod stored_handle_parent_tests {
     const SOURCE: &str = "(#struct Counter () (: value #u64))
       (#struct Holder () (: first (#ref-mut Counter) : second (#ref #u64)))
@@ -16052,7 +16052,7 @@ mod stored_handle_parent_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod pinned_payload_projection_tests {
     #[test]
     fn heap_payload_views_retain_addresses_and_actual_nested_reference_sources() {
@@ -19950,7 +19950,7 @@ impl Builder<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

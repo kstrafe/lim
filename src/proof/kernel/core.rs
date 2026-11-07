@@ -12,6 +12,9 @@ use std::sync::Arc;
 mod beta;
 #[path = "conversion.rs"]
 mod conversion;
+#[cfg(test)]
+#[path = "conversion_scalar_tests.rs"]
+mod conversion_scalar_tests;
 #[path = "declarations.rs"]
 mod declarations;
 #[path = "elimination.rs"]
@@ -28,21 +31,29 @@ mod inductive;
 mod natural;
 #[path = "nested.rs"]
 mod nested;
+#[path = "nested_storage.rs"]
+mod nested_storage;
 pub(super) use natural::Natural;
 #[path = "probe.rs"]
 mod probe;
 #[path = "quotient.rs"]
 mod quotient;
 #[path = "scratch.rs"]
-mod scratch;
+pub(super) mod scratch;
+#[path = "specialization.rs"]
+mod specialization;
 #[path = "syntax.rs"]
 mod syntax;
-use nested::{NestedBuild, NestedFamily};
+use nested::NestedBuild;
 
 pub(super) type Result<T> = std::result::Result<T, String>;
-pub(super) type T = Arc<Term>;
-pub(super) fn term(t: Term) -> T {
-    Arc::new(t)
+#[path = "term_metadata.rs"]
+mod term_metadata;
+pub(super) use term_metadata::{term, TermNode, T, TERM_NODE_BYTES};
+#[derive(Default)]
+struct TransformMemo {
+    values: HashMap<(usize, usize, usize), T>,
+    visited: usize,
 }
 #[cfg(test)]
 const WORK: usize = 200_000;
@@ -189,11 +200,18 @@ struct ReductionProbeBudget {
 pub(super) struct Kernel {
     budget: crate::ProofBudget,
     declarations: declarations::Declarations,
-    nested: HashMap<String, NestedFamily>,
+    nested: nested_storage::Views,
     nested_build: Option<NestedBuild>,
     work: usize,
     transformed_bytes: usize,
     reduction_probe_budget: Option<ReductionProbeBudget>,
+    specializations: specialization::Cache,
+    delayed_active: bool,
+    delayed_projection_attempts: usize,
+    delayed_data_fold_attempts: usize,
+    delayed_wrapper_checks: usize,
+    delayed_wrapper_attempts: usize,
+    failed_wrapper_roots: Vec<std::sync::Weak<TermNode>>,
 }
 impl Kernel {
     #[cfg(test)]
@@ -201,14 +219,35 @@ impl Kernel {
         Self::with_budget(crate::ProofBudget::default())
     }
     pub fn with_budget(budget: crate::ProofBudget) -> Self {
+        Self::with_budget_and_scratch_limit(budget, scratch::DEFAULT_BYTES)
+    }
+    pub(super) fn with_budget_and_scratch_limit(
+        budget: crate::ProofBudget,
+        max_scratch_bytes: u64,
+    ) -> Self {
         let mut result = Self {
             budget,
-            declarations: declarations::Declarations::new(),
-            nested: HashMap::new(),
+            declarations: if max_scratch_bytes == scratch::DEFAULT_BYTES {
+                declarations::Declarations::new()
+            } else {
+                declarations::Declarations::with_scratch_limit(max_scratch_bytes)
+            },
+            nested: if max_scratch_bytes == scratch::DEFAULT_BYTES {
+                nested_storage::Views::new()
+            } else {
+                nested_storage::Views::with_scratch_limit(max_scratch_bytes)
+            },
             nested_build: None,
             work: 0,
             transformed_bytes: 0,
             reduction_probe_budget: None,
+            specializations: specialization::Cache::default(),
+            delayed_active: false,
+            delayed_projection_attempts: 0,
+            delayed_data_fold_attempts: 0,
+            delayed_wrapper_checks: 0,
+            delayed_wrapper_attempts: 0,
+            failed_wrapper_roots: vec![],
         };
         let nat = term(Term::Global("#pt-nat".into(), vec![]));
         let family = Family {
@@ -232,37 +271,44 @@ impl Kernel {
             ],
             large: true,
         };
-        result.declarations.insert(
-            "#pt-nat".into(),
-            Declaration {
-                universes: vec![],
-                ty: term(Term::Sort(family.sort.clone())),
-                value: None,
-                family: Some(family),
-            },
-        );
-        result.declarations.insert(
-            "#pt-false".into(),
-            Declaration {
-                universes: vec![],
-                ty: term(Term::Sort(Level::number(0).unwrap())),
-                value: None,
-                family: Some(Family {
-                    group: vec!["#pt-false".into()],
-                    parameters: vec![],
-                    indices: vec![],
-                    sort: Level::number(0).unwrap(),
-                    constructors: vec![],
-                    large: true,
-                }),
-            },
-        );
+        result
+            .declarations
+            .insert(
+                "#pt-nat".into(),
+                Declaration {
+                    universes: vec![],
+                    ty: term(Term::Sort(family.sort.clone())),
+                    value: None,
+                    family: Some(family),
+                },
+            )
+            .expect("fresh memory-only declaration store accepts builtin nat");
+        result
+            .declarations
+            .insert(
+                "#pt-false".into(),
+                Declaration {
+                    universes: vec![],
+                    ty: term(Term::Sort(Level::number(0).unwrap())),
+                    value: None,
+                    family: Some(Family {
+                        group: vec!["#pt-false".into()],
+                        parameters: vec![],
+                        indices: vec![],
+                        sort: Level::number(0).unwrap(),
+                        constructors: vec![],
+                        large: true,
+                    }),
+                },
+            )
+            .expect("fresh memory-only declaration store accepts builtin false");
         result
     }
-    pub fn contains(&self, name: &str) -> bool {
-        self.declarations.contains_key(name)
-            || self.nested.contains_key(name)
-            || foundation::label(name).is_some()
+    pub fn contains(&self, name: &str) -> Result<bool> {
+        self.nested.healthy()?;
+        Ok(self.declarations.contains_key(name)?
+            || self.nested.contains_key(name)?
+            || foundation::label(name).is_some())
     }
     fn scope(&mut self, universes: &[String], terms: &[T]) -> Result<()> {
         let map = universes
@@ -273,11 +319,25 @@ impl Kernel {
             return Err("duplicate universe parameter".into());
         }
         for value in terms {
-            self.universes(value, &map, 0)?;
+            // Validate every original field, including erased annotations.
+            // Reduction shortcuts must not replace source scope checking.
+            self.transform_shared(
+                value,
+                0,
+                0,
+                &mut |_, index, _| Ok(term(Term::Var(index))),
+                &mut |level| level.substitute(&map),
+            )?;
         }
         Ok(())
     }
     pub fn reset_budget(&mut self) {
+        self.specializations.clear();
+        self.delayed_projection_attempts = 0;
+        self.delayed_data_fold_attempts = 0;
+        self.delayed_wrapper_checks = 0;
+        self.delayed_wrapper_attempts = 0;
+        self.failed_wrapper_roots = vec![];
         self.work = 0;
         self.transformed_bytes = 0;
     }
@@ -286,13 +346,16 @@ impl Kernel {
     }
     pub(super) fn enable_declaration_spilling(&mut self) {
         self.declarations.enable_spilling();
+        self.nested.enable_spilling();
     }
     /// Storage changes are permitted only after a complete checked group.
-    pub(super) fn trim_completed_declarations(&mut self) -> Result<()> {
+    pub(super) fn trim_completed_declarations(&mut self) -> Result<bool> {
         if self.nested_build.is_some() {
             return Err("incomplete inductive group at declaration storage boundary".into());
         }
-        self.declarations.trim().map(|_| ())
+        let declarations = self.declarations.trim()?;
+        let nested = self.nested.trim()?;
+        Ok(declarations || nested)
     }
     fn charge_transformation(&mut self, bytes: usize) -> Result<()> {
         let proposed = self.transformed_bytes.saturating_add(bytes);
@@ -330,6 +393,7 @@ impl Kernel {
         Ok(())
     }
     fn tick(&mut self, depth: usize) -> Result<()> {
+        self.nested.healthy()?;
         if self
             .reduction_probe_budget
             .is_some_and(|budget| depth > budget.depth || self.work >= budget.work)
@@ -351,7 +415,7 @@ impl Kernel {
     }
     /// The adapter may install only propositions certified by the program
     /// checker. These are opaque atoms; no generic mathematical rule uses this.
-    pub fn certified_program_fact(&mut self, name: &str) {
+    pub fn certified_program_fact(&mut self, name: &str) -> Result<()> {
         let fact = format!("$program:{name}");
         self.declarations.insert(
             fact.clone(),
@@ -361,16 +425,25 @@ impl Kernel {
                 value: None,
                 family: None,
             },
-        );
-        self.declarations.insert(
+        )?;
+        if let Err(error) = self.declarations.insert(
             format!("$certificate:{name}"),
             Declaration {
                 universes: vec![],
-                ty: term(Term::Global(fact, vec![])),
+                ty: term(Term::Global(fact.clone(), vec![])),
                 value: None,
                 family: None,
             },
-        );
+        ) {
+            // A half-installed certified fact must never remain usable.
+            self.declarations.remove(&fact).map_err(|rollback| {
+                format!(
+                    "{error}; removing partially installed certified fact also failed: {rollback}"
+                )
+            })?;
+            return Err(error);
+        }
+        Ok(())
     }
     pub fn definition(
         &mut self,
@@ -380,7 +453,7 @@ impl Kernel {
         value: T,
         theorem: bool,
     ) -> Result<()> {
-        if self.contains(name) {
+        if self.contains(name)? {
             return Err("duplicate kernel declaration".into());
         }
         self.scope(&universes, &[ty.clone(), value.clone()])?;
@@ -397,7 +470,7 @@ impl Kernel {
                 value: (!theorem).then_some(value),
                 family: None,
             },
-        );
+        )?;
         Ok(())
     }
     /// Check a concrete initializer before making the declaration opaque.
@@ -476,16 +549,14 @@ impl Kernel {
     ) -> Result<(Declaration, HashMap<String, Level>)> {
         self.tick(depth)?;
         self.ensure_logical_foundation(name, depth + 1)?;
-        let declaration = self
-            .declarations
-            .get(name)?
-            .map(|declaration| declaration.as_ref().clone())
-            .or_else(|| {
-                self.nested
-                    .get(name)
-                    .map(|nested| nested.declaration.clone())
-            })
-            .ok_or_else(|| format!("unknown or unchecked kernel declaration '{name}'"))?;
+        let declaration = match self.declarations.get(name)? {
+            Some(declaration) => declaration.as_ref().clone(),
+            None => self
+                .nested
+                .declaration(name)?
+                .map(|declaration| declaration.as_ref().clone())
+                .ok_or_else(|| format!("unknown or unchecked kernel declaration '{name}'"))?,
+        };
         if declaration.universes.len() != levels.len() {
             return Err(format!(
                 "'{name}' requires {} explicit universe argument(s)",
@@ -585,7 +656,7 @@ impl Kernel {
                 self.shift(ty, offset, 0, depth + 1)
             }
             Term::Global(name, levels) => {
-                if self.nested.contains_key(name) {
+                if self.nested.contains_key(name)? {
                     return Err("internal nested family is not a global constant".into());
                 }
                 let (decl, map) = self.specialization(name, levels, depth + 1)?;
@@ -725,7 +796,7 @@ impl Kernel {
                 if self.provisional_family(family) {
                     return Err("cannot construct a provisional inductive family".into());
                 }
-                if self.nested.contains_key(family) {
+                if self.nested.contains_key(family)? {
                     return Err(
                         "internal nested families require their original constructors".into(),
                     );
@@ -1032,10 +1103,26 @@ impl Kernel {
                 }
             }
             if delta && matches!(value.as_ref(), Term::App(..) | Term::Project { .. }) {
+                if ctx.is_empty() {
+                    if let Some(reduced) = self.delayed_record_wrapper(&value, depth + 1)? {
+                        value = reduced;
+                        continue;
+                    }
+                    if let Some(reduced) = self.delayed_record_projection(&value, depth + 1)? {
+                        value = reduced;
+                        continue;
+                    }
+                }
                 let head = self.natural_head(&value, depth + 1)?;
                 if !Arc::ptr_eq(&head, &value) {
                     value = head;
                     continue;
+                }
+                if ctx.is_empty() && !self.delayed_active && self.delayed_candidate(&value) {
+                    if let Some(reduced) = self.delayed_scalar(&value, depth + 1)? {
+                        value = reduced;
+                        continue;
+                    }
                 }
             }
             match value.as_ref() {
@@ -1052,7 +1139,7 @@ impl Kernel {
                     value = if map.is_empty() {
                         body
                     } else {
-                        self.universes(&body, &map, depth + 1)?
+                        self.specialized_universes(&body, &map, depth + 1)?
                     };
                 }
                 Term::App(function, arg) => {
@@ -1405,11 +1492,23 @@ impl Kernel {
                     constructor: d,
                     fields: g,
                 },
-            ) => Ok(a == b
-                && same_levels(u, v)?
-                && c == d
-                && self.same_many(ctx, p, q, depth + 1)?
-                && self.same_many(ctx, f, g, depth + 1)?),
+            ) => {
+                let aligned = a == b
+                    && same_levels(u, v)?
+                    && c == d
+                    && self.same_many(ctx, p, q, depth + 1)?;
+                let same = aligned && self.same_many(ctx, f, g, depth + 1)?;
+                if aligned
+                    && !same
+                    && self.completed_data_record(a, u, c, p.len(), f.len(), depth + 1)?
+                {
+                    // Conversion of aligned canonical data fields already
+                    // decides this mismatch. Do not infer the complete record
+                    // again or repeat its field comparison through eta.
+                    return Ok(false);
+                }
+                Ok(same)
+            }
             (
                 Term::Induct {
                     family: a,
@@ -1632,14 +1731,23 @@ impl Kernel {
     fn shift(&mut self, value: &T, amount: usize, cutoff: usize, depth: usize) -> Result<T> {
         // Identity needs no syntax walk; declaration scope and type checking
         // still visit source terms independently before they can be reused.
-        if amount == 0 {
+        let range = value.loose_range();
+        if amount == 0 || range == 0 || range != usize::MAX && range <= cutoff {
             self.tick(depth)?;
             return Ok(value.clone());
         }
-        self.transform(
+        self.transform_nodes_cached(
             value,
             cutoff,
             depth,
+            &mut |_, value, binders, _| {
+                let range = value.loose_range();
+                if range == 0 || range != usize::MAX && range <= binders {
+                    Ok(ControlFlow::Break(value.clone()))
+                } else {
+                    Ok(ControlFlow::Continue(value.clone()))
+                }
+            },
             &mut |_, index, binders| {
                 Ok(term(Term::Var(if index >= binders {
                     index.checked_add(amount).ok_or("variable index overflow")?
@@ -1648,6 +1756,7 @@ impl Kernel {
                 })))
             },
             &mut |l| Ok(l.clone()),
+            &mut Some(TransformMemo::default()),
         )
     }
     fn instantiate(&mut self, body: &T, arg: &T, depth: usize) -> Result<T> {
@@ -1656,10 +1765,18 @@ impl Kernel {
         // Keep reuse local so neither another argument nor a later declaration
         // can inherit the result, and charge the table before inserting.
         let mut shifted = HashMap::<usize, T>::new();
-        self.transform(
+        self.transform_nodes_cached(
             body,
             0,
             depth,
+            &mut |_, value, binders, _| {
+                let range = value.loose_range();
+                if range == 0 || range != usize::MAX && range <= binders {
+                    Ok(ControlFlow::Break(value.clone()))
+                } else {
+                    Ok(ControlFlow::Continue(value.clone()))
+                }
+            },
             &mut |kernel, index, binders| {
                 if index == binders {
                     if let Some(value) = shifted.get(&binders) {
@@ -1678,15 +1795,24 @@ impl Kernel {
                 }
             },
             &mut |l| Ok(l.clone()),
+            &mut Some(TransformMemo::default()),
         )
     }
     fn universes(&mut self, value: &T, map: &HashMap<String, Level>, depth: usize) -> Result<T> {
-        self.transform(
+        self.transform_nodes_cached(
             value,
             0,
             depth,
+            &mut |_, value, _, _| {
+                if !value.has_universe_params() {
+                    Ok(ControlFlow::Break(value.clone()))
+                } else {
+                    Ok(ControlFlow::Continue(value.clone()))
+                }
+            },
             &mut |_, index, _| Ok(term(Term::Var(index))),
             &mut |l| l.substitute(map),
+            &mut Some(TransformMemo::default()),
         )
     }
     fn transform(
@@ -1715,23 +1841,78 @@ impl Kernel {
         var: &mut impl FnMut(&mut Self, usize, usize) -> Result<T>,
         level: &mut impl FnMut(&Level) -> Result<Level>,
     ) -> Result<T> {
+        self.transform_nodes_cached(value, binders, depth, node, var, level, &mut None)
+    }
+
+    /// Fixed variable/universe substitutions can preserve their input DAG.
+    /// This memo lives for one operation, whose immutable input remains alive.
+    /// Do not use it for rewrites whose answer changes between node visits.
+    fn transform_shared(
+        &mut self,
+        value: &T,
+        binders: usize,
+        depth: usize,
+        var: &mut impl FnMut(&mut Self, usize, usize) -> Result<T>,
+        level: &mut impl FnMut(&Level) -> Result<Level>,
+    ) -> Result<T> {
+        self.transform_nodes_cached(
+            value,
+            binders,
+            depth,
+            &mut |_, value, _, _| Ok(ControlFlow::Continue(value.clone())),
+            var,
+            level,
+            &mut Some(TransformMemo::default()),
+        )
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn transform_nodes_cached(
+        &mut self,
+        value: &T,
+        binders: usize,
+        depth: usize,
+        node: &mut impl FnMut(&mut Self, &T, usize, usize) -> Result<ControlFlow<T, T>>,
+        var: &mut impl FnMut(&mut Self, usize, usize) -> Result<T>,
+        level: &mut impl FnMut(&Level) -> Result<Level>,
+        memo: &mut Option<TransformMemo>,
+    ) -> Result<T> {
         self.tick(depth)?;
+        // Equal binder count and absolute depth preserve both substitution
+        // meaning and the depth checks already completed for every descendant.
+        let shared = memo.as_mut().is_some_and(|memo| {
+            memo.visited = memo.visited.saturating_add(1);
+            // Most substitutions are tiny. Delay allocating a hash table;
+            // after this bounded prefix, repeated DAG nodes still share work.
+            memo.visited > 64 && Arc::strong_count(value) > 1
+        });
+        let key = shared.then_some((Arc::as_ptr(value) as usize, binders, depth));
+        if let Some(result) = key.and_then(|key| memo.as_ref()?.values.get(&key)) {
+            return Ok(result.clone());
+        }
         let value = match node(self, value, binders, depth)? {
             ControlFlow::Continue(value) => value,
-            ControlFlow::Break(value) => {
-                self.charge_transformation(128)?;
-                return Ok(value);
+            ControlFlow::Break(rewritten) => {
+                // Sharing the original node allocates no replacement term.
+                self.charge_transformation(if Arc::ptr_eq(value, &rewritten) {
+                    0
+                } else {
+                    TERM_NODE_BYTES
+                })?;
+                return Ok(rewritten);
             }
         };
         macro_rules! walk {
             ($t:expr) => {
-                self.transform_nodes($t, binders, depth + 1, node, var, level)?
+                self.transform_nodes_cached($t, binders, depth + 1, node, var, level, memo)?
             };
         }
         macro_rules! many {
             ($ts:expr) => {
                 $ts.iter()
-                    .map(|t| self.transform_nodes(t, binders, depth + 1, node, var, level))
+                    .map(|t| {
+                        self.transform_nodes_cached(t, binders, depth + 1, node, var, level, memo)
+                    })
                     .collect::<Result<Vec<_>>>()?
             };
         }
@@ -1741,7 +1922,7 @@ impl Kernel {
             Term::NatLiteral { .. } => return Ok(value),
             Term::Global(_, levels) if levels.is_empty() => return Ok(value),
             Term::Var(index) => {
-                self.charge_transformation(128)?;
+                self.charge_transformation(TERM_NODE_BYTES)?;
                 return var(self, *index, binders);
             }
             Term::Sort(l) => Term::Sort(level(l)?),
@@ -1751,7 +1932,8 @@ impl Kernel {
             ),
             Term::Pi(a, b) | Term::Lam(a, b) | Term::Sigma(a, b) => {
                 let a = walk!(a);
-                let b = self.transform_nodes(b, binders + 1, depth + 1, node, var, level)?;
+                let b =
+                    self.transform_nodes_cached(b, binders + 1, depth + 1, node, var, level, memo)?;
                 match value.as_ref() {
                     Term::Pi(..) => Term::Pi(a, b),
                     Term::Lam(..) => Term::Lam(a, b),
@@ -1762,7 +1944,7 @@ impl Kernel {
             Term::Let(ty, value, body) => Term::Let(
                 walk!(ty),
                 walk!(value),
-                self.transform_nodes(body, binders + 1, depth + 1, node, var, level)?,
+                self.transform_nodes_cached(body, binders + 1, depth + 1, node, var, level, memo)?,
             ),
             Term::Pair(a, b, c) => Term::Pair(walk!(a), walk!(b), walk!(c)),
             Term::First(a) => Term::First(walk!(a)),
@@ -1879,25 +2061,27 @@ impl Kernel {
                     .map(|case| {
                         Ok(RecursionCase {
                             family: case.family.clone(),
-                            motive: self.transform_nodes(
+                            motive: self.transform_nodes_cached(
                                 &case.motive,
                                 binders,
                                 depth + 1,
                                 node,
                                 var,
                                 level,
+                                memo,
                             )?,
                             branches: case
                                 .branches
                                 .iter()
                                 .map(|branch| {
-                                    self.transform_nodes(
+                                    self.transform_nodes_cached(
                                         branch,
                                         binders,
                                         depth + 1,
                                         node,
                                         var,
                                         level,
+                                        memo,
                                     )
                                 })
                                 .collect::<Result<_>>()?,
@@ -1924,33 +2108,36 @@ impl Kernel {
                     .iter()
                     .map(|case| {
                         Ok(NestedCase {
-                            selector: self.transform_nodes(
+                            selector: self.transform_nodes_cached(
                                 &case.selector,
                                 binders,
                                 depth + 1,
                                 node,
                                 var,
                                 level,
+                                memo,
                             )?,
-                            motive: self.transform_nodes(
+                            motive: self.transform_nodes_cached(
                                 &case.motive,
                                 binders,
                                 depth + 1,
                                 node,
                                 var,
                                 level,
+                                memo,
                             )?,
                             branches: case
                                 .branches
                                 .iter()
                                 .map(|branch| {
-                                    self.transform_nodes(
+                                    self.transform_nodes_cached(
                                         branch,
                                         binders,
                                         depth + 1,
                                         node,
                                         var,
                                         level,
+                                        memo,
                                     )
                                 })
                                 .collect::<Result<_>>()?,
@@ -1999,8 +2186,21 @@ impl Kernel {
             | Term::Project { family, .. } => family.len(),
             _ => 0,
         };
-        self.charge_transformation(128usize.saturating_add(levels).saturating_add(name_bytes))?;
-        Ok(term(transformed))
+        self.charge_transformation(
+            TERM_NODE_BYTES
+                .saturating_add(levels)
+                .saturating_add(name_bytes),
+        )?;
+        let transformed = term(transformed);
+        if let (Some(memo), Some(key)) = (memo.as_mut(), key) {
+            // Bound metadata even for a large unshared tree. Account for table
+            // growth and the output handle before reserving a cache entry.
+            if memo.values.len() < 4096 {
+                self.charge_transformation(256)?;
+                memo.values.insert(key, transformed.clone());
+            }
+        }
+        Ok(transformed)
     }
 }
 pub(super) fn apps(mut f: T, args: &[T]) -> T {
@@ -2143,5 +2343,28 @@ fn contains_recursive(t: &T, name: &str) -> bool {
 mod core_tests;
 
 #[cfg(test)]
+#[path = "shared_transform_tests.rs"]
+mod shared_transform_tests;
+
+#[cfg(test)]
+#[path = "specialization_tests.rs"]
+mod specialization_tests;
+
+#[cfg(test)]
+#[path = "natural_head_tests.rs"]
+mod natural_head_tests;
+
+#[cfg(test)]
+#[path = "delayed_projection_tests.rs"]
+mod delayed_projection_tests;
+#[cfg(test)]
+#[path = "delayed_tests.rs"]
+mod delayed_tests;
+
+#[cfg(test)]
 #[path = "budget_tests.rs"]
 mod budget_tests;
+
+#[cfg(test)]
+#[path = "nested_storage_tests.rs"]
+mod nested_storage_tests;

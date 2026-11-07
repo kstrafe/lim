@@ -1,0 +1,256 @@
+; Signed valuation indices are unique by actual magnitude uniqueness
+; and natural valuation uniqueness. Integer equivalence preserves the
+; witness. Zero cannot carry a valuation certificate at a prime.
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#alias natural-prime-order-nonzero = ./natural-prime-order-bounds.lim::natural-prime-order-nonzero)
+(#alias
+  natural-prime-order-unique
+  =
+  ./natural-prime-order-uniqueness.lim::natural-prime-order-unique)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-congruent = ./integer-magnitude.lim::integer-magnitude-congruent)
+(#alias integer-magnitude-unique = ./integer-magnitude.lim::integer-magnitude-unique)
+(#alias integer-nonzero-of-magnitude = ./integer-magnitude.lim::integer-nonzero-of-magnitude)
+(#alias integer-prime-order = ./integer-prime-order-defs.lim::integer-prime-order)
+(#theorem integer-prime-order-unique
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter valuation #pt-nat)
+    (#parameter other-valuation #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-order (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number))
+    (#parameter second-order (#pt-app (#pt-use integer-prime-order ()) prime-number other-valuation number)))
+  (#statement (#pt-eq #pt-nat valuation other-valuation))
+  (#proof
+    (#pt-induct
+      integer-prime-order
+      ()
+      (prime-number valuation number)
+      (#pt-lambda
+        (
+          (signed-order-subject
+            (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number)))
+        (#pt-eq #pt-nat valuation other-valuation))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (first-packet-natural
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation))
+            (first-packet-magnitude (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-lambda
+              (
+                (first-packet
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+                    (#pt-app (#pt-use integer-magnitude ()) number magnitude))))
+              (#pt-induct
+                integer-prime-order
+                ()
+                (prime-number other-valuation number)
+                (#pt-lambda
+                  (
+                    (signed-order-subject
+                      (#pt-app (#pt-use integer-prime-order ()) prime-number other-valuation number)))
+                  (#pt-eq #pt-nat valuation other-valuation))
+                (
+                  (#pt-lambda
+                    (
+                      (other-magnitude #pt-nat)
+                      (second-packet-natural
+                        (#pt-app
+                          (#pt-use natural-prime-order ())
+                          prime-number
+                          other-magnitude
+                          other-valuation))
+                      (second-packet-magnitude
+                        (#pt-app (#pt-use integer-magnitude ()) number other-magnitude)))
+                    (#pt-app
+                      (#pt-lambda
+                        (
+                          (second-packet
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app
+                                (#pt-use natural-prime-order ())
+                                prime-number
+                                other-magnitude
+                                other-valuation)
+                              (#pt-app (#pt-use integer-magnitude ()) number other-magnitude))))
+                        (#pt-app
+                          (#pt-use natural-prime-order-unique ())
+                          prime-number
+                          magnitude
+                          valuation
+                          other-valuation
+                          prime-proof
+                          (#pt-project conjunction 0 first-packet)
+                          (#pt-eq-elim
+                            #pt-nat
+                            other-magnitude
+                            (#pt-lambda
+                              (
+                                (transport-index #pt-nat)
+                                (transport-path (#pt-eq #pt-nat other-magnitude transport-index)))
+                              (#pt-app
+                                (#pt-use natural-prime-order ())
+                                prime-number
+                                transport-index
+                                other-valuation))
+                            (#pt-project conjunction 0 second-packet)
+                            magnitude
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              magnitude
+                              other-magnitude
+                              (#pt-app
+                                (#pt-use integer-magnitude-unique ())
+                                number
+                                magnitude
+                                other-magnitude
+                                (#pt-project conjunction 1 first-packet)
+                                (#pt-project conjunction 1 second-packet))))))
+                      (#pt-app
+                        (#pt-use conjunction-introduce ())
+                        (#pt-app
+                          (#pt-use natural-prime-order ())
+                          prime-number
+                          other-magnitude
+                          other-valuation)
+                        (#pt-app (#pt-use integer-magnitude ()) number other-magnitude)
+                        second-packet-natural
+                        second-packet-magnitude))))
+                second-order))
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+              (#pt-app (#pt-use integer-magnitude ()) number magnitude)
+              first-packet-natural
+              first-packet-magnitude))))
+      first-order)))
+(#theorem integer-prime-order-congruent
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter other-number (#pt-use integer ()))
+    (#parameter valuation #pt-nat)
+    (#parameter number-equivalence (#pt-app (#pt-use integer-equal ()) number other-number))
+    (#parameter order-certificate (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number)))
+  (#statement (#pt-app (#pt-use integer-prime-order ()) prime-number valuation other-number))
+  (#proof
+    (#pt-induct
+      integer-prime-order
+      ()
+      (prime-number valuation number)
+      (#pt-lambda
+        (
+          (signed-order-subject
+            (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number)))
+        (#pt-app (#pt-use integer-prime-order ()) prime-number valuation other-number))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (packet-natural
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation))
+            (packet-magnitude (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-lambda
+              (
+                (packet
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+                    (#pt-app (#pt-use integer-magnitude ()) number magnitude))))
+              (#pt-construct
+                integer-prime-order
+                ()
+                (prime-number valuation other-number)
+                introduce
+                (magnitude
+                  (#pt-project conjunction 0 packet)
+                  (#pt-app
+                    (#pt-use integer-magnitude-congruent ())
+                    number
+                    other-number
+                    magnitude
+                    number-equivalence
+                    (#pt-project conjunction 1 packet)))))
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+              (#pt-app (#pt-use integer-magnitude ()) number magnitude)
+              packet-natural
+              packet-magnitude))))
+      order-certificate)))
+(#theorem integer-prime-order-nonzero
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter valuation #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter order-certificate (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number)))
+  (#statement
+    (#pt-pi
+      ((denied-proof (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-induct
+      integer-prime-order
+      ()
+      (prime-number valuation number)
+      (#pt-lambda
+        (
+          (signed-order-subject
+            (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number)))
+        (#pt-pi
+          ((denied-proof (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))))
+          #pt-false))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (packet-natural
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation))
+            (packet-magnitude (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-lambda
+              (
+                (packet
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+                    (#pt-app (#pt-use integer-magnitude ()) number magnitude))))
+              (#pt-app
+                (#pt-use integer-nonzero-of-magnitude ())
+                number
+                magnitude
+                (#pt-project conjunction 1 packet)
+                (#pt-app
+                  (#pt-use natural-prime-order-nonzero ())
+                  prime-number
+                  magnitude
+                  valuation
+                  prime-proof
+                  (#pt-project conjunction 0 packet))))
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)
+              (#pt-app (#pt-use integer-magnitude ()) number magnitude)
+              packet-natural
+              packet-magnitude))))
+      order-certificate)))

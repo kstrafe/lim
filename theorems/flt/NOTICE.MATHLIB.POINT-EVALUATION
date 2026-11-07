@@ -1,0 +1,26 @@
+Mathlib point-evaluation attribution
+
+Pinned mathematical sources:
+Mathlib/RingTheory/AdjoinRoot.lean
+Mathlib/AlgebraicGeometry/EllipticCurve/Affine/Point.lean
+Revision: db584cd6d46c92f209a44c0f1c829460d327499d
+
+Copyright (c) 2018 Mario Carneiro and 2025 David Kurniadi Angdinata.
+License: Apache-2.0, reproduced in LICENSE.MATHLIB.
+The existing source hashes and attribution are retained in provenance.json,
+NOTICE.MATHLIB.ADJOINROOT and NOTICE.FLT.
+
+The native adaptation computes division by X-x, proves its root-factor
+identity and actual principal evaluation kernel, constructs checked ring
+map kernels and evaluation naturality, and evaluates the actual quadratic
+coordinate algebra using its proved monic-quadratic quotient correspondence.
+It proves the actual XY point ideal equals the evaluation kernel, constructs
+the quotient setoid ring, and supplies two checked inverse ring maps via
+the actual constant section. The quotient relation is separately proved to
+mean that the difference is an actual XYIdeal member.
+
+This is a constructive setoid adaptation of quotientXYIdealEquiv. It does
+not import Lean proof objects or the full Mathlib quotient, module, algebra
+and typeclass infrastructure. Quotient module dimensions, nonsingular ideal
+inverse/addition identities, fractional ideals, class groups, point group
+laws and the general FLT proof remain separate open obligations.

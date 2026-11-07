@@ -114,12 +114,15 @@ fn usize_value(value: usize) -> Expr {
 }
 
 fn append_call(append: &str, incoming: Expr, length: Expr, label: Expr) -> Expr {
-    Expr::List(vec![
-        Expr::Function(append.into()),
-        incoming,
-        length,
-        form("slice-of", [form("borrow", [label])]),
-    ])
+    Expr::List(
+        vec![
+            Expr::Function(append.into()),
+            incoming,
+            length,
+            form("slice-of", [form("borrow", [label])]),
+        ]
+        .into(),
+    )
 }
 
 fn helper(

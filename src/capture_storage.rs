@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, NodeId, PlaceRoot};
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 use crate::typed_flow::linear_obligation_place;
 use crate::typed_flow::{
     place_covers, FlowAction, FlowConsumptions, FlowGraph, FlowLiveness, FlowLoanOrigins,
@@ -30,7 +30,7 @@ pub(crate) enum Availability {
 
 // Regression probes inspect cleanup obligations and data liveness; production
 // frame planning consumes the loan/address facts instead.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[derive(Debug)]
 pub(crate) struct Obligation {
     pub place: Place,
@@ -40,16 +40,16 @@ pub(crate) struct Obligation {
 #[derive(Debug)]
 pub(crate) struct Slot {
     pub binding: BindingId,
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub data_needed: bool,
     pub address_needed: bool,
     pub lifetime_needed: bool,
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub obligations: Vec<Obligation>,
     pub loans: Vec<LoanOrigin>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 impl Slot {
     pub(crate) fn cleanup_needed(&self) -> bool {
         self.obligations.iter().any(|obligation| {
@@ -71,17 +71,18 @@ impl Slot {
 pub(crate) struct ValueSlot {
     /// An already-evaluated operand. It must not be reconstructed on resume.
     pub value: NodeId,
-    #[cfg_attr(not(test), allow(dead_code))] // General frame emission consumes the checked type.
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
+    // General frame emission consumes the checked type.
     pub ty: crate::Type,
     pub loans: Vec<LoanOrigin>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ScopedLoan {
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
     pub scope: NodeId,
     pub places: Vec<Place>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
     pub mutable: bool,
     pub handle: Place,
 }
@@ -89,12 +90,13 @@ pub(crate) struct ScopedLoan {
 #[derive(Debug)]
 pub(crate) struct Snapshot {
     pub slots: Vec<Slot>,
-    #[cfg_attr(not(test), allow(dead_code))] // General frame emission consumes operand slots.
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
+    // General frame emission consumes operand slots.
     pub values: Vec<ValueSlot>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
     pub scoped_loans: Vec<ScopedLoan>,
     /// Unresolved effects are never a proof that storage is initialized.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub unresolved_effects: bool,
 }
 
@@ -109,7 +111,7 @@ pub(crate) struct Analysis<'a> {
     unread: Vec<Vec<u64>>,
     active: Vec<Option<HashSet<BindingId>>>,
     definite_active: Vec<Option<HashSet<BindingId>>>,
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     obligations: Vec<Vec<Place>>,
     unresolved_before: Vec<bool>,
     entry_only: bool,
@@ -127,7 +129,7 @@ impl<'a> Analysis<'a> {
         let flow = &facts.flow;
         let origins = &facts.origins;
         let unread = crate::typed_borrow::unread_loan_bindings(body, flow, types, origins);
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         let obligations = body
             .bindings
             .iter()
@@ -190,7 +192,7 @@ impl<'a> Analysis<'a> {
             flow,
             origins,
             unread,
-            #[cfg(test)]
+            #[cfg(all(test, not(feature = "proof-kernel-tests")))]
             obligations,
             moves: &facts.moves,
             live: flow.liveness(body),
@@ -203,7 +205,7 @@ impl<'a> Analysis<'a> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub(crate) fn before(&self, event: FlowNodeId) -> Option<Snapshot> {
         self.before_with_values(event, &[])
     }
@@ -232,7 +234,7 @@ impl<'a> Analysis<'a> {
         )
         .into_iter()
         .collect::<HashSet<_>>();
-        #[cfg(test)]
+        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
         let data = self.live.before(event).into_iter().collect::<HashSet<_>>();
         let mut slots = Vec::new();
         // Dense binding order is stable; never let hash order affect frames.
@@ -259,7 +261,7 @@ impl<'a> Analysis<'a> {
                     Availability::Full
                 }
             };
-            #[cfg(test)]
+            #[cfg(all(test, not(feature = "proof-kernel-tests")))]
             let obligations = self.obligations[index]
                 .iter()
                 .map(|place| Obligation {
@@ -285,11 +287,11 @@ impl<'a> Analysis<'a> {
             };
             slots.push(Slot {
                 binding,
-                #[cfg(test)]
+                #[cfg(all(test, not(feature = "proof-kernel-tests")))]
                 data_needed: data.contains(&binding),
                 address_needed: false,
                 lifetime_needed: false,
-                #[cfg(test)]
+                #[cfg(all(test, not(feature = "proof-kernel-tests")))]
                 obligations,
                 loans,
             });
@@ -361,7 +363,7 @@ impl<'a> Analysis<'a> {
             slots,
             values: captured,
             scoped_loans,
-            #[cfg(test)]
+            #[cfg(all(test, not(feature = "proof-kernel-tests")))]
             unresolved_effects,
         })
     }
@@ -403,7 +405,7 @@ fn has_unknown_variant(place: &Place, variants: Option<&HashMap<Place, VariantId
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use crate::typed_body::NodeKind;

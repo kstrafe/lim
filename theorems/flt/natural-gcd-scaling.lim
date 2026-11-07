@@ -1,0 +1,855 @@
+; Scaling the common-divisor gcd specification by a natural factor.
+; Euclidean induction proves the result; no Bezout identity or prime factorization is assumed.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias zero-less-successor = ./natural-discrete-order.lim::zero-less-successor)
+(#alias
+  multiply-less-right-successor
+  =
+  ./natural-multiplication-order.lim::multiply-less-right-successor)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#alias multiply-add-left = ./natural-multiplication.lim::multiply-add-left)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-multiple = ./natural-divisibility.lim::divides-multiple)
+(#alias divides-transitive = ./natural-divisibility.lim::divides-transitive)
+(#alias divides-add = ./natural-divisibility-addition.lim::divides-add)
+(#alias divides-add-cancel-left = ./natural-divisibility-addition.lim::divides-add-cancel-left)
+(#alias division-spec = ./natural-division.lim::division-spec)
+(#alias has-division = ./natural-division.lim::has-division)
+(#alias division-exists = ./natural-division.lim::division-exists)
+(#alias gcd-spec = ./natural-gcd.lim::gcd-spec)
+(#alias gcd-zero-right = ./natural-gcd.lim::gcd-zero-right)
+(#alias gcd-euclidean-step = ./natural-gcd.lim::gcd-euclidean-step)
+(#alias gcd-unique = ./natural-coprime.lim::gcd-unique)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem gcd-euclidean-reverse
+  (#universes)
+  (#parameters
+    (#parameter dividend #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter quotient #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter division-proof (#pt-app (#pt-use division-spec ()) dividend divisor quotient remainder))
+    (#parameter greatest-divisor #pt-nat)
+    (#parameter original-gcd (#pt-app (#pt-use gcd-spec ()) dividend divisor greatest-divisor)))
+  (#statement (#pt-app (#pt-use gcd-spec ()) divisor remainder greatest-divisor))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use divides ()) greatest-divisor remainder)
+        (#pt-pi
+          (
+            (candidate-common #pt-nat)
+            (candidate-first (#pt-app (#pt-use divides ()) candidate-common divisor))
+            (candidate-second (#pt-app (#pt-use divides ()) candidate-common remainder)))
+          (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+      (#pt-app
+        (#pt-use conjunction-left ())
+        (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+        (#pt-pi
+          (
+            (candidate-common #pt-nat)
+            (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+            (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+          (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app (#pt-use divides ()) greatest-divisor dividend)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+            (#pt-pi
+              (
+                (candidate-common #pt-nat)
+                (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+              (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+          original-gcd))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use divides ()) greatest-divisor remainder)
+        (#pt-pi
+          (
+            (candidate-common #pt-nat)
+            (candidate-first (#pt-app (#pt-use divides ()) candidate-common divisor))
+            (candidate-second (#pt-app (#pt-use divides ()) candidate-common remainder)))
+          (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+        (#pt-app
+          (#pt-use divides-add-cancel-left ())
+          greatest-divisor
+          (#pt-app (#pt-use multiply ()) quotient divisor)
+          remainder
+          (#pt-app
+            (#pt-use divides-transitive ())
+            greatest-divisor
+            divisor
+            (#pt-app (#pt-use multiply ()) quotient divisor)
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+              (#pt-pi
+                (
+                  (candidate-common #pt-nat)
+                  (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                  (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+                (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+              (#pt-app
+                (#pt-use conjunction-right ())
+                (#pt-app (#pt-use divides ()) greatest-divisor dividend)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+                  (#pt-pi
+                    (
+                      (candidate-common #pt-nat)
+                      (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                      (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+                    (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                original-gcd))
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use divides ()) divisor endpoint))
+              (#pt-app (#pt-use multiply ()) divisor quotient)
+              (#pt-app (#pt-use multiply ()) quotient divisor)
+              (#pt-app (#pt-use multiply-commutative ()) divisor quotient)
+              (#pt-app (#pt-use divides-multiple ()) divisor quotient)))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app (#pt-use divides ()) greatest-divisor endpoint))
+            dividend
+            (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder)
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-eq
+                #pt-nat
+                dividend
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) quotient divisor)
+                  remainder))
+              (#pt-app (#pt-use less-than ()) remainder divisor)
+              division-proof)
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app (#pt-use divides ()) greatest-divisor dividend)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+                (#pt-pi
+                  (
+                    (candidate-common #pt-nat)
+                    (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                    (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+                  (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+              original-gcd)))
+        (#pt-lambda
+          (
+            (common-divisor #pt-nat)
+            (divides-first (#pt-app (#pt-use divides ()) common-divisor divisor))
+            (divides-second (#pt-app (#pt-use divides ()) common-divisor remainder)))
+          (#pt-app
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+              (#pt-pi
+                (
+                  (candidate-common #pt-nat)
+                  (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                  (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+                (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+              (#pt-app
+                (#pt-use conjunction-right ())
+                (#pt-app (#pt-use divides ()) greatest-divisor dividend)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use divides ()) greatest-divisor divisor)
+                  (#pt-pi
+                    (
+                      (candidate-common #pt-nat)
+                      (candidate-first (#pt-app (#pt-use divides ()) candidate-common dividend))
+                      (candidate-second (#pt-app (#pt-use divides ()) candidate-common divisor)))
+                    (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                original-gcd))
+            common-divisor
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app (#pt-use divides ()) common-divisor endpoint))
+              (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder)
+              dividend
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                dividend
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) quotient divisor)
+                  remainder)
+                (#pt-app
+                  (#pt-use conjunction-left ())
+                  (#pt-eq
+                    #pt-nat
+                    dividend
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) quotient divisor)
+                      remainder))
+                  (#pt-app (#pt-use less-than ()) remainder divisor)
+                  division-proof))
+              (#pt-app
+                (#pt-use divides-add ())
+                common-divisor
+                (#pt-app (#pt-use multiply ()) quotient divisor)
+                remainder
+                (#pt-app
+                  (#pt-use divides-transitive ())
+                  common-divisor
+                  divisor
+                  (#pt-app (#pt-use multiply ()) quotient divisor)
+                  divides-first
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app (#pt-use divides ()) divisor endpoint))
+                    (#pt-app (#pt-use multiply ()) divisor quotient)
+                    (#pt-app (#pt-use multiply ()) quotient divisor)
+                    (#pt-app (#pt-use multiply-commutative ()) divisor quotient)
+                    (#pt-app (#pt-use divides-multiple ()) divisor quotient)))
+                divides-second))
+            divides-first))))))
+(#theorem gcd-scale-induction-step
+  (#universes)
+  (#parameters
+    (#parameter scale-predecessor #pt-nat)
+    (#parameter stage #pt-nat)
+    (#parameter given-history (#pt-pi ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier stage))) (#pt-pi ((number #pt-nat) (candidate #pt-nat) (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate))) (#pt-app (#pt-use gcd-spec ()) (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor)) (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor)) (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))))
+  (#statement
+    (#pt-pi
+      (
+        (number #pt-nat)
+        (candidate #pt-nat)
+        (candidate-proof (#pt-app (#pt-use gcd-spec ()) number stage candidate)))
+      (#pt-app
+        (#pt-use gcd-spec ())
+        (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+        (#pt-app (#pt-use multiply ()) stage (#pt-succ scale-predecessor))
+        (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (stage-history
+                (#pt-pi
+                  ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier index)))
+                  (#pt-pi
+                    (
+                      (number #pt-nat)
+                      (candidate #pt-nat)
+                      (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate)))
+                    (#pt-app
+                      (#pt-use gcd-spec ())
+                      (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                      (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor))
+                      (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))))
+            (#pt-pi
+              (
+                (number #pt-nat)
+                (candidate #pt-nat)
+                (candidate-proof (#pt-app (#pt-use gcd-spec ()) number index candidate)))
+              (#pt-app
+                (#pt-use gcd-spec ())
+                (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                (#pt-app (#pt-use multiply ()) index (#pt-succ scale-predecessor))
+                (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))))
+        (#pt-lambda
+          (
+            (smaller-cases
+              (#pt-pi
+                (
+                  (earlier #pt-nat)
+                  (earlier-proof (#pt-app (#pt-use less-than ()) earlier #pt-zero)))
+                (#pt-pi
+                  (
+                    (number #pt-nat)
+                    (candidate #pt-nat)
+                    (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate)))
+                  (#pt-app
+                    (#pt-use gcd-spec ())
+                    (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))))
+            (number #pt-nat)
+            (candidate #pt-nat)
+            (candidate-proof (#pt-app (#pt-use gcd-spec ()) number #pt-zero candidate)))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app
+                (#pt-use gcd-spec ())
+                (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                #pt-zero
+                endpoint))
+            (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+            (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))
+            (#pt-app
+              (#pt-use congruence (0 0))
+              #pt-nat
+              #pt-nat
+              (#pt-lambda
+                ((factor #pt-nat))
+                (#pt-app (#pt-use multiply ()) factor (#pt-succ scale-predecessor)))
+              number
+              candidate
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                candidate
+                number
+                (#pt-app
+                  (#pt-use gcd-unique ())
+                  number
+                  #pt-zero
+                  candidate
+                  number
+                  candidate-proof
+                  (#pt-app (#pt-use gcd-zero-right ()) number))))
+            (#pt-app
+              (#pt-use gcd-zero-right ())
+              (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor)))))
+        (#pt-lambda
+          (
+            (previous-divisor #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (prior-history
+                    (#pt-pi
+                      (
+                        (earlier #pt-nat)
+                        (earlier-proof (#pt-app (#pt-use less-than ()) earlier previous-divisor)))
+                      (#pt-pi
+                        (
+                          (number #pt-nat)
+                          (candidate #pt-nat)
+                          (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate)))
+                        (#pt-app
+                          (#pt-use gcd-spec ())
+                          (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                          (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor))
+                          (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))))
+                (#pt-pi
+                  (
+                    (number #pt-nat)
+                    (candidate #pt-nat)
+                    (candidate-proof
+                      (#pt-app (#pt-use gcd-spec ()) number previous-divisor candidate)))
+                  (#pt-app
+                    (#pt-use gcd-spec ())
+                    (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) previous-divisor (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))))
+            (smaller-cases
+              (#pt-pi
+                (
+                  (earlier #pt-nat)
+                  (earlier-proof
+                    (#pt-app (#pt-use less-than ()) earlier (#pt-succ previous-divisor))))
+                (#pt-pi
+                  (
+                    (number #pt-nat)
+                    (candidate #pt-nat)
+                    (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate)))
+                  (#pt-app
+                    (#pt-use gcd-spec ())
+                    (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))))
+            (number #pt-nat)
+            (candidate #pt-nat)
+            (candidate-proof
+              (#pt-app (#pt-use gcd-spec ()) number (#pt-succ previous-divisor) candidate)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-quotient #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use division-spec ())
+                      number
+                      (#pt-succ previous-divisor)
+                      candidate-quotient
+                      candidate-remainder)))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-quotient #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use division-spec ())
+                            number
+                            (#pt-succ previous-divisor)
+                            candidate-quotient
+                            candidate-remainder)))))))
+              (#pt-app
+                (#pt-use gcd-spec ())
+                (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-succ previous-divisor)
+                  (#pt-succ scale-predecessor))
+                (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))
+            (
+              (#pt-lambda
+                (
+                  (quotient #pt-nat)
+                  (remainder-certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-remainder #pt-nat))
+                        (#pt-app
+                          (#pt-use division-spec ())
+                          number
+                          (#pt-succ previous-divisor)
+                          quotient
+                          candidate-remainder)))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use division-spec ())
+                        number
+                        (#pt-succ previous-divisor)
+                        quotient
+                        candidate-remainder)))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-remainder #pt-nat))
+                            (#pt-app
+                              (#pt-use division-spec ())
+                              number
+                              (#pt-succ previous-divisor)
+                              quotient
+                              candidate-remainder)))))
+                    (#pt-app
+                      (#pt-use gcd-spec ())
+                      (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-succ previous-divisor)
+                        (#pt-succ scale-predecessor))
+                      (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))))
+                  (
+                    (#pt-lambda
+                      (
+                        (remainder #pt-nat)
+                        (division-proof
+                          (#pt-app
+                            (#pt-use division-spec ())
+                            number
+                            (#pt-succ previous-divisor)
+                            quotient
+                            remainder)))
+                      (#pt-app
+                        (#pt-use gcd-euclidean-step ())
+                        (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-succ previous-divisor)
+                          (#pt-succ scale-predecessor))
+                        quotient
+                        (#pt-app (#pt-use multiply ()) remainder (#pt-succ scale-predecessor))
+                        (#pt-app
+                          (#pt-use conjunction-introduce ())
+                          (#pt-eq
+                            #pt-nat
+                            (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                quotient
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ previous-divisor)
+                                  (#pt-succ scale-predecessor)))
+                              (#pt-app (#pt-use multiply ()) remainder (#pt-succ scale-predecessor))))
+                          (#pt-app
+                            (#pt-use less-than ())
+                            (#pt-app (#pt-use multiply ()) remainder (#pt-succ scale-predecessor))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ previous-divisor)
+                              (#pt-succ scale-predecessor)))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app (#pt-use multiply ()) quotient (#pt-succ previous-divisor))
+                                remainder)
+                              (#pt-succ scale-predecessor))
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                quotient
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ previous-divisor)
+                                  (#pt-succ scale-predecessor)))
+                              (#pt-app (#pt-use multiply ()) remainder (#pt-succ scale-predecessor)))
+                            (#pt-app
+                              (#pt-use congruence (0 0))
+                              #pt-nat
+                              #pt-nat
+                              (#pt-lambda
+                                ((factor #pt-nat))
+                                (#pt-app (#pt-use multiply ()) factor (#pt-succ scale-predecessor)))
+                              number
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app (#pt-use multiply ()) quotient (#pt-succ previous-divisor))
+                                remainder)
+                              (#pt-app
+                                (#pt-use conjunction-left ())
+                                (#pt-eq
+                                  #pt-nat
+                                  number
+                                  (#pt-app
+                                    (#pt-use add ())
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      quotient
+                                      (#pt-succ previous-divisor))
+                                    remainder))
+                                (#pt-app
+                                  (#pt-use less-than ())
+                                  remainder
+                                  (#pt-succ previous-divisor))
+                                division-proof))
+                            (#pt-app
+                              (#pt-use transitivity (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app
+                                  (#pt-use add ())
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    quotient
+                                    (#pt-succ previous-divisor))
+                                  remainder)
+                                (#pt-succ scale-predecessor))
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    quotient
+                                    (#pt-succ previous-divisor))
+                                  (#pt-succ scale-predecessor))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  remainder
+                                  (#pt-succ scale-predecessor)))
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  quotient
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ previous-divisor)
+                                    (#pt-succ scale-predecessor)))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  remainder
+                                  (#pt-succ scale-predecessor)))
+                              (#pt-app
+                                (#pt-use multiply-add-left ())
+                                (#pt-app (#pt-use multiply ()) quotient (#pt-succ previous-divisor))
+                                remainder
+                                (#pt-succ scale-predecessor))
+                              (#pt-app
+                                (#pt-use congruence (0 0))
+                                #pt-nat
+                                #pt-nat
+                                (#pt-lambda
+                                  ((product #pt-nat))
+                                  (#pt-app
+                                    (#pt-use add ())
+                                    product
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      remainder
+                                      (#pt-succ scale-predecessor))))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    quotient
+                                    (#pt-succ previous-divisor))
+                                  (#pt-succ scale-predecessor))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  quotient
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ previous-divisor)
+                                    (#pt-succ scale-predecessor)))
+                                (#pt-app
+                                  (#pt-use multiply-associative ())
+                                  quotient
+                                  (#pt-succ previous-divisor)
+                                  (#pt-succ scale-predecessor)))))
+                          (#pt-app
+                            (#pt-use multiply-less-right-successor ())
+                            scale-predecessor
+                            remainder
+                            (#pt-succ previous-divisor)
+                            (#pt-app
+                              (#pt-use conjunction-right ())
+                              (#pt-eq
+                                #pt-nat
+                                number
+                                (#pt-app
+                                  (#pt-use add ())
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    quotient
+                                    (#pt-succ previous-divisor))
+                                  remainder))
+                              (#pt-app (#pt-use less-than ()) remainder (#pt-succ previous-divisor))
+                              division-proof)))
+                        (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor))
+                        (#pt-app
+                          smaller-cases
+                          remainder
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-eq
+                              #pt-nat
+                              number
+                              (#pt-app
+                                (#pt-use add ())
+                                (#pt-app (#pt-use multiply ()) quotient (#pt-succ previous-divisor))
+                                remainder))
+                            (#pt-app (#pt-use less-than ()) remainder (#pt-succ previous-divisor))
+                            division-proof)
+                          (#pt-succ previous-divisor)
+                          candidate
+                          (#pt-app
+                            (#pt-use gcd-euclidean-reverse ())
+                            number
+                            (#pt-succ previous-divisor)
+                            quotient
+                            remainder
+                            division-proof
+                            candidate
+                            candidate-proof)))))
+                  remainder-certificate)))
+            (#pt-app
+              (#pt-use division-exists ())
+              number
+              (#pt-succ previous-divisor)
+              (#pt-app (#pt-use zero-less-successor ()) previous-divisor))))
+        stage)
+      given-history)))
+(#theorem gcd-scale-right-successor
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter greatest-divisor #pt-nat)
+    (#parameter scale-predecessor #pt-nat)
+    (#parameter original-gcd (#pt-app (#pt-use gcd-spec ()) first second greatest-divisor)))
+  (#statement
+    (#pt-app
+      (#pt-use gcd-spec ())
+      (#pt-app (#pt-use multiply ()) first (#pt-succ scale-predecessor))
+      (#pt-app (#pt-use multiply ()) second (#pt-succ scale-predecessor))
+      (#pt-app (#pt-use multiply ()) greatest-divisor (#pt-succ scale-predecessor))))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use strong-induction ())
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (number #pt-nat)
+              (candidate #pt-nat)
+              (candidate-proof (#pt-app (#pt-use gcd-spec ()) number index candidate)))
+            (#pt-app
+              (#pt-use gcd-spec ())
+              (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+              (#pt-app (#pt-use multiply ()) index (#pt-succ scale-predecessor))
+              (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))
+        (#pt-lambda
+          (
+            (stage #pt-nat)
+            (smaller-cases
+              (#pt-pi
+                ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier stage)))
+                (#pt-pi
+                  (
+                    (number #pt-nat)
+                    (candidate #pt-nat)
+                    (candidate-proof (#pt-app (#pt-use gcd-spec ()) number earlier candidate)))
+                  (#pt-app
+                    (#pt-use gcd-spec ())
+                    (#pt-app (#pt-use multiply ()) number (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) earlier (#pt-succ scale-predecessor))
+                    (#pt-app (#pt-use multiply ()) candidate (#pt-succ scale-predecessor)))))))
+          (#pt-app (#pt-use gcd-scale-induction-step ()) scale-predecessor stage smaller-cases)))
+      second
+      first
+      greatest-divisor
+      original-gcd)))
+(#theorem gcd-scale-right
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter greatest-divisor #pt-nat)
+    (#parameter scale #pt-nat)
+    (#parameter original-gcd (#pt-app (#pt-use gcd-spec ()) first second greatest-divisor)))
+  (#statement
+    (#pt-app
+      (#pt-use gcd-spec ())
+      (#pt-app (#pt-use multiply ()) first scale)
+      (#pt-app (#pt-use multiply ()) second scale)
+      (#pt-app (#pt-use multiply ()) greatest-divisor scale)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((scale-value #pt-nat))
+        (#pt-app
+          (#pt-use gcd-spec ())
+          (#pt-app (#pt-use multiply ()) first scale-value)
+          (#pt-app (#pt-use multiply ()) second scale-value)
+          (#pt-app (#pt-use multiply ()) greatest-divisor scale-value)))
+      (#pt-app
+        (#pt-use substitution (0))
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use gcd-spec ())
+            (#pt-app (#pt-use multiply ()) first #pt-zero)
+            (#pt-app (#pt-use multiply ()) second #pt-zero)
+            endpoint))
+        #pt-zero
+        (#pt-app (#pt-use multiply ()) greatest-divisor #pt-zero)
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) greatest-divisor #pt-zero)
+          #pt-zero
+          (#pt-app (#pt-use multiply-zero-right ()) greatest-divisor))
+        (#pt-app
+          (#pt-use substitution (0))
+          #pt-nat
+          (#pt-lambda
+            ((endpoint #pt-nat))
+            (#pt-app
+              (#pt-use gcd-spec ())
+              (#pt-app (#pt-use multiply ()) first #pt-zero)
+              endpoint
+              #pt-zero))
+          #pt-zero
+          (#pt-app (#pt-use multiply ()) second #pt-zero)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) second #pt-zero)
+            #pt-zero
+            (#pt-app (#pt-use multiply-zero-right ()) second))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app (#pt-use gcd-spec ()) endpoint #pt-zero #pt-zero))
+            #pt-zero
+            (#pt-app (#pt-use multiply ()) first #pt-zero)
+            (#pt-app
+              (#pt-use symmetry (0))
+              #pt-nat
+              (#pt-app (#pt-use multiply ()) first #pt-zero)
+              #pt-zero
+              (#pt-app (#pt-use multiply-zero-right ()) first))
+            (#pt-app (#pt-use gcd-zero-right ()) #pt-zero))))
+      (#pt-lambda
+        (
+          (scale-predecessor #pt-nat)
+          (unused-scaled
+            (#pt-app
+              (#pt-use gcd-spec ())
+              (#pt-app (#pt-use multiply ()) first scale-predecessor)
+              (#pt-app (#pt-use multiply ()) second scale-predecessor)
+              (#pt-app (#pt-use multiply ()) greatest-divisor scale-predecessor))))
+        (#pt-app
+          (#pt-use gcd-scale-right-successor ())
+          first
+          second
+          greatest-divisor
+          scale-predecessor
+          original-gcd))
+      scale)))

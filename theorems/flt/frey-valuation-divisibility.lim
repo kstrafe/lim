@@ -1,0 +1,789 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Direct certificate ports of S_FreyPackage_p_dvd_padicValInt_freyCurveInt_discr
+; and S_FreyPackage_not_p_dvd_padicValInt_two_freyCurveInt_discr.
+; Every actual package supplies the prime exponent and above-four bound.
+; Construct an actual discriminant valuation witness together with the
+; source divisibility property; no valuation or package-refutation axiom.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#alias integer-frey-model-certificate = ./integer-frey-model.lim::integer-frey-model-certificate)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias integer-prime-order = ./integer-prime-order-defs.lim::integer-prime-order)
+(#alias
+  natural-exponent-divides-doubled-value
+  =
+  ./natural-valuation-divisibility.lim::natural-exponent-divides-doubled-value)
+(#alias
+  natural-shifted-valuation-nondivisible-above-four
+  =
+  ./natural-valuation-divisibility.lim::natural-shifted-valuation-nondivisible-above-four)
+(#alias
+  frey-package-discriminant-valuation-away-two
+  =
+  ./frey-local-valuations.lim::frey-package-discriminant-valuation-away-two)
+(#alias
+  frey-package-has-local-valuations-away-two
+  =
+  ./frey-local-valuations.lim::frey-package-has-local-valuations-away-two)
+(#alias
+  frey-package-discriminant-valuation-at-two
+  =
+  ./frey-local-valuations-two.lim::frey-package-discriminant-valuation-at-two)
+(#alias
+  frey-package-has-local-valuations-at-two
+  =
+  ./frey-local-valuations-two.lim::frey-package-has-local-valuations-at-two)
+(#alias frey-package-certificate = ./frey-package.lim::frey-package-certificate)
+(#theorem frey-package-exponent-divides-away-two-valuation
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter not-two (#pt-pi ((denied-proof (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero))))) #pt-false))
+    (#parameter discriminant-valuation #pt-nat)
+    (#parameter coordinate-valuation #pt-nat)
+    (#parameter discriminant-order (#pt-app (#pt-use integer-prime-order ()) prime-number discriminant-valuation (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model)))
+    (#parameter coordinate-order (#pt-app (#pt-use integer-prime-order ()) prime-number coordinate-valuation (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-multiply ()) first second) third))))
+  (#statement (#pt-app (#pt-use divides ()) exponent discriminant-valuation))
+  (#proof
+    (#pt-eq-elim
+      #pt-nat
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+        coordinate-valuation)
+      (#pt-lambda
+        (
+          (transport-index #pt-nat)
+          (transport-path
+            (#pt-eq
+              #pt-nat
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                coordinate-valuation)
+              transport-index)))
+        (#pt-app (#pt-use divides ()) exponent transport-index))
+      (#pt-app (#pt-use natural-exponent-divides-doubled-value ()) exponent coordinate-valuation)
+      discriminant-valuation
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        discriminant-valuation
+        (#pt-app
+          (#pt-use multiply ())
+          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+          coordinate-valuation)
+        (#pt-app
+          (#pt-use frey-package-discriminant-valuation-away-two ())
+          prime-number
+          first
+          second
+          third
+          exponent
+          package
+          integral-model
+          model-certificate
+          prime-proof
+          not-two
+          discriminant-valuation
+          coordinate-valuation
+          discriminant-order
+          coordinate-order)))))
+(#theorem frey-package-exponent-not-divides-two-valuation
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter discriminant-valuation #pt-nat)
+    (#parameter coordinate-valuation #pt-nat)
+    (#parameter discriminant-order (#pt-app (#pt-use integer-prime-order ()) (#pt-succ (#pt-succ #pt-zero)) discriminant-valuation (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model)))
+    (#parameter coordinate-order (#pt-app (#pt-use integer-prime-order ()) (#pt-succ (#pt-succ #pt-zero)) coordinate-valuation (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-multiply ()) first second) third))))
+  (#statement
+    (#pt-pi
+      ((denied-proof (#pt-app (#pt-use divides ()) exponent discriminant-valuation)))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use natural-shifted-valuation-nondivisible-above-four ())
+      exponent
+      discriminant-valuation
+      coordinate-valuation
+      (#pt-project conjunction 0 package)
+      (#pt-project conjunction 0 (#pt-project conjunction 1 package))
+      (#pt-app
+        (#pt-use frey-package-discriminant-valuation-at-two ())
+        first
+        second
+        third
+        exponent
+        package
+        integral-model
+        model-certificate
+        discriminant-valuation
+        coordinate-valuation
+        discriminant-order
+        coordinate-order))))
+(#theorem frey-package-has-divisible-away-two-valuation
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter not-two (#pt-pi ((denied-proof (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero))))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-discriminant-index #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-prime-order ())
+            prime-number
+            candidate-discriminant-index
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+          (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-discriminant-index #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-coordinate-index #pt-nat))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use integer-prime-order ())
+                  prime-number
+                  candidate-discriminant-index
+                  (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-prime-order ())
+                    prime-number
+                    candidate-coordinate-index
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-multiply ()) first second)
+                      third))
+                  (#pt-eq
+                    #pt-nat
+                    candidate-discriminant-index
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                      candidate-coordinate-index))))))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-discriminant-index #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-coordinate-index #pt-nat))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        prime-number
+                        candidate-discriminant-index
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          prime-number
+                          candidate-coordinate-index
+                          (#pt-app
+                            (#pt-use integer-multiply ())
+                            (#pt-app (#pt-use integer-multiply ()) first second)
+                            third))
+                        (#pt-eq
+                          #pt-nat
+                          candidate-discriminant-index
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                            candidate-coordinate-index))))))))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-discriminant-index #pt-nat))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-prime-order ())
+                prime-number
+                candidate-discriminant-index
+                (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+              (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))))
+      (
+        (#pt-lambda
+          (
+            (discriminant-valuation #pt-nat)
+            (coordinate-existence
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-coordinate-index #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      prime-number
+                      discriminant-valuation
+                      (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        prime-number
+                        candidate-coordinate-index
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          (#pt-app (#pt-use integer-multiply ()) first second)
+                          third))
+                      (#pt-eq
+                        #pt-nat
+                        discriminant-valuation
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                          candidate-coordinate-index))))))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-coordinate-index #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-prime-order ())
+                    prime-number
+                    discriminant-valuation
+                    (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      prime-number
+                      candidate-coordinate-index
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-multiply ()) first second)
+                        third))
+                    (#pt-eq
+                      #pt-nat
+                      discriminant-valuation
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                        candidate-coordinate-index))))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-coordinate-index #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          prime-number
+                          discriminant-valuation
+                          (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use integer-prime-order ())
+                            prime-number
+                            candidate-coordinate-index
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app (#pt-use integer-multiply ()) first second)
+                              third))
+                          (#pt-eq
+                            #pt-nat
+                            discriminant-valuation
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                exponent)
+                              candidate-coordinate-index))))))))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-discriminant-index #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      prime-number
+                      candidate-discriminant-index
+                      (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                    (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))))
+            (
+              (#pt-lambda
+                (
+                  (coordinate-valuation #pt-nat)
+                  (valuation-packet
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        prime-number
+                        discriminant-valuation
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          prime-number
+                          coordinate-valuation
+                          (#pt-app
+                            (#pt-use integer-multiply ())
+                            (#pt-app (#pt-use integer-multiply ()) first second)
+                            third))
+                        (#pt-eq
+                          #pt-nat
+                          discriminant-valuation
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                            coordinate-valuation))))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-discriminant-index #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          prime-number
+                          candidate-discriminant-index
+                          (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                        (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index))))
+                  introduce
+                  (discriminant-valuation
+                    (#pt-app
+                      (#pt-use conjunction-introduce ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        prime-number
+                        discriminant-valuation
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-app (#pt-use divides ()) exponent discriminant-valuation)
+                      (#pt-project conjunction 0 valuation-packet)
+                      (#pt-eq-elim
+                        #pt-nat
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                          coordinate-valuation)
+                        (#pt-lambda
+                          (
+                            (transport-index #pt-nat)
+                            (transport-path
+                              (#pt-eq
+                                #pt-nat
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ #pt-zero))
+                                    exponent)
+                                  coordinate-valuation)
+                                transport-index)))
+                          (#pt-app (#pt-use divides ()) exponent transport-index))
+                        (#pt-app
+                          (#pt-use natural-exponent-divides-doubled-value ())
+                          exponent
+                          coordinate-valuation)
+                        discriminant-valuation
+                        (#pt-app
+                          (#pt-use symmetry (0))
+                          #pt-nat
+                          discriminant-valuation
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                            coordinate-valuation)
+                          (#pt-project conjunction 1 (#pt-project conjunction 1 valuation-packet)))))))))
+            coordinate-existence)))
+      (#pt-app
+        (#pt-use frey-package-has-local-valuations-away-two ())
+        prime-number
+        first
+        second
+        third
+        exponent
+        package
+        integral-model
+        model-certificate
+        prime-proof
+        not-two))))
+(#theorem frey-package-has-nondivisible-two-valuation
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-discriminant-index #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-prime-order ())
+            (#pt-succ (#pt-succ #pt-zero))
+            candidate-discriminant-index
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+          (#pt-pi
+            ((denied-proof (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))
+            #pt-false)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-discriminant-index #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-coordinate-index #pt-nat))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use integer-prime-order ())
+                  (#pt-succ (#pt-succ #pt-zero))
+                  candidate-discriminant-index
+                  (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-prime-order ())
+                    (#pt-succ (#pt-succ #pt-zero))
+                    candidate-coordinate-index
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-multiply ()) first second)
+                      third))
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-app (#pt-use add ()) candidate-discriminant-index (#pt-numeral 8))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                      candidate-coordinate-index))))))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-discriminant-index #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-coordinate-index #pt-nat))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        (#pt-succ (#pt-succ #pt-zero))
+                        candidate-discriminant-index
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          (#pt-succ (#pt-succ #pt-zero))
+                          candidate-coordinate-index
+                          (#pt-app
+                            (#pt-use integer-multiply ())
+                            (#pt-app (#pt-use integer-multiply ()) first second)
+                            third))
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-app (#pt-use add ()) candidate-discriminant-index (#pt-numeral 8))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                            candidate-coordinate-index))))))))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-discriminant-index #pt-nat))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-prime-order ())
+                (#pt-succ (#pt-succ #pt-zero))
+                candidate-discriminant-index
+                (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))
+                #pt-false)))))
+      (
+        (#pt-lambda
+          (
+            (discriminant-valuation #pt-nat)
+            (coordinate-existence
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-coordinate-index #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      (#pt-succ (#pt-succ #pt-zero))
+                      discriminant-valuation
+                      (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        (#pt-succ (#pt-succ #pt-zero))
+                        candidate-coordinate-index
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          (#pt-app (#pt-use integer-multiply ()) first second)
+                          third))
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-app (#pt-use add ()) discriminant-valuation (#pt-numeral 8))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                          candidate-coordinate-index))))))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-coordinate-index #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-prime-order ())
+                    (#pt-succ (#pt-succ #pt-zero))
+                    discriminant-valuation
+                    (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      (#pt-succ (#pt-succ #pt-zero))
+                      candidate-coordinate-index
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-multiply ()) first second)
+                        third))
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app (#pt-use add ()) discriminant-valuation (#pt-numeral 8))
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                        candidate-coordinate-index))))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-coordinate-index #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          (#pt-succ (#pt-succ #pt-zero))
+                          discriminant-valuation
+                          (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use integer-prime-order ())
+                            (#pt-succ (#pt-succ #pt-zero))
+                            candidate-coordinate-index
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app (#pt-use integer-multiply ()) first second)
+                              third))
+                          (#pt-eq
+                            #pt-nat
+                            (#pt-app (#pt-use add ()) discriminant-valuation (#pt-numeral 8))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                exponent)
+                              candidate-coordinate-index))))))))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-discriminant-index #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      (#pt-succ (#pt-succ #pt-zero))
+                      candidate-discriminant-index
+                      (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                    (#pt-pi
+                      (
+                        (denied-proof
+                          (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))
+                      #pt-false)))))
+            (
+              (#pt-lambda
+                (
+                  (coordinate-valuation #pt-nat)
+                  (valuation-packet
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        (#pt-succ (#pt-succ #pt-zero))
+                        discriminant-valuation
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          (#pt-succ (#pt-succ #pt-zero))
+                          coordinate-valuation
+                          (#pt-app
+                            (#pt-use integer-multiply ())
+                            (#pt-app (#pt-use integer-multiply ()) first second)
+                            third))
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-app (#pt-use add ()) discriminant-valuation (#pt-numeral 8))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                            coordinate-valuation))))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-discriminant-index #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use integer-prime-order ())
+                          (#pt-succ (#pt-succ #pt-zero))
+                          candidate-discriminant-index
+                          (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app (#pt-use divides ()) exponent candidate-discriminant-index)))
+                          #pt-false))))
+                  introduce
+                  (discriminant-valuation
+                    (#pt-app
+                      (#pt-use conjunction-introduce ())
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        (#pt-succ (#pt-succ #pt-zero))
+                        discriminant-valuation
+                        (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app (#pt-use divides ()) exponent discriminant-valuation)))
+                        #pt-false)
+                      (#pt-project conjunction 0 valuation-packet)
+                      (#pt-app
+                        (#pt-use natural-shifted-valuation-nondivisible-above-four ())
+                        exponent
+                        discriminant-valuation
+                        coordinate-valuation
+                        (#pt-project conjunction 0 package)
+                        (#pt-project conjunction 0 (#pt-project conjunction 1 package))
+                        (#pt-project conjunction 1 (#pt-project conjunction 1 valuation-packet))))))))
+            coordinate-existence)))
+      (#pt-app
+        (#pt-use frey-package-has-local-valuations-at-two ())
+        first
+        second
+        third
+        exponent
+        package
+        integral-model
+        model-certificate))))

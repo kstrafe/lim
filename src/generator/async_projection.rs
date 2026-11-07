@@ -232,7 +232,7 @@ impl Write {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use crate::generator::async_exec::{Action, PlaceId};

@@ -1,0 +1,1088 @@
+; Explicit rational factorization used by the pinned Frey discriminant.
+; The cube coefficient 64 and all regrouping/sign changes have checked
+; native certificates; no symbolic algebra computation is trusted.
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-symmetric = ./rational-equality.lim::rational-symmetric)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-add-congruent = ./rational-congruence.lim::rational-add-congruent)
+(#alias rational-multiply-congruent = ./rational-congruence.lim::rational-multiply-congruent)
+(#alias rational-multiply-associative = ./rational-ring.lim::rational-multiply-associative)
+(#alias rational-multiply-commutative = ./rational-ring.lim::rational-multiply-commutative)
+(#alias
+  rational-multiply-distribute-second
+  =
+  ./rational-ring.lim::rational-multiply-distribute-second)
+(#alias rational-negate-congruent = ./rational-congruence.lim::rational-negate-congruent)
+(#alias
+  rational-multiply-negative-second
+  =
+  ./rational-sign-laws.lim::rational-multiply-negative-second)
+(#alias rational-multiply-two-negatives = ./rational-sign-laws.lim::rational-multiply-two-negatives)
+(#alias rational-multiply-swap-inner = ./rational-power-laws.lim::rational-multiply-swap-inner)
+(#alias rational-power-product = ./rational-power-laws.lim::rational-power-product)
+(#alias rational-two-cubed = ./rational-power-laws.lim::rational-two-cubed)
+(#alias rational-eight-times-eight = ./rational-power-laws.lim::rational-eight-times-eight)
+(#theorem rational-eight-twice-cube
+  (#universes)
+  (#parameters
+    (#parameter fourth-coefficient (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            fourth-coefficient)
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+        (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            fourth-coefficient)
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-numeral 3))
+          (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+        (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use rational-multiply-congruent ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            fourth-coefficient)
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-numeral 3))
+          (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use rational-reflexive ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))))
+        (#pt-app
+          (#pt-use rational-power-product ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+          fourth-coefficient
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+              (#pt-numeral 3))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+          (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use rational-multiply-congruent ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+              (#pt-numeral 3))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-reflexive ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))))
+          (#pt-app
+            (#pt-use rational-multiply-congruent ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+              (#pt-numeral 3))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))
+            (#pt-use rational-two-cubed ())
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-symmetric ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+                (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+            (#pt-app
+              (#pt-use rational-multiply-associative ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply-congruent ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))
+            (#pt-use rational-eight-times-eight ())
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))))))
+(#theorem rational-discriminant-factor
+  (#universes)
+  (#parameters
+    (#parameter second-invariant (#pt-use rational ()))
+    (#parameter fourth-coefficient (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                fourth-coefficient)
+              (#pt-numeral 3)))))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              fourth-coefficient))))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                fourth-coefficient)
+              (#pt-numeral 3)))))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              fourth-coefficient))))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-power ())
+                fourth-coefficient
+                (#pt-succ (#pt-succ #pt-zero)))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                  fourth-coefficient)
+                (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use rational-add-congruent ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-power ())
+                fourth-coefficient
+                (#pt-succ (#pt-succ #pt-zero)))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                  fourth-coefficient)
+                (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply-two-negatives ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate-congruent ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                  fourth-coefficient)
+                (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+            (#pt-app (#pt-use rational-eight-twice-cube ()) fourth-coefficient)))
+        (#pt-app
+          (#pt-use rational-add-congruent ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use rational-multiply-commutative ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-reflexive ())
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))))
+      (#pt-app
+        (#pt-use rational-symmetric ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                fourth-coefficient))))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+              (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                  fourth-coefficient))))
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-power ())
+                fourth-coefficient
+                (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-power ())
+                fourth-coefficient
+                (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                  fourth-coefficient))))
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-power ())
+                fourth-coefficient
+                (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+          (#pt-app
+            (#pt-use rational-multiply-distribute-second ())
+            (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use rational-power ()) second-invariant (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                fourth-coefficient)))
+          (#pt-app
+            (#pt-use rational-transitive ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  second-invariant
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    fourth-coefficient))))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  second-invariant
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    fourth-coefficient))))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  second-invariant
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                  (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+            (#pt-app
+              (#pt-use rational-add-congruent ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  second-invariant
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    fourth-coefficient)))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  second-invariant
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    fourth-coefficient)))
+              (#pt-app
+                (#pt-use rational-reflexive ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero)))))
+              (#pt-app
+                (#pt-use rational-multiply-negative-second ())
+                (#pt-app
+                  (#pt-use rational-power ())
+                  fourth-coefficient
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                  fourth-coefficient)))
+            (#pt-app
+              (#pt-use rational-transitive ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                      fourth-coefficient))))
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient))))
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))))
+              (#pt-app
+                (#pt-use rational-add-congruent ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                      fourth-coefficient)))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient)))
+                (#pt-app
+                  (#pt-use rational-reflexive ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      second-invariant
+                      (#pt-succ (#pt-succ #pt-zero)))))
+                (#pt-app
+                  (#pt-use rational-negate-congruent ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                      fourth-coefficient))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient))
+                  (#pt-app
+                    (#pt-use rational-multiply-swap-inner ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    fourth-coefficient)))
+              (#pt-app
+                (#pt-use rational-add-congruent ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient)))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    fourth-coefficient
+                    (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app
+                    (#pt-use rational-power ())
+                    second-invariant
+                    (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))))
+                (#pt-app
+                  (#pt-use rational-reflexive ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      fourth-coefficient
+                      (#pt-succ (#pt-succ #pt-zero)))
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      second-invariant
+                      (#pt-succ (#pt-succ #pt-zero)))))
+                (#pt-app
+                  (#pt-use rational-negate-congruent ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3)))
+                  (#pt-app
+                    (#pt-use rational-multiply-congruent ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient)
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64)))
+                    (#pt-app (#pt-use rational-power ()) fourth-coefficient (#pt-numeral 3))
+                    (#pt-app
+                      (#pt-use rational-reflexive ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 64))))
+                    (#pt-app
+                      (#pt-use rational-multiply-commutative ())
+                      (#pt-app
+                        (#pt-use rational-power ())
+                        fourth-coefficient
+                        (#pt-succ (#pt-succ #pt-zero)))
+                      fourth-coefficient)))))))))))

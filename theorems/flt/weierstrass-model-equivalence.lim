@@ -1,0 +1,592 @@
+; Coefficientwise curve equivalence uses the proved integer/rational
+; equivalences, not raw fraction or record identity. Integer embedding
+; reflects every coefficient, giving actual integral-model uniqueness.
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-symmetric = ./rational-equality.lim::rational-symmetric)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-map-rational
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-map-rational)
+(#alias
+  rational-integer-embedding-injective
+  =
+  ./rational-fractions.lim::rational-integer-embedding-injective)
+(#math-definition rational-weierstrass-equivalent ()
+  (#pt-pi
+    (
+      (first-curve (#pt-use rational-weierstrass-curve ()))
+      (second-curve (#pt-use rational-weierstrass-curve ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (first-curve (#pt-use rational-weierstrass-curve ()))
+      (second-curve (#pt-use rational-weierstrass-curve ())))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project rational-weierstrass-curve 0 first-curve)
+        (#pt-project rational-weierstrass-curve 0 second-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 second-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 second-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 second-curve))))))))
+(#math-definition integer-weierstrass-equivalent ()
+  (#pt-pi
+    (
+      (first-curve (#pt-use integer-weierstrass-curve ()))
+      (second-curve (#pt-use integer-weierstrass-curve ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (first-curve (#pt-use integer-weierstrass-curve ()))
+      (second-curve (#pt-use integer-weierstrass-curve ())))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project integer-weierstrass-curve 0 first-curve)
+        (#pt-project integer-weierstrass-curve 0 second-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project integer-weierstrass-curve 1 first-curve)
+          (#pt-project integer-weierstrass-curve 1 second-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project integer-weierstrass-curve 2 first-curve)
+            (#pt-project integer-weierstrass-curve 2 second-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve))))))))
+(#theorem rational-weierstrass-reflexive
+  (#universes)
+  (#parameters
+    (#parameter first-curve (#pt-use rational-weierstrass-curve ())))
+  (#statement (#pt-app (#pt-use rational-weierstrass-equivalent ()) first-curve first-curve))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project rational-weierstrass-curve 0 first-curve)
+        (#pt-project rational-weierstrass-curve 0 first-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 first-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve)))))
+      (#pt-app
+        (#pt-use rational-reflexive ())
+        (#pt-project rational-weierstrass-curve 0 first-curve))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 first-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve))))
+        (#pt-app
+          (#pt-use rational-reflexive ())
+          (#pt-project rational-weierstrass-curve 1 first-curve))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve)))
+          (#pt-app
+            (#pt-use rational-reflexive ())
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve))
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-project rational-weierstrass-curve 4 first-curve))))))))
+(#theorem rational-weierstrass-symmetric
+  (#universes)
+  (#parameters
+    (#parameter first-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter second-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter coefficient-agreement (#pt-app (#pt-use rational-weierstrass-equivalent ()) first-curve second-curve)))
+  (#statement (#pt-app (#pt-use rational-weierstrass-equivalent ()) second-curve first-curve))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project rational-weierstrass-curve 0 second-curve)
+        (#pt-project rational-weierstrass-curve 0 first-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 second-curve)
+          (#pt-project rational-weierstrass-curve 1 first-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 second-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve)))))
+      (#pt-app
+        (#pt-use rational-symmetric ())
+        (#pt-project rational-weierstrass-curve 0 first-curve)
+        (#pt-project rational-weierstrass-curve 0 second-curve)
+        (#pt-project conjunction 0 coefficient-agreement))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 second-curve)
+          (#pt-project rational-weierstrass-curve 1 first-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 second-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve))))
+        (#pt-app
+          (#pt-use rational-symmetric ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 second-curve)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 coefficient-agreement)))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 second-curve)
+            (#pt-project rational-weierstrass-curve 2 first-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve)))
+          (#pt-app
+            (#pt-use rational-symmetric ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 second-curve)
+            (#pt-project
+              conjunction
+              0
+              (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement))))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project rational-weierstrass-curve 3 first-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project rational-weierstrass-curve 4 first-curve))
+            (#pt-app
+              (#pt-use rational-symmetric ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project
+                conjunction
+                0
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement)))))
+            (#pt-app
+              (#pt-use rational-symmetric ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement)))))))))))
+(#theorem rational-weierstrass-transitive
+  (#universes)
+  (#parameters
+    (#parameter first-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter second-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter third-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter first-agreement (#pt-app (#pt-use rational-weierstrass-equivalent ()) first-curve second-curve))
+    (#parameter second-agreement (#pt-app (#pt-use rational-weierstrass-equivalent ()) second-curve third-curve)))
+  (#statement (#pt-app (#pt-use rational-weierstrass-equivalent ()) first-curve third-curve))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project rational-weierstrass-curve 0 first-curve)
+        (#pt-project rational-weierstrass-curve 0 third-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 third-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 third-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 third-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 third-curve)))))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-project rational-weierstrass-curve 0 first-curve)
+        (#pt-project rational-weierstrass-curve 0 second-curve)
+        (#pt-project rational-weierstrass-curve 0 third-curve)
+        (#pt-project conjunction 0 first-agreement)
+        (#pt-project conjunction 0 second-agreement))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 third-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 third-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 third-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 third-curve))))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-project rational-weierstrass-curve 1 first-curve)
+          (#pt-project rational-weierstrass-curve 1 second-curve)
+          (#pt-project rational-weierstrass-curve 1 third-curve)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 first-agreement))
+          (#pt-project conjunction 0 (#pt-project conjunction 1 second-agreement)))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 third-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 third-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 third-curve)))
+          (#pt-app
+            (#pt-use rational-transitive ())
+            (#pt-project rational-weierstrass-curve 2 first-curve)
+            (#pt-project rational-weierstrass-curve 2 second-curve)
+            (#pt-project rational-weierstrass-curve 2 third-curve)
+            (#pt-project
+              conjunction
+              0
+              (#pt-project conjunction 1 (#pt-project conjunction 1 first-agreement)))
+            (#pt-project
+              conjunction
+              0
+              (#pt-project conjunction 1 (#pt-project conjunction 1 second-agreement))))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 third-curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 third-curve))
+            (#pt-app
+              (#pt-use rational-transitive ())
+              (#pt-project rational-weierstrass-curve 3 first-curve)
+              (#pt-project rational-weierstrass-curve 3 second-curve)
+              (#pt-project rational-weierstrass-curve 3 third-curve)
+              (#pt-project
+                conjunction
+                0
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 first-agreement))))
+              (#pt-project
+                conjunction
+                0
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 second-agreement)))))
+            (#pt-app
+              (#pt-use rational-transitive ())
+              (#pt-project rational-weierstrass-curve 4 first-curve)
+              (#pt-project rational-weierstrass-curve 4 second-curve)
+              (#pt-project rational-weierstrass-curve 4 third-curve)
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 first-agreement))))
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 second-agreement)))))))))))
+(#theorem integer-weierstrass-map-injective
+  (#universes)
+  (#parameters
+    (#parameter first-curve (#pt-use integer-weierstrass-curve ()))
+    (#parameter second-curve (#pt-use integer-weierstrass-curve ()))
+    (#parameter coefficient-agreement (#pt-app (#pt-use rational-weierstrass-equivalent ()) (#pt-app (#pt-use integer-weierstrass-map-rational ()) first-curve) (#pt-app (#pt-use integer-weierstrass-map-rational ()) second-curve))))
+  (#statement (#pt-app (#pt-use integer-weierstrass-equivalent ()) first-curve second-curve))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project integer-weierstrass-curve 0 first-curve)
+        (#pt-project integer-weierstrass-curve 0 second-curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project integer-weierstrass-curve 1 first-curve)
+          (#pt-project integer-weierstrass-curve 1 second-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project integer-weierstrass-curve 2 first-curve)
+            (#pt-project integer-weierstrass-curve 2 second-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve)))))
+      (#pt-app
+        (#pt-use rational-integer-embedding-injective ())
+        (#pt-project integer-weierstrass-curve 0 first-curve)
+        (#pt-project integer-weierstrass-curve 0 second-curve)
+        (#pt-project conjunction 0 coefficient-agreement))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project integer-weierstrass-curve 1 first-curve)
+          (#pt-project integer-weierstrass-curve 1 second-curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project integer-weierstrass-curve 2 first-curve)
+            (#pt-project integer-weierstrass-curve 2 second-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve))))
+        (#pt-app
+          (#pt-use rational-integer-embedding-injective ())
+          (#pt-project integer-weierstrass-curve 1 first-curve)
+          (#pt-project integer-weierstrass-curve 1 second-curve)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 coefficient-agreement)))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project integer-weierstrass-curve 2 first-curve)
+            (#pt-project integer-weierstrass-curve 2 second-curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve)))
+          (#pt-app
+            (#pt-use rational-integer-embedding-injective ())
+            (#pt-project integer-weierstrass-curve 2 first-curve)
+            (#pt-project integer-weierstrass-curve 2 second-curve)
+            (#pt-project
+              conjunction
+              0
+              (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement))))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve))
+            (#pt-app
+              (#pt-use rational-integer-embedding-injective ())
+              (#pt-project integer-weierstrass-curve 3 first-curve)
+              (#pt-project integer-weierstrass-curve 3 second-curve)
+              (#pt-project
+                conjunction
+                0
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement)))))
+            (#pt-app
+              (#pt-use rational-integer-embedding-injective ())
+              (#pt-project integer-weierstrass-curve 4 first-curve)
+              (#pt-project integer-weierstrass-curve 4 second-curve)
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-agreement)))))))))))

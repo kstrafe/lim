@@ -1,0 +1,212 @@
+; Constructive decision of strict order and the bounded-prefix witness bridge.
+(#alias add = ../fermat_statement.lim::add)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias successor-injective = ./natural-successor.lim::successor-injective)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias substitution = ./equality.lim::substitution)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias decision = ./logical-decision.lim::decision)
+(#alias decision-map = ./logical-decision.lim::decision-map)
+(#alias decision-evidence = ./decidable-logic.lim::decision-evidence)
+(#alias decide-equality = ./natural-decision.lim::decide-equality)
+(#alias any-up-to = ./bounded-existence.lim::any-up-to)
+(#alias any-up-to-with-gap = ./bounded-search.lim::any-up-to-with-gap)
+(#alias any-up-to-has-witness = ./bounded-search.lim::any-up-to-has-witness)
+(#alias decide-any-up-to = ./bounded-search.lim::decide-any-up-to)
+(#theorem less-than-bounded
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use any-up-to ())
+      (#pt-lambda
+        ((candidate-gap #pt-nat))
+        (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+      upper))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))))
+        (#pt-app
+          (#pt-use any-up-to ())
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+          upper))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (position (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) gap))))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app
+                (#pt-use any-up-to ())
+                (#pt-lambda
+                  ((candidate-gap #pt-nat))
+                  (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+                endpoint))
+            (#pt-app (#pt-use add ()) gap (#pt-succ lower))
+            upper
+            (#pt-app
+              (#pt-use transitivity (0))
+              #pt-nat
+              (#pt-app (#pt-use add ()) gap (#pt-succ lower))
+              (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+              upper
+              (#pt-app (#pt-use add-commutative ()) gap (#pt-succ lower))
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                upper
+                (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                position))
+            (#pt-app
+              (#pt-use any-up-to-with-gap ())
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+              gap
+              (#pt-succ lower)
+              position))))
+      less-proof)))
+(#math-definition decide-less-than ()
+  (#pt-pi
+    ((lower #pt-nat) (upper #pt-nat))
+    (#pt-app (#pt-use decision ()) (#pt-app (#pt-use less-than ()) lower upper)))
+  (#pt-lambda
+    ((lower #pt-nat) (upper #pt-nat))
+    (#pt-app
+      (#pt-use decision-map ())
+      (#pt-app
+        (#pt-use any-up-to ())
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+        upper)
+      (#pt-app (#pt-use less-than ()) lower upper)
+      (#pt-lambda
+        (
+          (prefix-proof
+            (#pt-app
+              (#pt-use any-up-to ())
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+              upper)))
+        (#pt-app
+          (#pt-use any-up-to-has-witness ())
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+          upper
+          prefix-proof))
+      (#pt-lambda
+        ((less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+        (#pt-app (#pt-use less-than-bounded ()) lower upper less-proof))
+      (#pt-app
+        (#pt-use decide-any-up-to ())
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap)))
+        (#pt-lambda
+          ((candidate #pt-nat))
+          (#pt-app
+            (#pt-use decide-equality ())
+            upper
+            (#pt-app (#pt-use add ()) (#pt-succ lower) candidate)))
+        upper))))
+(#theorem natural-order-decided
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use less-than ()) lower upper)
+      (#pt-pi ((denied-proof (#pt-app (#pt-use less-than ()) lower upper))) #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use decision-evidence ())
+      (#pt-app (#pt-use less-than ()) lower upper)
+      (#pt-app (#pt-use decide-less-than ()) lower upper))))
+(#theorem any-up-to-from-less-successor
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter point #pt-nat)
+    (#parameter limit #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) point (#pt-succ limit)))
+    (#parameter at-point (#pt-app property point)))
+  (#statement (#pt-app (#pt-use any-up-to ()) property limit))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            (#pt-succ limit)
+            (#pt-app (#pt-use add ()) (#pt-succ point) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ limit)
+                  (#pt-app (#pt-use add ()) (#pt-succ point) candidate-gap))))))
+        (#pt-app (#pt-use any-up-to ()) property limit))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (position
+              (#pt-eq #pt-nat (#pt-succ limit) (#pt-app (#pt-use add ()) (#pt-succ point) gap))))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use any-up-to ()) property endpoint))
+            (#pt-app (#pt-use add ()) point gap)
+            limit
+            (#pt-app
+              (#pt-use symmetry (0))
+              #pt-nat
+              limit
+              (#pt-app (#pt-use add ()) point gap)
+              (#pt-app
+                (#pt-use successor-injective ())
+                limit
+                (#pt-app (#pt-use add ()) point gap)
+                position))
+            (#pt-app (#pt-use any-up-to-with-gap ()) property point gap at-point))))
+      less-proof)))

@@ -433,7 +433,7 @@ pub(crate) fn interpreter_path(bytes: &[u8]) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

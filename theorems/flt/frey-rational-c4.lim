@@ -1,0 +1,611 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Copyright (c) 2024 Kevin Buzzard, Ruben Van de Velde, Pietro Monticone.
+; All rights reserved. Released under Apache 2.0 license; see LICENSE.FLT.
+; Native Lim adaptation of Def_FreyCurve_Basic.lean c4, using the exact
+; rational model and actual denominator cancellation. No polynomial
+; computation is trusted: both the ring identity and embedding laws
+; are separately certified by the existing native kernel.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-add-congruent = ./rational-congruence.lim::rational-add-congruent)
+(#alias rational-multiply-congruent = ./rational-congruence.lim::rational-multiply-congruent)
+(#alias rational-of-integer-congruent = ./rational-congruence.lim::rational-of-integer-congruent)
+(#alias rational-of-integer-add = ./rational-congruence.lim::rational-of-integer-add)
+(#alias rational-weierstrass-b2 = ./rational-weierstrass-defs.lim::rational-weierstrass-b2)
+(#alias rational-weierstrass-b4 = ./rational-weierstrass-defs.lim::rational-weierstrass-b4)
+(#alias rational-weierstrass-c4 = ./rational-weierstrass-defs.lim::rational-weierstrass-c4)
+(#alias rational-negate-congruent = ./rational-congruence.lim::rational-negate-congruent)
+(#alias rational-power-congruent = ./rational-fractions.lim::rational-power-congruent)
+(#alias frey-rational-model = ./frey-rational-curve.lim::frey-rational-model)
+(#alias frey-rational-curve = ./frey-rational-curve.lim::frey-rational-curve)
+(#alias frey-rational-model-b2 = ./frey-rational-curve.lim::frey-rational-model-b2)
+(#alias frey-rational-model-b4 = ./frey-rational-curve.lim::frey-rational-model-b4)
+(#alias rational-of-integer-negate = ./rational-embedding-laws.lim::rational-of-integer-negate)
+(#alias rational-of-integer-power = ./rational-embedding-laws.lim::rational-of-integer-power)
+(#alias
+  rational-natural-multiple-times-fraction
+  =
+  ./rational-embedding-laws.lim::rational-natural-multiple-times-fraction)
+(#alias frey-c4-integer-identity = ./frey-c4-integer-identity.lim::frey-c4-integer-identity)
+(#theorem frey-rational-model-c4
+  (#universes)
+  (#parameters
+    (#parameter first-power (#pt-use integer ()))
+    (#parameter second-power (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-weierstrass-c4 ())
+        (#pt-app (#pt-use frey-rational-model ()) first-power second-power))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+          (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero)))))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-weierstrass-c4 ())
+        (#pt-app (#pt-use frey-rational-model ()) first-power second-power))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-add ())
+              second-power
+              (#pt-app (#pt-use integer-negate ()) first-power)))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-construct
+              rational
+              ()
+              ()
+              fraction
+              (
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-numeral 8)
+                (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7)))))))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+          (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero)))))
+      (#pt-app
+        (#pt-use rational-add-congruent ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-weierstrass-b2 ())
+            (#pt-app (#pt-use frey-rational-model ()) first-power second-power))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-app
+              (#pt-use rational-weierstrass-b4 ())
+              (#pt-app (#pt-use frey-rational-model ()) first-power second-power))))
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-add ())
+              second-power
+              (#pt-app (#pt-use integer-negate ()) first-power)))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-construct
+              rational
+              ()
+              ()
+              fraction
+              (
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-numeral 8)
+                (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7))))))
+        (#pt-app
+          (#pt-use rational-power-congruent ())
+          (#pt-app
+            (#pt-use rational-weierstrass-b2 ())
+            (#pt-app (#pt-use frey-rational-model ()) first-power second-power))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-add ())
+              second-power
+              (#pt-app (#pt-use integer-negate ()) first-power)))
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-app (#pt-use frey-rational-model-b2 ()) first-power second-power))
+        (#pt-app
+          (#pt-use rational-negate-congruent ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-app
+              (#pt-use rational-weierstrass-b4 ())
+              (#pt-app (#pt-use frey-rational-model ()) first-power second-power)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-construct
+              rational
+              ()
+              ()
+              fraction
+              (
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-numeral 8)
+                (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7)))))
+          (#pt-app
+            (#pt-use rational-multiply-congruent ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-app
+              (#pt-use rational-weierstrass-b4 ())
+              (#pt-app (#pt-use frey-rational-model ()) first-power second-power))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+            (#pt-construct
+              rational
+              ()
+              ()
+              fraction
+              (
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-numeral 8)
+                (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7))))
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24))))
+            (#pt-app (#pt-use frey-rational-model-b4 ()) first-power second-power))))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-add ())
+                second-power
+                (#pt-app (#pt-use integer-negate ()) first-power)))
+            (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+              (#pt-construct
+                rational
+                ()
+                ()
+                fraction
+                (
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                  (#pt-numeral 8)
+                  (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7)))))))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app
+                (#pt-use integer-add ())
+                second-power
+                (#pt-app (#pt-use integer-negate ()) first-power))
+              (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))))))
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+            (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero)))))
+        (#pt-app
+          (#pt-use rational-add-congruent ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-add ())
+                second-power
+                (#pt-app (#pt-use integer-negate ()) first-power)))
+            (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+              (#pt-construct
+                rational
+                ()
+                ()
+                fraction
+                (
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                  (#pt-numeral 8)
+                  (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7))))))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app
+                (#pt-use integer-add ())
+                second-power
+                (#pt-app (#pt-use integer-negate ()) first-power))
+              (#pt-succ (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+          (#pt-app
+            (#pt-use rational-of-integer-power ())
+            (#pt-app
+              (#pt-use integer-add ())
+              second-power
+              (#pt-app (#pt-use integer-negate ()) first-power))
+            (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app
+            (#pt-use rational-negate-congruent ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+              (#pt-construct
+                rational
+                ()
+                ()
+                fraction
+                (
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                  (#pt-numeral 8)
+                  (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7)))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))))
+            (#pt-app
+              (#pt-use rational-natural-multiple-times-fraction ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+              (#pt-numeral 8)
+              (#pt-numeral 3)
+              (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 7)))))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second-power
+                  (#pt-app (#pt-use integer-negate ()) first-power))
+                (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power))))))
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second-power
+                  (#pt-app (#pt-use integer-negate ()) first-power))
+                (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power))))))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+              (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero)))))
+          (#pt-app
+            (#pt-use rational-add-congruent ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second-power
+                  (#pt-app (#pt-use integer-negate ()) first-power))
+                (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second-power
+                  (#pt-app (#pt-use integer-negate ()) first-power))
+                (#pt-succ (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    second-power
+                    (#pt-app (#pt-use integer-negate ()) first-power))
+                  (#pt-succ (#pt-succ #pt-zero)))))
+            (#pt-app
+              (#pt-use rational-of-integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+          (#pt-app
+            (#pt-use rational-transitive ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    second-power
+                    (#pt-app (#pt-use integer-negate ()) first-power))
+                  (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-multiply ()) first-power second-power))))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    second-power
+                    (#pt-app (#pt-use integer-negate ()) first-power))
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-multiply ()) first-power second-power))))))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero)))))
+            (#pt-app
+              (#pt-use rational-of-integer-add ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second-power
+                  (#pt-app (#pt-use integer-negate ()) first-power))
+                (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+            (#pt-app
+              (#pt-use rational-of-integer-congruent ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    second-power
+                    (#pt-app (#pt-use integer-negate ()) first-power))
+                  (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-multiply ()) first-power second-power)))))
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first-power (#pt-succ (#pt-succ #pt-zero)))
+                  (#pt-app (#pt-use integer-multiply ()) first-power second-power))
+                (#pt-app (#pt-use integer-power ()) second-power (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-app (#pt-use frey-c4-integer-identity ()) first-power second-power))))))))
+(#theorem frey-rational-curve-c4
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-weierstrass-c4 ())
+        (#pt-app (#pt-use frey-rational-curve ()) first second exponent))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent)))
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-power ()) second exponent)
+            (#pt-succ (#pt-succ #pt-zero)))))))
+  (#proof
+    (#pt-app
+      (#pt-use frey-rational-model-c4 ())
+      (#pt-app (#pt-use integer-power ()) first exponent)
+      (#pt-app (#pt-use integer-power ()) second exponent))))

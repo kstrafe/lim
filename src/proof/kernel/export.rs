@@ -7,6 +7,8 @@ use std::io::BufRead;
 
 #[path = "export_foundations.rs"]
 mod axioms;
+#[path = "export_candidates.rs"]
+mod candidates;
 #[path = "export_checked.rs"]
 mod checked;
 #[path = "export_expressions.rs"]
@@ -22,6 +24,9 @@ mod initializers;
 mod inventory;
 #[path = "export_levels.rs"]
 mod levels;
+#[path = "export_limits.rs"]
+mod limits;
+pub use limits::LeanExportLimits;
 #[path = "export_names.rs"]
 mod names;
 #[path = "export_quotient.rs"]
@@ -35,7 +40,9 @@ use super::scratch as spool;
 mod strings;
 #[path = "export_terms.rs"]
 mod terms;
-pub use source::LeanExportTranslation;
+pub use source::{
+    LeanExportArtifactTranslation, LeanExportReceiptTranslation, LeanExportTranslation,
+};
 
 pub const LEAN_EXPORT_FORMAT: &str = "3.1.0";
 pub const LEAN_EXPORT_VERSION: &str = "4.33.1";
@@ -73,6 +80,9 @@ pub struct LeanDeclarationReport {
 #[derive(Clone, Debug)]
 pub struct LeanExportReport {
     pub budget: crate::ProofBudget,
+    pub limits: LeanExportLimits,
+    /// Selected native output profile, when this replay emits native source.
+    pub native_limits: Option<crate::NativeProofLimits>,
     pub target: String,
     pub input_sha256: String,
     pub bytes: u64,
@@ -105,6 +115,12 @@ impl std::fmt::Debug for LeanExportReceipt {
 }
 
 impl LeanExportReceipt {
+    pub fn native_limits(&self) -> Option<crate::NativeProofLimits> {
+        self.summary.native_limits
+    }
+    pub fn limits(&self) -> LeanExportLimits {
+        self.summary.limits
+    }
     pub fn declaration_count(&self) -> usize {
         self.declarations.len()
     }
@@ -147,6 +163,7 @@ struct Name {
 }
 struct Replay {
     kernel: Kernel,
+    limits: LeanExportLimits,
     names: names::Names,
     name_bytes: usize,
     levels: levels::Levels,
@@ -199,7 +216,18 @@ pub fn check_lean_export_with_budget<R: BufRead>(
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
 ) -> std::result::Result<LeanExportReport, LeanExportError> {
-    check_lean_export_receipt_with_budget(reader, target, policy, budget)?.into_report()
+    check_lean_export_with_limits(reader, target, policy, budget, LeanExportLimits::default())
+}
+
+/// Check all input using explicit cumulative input limits and kernel budgets.
+pub fn check_lean_export_with_limits<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+) -> std::result::Result<LeanExportReport, LeanExportError> {
+    check_lean_export_receipt_with_limits(reader, target, policy, budget, limits)?.into_report()
 }
 
 /// Check the entire export and retain a paged inventory for streamed receipts.
@@ -210,8 +238,25 @@ pub fn check_lean_export_receipt_with_budget<R: BufRead>(
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
 ) -> std::result::Result<LeanExportReceipt, LeanExportError> {
+    check_lean_export_receipt_with_limits(
+        reader,
+        target,
+        policy,
+        budget,
+        LeanExportLimits::default(),
+    )
+}
+
+/// Retain a paged receipt with explicitly selected cumulative input limits.
+pub fn check_lean_export_receipt_with_limits<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+) -> std::result::Result<LeanExportReceipt, LeanExportError> {
     let _stage = crate::timing::stage("lean_export_replay");
-    replay_export(reader, target, false, policy, budget).map(|(_, report, _)| report)
+    replay_export(reader, target, false, policy, budget, limits).map(|(_, report, _)| report)
 }
 
 /// Replays the full export, translates its checked environment to ordinary Lim
@@ -240,17 +285,169 @@ pub fn translate_lean_export_with_budget<R: BufRead>(
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
 ) -> std::result::Result<LeanExportTranslation, LeanExportError> {
-    let (mut replay, report, identity) = {
+    translate_lean_export_with_limits(reader, target, policy, budget, LeanExportLimits::default())
+}
+
+/// Materialize independently checked native output with selected input limits.
+pub fn translate_lean_export_with_limits<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+) -> std::result::Result<LeanExportTranslation, LeanExportError> {
+    translate_lean_export_with_profiles(
+        reader,
+        target,
+        policy,
+        budget,
+        limits,
+        crate::NativeProofLimits::default(),
+    )
+}
+
+/// Check raw input and materialize independently checked native output using
+/// separately selected cumulative input and native source resource profiles.
+pub fn translate_lean_export_with_profiles<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+    native_limits: crate::NativeProofLimits,
+) -> std::result::Result<LeanExportTranslation, LeanExportError> {
+    let translation = translate_lean_export_receipt_with_profiles(
+        reader,
+        target,
+        policy,
+        budget,
+        limits,
+        native_limits,
+    )?;
+    Ok(LeanExportTranslation {
+        report: translation.receipt.into_report()?,
+        target: translation.target,
+        source: translation.source,
+    })
+}
+
+/// Independently check native output while retaining paged declaration reports.
+/// The native source string remains owned; parsed declarations are released.
+pub fn translate_lean_export_receipt_with_budget<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> std::result::Result<LeanExportReceiptTranslation, LeanExportError> {
+    translate_lean_export_receipt_with_limits(
+        reader,
+        target,
+        policy,
+        budget,
+        LeanExportLimits::default(),
+    )
+}
+
+/// Native source and a paged receipt with selected cumulative input limits.
+pub fn translate_lean_export_receipt_with_limits<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+) -> std::result::Result<LeanExportReceiptTranslation, LeanExportError> {
+    translate_lean_export_receipt_with_profiles(
+        reader,
+        target,
+        policy,
+        budget,
+        limits,
+        crate::NativeProofLimits::default(),
+    )
+}
+
+/// Independently checked source with paged reports and explicit native limits.
+pub fn translate_lean_export_receipt_with_profiles<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+    native_limits: crate::NativeProofLimits,
+) -> std::result::Result<LeanExportReceiptTranslation, LeanExportError> {
+    let native_limits = native_limits
+        .validate()
+        .map_err(|message| LeanExportError { line: 0, message })?;
+    let (mut replay, mut receipt, identity) = {
         let _stage = crate::timing::stage("lean_export_replay");
-        let (replay, receipt, identity) = replay_export(reader, target, true, policy, budget)?;
-        (replay, receipt.into_report()?, identity)
+        replay_export(reader, target, true, policy, budget, limits)?
     };
+    receipt.summary.native_limits = Some(native_limits);
     let _stage = crate::timing::stage("lean_export_source");
     let line = replay.line.saturating_add(1);
-    let result = source::render(&mut replay, report, &identity)
+    let result = source::render(&mut replay, receipt, &identity)
         .map_err(|message| LeanExportError { line, message });
     drop(replay);
     result
+}
+
+/// Replay and independently check a bounded native artifact without retaining
+/// the whole emitted source string. No bytes are published before validation.
+pub fn translate_lean_export_artifact_with_budget<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+) -> std::result::Result<LeanExportArtifactTranslation, LeanExportError> {
+    translate_lean_export_artifact_with_limits(
+        reader,
+        target,
+        policy,
+        budget,
+        LeanExportLimits::default(),
+    )
+}
+
+/// Check and spool native output with selected cumulative raw input limits.
+/// Native source encoding bounds and native checking budgets remain separate.
+pub fn translate_lean_export_artifact_with_limits<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+) -> std::result::Result<LeanExportArtifactTranslation, LeanExportError> {
+    translate_lean_export_artifact_with_profiles(
+        reader,
+        target,
+        policy,
+        budget,
+        limits,
+        crate::NativeProofLimits::default(),
+    )
+}
+
+/// Check and spool output with explicit, independent raw and native profiles.
+pub fn translate_lean_export_artifact_with_profiles<R: BufRead>(
+    reader: R,
+    target: &str,
+    policy: LeanFoundationPolicy,
+    budget: crate::ProofBudget,
+    limits: LeanExportLimits,
+    native_limits: crate::NativeProofLimits,
+) -> std::result::Result<LeanExportArtifactTranslation, LeanExportError> {
+    let native_limits = native_limits
+        .validate()
+        .map_err(|message| LeanExportError { line: 0, message })?;
+    let (mut replay, mut receipt, identity) = {
+        let _stage = crate::timing::stage("lean_export_replay");
+        replay_export(reader, target, true, policy, budget, limits)?
+    };
+    receipt.summary.native_limits = Some(native_limits);
+    let _stage = crate::timing::stage("lean_export_source");
+    let line = replay.line.saturating_add(1);
+    source::render_artifact(&mut replay, receipt, &identity)
+        .map_err(|message| LeanExportError { line, message })
 }
 
 fn replay_export<R: BufRead>(
@@ -259,8 +456,12 @@ fn replay_export<R: BufRead>(
     retain_bodies: bool,
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
+    limits: LeanExportLimits,
 ) -> std::result::Result<(Replay, LeanExportReceipt, String), LeanExportError> {
-    let mut replay = Replay::with_retention(budget, retain_bodies);
+    let limits = limits
+        .validate()
+        .map_err(|message| LeanExportError { line: 0, message })?;
+    let mut replay = Replay::with_limits(budget, retain_bodies, limits);
     replay.foundation_policy = policy;
     replay_reader(reader, target, replay)
 }
@@ -293,7 +494,7 @@ fn replay_reader<R: BufRead>(
             total = total
                 .checked_add(line.len() as u64)
                 .ok_or("export byte count overflow")?;
-            if total > MAX_BYTES {
+            if total > replay.limits.max_bytes {
                 return Err("export total byte limit exceeded; no theorem was established".into());
             }
             let text = std::str::from_utf8(&line).map_err(|_| "export must be UTF-8")?;
@@ -344,6 +545,8 @@ fn replay_reader<R: BufRead>(
     let target_axioms = replay.target_axioms(&identity).map_err(failure)?;
     let report = LeanExportReport {
         budget,
+        limits: replay.limits,
+        native_limits: None,
         target: target_name,
         input_sha256: hash::hex(&replay.input_hash.clone().finish()),
         bytes: total,
@@ -369,17 +572,50 @@ impl Replay {
     fn new() -> Self {
         Self::with_retention(crate::ProofBudget::default(), false)
     }
+    #[cfg(test)]
     fn with_retention(budget: crate::ProofBudget, retain_bodies: bool) -> Self {
-        let mut kernel = Kernel::with_budget(budget);
-        kernel.declarations.enable_spilling();
+        Self::with_limits(budget, retain_bodies, LeanExportLimits::default())
+    }
+    fn with_limits(
+        budget: crate::ProofBudget,
+        retain_bodies: bool,
+        limits: LeanExportLimits,
+    ) -> Self {
+        let mut kernel = Kernel::with_budget_and_scratch_limit(budget, limits.max_scratch_bytes);
+        kernel.enable_declaration_spilling();
+        let default_scratch = limits.max_scratch_bytes == spool::DEFAULT_BYTES;
         Self {
             kernel,
-            names: names::Names::new(),
+            limits,
+            names: if default_scratch {
+                names::Names::with_count_limit(limits.max_names)
+            } else {
+                names::Names::with_count_and_scratch_limits(
+                    limits.max_names,
+                    limits.max_scratch_bytes,
+                )
+            },
             name_bytes: 0,
-            levels: levels::Levels::new(),
-            expressions: expressions::Expressions::new(false),
-            reports: inventory::Inventory::new(),
-            checked: checked::Index::new(),
+            levels: if default_scratch {
+                levels::Levels::new()
+            } else {
+                levels::Levels::with_scratch_limit(limits.max_scratch_bytes)
+            },
+            expressions: if default_scratch {
+                expressions::Expressions::new(false)
+            } else {
+                expressions::Expressions::with_scratch_limit(false, limits.max_scratch_bytes)
+            },
+            reports: if default_scratch {
+                inventory::Inventory::with_count_limit(limits.max_declarations)
+            } else {
+                inventory::Inventory::with_limits(limits.max_declarations, limits.max_scratch_bytes)
+            },
+            checked: if default_scratch {
+                checked::Index::with_count_limit(limits.max_declarations)
+            } else {
+                checked::Index::with_limits(limits.max_declarations, limits.max_scratch_bytes)
+            },
             target: String::new(),
             selected: None,
             ambiguous_target: false,
@@ -394,7 +630,15 @@ impl Replay {
             input_hash: hash::Sha256::new(),
             digest: None,
             retain_bodies,
-            initializers: initializers::Initializers::new(retain_bodies),
+            initializers: if default_scratch {
+                initializers::Initializers::with_count_limit(retain_bodies, limits.max_declarations)
+            } else {
+                initializers::Initializers::with_limits(
+                    retain_bodies,
+                    limits.max_declarations,
+                    limits.max_scratch_bytes,
+                )
+            },
             quotient_stage: 0,
             foundation_policy: LeanFoundationPolicy::Constructive,
         }
@@ -464,10 +708,7 @@ impl Replay {
         };
         self.expressions.end_record();
         result?;
-        if self.kernel.nested_build.is_some() {
-            return Err("incomplete inductive group at replay record boundary".into());
-        }
-        if self.kernel.declarations.trim()? {
+        if self.kernel.trim_completed_declarations()? {
             self.expressions.sweep_dead();
         }
         Ok(())
@@ -621,7 +862,7 @@ impl Replay {
             .reports
             .len()
             .checked_add(more)
-            .is_none_or(|n| n > MAX_DECLARATIONS)
+            .is_none_or(|n| n > self.limits.max_declarations)
         {
             return Err("export declaration limit exceeded".into());
         }
@@ -641,12 +882,17 @@ impl Replay {
             .dependency_count
             .checked_add(dependencies.len())
             .ok_or("dependency count overflow")?;
-        self.dependency_bytes = dependencies
-            .iter()
-            .fold(self.dependency_bytes, |total, name| {
-                total.saturating_add(name.len() + 32)
-            });
-        if self.dependency_count > MAX_DEPENDENCIES || self.dependency_bytes > MAX_NAME_BYTES {
+        self.dependency_bytes =
+            dependencies
+                .iter()
+                .try_fold(self.dependency_bytes, |total, name| {
+                    total
+                        .checked_add(name.len() + 32)
+                        .ok_or("dependency byte count overflow")
+                })?;
+        if self.dependency_count > self.limits.max_dependencies
+            || self.dependency_bytes > self.limits.max_dependency_bytes
+        {
             return Err("export dependency manifest limit exceeded".into());
         }
         if name.depth == 0 || self.is_checked(&name.key)? {

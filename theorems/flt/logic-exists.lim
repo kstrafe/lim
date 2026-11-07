@@ -1,0 +1,5 @@
+; Constructive existential quantification, as a checked Prop inductive.
+(#math-inductive exists (u)
+  ((Carrier (#pt-type u)) (predicate (#pt-pi ((value Carrier)) #pt-prop)))
+  #pt-prop
+  ((introduce ((witness Carrier) (evidence (#pt-app predicate witness))))))

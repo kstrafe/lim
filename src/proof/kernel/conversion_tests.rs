@@ -133,13 +133,13 @@ fn source_annotation_and_unused_let_corruption_is_rejected_before_reduction() {
             false
         )
         .is_err());
-    assert!(!k.contains("bad_annotation"));
+    assert!(!k.contains("bad_annotation").unwrap());
 
     let bad_unused_value = term(Term::Let(nat(), global("#pt-false"), zero()));
     assert!(k
         .definition("bad_unused_value", vec![], nat(), bad_unused_value, false)
         .is_err());
-    assert!(!k.contains("bad_unused_value"));
+    assert!(!k.contains("bad_unused_value").unwrap());
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn source_inference_rejects_bad_universe_arguments_before_any_congruence() {
         .definition("bad_universe", vec![], nat(), body, false)
         .unwrap_err();
     assert!(why.contains("universe"), "{why}");
-    assert!(!k.contains("bad_universe"));
+    assert!(!k.contains("bad_universe").unwrap());
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn explicit_let_heads_expose_the_same_checked_function_call() {
             false
         )
         .is_err());
-    assert!(!k.contains("bad-function-alias"));
+    assert!(!k.contains("bad-function-alias").unwrap());
 }
 
 #[test]

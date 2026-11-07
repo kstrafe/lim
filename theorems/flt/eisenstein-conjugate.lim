@@ -1,0 +1,347 @@
+; Conjugation is an involution preserving addition and multiplication.
+; Multiplying by the conjugate embeds the explicit signed norm.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-injective
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias
+  eisenstein-norm-scalar-conjugate-involution-real
+  =
+  ./eisenstein-norm-scalar-conjugate-involution-real.lim::eisenstein-norm-scalar-conjugate-involution-real)
+(#alias
+  eisenstein-norm-scalar-conjugate-involution-omega
+  =
+  ./eisenstein-norm-scalar-conjugate-involution-omega.lim::eisenstein-norm-scalar-conjugate-involution-omega)
+(#alias
+  eisenstein-norm-scalar-conjugate-add-real
+  =
+  ./eisenstein-norm-scalar-conjugate-add-real.lim::eisenstein-norm-scalar-conjugate-add-real)
+(#alias
+  eisenstein-norm-scalar-conjugate-add-omega
+  =
+  ./eisenstein-norm-scalar-conjugate-add-omega.lim::eisenstein-norm-scalar-conjugate-add-omega)
+(#alias
+  eisenstein-norm-scalar-conjugate-product-real
+  =
+  ./eisenstein-norm-scalar-conjugate-product-real.lim::eisenstein-norm-scalar-conjugate-product-real)
+(#alias
+  eisenstein-norm-scalar-conjugate-product-omega
+  =
+  ./eisenstein-norm-scalar-conjugate-product-omega.lim::eisenstein-norm-scalar-conjugate-product-omega)
+(#alias
+  eisenstein-norm-scalar-product-conjugate-real
+  =
+  ./eisenstein-norm-scalar-product-conjugate-real.lim::eisenstein-norm-scalar-product-conjugate-real)
+(#alias
+  eisenstein-norm-scalar-product-conjugate-omega
+  =
+  ./eisenstein-norm-scalar-product-conjugate-omega.lim::eisenstein-norm-scalar-product-conjugate-omega)
+(#theorem eisenstein-conjugate-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter equivalent (#pt-app (#pt-use eisenstein-equal ()) first second)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-conjugate ()) first)
+      (#pt-app (#pt-use eisenstein-conjugate ()) second)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-conjugate ()) first))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-conjugate ()) second)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-conjugate ()) first))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-conjugate ()) second)))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-project eisenstein 0 first)
+        (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 first))
+        (#pt-project eisenstein 0 second)
+        (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 second))
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent)
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-project eisenstein 1 first)
+          (#pt-project eisenstein 1 second)
+          (#pt-app
+            (#pt-use conjunction-right ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 first)
+              (#pt-project eisenstein 0 second))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 first)
+              (#pt-project eisenstein 1 second))
+            equivalent)))
+      (#pt-app
+        (#pt-use integer-negate-congruent ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent)))))
+(#theorem eisenstein-conjugate-involution
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-conjugate ()) (#pt-app (#pt-use eisenstein-conjugate ()) first))
+      first))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)))
+        (#pt-project eisenstein 0 first))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)))
+        (#pt-project eisenstein 1 first))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-involution-real ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-involution-omega ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)))))
+(#theorem eisenstein-conjugate-add
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-conjugate ()) (#pt-app (#pt-use eisenstein-add ()) first second))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-conjugate ()) first)
+        (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)))
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)
+            (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)))
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)
+            (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-add-real ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 1 second))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-add-omega ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 1 second)))))
+(#theorem eisenstein-conjugate-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-conjugate ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-conjugate ()) first)
+        (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second)))
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)
+            (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-conjugate ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second)))
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)
+            (#pt-app (#pt-use eisenstein-conjugate ()) second))))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-product-real ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 1 second))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-conjugate-product-omega ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 1 second)))))
+(#theorem eisenstein-product-conjugate
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        first
+        (#pt-app (#pt-use eisenstein-conjugate ()) first))
+      (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use eisenstein-norm ()) first))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)))
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use eisenstein-norm ()) first))))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-conjugate ()) first)))
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use eisenstein-norm ()) first))))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-product-conjugate-real ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first))
+      (#pt-app
+        (#pt-use eisenstein-norm-scalar-product-conjugate-omega ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 1 first)))))

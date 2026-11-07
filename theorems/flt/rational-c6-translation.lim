@@ -1,0 +1,289 @@
+; Copyright (c) 2024 Jz Pan. All rights reserved.
+; Released under Apache 2.0 license as described in LICENSE.MATHLIB.
+; Authors: Kevin Buzzard, David Kurniadi Angdinata, Jz Pan
+; Native rational specialization of pinned Mathlib VariableChange.lean.
+; Candidate proof terms are checked by Lim; no algebra oracle is used.
+; Explicit polynomial proof, with checked auxiliary source chunks.
+; Every equation is checked; no arithmetic oracle or admission.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias discriminant-step-0249 = ./rational-c6-translation-part-01.lim::discriminant-step-0249)
+(#alias discriminant-step-0262 = ./rational-c6-translation-part-02.lim::discriminant-step-0262)
+(#theorem rational-c6-translation-polynomial
+  (#universes)
+  (#parameters
+    (#parameter x-shift (#pt-use rational ()))
+    (#parameter b2 (#pt-use rational ()))
+    (#parameter b4 (#pt-use rational ()))
+    (#parameter b6 (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-add ())
+                b2
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 12)))
+                  x-shift))
+              (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+              (#pt-app
+                (#pt-use rational-add ())
+                b2
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 12)))
+                  x-shift)))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                b4
+                (#pt-app (#pt-use rational-multiply ()) x-shift b2))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 6)))
+                (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 2))))))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                  (#pt-numeral 88))))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  b6
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                      x-shift)
+                    b4))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 2))
+                  b2))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 3)))))))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) b2 (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+              b2)
+            b4))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                  (#pt-numeral 88))))
+            b6)))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app
+                (#pt-use rational-add ())
+                b2
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 12)))
+                  x-shift))
+              (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+              (#pt-app
+                (#pt-use rational-add ())
+                b2
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 12)))
+                  x-shift)))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                b4
+                (#pt-app (#pt-use rational-multiply ()) x-shift b2))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 6)))
+                (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 2))))))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                  (#pt-numeral 88))))
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  b6
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-app
+                        (#pt-use rational-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                      x-shift)
+                    b4))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 2))
+                  b2))
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                (#pt-app (#pt-use rational-power ()) x-shift (#pt-numeral 3)))))))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-negative-natural ()) (#pt-numeral 1)))
+          (#pt-app (#pt-use rational-multiply ()) b2 (#pt-app (#pt-use rational-multiply ()) b2 b2)))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+            (#pt-app (#pt-use rational-multiply ()) b2 b4))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-negative-natural ())
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                  (#pt-numeral 88))))
+            b6)))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app (#pt-use rational-power ()) b2 (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+              b2)
+            b4))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                  (#pt-numeral 88))))
+            b6)))
+      (#pt-app (#pt-use discriminant-step-0249 ()) x-shift b2 b4 b6)
+      (#pt-app (#pt-use discriminant-step-0262 ()) x-shift b2 b4 b6))))

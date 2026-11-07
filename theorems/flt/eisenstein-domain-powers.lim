@@ -1,0 +1,191 @@
+; General nonzero-base power cancellation from the proved domain.
+; Kept separate from the elementary power library to avoid importing
+; the full norm/domain closure into lambda-specific proof libraries.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-one-multiply = ./eisenstein-cubic-bridge.lim::eisenstein-one-multiply)
+(#alias eisenstein-multiply-one = ./eisenstein-ring.lim::eisenstein-multiply-one)
+(#alias eisenstein-multiply-zero = ./eisenstein-ring.lim::eisenstein-multiply-zero)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-congruent-divisor
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-divisor)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-one-nonzero = ./eisenstein-embedding.lim::eisenstein-one-nonzero)
+(#alias eisenstein-nonzero-product = ./eisenstein-domain.lim::eisenstein-nonzero-product)
+(#alias
+  eisenstein-multiply-cancel-first
+  =
+  ./eisenstein-domain.lim::eisenstein-multiply-cancel-first)
+(#alias add = ../fermat_statement.lim::add)
+(#theorem eisenstein-power-nonzero
+  (#universes)
+  (#parameters
+    (#parameter base (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter base-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) base (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app (#pt-use eisenstein-power ()) base exponent)
+            (#pt-use eisenstein-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app (#pt-use eisenstein-power ()) base index)
+                (#pt-use eisenstein-zero ()))))
+          #pt-false))
+      (#pt-use eisenstein-one-nonzero ())
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-nonzero
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-power ()) base previous)
+                    (#pt-use eisenstein-zero ()))))
+              #pt-false)))
+        (#pt-app
+          (#pt-use eisenstein-nonzero-product ())
+          base
+          (#pt-app (#pt-use eisenstein-power ()) base previous)
+          base-nonzero
+          previous-nonzero))
+      exponent)))
+(#theorem eisenstein-power-divides-product-cancel
+  (#universes)
+  (#parameters
+    (#parameter base (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter base-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) base (#pt-use eisenstein-zero ())))) #pt-false))
+    (#parameter divides-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) base (#pt-succ exponent)) (#pt-app (#pt-use eisenstein-multiply ()) base number))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      (#pt-app (#pt-use eisenstein-power ()) base exponent)
+      number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app (#pt-use eisenstein-multiply ()) base number)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) base (#pt-succ exponent))
+              candidate-factor))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) base number)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-power ()) base (#pt-succ exponent))
+                    candidate-factor))))))
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) base exponent)
+          number))
+      (
+        (#pt-lambda
+          (
+            (factor (#pt-use eisenstein ()))
+            (factor-equivalence
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app (#pt-use eisenstein-multiply ()) base number)
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-power ()) base (#pt-succ exponent))
+                  factor))))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-power ()) base exponent)
+                    candidate-factor))))
+            introduce
+            (factor
+              (#pt-app
+                (#pt-use eisenstein-multiply-cancel-first ())
+                base
+                number
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-power ()) base exponent)
+                  factor)
+                base-nonzero
+                (#pt-app
+                  (#pt-use eisenstein-transitive ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) base number)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-power ()) base (#pt-succ exponent))
+                    factor)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    base
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-power ()) base exponent)
+                      factor))
+                  factor-equivalence
+                  (#pt-app
+                    (#pt-use eisenstein-multiply-associative ())
+                    base
+                    (#pt-app (#pt-use eisenstein-power ()) base exponent)
+                    factor)))))))
+      divides-proof)))

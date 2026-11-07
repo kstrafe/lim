@@ -10,7 +10,7 @@ const MAX_HASH: usize = 64;
 const MAX_RECORD: usize = super::MAX_NAME_BYTES + 65_536;
 const PAGE: usize = 64 * 1024;
 
-pub(super) struct Inventory(Storage);
+pub(super) struct Inventory(Storage, usize, u64);
 enum Storage {
     Memory {
         values: Vec<LeanDeclarationReport>,
@@ -30,11 +30,32 @@ impl Inventory {
         Self::with_limit(MEMORY_BYTES)
     }
     pub(super) fn with_limit(limit: usize) -> Self {
-        Self(Storage::Memory {
-            values: Vec::new(),
-            bytes: 0,
+        Self::build(
             limit,
-        })
+            super::MAX_DECLARATIONS,
+            super::scratch::DEFAULT_BYTES,
+        )
+    }
+    pub(super) fn with_limits(max_count: usize, max_scratch_bytes: u64) -> Self {
+        Self::build(MEMORY_BYTES, max_count, max_scratch_bytes)
+    }
+    pub(super) fn with_count_limit(max_count: usize) -> Self {
+        if max_count == super::MAX_DECLARATIONS {
+            Self::new()
+        } else {
+            Self::build(MEMORY_BYTES, max_count, super::scratch::DEFAULT_BYTES)
+        }
+    }
+    fn build(limit: usize, max_count: usize, scratch_limit: u64) -> Self {
+        Self(
+            Storage::Memory {
+                values: Vec::new(),
+                bytes: 0,
+                limit,
+            },
+            max_count,
+            scratch_limit,
+        )
     }
     pub(super) fn len(&self) -> usize {
         match &self.0 {
@@ -62,9 +83,20 @@ impl Inventory {
             Storage::Spilled(s) => s.matches_identity(id, key),
         }
     }
+    /// Return the bounded display name and canonical identity without decoding
+    /// the remainder of a spilled declaration record.
+    pub(super) fn name_identity(&self, id: usize) -> Result<(String, String)> {
+        match &self.0 {
+            Storage::Memory { values, .. } => values
+                .get(id)
+                .map(|value| (value.name.clone(), value.identity.clone()))
+                .ok_or_else(reference_error),
+            Storage::Spilled(s) => s.name_identity(id),
+        }
+    }
     pub(super) fn push(&mut self, report: LeanDeclarationReport) -> Result<()> {
         validate(&report)?;
-        if self.len() >= super::MAX_DECLARATIONS {
+        if self.len() >= self.1 {
             return Err("declaration report count limit exceeded".into());
         }
         if let Storage::Memory {
@@ -95,8 +127,8 @@ impl Inventory {
                 return Ok(());
             }
             let mut spilled = Spilled {
-                index: RefCell::new(Spool::new()?),
-                data: RefCell::new(Spool::new()?),
+                index: RefCell::new(Spool::with_limit(self.2)?),
+                data: RefCell::new(Spool::with_limit(self.2)?),
                 count: 0,
             };
             for value in values.iter() {
@@ -226,6 +258,63 @@ impl Spilled {
         }
         Ok(true)
     }
+    fn name_identity(&self, id: usize) -> Result<(String, String)> {
+        let (start, len) = self.meta(id)?;
+        let mut data = self.data.borrow_mut();
+        let (name, identity_at) = read_part(&mut data, start, len, 0, "name")?;
+        let (identity, _) = read_part(&mut data, start, len, identity_at, "identity")?;
+        Ok((name, identity))
+    }
+}
+
+/// Read one bounded length-prefixed UTF-8 field from a metadata-validated
+/// record. All payload bytes go through Spool so page protection is retained.
+fn read_part(
+    data: &mut Spool,
+    start: u64,
+    record_len: usize,
+    prefix_at: usize,
+    label: &str,
+) -> Result<(String, usize)> {
+    let prefix_end = prefix_at
+        .checked_add(4)
+        .filter(|end| *end <= record_len)
+        .ok_or_else(|| format!("truncated declaration report {label}"))?;
+    let prefix_offset = start
+        .checked_add(u64::try_from(prefix_at).map_err(|_| "declaration offset overflow")?)
+        .ok_or("declaration offset overflow")?;
+    let mut prefix = [0u8; 4];
+    data.read_into(prefix_offset, &mut prefix)?;
+    let len = u32::from_le_bytes(prefix) as usize;
+    let end = prefix_end
+        .checked_add(len)
+        .filter(|end| len <= MAX_PART && *end <= record_len)
+        .ok_or_else(|| format!("invalid declaration report {label} length"))?;
+    let payload_offset = start
+        .checked_add(u64::try_from(prefix_end).map_err(|_| "declaration offset overflow")?)
+        .ok_or("declaration offset overflow")?;
+    let payload_end = payload_offset
+        .checked_add(u64::try_from(len).map_err(|_| "declaration offset overflow")?)
+        .ok_or("declaration offset overflow")?;
+    if payload_end
+        > start
+            .checked_add(record_len as u64)
+            .ok_or("declaration offset overflow")?
+    {
+        return Err(format!("invalid declaration report {label} range").into());
+    }
+    let mut bytes = vec![0; len];
+    for (i, chunk) in bytes.chunks_mut(PAGE).enumerate() {
+        let offset = payload_offset
+            .checked_add(
+                u64::try_from(i.checked_mul(PAGE).ok_or("declaration offset overflow")?)
+                    .map_err(|_| "declaration offset overflow")?,
+            )
+            .ok_or("declaration offset overflow")?;
+        data.read_into(offset, chunk)?;
+    }
+    let value = String::from_utf8(bytes).map_err(|_| "invalid declaration report UTF-8")?;
+    Ok((value, end))
 }
 
 fn reference_error() -> String {
@@ -475,6 +564,14 @@ mod tests {
     }
 
     #[test]
+    fn selected_scratch_capacity_rejects_first_spilled_record() {
+        let mut store = Inventory::build(0, super::super::MAX_DECLARATIONS, 8);
+        assert!(store.push(report("small", vec![], 1)).is_err());
+        assert!(store.is_spilled());
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
     fn threshold_counts_vector_capacity_and_owned_string_capacity() {
         let value = report("small", vec!["dependency".into()], 1);
         let mut resident = Inventory::with_limit(1024 * 1024);
@@ -581,5 +678,105 @@ mod tests {
             store.index.get_mut().append(&index).unwrap();
             assert!(store.matches_identity(0, "pkg.λ.identity").is_err());
         }
+    }
+
+    #[test]
+    fn name_identity_matches_for_memory_and_spilled_unicode_records() {
+        let mut value = report(&"界".repeat(MAX_PART / 3), vec![], 1);
+        value.identity = "λ🧭".repeat(MAX_PART / 6);
+        let mut filler = report("pad", vec!["x".repeat(MAX_PART); 3], 2);
+        filler.dependencies.push("x".repeat(MAX_PART / 2));
+        for limit in [usize::MAX, 0] {
+            let mut inventory = Inventory::with_limit(limit);
+            inventory.push(filler.clone()).unwrap();
+            inventory.push(value.clone()).unwrap();
+            assert_eq!(
+                inventory.name_identity(1).unwrap(),
+                (value.name.clone(), value.identity.clone())
+            );
+            assert!(inventory.name_identity(2).is_err());
+        }
+    }
+
+    #[test]
+    fn name_identity_rejects_bad_lengths_utf8_and_protected_corruption() {
+        let valid = encode(&report("display", vec![], 1)).unwrap();
+        let identity_at = 4 + "display".len();
+        for (bytes, len) in [
+            (
+                {
+                    let mut b = valid.clone();
+                    b[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+                    b
+                },
+                valid.len(),
+            ),
+            (
+                {
+                    let mut b = valid.clone();
+                    b[identity_at..identity_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+                    b
+                },
+                valid.len(),
+            ),
+            (
+                {
+                    let mut b = valid.clone();
+                    b[4] = 0xff;
+                    b
+                },
+                valid.len(),
+            ),
+            (valid.clone(), 3),
+        ] {
+            let mut store = Spilled {
+                index: RefCell::new(Spool::new().unwrap()),
+                data: RefCell::new(Spool::new().unwrap()),
+                count: 1,
+            };
+            store.data.get_mut().append(&bytes).unwrap();
+            let mut index = [0; INDEX_BYTES];
+            index[8..].copy_from_slice(&(len as u64).to_le_bytes());
+            store.index.get_mut().append(&index).unwrap();
+            assert!(store.name_identity(0).is_err());
+        }
+
+        let mut store = Spilled {
+            index: RefCell::new(Spool::new().unwrap()),
+            data: RefCell::new(Spool::new().unwrap()),
+            count: 1,
+        };
+        let mut bytes = encode(&report("protected", vec![], 1)).unwrap();
+        bytes.resize(PAGE + 1, 0);
+        store.data.get_mut().append(&bytes).unwrap();
+        let mut index = [0; INDEX_BYTES];
+        index[8..].copy_from_slice(&(bytes.len() as u64).to_le_bytes());
+        store.index.get_mut().append(&index).unwrap();
+        store.data.get_mut().clear_cache();
+        store.data.get_mut().overwrite_flushed(4, &[b'X']).unwrap();
+        assert!(store.name_identity(0).is_err());
+    }
+
+    #[test]
+    fn selected_count_limit_caps_push_without_preallocating() {
+        let mut store = Inventory::with_count_limit(1);
+        store.push(report("one", vec![], 1)).unwrap();
+        assert!(store
+            .push(report("two", vec![], 2))
+            .unwrap_err()
+            .contains("count limit"));
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn selected_count_limit_can_exceed_default_declaration_cap() {
+        let max_count = super::super::MAX_DECLARATIONS + 1;
+        let mut store = Inventory::with_count_limit(max_count);
+        for line in 0..max_count {
+            store
+                .push(report(&format!("name{line}"), vec![], line + 1))
+                .unwrap();
+        }
+        assert_eq!(store.len(), max_count);
     }
 }

@@ -1,0 +1,159 @@
+; Direct constructive nonzero proofs needed by FermatLastTheoremWith.mono.
+; Each law follows from Nat induction and equality elimination.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#theorem successor-not-zero
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement (#pt-pi ((zero-evidence (#pt-eq #pt-nat (#pt-succ number) #pt-zero))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((impossible-equality (#pt-eq #pt-nat (#pt-succ number) #pt-zero)))
+      (#pt-eq-elim
+        #pt-nat
+        (#pt-succ number)
+        (#pt-lambda
+          ((endpoint #pt-nat) (path (#pt-eq #pt-nat (#pt-succ number) endpoint)))
+          (#pt-nat-induct
+            (#pt-lambda ((index #pt-nat)) #pt-prop)
+            #pt-false
+            (#pt-lambda
+              ((index #pt-nat) (previous-proposition #pt-prop))
+              (#pt-eq #pt-nat #pt-zero #pt-zero))
+            endpoint))
+        (#pt-refl #pt-nat #pt-zero)
+        #pt-zero
+        impossible-equality))))
+(#theorem add-nonzero-left
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter first-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat first #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-pi
+      ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use add ()) first second) #pt-zero)))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((ordinal #pt-nat))
+          (#pt-pi
+            (
+              (source-nonzero
+                (#pt-pi ((zero-evidence (#pt-eq #pt-nat ordinal #pt-zero))) #pt-false)))
+            (#pt-pi
+              ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use add ()) ordinal second) #pt-zero)))
+              #pt-false)))
+        (#pt-lambda
+          (
+            (current-nonzero
+              (#pt-pi ((zero-evidence (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false))
+            (sum-zero (#pt-eq #pt-nat (#pt-app (#pt-use add ()) #pt-zero second) #pt-zero)))
+          (#pt-app current-nonzero (#pt-refl #pt-nat #pt-zero)))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (induction-hypothesis
+              (#pt-pi
+                (
+                  (source-nonzero
+                    (#pt-pi ((zero-evidence (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-pi
+                  (
+                    (zero-evidence
+                      (#pt-eq #pt-nat (#pt-app (#pt-use add ()) previous second) #pt-zero)))
+                  #pt-false)))
+            (current-nonzero
+              (#pt-pi ((zero-evidence (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-app (#pt-use successor-not-zero ()) (#pt-app (#pt-use add ()) previous second)))
+        first)
+      first-nonzero)))
+(#theorem multiply-nonzero
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter first-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+    (#parameter second-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat second #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-pi
+      ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) first second) #pt-zero)))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((ordinal #pt-nat))
+          (#pt-pi
+            (
+              (source-nonzero
+                (#pt-pi ((zero-evidence (#pt-eq #pt-nat ordinal #pt-zero))) #pt-false)))
+            (#pt-pi
+              (
+                (zero-evidence
+                  (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) ordinal second) #pt-zero)))
+              #pt-false)))
+        (#pt-lambda
+          (
+            (current-nonzero
+              (#pt-pi ((zero-evidence (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false))
+            (product-zero (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) #pt-zero second) #pt-zero)))
+          (#pt-app current-nonzero (#pt-refl #pt-nat #pt-zero)))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (induction-hypothesis
+              (#pt-pi
+                (
+                  (source-nonzero
+                    (#pt-pi ((zero-evidence (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-pi
+                  (
+                    (zero-evidence
+                      (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) previous second) #pt-zero)))
+                  #pt-false)))
+            (current-nonzero
+              (#pt-pi ((zero-evidence (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use add-nonzero-left ())
+            second
+            (#pt-app (#pt-use multiply ()) previous second)
+            second-nonzero))
+        first)
+      first-nonzero)))
+(#theorem power-nonzero
+  (#universes)
+  (#parameters
+    (#parameter base #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter base-nonzero (#pt-pi ((zero-evidence (#pt-eq #pt-nat base #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-pi
+      ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use power ()) base exponent) #pt-zero)))
+      #pt-false))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-pi
+          ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use power ()) base ordinal) #pt-zero)))
+          #pt-false))
+      (#pt-app (#pt-use successor-not-zero ()) #pt-zero)
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (induction-hypothesis
+            (#pt-pi
+              ((zero-evidence (#pt-eq #pt-nat (#pt-app (#pt-use power ()) base previous) #pt-zero)))
+              #pt-false)))
+        (#pt-app
+          (#pt-use multiply-nonzero ())
+          base
+          (#pt-app (#pt-use power ()) base previous)
+          base-nonzero
+          induction-hypothesis))
+      exponent)))

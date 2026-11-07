@@ -208,7 +208,7 @@ impl Bundles {
                     children: vec![].into(),
                 };
                 let splice = SpannedExpr {
-                    expr: Expr::List(vec![splice_head.expr.clone(), name.expr.clone()]),
+                    expr: Expr::List(vec![splice_head.expr.clone(), name.expr.clone()].into()),
                     span: name.span,
                     children: vec![splice_head, name].into(),
                 };

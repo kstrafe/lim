@@ -195,10 +195,10 @@ fn contravariant_containers_fail_without_leaving_auxiliary_signatures() {
     kernel.reset_budget();
     let error = tree(&mut kernel, "Bad", vec![app(g("Consumer"), g("Bad"))]).unwrap_err();
     assert!(error.contains("strict positivity"), "{error}");
-    assert!(!kernel.contains("Bad"));
+    assert!(!kernel.contains("Bad").unwrap());
     assert!(kernel.nested.is_empty());
     assert!(kernel.nested_build.is_none());
-    assert!(kernel.contains("Consumer"));
+    assert!(kernel.contains("Consumer").unwrap());
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn constructor_local_capture_and_changed_uniform_parameters_are_rejected() {
     .unwrap_err();
     assert!(error.contains("constructor-local"), "{error}");
     assert!(kernel.nested.is_empty());
-    assert!(!kernel.contains("Captured"));
+    assert!(!kernel.contains("Captured").unwrap());
     kernel.reset_budget();
     let error = kernel
         .inductive(
@@ -235,7 +235,7 @@ fn constructor_local_capture_and_changed_uniform_parameters_are_rejected() {
         .unwrap_err();
     assert!(error.contains("uniform"), "{error}");
     assert!(kernel.nested.is_empty());
-    assert!(!kernel.contains("Changed"));
+    assert!(!kernel.contains("Changed").unwrap());
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn nested_headers_do_not_acquire_recursive_index_types() {
     .unwrap_err();
     assert!(error.contains("nested index types"), "{error}");
     assert!(kernel.nested.is_empty());
-    assert!(!kernel.contains("HiddenIndex"));
+    assert!(!kernel.contains("HiddenIndex").unwrap());
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn erased_nonuniform_specializations_are_checked_before_beta_reduction() {
         )
         .unwrap_err();
     assert!(error.contains("uniform"), "{error}");
-    assert!(!kernel.contains("Wrong"));
+    assert!(!kernel.contains("Wrong").unwrap());
     assert!(kernel.nested.is_empty());
 }
 
@@ -435,7 +435,7 @@ fn phantom_parameters_cannot_hide_elimination_of_a_provisional_family() {
         )
         .unwrap_err();
     assert!(error.contains("provisional"), "{error}");
-    assert!(!kernel.contains("Unfinished"));
+    assert!(!kernel.contains("Unfinished").unwrap());
     assert!(kernel.nested.is_empty());
 }
 

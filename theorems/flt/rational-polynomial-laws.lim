@@ -1,0 +1,158 @@
+; Explicit checked rational rearrangements for polynomial certificates.
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-one = ./rational-defs.lim::rational-one)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-symmetric = ./rational-equality.lim::rational-symmetric)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-add-congruent = ./rational-congruence.lim::rational-add-congruent)
+(#alias rational-multiply-commutative = ./rational-ring.lim::rational-multiply-commutative)
+(#alias rational-add-associative = ./rational-ring.lim::rational-add-associative)
+(#alias rational-add-commutative = ./rational-ring.lim::rational-add-commutative)
+(#alias
+  rational-multiply-distribute-second
+  =
+  ./rational-ring.lim::rational-multiply-distribute-second)
+(#alias rational-negate-congruent = ./rational-congruence.lim::rational-negate-congruent)
+(#alias rational-one-multiply = ./rational-sign-laws.lim::rational-one-multiply)
+(#alias rational-multiply-negative = ./rational-sign-laws.lim::rational-multiply-negative)
+(#theorem rational-multiply-distribute-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use rational ()))
+    (#parameter second (#pt-use rational ()))
+    (#parameter third (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-add ()) first second)
+        third)
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app (#pt-use rational-multiply ()) first third)
+        (#pt-app (#pt-use rational-multiply ()) second third))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-add ()) first second)
+        third)
+      (#pt-app
+        (#pt-use rational-multiply ())
+        third
+        (#pt-app (#pt-use rational-add ()) first second))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app (#pt-use rational-multiply ()) first third)
+        (#pt-app (#pt-use rational-multiply ()) second third))
+      (#pt-app
+        (#pt-use rational-multiply-commutative ())
+        (#pt-app (#pt-use rational-add ()) first second)
+        third)
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          third
+          (#pt-app (#pt-use rational-add ()) first second))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app (#pt-use rational-multiply ()) third first)
+          (#pt-app (#pt-use rational-multiply ()) third second))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app (#pt-use rational-multiply ()) first third)
+          (#pt-app (#pt-use rational-multiply ()) second third))
+        (#pt-app (#pt-use rational-multiply-distribute-second ()) third first second)
+        (#pt-app
+          (#pt-use rational-add-congruent ())
+          (#pt-app (#pt-use rational-multiply ()) third first)
+          (#pt-app (#pt-use rational-multiply ()) third second)
+          (#pt-app (#pt-use rational-multiply ()) first third)
+          (#pt-app (#pt-use rational-multiply ()) second third)
+          (#pt-app (#pt-use rational-multiply-commutative ()) third first)
+          (#pt-app (#pt-use rational-multiply-commutative ()) third second))))))
+(#theorem rational-add-swap-inner
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use rational ()))
+    (#parameter second (#pt-use rational ()))
+    (#parameter third (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app (#pt-use rational-add ()) first (#pt-app (#pt-use rational-add ()) second third))
+      (#pt-app (#pt-use rational-add ()) second (#pt-app (#pt-use rational-add ()) first third))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app (#pt-use rational-add ()) first (#pt-app (#pt-use rational-add ()) second third))
+      (#pt-app (#pt-use rational-add ()) (#pt-app (#pt-use rational-add ()) first second) third)
+      (#pt-app (#pt-use rational-add ()) second (#pt-app (#pt-use rational-add ()) first third))
+      (#pt-app
+        (#pt-use rational-symmetric ())
+        (#pt-app (#pt-use rational-add ()) (#pt-app (#pt-use rational-add ()) first second) third)
+        (#pt-app (#pt-use rational-add ()) first (#pt-app (#pt-use rational-add ()) second third))
+        (#pt-app (#pt-use rational-add-associative ()) first second third))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app (#pt-use rational-add ()) (#pt-app (#pt-use rational-add ()) first second) third)
+        (#pt-app (#pt-use rational-add ()) (#pt-app (#pt-use rational-add ()) second first) third)
+        (#pt-app (#pt-use rational-add ()) second (#pt-app (#pt-use rational-add ()) first third))
+        (#pt-app
+          (#pt-use rational-add-congruent ())
+          (#pt-app (#pt-use rational-add ()) first second)
+          third
+          (#pt-app (#pt-use rational-add ()) second first)
+          third
+          (#pt-app (#pt-use rational-add-commutative ()) first second)
+          (#pt-app (#pt-use rational-reflexive ()) third))
+        (#pt-app (#pt-use rational-add-associative ()) second first third)))))
+(#theorem rational-negative-as-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app (#pt-use rational-negate ()) first)
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-negate ()) (#pt-use rational-one ()))
+        first)))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app (#pt-use rational-negate ()) first)
+      (#pt-app
+        (#pt-use rational-negate ())
+        (#pt-app (#pt-use rational-multiply ()) (#pt-use rational-one ()) first))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app (#pt-use rational-negate ()) (#pt-use rational-one ()))
+        first)
+      (#pt-app
+        (#pt-use rational-negate-congruent ())
+        first
+        (#pt-app (#pt-use rational-multiply ()) (#pt-use rational-one ()) first)
+        (#pt-app
+          (#pt-use rational-symmetric ())
+          (#pt-app (#pt-use rational-multiply ()) (#pt-use rational-one ()) first)
+          first
+          (#pt-app (#pt-use rational-one-multiply ()) first)))
+      (#pt-app
+        (#pt-use rational-symmetric ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app (#pt-use rational-negate ()) (#pt-use rational-one ()))
+          first)
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app (#pt-use rational-multiply ()) (#pt-use rational-one ()) first))
+        (#pt-app (#pt-use rational-multiply-negative ()) (#pt-use rational-one ()) first)))))

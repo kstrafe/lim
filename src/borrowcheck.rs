@@ -15,7 +15,7 @@ use crate::analysis_error::{failure, Error, Site};
 
 use crate::{Expr, Function, Item, Program, Statement};
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
     for (ty, constructor, projection) in [
@@ -57,7 +57,7 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn typed_symbol_assignment_replaces_reference_provenance() {
     let source = "(#fn main () #u64
@@ -114,7 +114,7 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
     assert!(error.contains("borrow"), "{error}");
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn borrow_released_on_every_if_branch_allows_later_mutation() {
     let program = crate::parse_program(
@@ -133,7 +133,7 @@ fn borrow_released_on_every_if_branch_allows_later_mutation() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn borrow_released_on_only_one_branch_still_blocks_mutation() {
     let program = crate::parse_program(
@@ -152,7 +152,7 @@ fn borrow_released_on_only_one_branch_still_blocks_mutation() {
     assert!(error.message.contains("cannot mutate 'owner'"));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn aggregate_reference_released_on_every_branch_allows_mutation() {
     let program = crate::parse_program(
@@ -173,7 +173,7 @@ fn aggregate_reference_released_on_every_branch_allows_mutation() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn block_local_reference_cannot_escape_into_outer_binding() {
     let program = crate::parse_program(
@@ -192,7 +192,7 @@ fn block_local_reference_cannot_escape_into_outer_binding() {
     assert!(error.contains("reference to block-local variable 'local' escapes its scope"));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn destructured_block_local_reference_cannot_escape() {
     let program = crate::parse_program(
@@ -208,7 +208,7 @@ fn destructured_block_local_reference_cannot_escape() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn block_reference_alias_cannot_escape_its_owner() {
     let program = crate::parse_program(
@@ -225,7 +225,7 @@ fn block_reference_alias_cannot_escape_its_owner() {
     assert!(error.message.contains("block-local variable 'local'"));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn block_reference_to_outer_owner_can_escape() {
     let program = crate::parse_program(
@@ -241,7 +241,7 @@ fn block_reference_to_outer_owner_can_escape() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn block_local_reference_cannot_be_passed_to_a_call() {
     let program = crate::parse_program(
@@ -257,7 +257,7 @@ fn block_local_reference_cannot_be_passed_to_a_call() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn aliased_reference_parameter_cannot_hide_block_local_escape() {
     let program = crate::parse_program(
@@ -273,7 +273,7 @@ fn aliased_reference_parameter_cannot_hide_block_local_escape() {
     assert!(error.message.contains("block-local variable 'local'"));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
     let program = crate::parse_program(
@@ -288,7 +288,7 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn matched_reference_payload_cannot_escape_local_owner() {
     let program = crate::parse_program(
@@ -309,7 +309,7 @@ fn matched_reference_payload_cannot_escape_local_owner() {
     assert!(error.contains("local 'owner'"), "{error}");
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn matched_reference_payload_from_parameter_can_return() {
     let program = crate::parse_program(
@@ -328,7 +328,7 @@ fn matched_reference_payload_from_parameter_can_return() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn direct_matched_payload_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
@@ -347,7 +347,7 @@ fn direct_matched_payload_cannot_hide_block_local_reference() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn struct_literal_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
@@ -367,7 +367,7 @@ fn struct_literal_cannot_hide_block_local_reference() {
     assert!(error.message.contains("block-local variable 'local'"));
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn block_local_reference_cannot_be_stored_in_a_field() {
     let program = crate::parse_program(
@@ -392,7 +392,7 @@ fn block_local_reference_cannot_be_stored_in_a_field() {
 
 const PLACE_SEPARATOR: char = '\u{1f}';
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn aggregate_reborrows_suspend_every_parent_until_release() {
     for (access, accepted) in [
@@ -419,7 +419,7 @@ fn aggregate_reborrows_suspend_every_parent_until_release() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
     let source = "(#struct Owner () ((x #u64) (y #u64)))
@@ -437,7 +437,7 @@ fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
     assert!(error.contains("while it is immutably borrowed"), "{error}");
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn array_constructors_retain_projected_reborrow_parents() {
     let source = "(#struct Owner () ((x #u64)))
@@ -449,7 +449,7 @@ fn array_constructors_retain_projected_reborrow_parents() {
     crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn moved_and_nested_aggregate_reborrows_protect_parent_calls() {
     for (release_first, mutable) in [(false, false), (true, false), (false, true), (true, true)] {
@@ -736,7 +736,7 @@ impl From<String> for BorrowDiagnostic {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
     check_program_impl(program, false, None)
 }
@@ -3221,7 +3221,7 @@ fn aggregate_moved_parent_sources(expression: &Expr, context: &Context) -> HashS
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn typed_reborrow_parents(
     function: &Function,
     body: &crate::typed_body::Body,
@@ -3447,7 +3447,7 @@ fn typed_borrow_facts(
     Ok((parents, loads))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn projected_reborrow_parent_comes_from_checked_binding_identity() {
     let source = "(#struct Pair () ((left #u64) (right #u64)))
@@ -4035,7 +4035,7 @@ fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod allocation_free_place_tests {
     use super::*;
 

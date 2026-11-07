@@ -41,7 +41,7 @@ impl Inspector<'_> {
         if pattern == &symbol("_") {
             return Ok(symbol("true"));
         }
-        if ty == &Type::Unit && pattern == &Expr::List(Vec::new()) {
+        if ty == &Type::Unit && pattern == &Expr::List(Vec::new().into()) {
             return Ok(symbol("true"));
         }
         let name = loop {
@@ -255,7 +255,7 @@ pub(crate) fn preview_with_aliases(
                     "#call",
                     [
                         symbol(helper),
-                        Expr::List(vec![symbol(":"), symbol(argument), value]),
+                        Expr::List(vec![symbol(":"), symbol(argument), value].into()),
                     ],
                 )
             } else {
@@ -427,7 +427,7 @@ fn needs_lender(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

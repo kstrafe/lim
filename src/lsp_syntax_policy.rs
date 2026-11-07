@@ -1,7 +1,7 @@
 //! Navigation review inventory. Adding a language form must also update its
 //! source roles, positive/negative navigation tests, and docs/lsp-design.md.
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     // Deliberately independent of is_builtin_form: deriving this list from the
     // parser would let new syntax silently bypass navigation review.

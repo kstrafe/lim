@@ -1,0 +1,403 @@
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Signed equation transport for Frey normalization at
+; S_FreyPackage_of_counterexample.lean:31-58. Ordinary additive
+; cancellation reorders A+B=C into A-C=-B. Actual odd-power witnesses
+; justify coordinate negation/reordering, and checked natural embeddings
+; transport the arbitrary-exponent equation into signed integers.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias integer-power-of-natural = ./integer-power-laws.lim::integer-power-of-natural)
+(#alias integer-negative-odd-power = ./integer-power-laws.lim::integer-negative-odd-power)
+(#alias integer-add-commutative = ./integer-addition.lim::integer-add-commutative)
+(#alias integer-add-associative = ./integer-addition.lim::integer-add-associative)
+(#alias integer-add-inverse = ./integer-addition.lim::integer-add-inverse)
+(#alias integer-add-cancel-left = ./integer-addition.lim::integer-add-cancel-left)
+(#alias integer-negate-add = ./integer-addition.lim::integer-negate-add)
+(#alias integer-of-natural-congruent = ./integer-bezout-algebra.lim::integer-of-natural-congruent)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#theorem integer-sum-reorder-negative
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter total (#pt-use integer ()))
+    (#parameter sum-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) first second) total)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) total))
+      (#pt-app (#pt-use integer-negate ()) second)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-add-cancel-left ())
+      second
+      (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) total))
+      (#pt-app (#pt-use integer-negate ()) second)
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          second
+          (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) total)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-add ()) second first)
+          (#pt-app (#pt-use integer-negate ()) total))
+        (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) second))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-add ()) second first)
+            (#pt-app (#pt-use integer-negate ()) total))
+          (#pt-app
+            (#pt-use integer-add ())
+            second
+            (#pt-app (#pt-use integer-add ()) first (#pt-app (#pt-use integer-negate ()) total)))
+          (#pt-app
+            (#pt-use integer-add-associative ())
+            second
+            first
+            (#pt-app (#pt-use integer-negate ()) total)))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-add ()) second first)
+            (#pt-app (#pt-use integer-negate ()) total))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-add ()) first second)
+            (#pt-app (#pt-use integer-negate ()) total))
+          (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) second))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app (#pt-use integer-add ()) second first)
+            (#pt-app (#pt-use integer-negate ()) total)
+            (#pt-app (#pt-use integer-add ()) first second)
+            (#pt-app (#pt-use integer-negate ()) total)
+            (#pt-app (#pt-use integer-add-commutative ()) second first)
+            (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-negate ()) total)))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-add ()) first second)
+              (#pt-app (#pt-use integer-negate ()) total))
+            (#pt-app (#pt-use integer-add ()) total (#pt-app (#pt-use integer-negate ()) total))
+            (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) second))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app (#pt-use integer-add ()) first second)
+              (#pt-app (#pt-use integer-negate ()) total)
+              total
+              (#pt-app (#pt-use integer-negate ()) total)
+              sum-equation
+              (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-negate ()) total)))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app (#pt-use integer-add ()) total (#pt-app (#pt-use integer-negate ()) total))
+              (#pt-use integer-zero ())
+              (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) second))
+              (#pt-app (#pt-use integer-add-inverse ()) total)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  second
+                  (#pt-app (#pt-use integer-negate ()) second))
+                (#pt-use integer-zero ())
+                (#pt-app (#pt-use integer-add-inverse ()) second)))))))))
+(#theorem integer-odd-power-reorder-equation
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter total (#pt-use integer ()))
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter power-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) first exponent) (#pt-app (#pt-use integer-power ()) second exponent)) (#pt-app (#pt-use integer-power ()) total exponent))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent))
+      (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) total exponent)))
+      (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent)
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent)
+        (#pt-app (#pt-use integer-power ()) first exponent)
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) total exponent))
+        (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-power ()) first exponent))
+        (#pt-app (#pt-use integer-negative-odd-power ()) total exponent odd-exponent))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-power ()) first exponent)
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) total exponent)))
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) second exponent))
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent)
+        (#pt-app
+          (#pt-use integer-sum-reorder-negative ())
+          (#pt-app (#pt-use integer-power ()) first exponent)
+          (#pt-app (#pt-use integer-power ()) second exponent)
+          (#pt-app (#pt-use integer-power ()) total exponent)
+          power-equation)
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent)
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) second exponent))
+          (#pt-app (#pt-use integer-negative-odd-power ()) second exponent odd-exponent))))))
+(#theorem integer-odd-power-negate-equation
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter total (#pt-use integer ()))
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter power-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) first exponent) (#pt-app (#pt-use integer-power ()) second exponent)) (#pt-app (#pt-use integer-power ()) total exponent))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) first) exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent))
+      (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) first) exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) second exponent)))
+      (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent)
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) first) exponent)
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) second) exponent)
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) second exponent))
+        (#pt-app (#pt-use integer-negative-odd-power ()) first exponent odd-exponent)
+        (#pt-app (#pt-use integer-negative-odd-power ()) second exponent odd-exponent))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) second exponent)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) first exponent)
+            (#pt-app (#pt-use integer-power ()) second exponent)))
+        (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent)
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) first exponent))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second exponent)))
+          (#pt-app
+            (#pt-use integer-negate-add ())
+            (#pt-app (#pt-use integer-power ()) first exponent)
+            (#pt-app (#pt-use integer-power ()) second exponent)))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent)))
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) total exponent))
+          (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) total) exponent)
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent))
+            (#pt-app (#pt-use integer-power ()) total exponent)
+            power-equation)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-negate ()) total)
+              exponent)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) total exponent))
+            (#pt-app (#pt-use integer-negative-odd-power ()) total exponent odd-exponent)))))))
+(#theorem natural-power-integer-equation
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter third-natural #pt-nat)
+    (#parameter power-equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use power ()) first-natural exponent) (#pt-app (#pt-use power ()) second-natural exponent)) (#pt-app (#pt-use power ()) third-natural exponent))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) first-natural)
+          exponent)
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) second-natural)
+          exponent))
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-of-natural ()) third-natural)
+        exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) first-natural)
+          exponent)
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) second-natural)
+          exponent))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use power ()) first-natural exponent))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use power ()) second-natural exponent)))
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-of-natural ()) third-natural)
+        exponent)
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) first-natural)
+          exponent)
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) second-natural)
+          exponent)
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use power ()) first-natural exponent))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use power ()) second-natural exponent))
+        (#pt-app (#pt-use integer-power-of-natural ()) first-natural exponent)
+        (#pt-app (#pt-use integer-power-of-natural ()) second-natural exponent))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use power ()) first-natural exponent))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use power ()) second-natural exponent)))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use power ()) first-natural exponent)
+            (#pt-app (#pt-use power ()) second-natural exponent)))
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) third-natural)
+          exponent)
+        (#pt-app
+          (#pt-use integer-add-of-natural ())
+          (#pt-app (#pt-use power ()) first-natural exponent)
+          (#pt-app (#pt-use power ()) second-natural exponent))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first-natural exponent)
+              (#pt-app (#pt-use power ()) second-natural exponent)))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use power ()) third-natural exponent))
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-of-natural ()) third-natural)
+            exponent)
+          (#pt-app
+            (#pt-use integer-of-natural-congruent ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first-natural exponent)
+              (#pt-app (#pt-use power ()) second-natural exponent))
+            (#pt-app (#pt-use power ()) third-natural exponent)
+            power-equation)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-of-natural ()) third-natural)
+              exponent)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use power ()) third-natural exponent))
+            (#pt-app (#pt-use integer-power-of-natural ()) third-natural exponent)))))))

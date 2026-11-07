@@ -1,0 +1,158 @@
+; Further norm identities for conjugation, signs and the two coordinates.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-injective
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias
+  eisenstein-norm-scalar-norm-conjugate
+  =
+  ./eisenstein-norm-scalar-norm-conjugate.lim::eisenstein-norm-scalar-norm-conjugate)
+(#alias
+  eisenstein-norm-scalar-norm-negative
+  =
+  ./eisenstein-norm-scalar-norm-negative.lim::eisenstein-norm-scalar-norm-negative)
+(#alias
+  eisenstein-norm-scalar-norm-four-square-real
+  =
+  ./eisenstein-norm-scalar-norm-four-square-real.lim::eisenstein-norm-scalar-norm-four-square-real)
+(#alias
+  eisenstein-norm-scalar-norm-difference-square
+  =
+  ./eisenstein-norm-scalar-norm-difference-square.lim::eisenstein-norm-scalar-norm-difference-square)
+(#theorem eisenstein-norm-conjugate
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use eisenstein-norm ()) (#pt-app (#pt-use eisenstein-conjugate ()) number))
+      (#pt-app (#pt-use eisenstein-norm ()) number)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-norm-scalar-norm-conjugate ())
+      (#pt-project eisenstein 0 number)
+      (#pt-project eisenstein 1 number))))
+(#theorem eisenstein-norm-negative
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use eisenstein-norm ()) (#pt-app (#pt-use eisenstein-negate ()) number))
+      (#pt-app (#pt-use eisenstein-norm ()) number)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-norm-scalar-norm-negative ())
+      (#pt-project eisenstein 0 number)
+      (#pt-project eisenstein 1 number))))
+(#theorem eisenstein-norm-four-square-real
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app (#pt-use eisenstein-norm ()) number))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 number)
+            (#pt-project eisenstein 0 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-norm-scalar-norm-four-square-real ())
+      (#pt-project eisenstein 0 number)
+      (#pt-project eisenstein 1 number))))
+(#theorem eisenstein-norm-difference-square
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use eisenstein-norm ()) number)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number))))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-project eisenstein 0 number)
+          (#pt-project eisenstein 1 number)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-norm-scalar-norm-difference-square ())
+      (#pt-project eisenstein 0 number)
+      (#pt-project eisenstein 1 number))))

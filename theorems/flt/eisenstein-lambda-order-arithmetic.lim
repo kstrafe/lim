@@ -1,0 +1,1006 @@
+; Multiplication, arbitrary powers and units for exact lambda orders.
+; Residual factors are witnessed and lambda-free; lambda primality proves
+; their product lambda-free. No multiplicity or factorization law is assumed.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-one = ./eisenstein-ring.lim::eisenstein-multiply-one)
+(#alias eisenstein-multiply-zero = ./eisenstein-ring.lim::eisenstein-multiply-zero)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-one-multiply = ./eisenstein-cubic-bridge.lim::eisenstein-one-multiply)
+(#alias
+  eisenstein-lambda-multiply-cancel
+  =
+  ./eisenstein-lambda-cancellation.lim::eisenstein-lambda-multiply-cancel)
+(#alias eisenstein-lambda-order = ./eisenstein-lambda-order.lim::eisenstein-lambda-order)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias
+  eisenstein-lambda-order-residual-exists
+  =
+  ./eisenstein-lambda-factor.lim::eisenstein-lambda-order-residual-exists)
+(#alias
+  eisenstein-lambda-order-of-residual
+  =
+  ./eisenstein-lambda-factor.lim::eisenstein-lambda-order-of-residual)
+(#alias eisenstein-one-divides = ./eisenstein-divisibility.lim::eisenstein-one-divides)
+(#alias
+  eisenstein-divides-product-left
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-product-left)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-congruent-divisor
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-divisor)
+(#alias
+  eisenstein-lambda-divides-product
+  =
+  ./eisenstein-lambda-prime.lim::eisenstein-lambda-divides-product)
+(#alias eisenstein-power-add = ./eisenstein-power-divisibility.lim::eisenstein-power-add)
+(#alias eisenstein-power-one = ./eisenstein-power-divisibility.lim::eisenstein-power-one)
+(#alias eisenstein-lambda-order-one = ./eisenstein-lambda-order.lim::eisenstein-lambda-order-one)
+(#alias
+  eisenstein-lambda-not-divides-one
+  =
+  ./eisenstein-lambda-decision-core.lim::eisenstein-lambda-not-divides-one)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#theorem eisenstein-lambda-not-divides-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter first-not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first))) #pt-false))
+    (#parameter second-not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (product-divides
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second))))
+      (#pt-app
+        (#pt-use disjunction-eliminate ())
+        (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)
+        (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second)
+        #pt-false
+        (#pt-lambda
+          (
+            (first-divides
+              (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)))
+          (#pt-app first-not-divides first-divides))
+        (#pt-lambda
+          (
+            (second-divides
+              (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second)))
+          (#pt-app second-not-divides second-divides))
+        (#pt-app (#pt-use eisenstein-lambda-divides-product ()) first second product-divides)))))
+(#theorem eisenstein-lambda-order-multiply
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter first-order #pt-nat)
+    (#parameter second-order #pt-nat)
+    (#parameter first-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) first first-order))
+    (#parameter second-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) second second-order)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-lambda-order ())
+      (#pt-app (#pt-use eisenstein-multiply ()) first second)
+      (#pt-app (#pt-use add ()) first-order second-order)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-residual (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) first-order)
+                candidate-residual))
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    candidate-residual)))
+              #pt-false))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-residual (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    first
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        first-order)
+                      candidate-residual))
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app
+                          (#pt-use eisenstein-divides ())
+                          (#pt-use eisenstein-lambda ())
+                          candidate-residual)))
+                    #pt-false))))))
+        (#pt-app
+          (#pt-use eisenstein-lambda-order ())
+          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+          (#pt-app (#pt-use add ()) first-order second-order)))
+      (
+        (#pt-lambda
+          (
+            (first-residual (#pt-use eisenstein ()))
+            (first-factor
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  first
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      first-order)
+                    first-residual))
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-use eisenstein-lambda ())
+                        first-residual)))
+                  #pt-false))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-residual (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    second
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        second-order)
+                      candidate-residual))
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app
+                          (#pt-use eisenstein-divides ())
+                          (#pt-use eisenstein-lambda ())
+                          candidate-residual)))
+                    #pt-false))))
+            (#pt-lambda
+              (
+                (eisenstein-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-residual (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          second
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              second-order)
+                            candidate-residual))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app
+                                (#pt-use eisenstein-divides ())
+                                (#pt-use eisenstein-lambda ())
+                                candidate-residual)))
+                          #pt-false))))))
+              (#pt-app
+                (#pt-use eisenstein-lambda-order ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                (#pt-app (#pt-use add ()) first-order second-order)))
+            (
+              (#pt-lambda
+                (
+                  (second-residual (#pt-use eisenstein ()))
+                  (second-factor
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        second
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            second-order)
+                          second-residual))
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app
+                              (#pt-use eisenstein-divides ())
+                              (#pt-use eisenstein-lambda ())
+                              second-residual)))
+                        #pt-false))))
+                (#pt-app
+                  (#pt-use eisenstein-lambda-order-of-residual ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                  (#pt-app (#pt-use add ()) first-order second-order)
+                  (#pt-app (#pt-use eisenstein-multiply ()) first-residual second-residual)
+                  (#pt-app
+                    (#pt-use eisenstein-transitive ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          first-order)
+                        first-residual)
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          second-order)
+                        second-residual))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-app (#pt-use add ()) first-order second-order))
+                      (#pt-app (#pt-use eisenstein-multiply ()) first-residual second-residual))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply-congruent ())
+                      first
+                      second
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          first-order)
+                        first-residual)
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          second-order)
+                        second-residual)
+                      (#pt-app
+                        (#pt-use conjunction-left ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          first
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              first-order)
+                            first-residual))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app
+                                (#pt-use eisenstein-divides ())
+                                (#pt-use eisenstein-lambda ())
+                                first-residual)))
+                          #pt-false)
+                        first-factor)
+                      (#pt-app
+                        (#pt-use conjunction-left ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          second
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              second-order)
+                            second-residual))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app
+                                (#pt-use eisenstein-divides ())
+                                (#pt-use eisenstein-lambda ())
+                                second-residual)))
+                          #pt-false)
+                        second-factor))
+                    (#pt-app
+                      (#pt-use eisenstein-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          first-residual)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            second-order)
+                          second-residual))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          first-order)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          first-residual
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              second-order)
+                            second-residual)))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-app (#pt-use add ()) first-order second-order))
+                        (#pt-app (#pt-use eisenstein-multiply ()) first-residual second-residual))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply-associative ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          first-order)
+                        first-residual
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            second-order)
+                          second-residual))
+                      (#pt-app
+                        (#pt-use eisenstein-transitive ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            first-residual
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order)
+                              second-residual)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              second-order)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            (#pt-app (#pt-use add ()) first-order second-order))
+                          (#pt-app (#pt-use eisenstein-multiply ()) first-residual second-residual))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply-congruent ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            first-residual
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order)
+                              second-residual))
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              second-order)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual))
+                          (#pt-app
+                            (#pt-use eisenstein-reflexive ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              first-order))
+                          (#pt-app
+                            (#pt-use eisenstein-transitive ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order)
+                                second-residual))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order))
+                              second-residual)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                second-residual))
+                            (#pt-app
+                              (#pt-use eisenstein-symmetric ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  first-residual
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order))
+                                second-residual)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order)
+                                  second-residual))
+                              (#pt-app
+                                (#pt-use eisenstein-multiply-associative ())
+                                first-residual
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order)
+                                second-residual))
+                            (#pt-app
+                              (#pt-use eisenstein-transitive ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  first-residual
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order))
+                                second-residual)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order)
+                                  first-residual)
+                                second-residual)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order)
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  first-residual
+                                  second-residual))
+                              (#pt-app
+                                (#pt-use eisenstein-multiply-congruent ())
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  first-residual
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order))
+                                second-residual
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order)
+                                  first-residual)
+                                second-residual
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply-commutative ())
+                                  first-residual
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    second-order))
+                                (#pt-app (#pt-use eisenstein-reflexive ()) second-residual))
+                              (#pt-app
+                                (#pt-use eisenstein-multiply-associative ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order)
+                                first-residual
+                                second-residual))))
+                        (#pt-app
+                          (#pt-use eisenstein-transitive ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              first-order)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                second-residual)))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                first-order)
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              (#pt-app (#pt-use add ()) first-order second-order))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual))
+                          (#pt-app
+                            (#pt-use eisenstein-symmetric ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  first-order)
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order))
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                second-residual))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                first-order)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order)
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  first-residual
+                                  second-residual)))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply-associative ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                first-order)
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                second-residual)))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply-congruent ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                first-order)
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                second-order))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual)
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              (#pt-app (#pt-use add ()) first-order second-order))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              first-residual
+                              second-residual)
+                            (#pt-app
+                              (#pt-use eisenstein-symmetric ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                (#pt-app (#pt-use add ()) first-order second-order))
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  first-order)
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  second-order))
+                              (#pt-app
+                                (#pt-use eisenstein-power-add ())
+                                (#pt-use eisenstein-lambda ())
+                                first-order
+                                second-order))
+                            (#pt-app
+                              (#pt-use eisenstein-reflexive ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                first-residual
+                                second-residual)))))))
+                  (#pt-app
+                    (#pt-use eisenstein-lambda-not-divides-product ())
+                    first-residual
+                    second-residual
+                    (#pt-app
+                      (#pt-use conjunction-right ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        first
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            first-order)
+                          first-residual))
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app
+                              (#pt-use eisenstein-divides ())
+                              (#pt-use eisenstein-lambda ())
+                              first-residual)))
+                        #pt-false)
+                      first-factor)
+                    (#pt-app
+                      (#pt-use conjunction-right ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        second
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            second-order)
+                          second-residual))
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app
+                              (#pt-use eisenstein-divides ())
+                              (#pt-use eisenstein-lambda ())
+                              second-residual)))
+                        #pt-false)
+                      second-factor)))))
+            (#pt-app
+              (#pt-use eisenstein-lambda-order-residual-exists ())
+              second
+              second-order
+              second-certificate))))
+      (#pt-app
+        (#pt-use eisenstein-lambda-order-residual-exists ())
+        first
+        first-order
+        first-certificate))))
+(#theorem eisenstein-lambda-order-power
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter base-order #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter order-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) number base-order)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-lambda-order ())
+      (#pt-app (#pt-use eisenstein-power ()) number exponent)
+      (#pt-app (#pt-use multiply ()) exponent base-order)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use eisenstein-lambda-order ())
+          (#pt-app (#pt-use eisenstein-power ()) number index)
+          (#pt-app (#pt-use multiply ()) index base-order)))
+      (#pt-use eisenstein-lambda-order-one ())
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-order
+            (#pt-app
+              (#pt-use eisenstein-lambda-order ())
+              (#pt-app (#pt-use eisenstein-power ()) number previous)
+              (#pt-app (#pt-use multiply ()) previous base-order))))
+        (#pt-app
+          (#pt-use eisenstein-lambda-order-multiply ())
+          number
+          (#pt-app (#pt-use eisenstein-power ()) number previous)
+          base-order
+          (#pt-app (#pt-use multiply ()) previous base-order)
+          order-certificate
+          previous-order))
+      exponent)))
+(#theorem eisenstein-lambda-order-unit
+  (#universes)
+  (#parameters
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) unit)))
+  (#statement (#pt-app (#pt-use eisenstein-lambda-order ()) unit #pt-zero))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) unit candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse unit)
+              (#pt-use eisenstein-one ())))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-inverse (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) unit candidate-inverse)
+                    (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse unit)
+                    (#pt-use eisenstein-one ())))))))
+        (#pt-app (#pt-use eisenstein-lambda-order ()) unit #pt-zero))
+      (
+        (#pt-lambda
+          (
+            (inverse (#pt-use eisenstein ()))
+            (inverse-equations
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) unit inverse)
+                  (#pt-use eisenstein-one ()))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) inverse unit)
+                  (#pt-use eisenstein-one ())))))
+          (#pt-construct
+            eisenstein-lambda-order
+            ()
+            (unit #pt-zero)
+            introduce
+            (
+              (#pt-app (#pt-use eisenstein-one-divides ()) unit)
+              (#pt-lambda
+                (
+                  (next-divides
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-succ #pt-zero))
+                      unit)))
+                (#pt-app
+                  (#pt-use eisenstein-lambda-not-divides-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides-congruent-target ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) unit inverse)
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use conjunction-left ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) unit inverse)
+                        (#pt-use eisenstein-one ()))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) inverse unit)
+                        (#pt-use eisenstein-one ()))
+                      inverse-equations)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-product-left ())
+                      (#pt-use eisenstein-lambda ())
+                      unit
+                      inverse
+                      (#pt-app
+                        (#pt-use eisenstein-divides-congruent-divisor ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-succ #pt-zero))
+                        (#pt-use eisenstein-lambda ())
+                        unit
+                        (#pt-app (#pt-use eisenstein-power-one ()) (#pt-use eisenstein-lambda ()))
+                        next-divides)))))))))
+      unit-proof)))
+(#theorem eisenstein-lambda-order-unit-multiply
+  (#universes)
+  (#parameters
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) unit))
+    (#parameter order-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-lambda-order ())
+      (#pt-app (#pt-use eisenstein-multiply ()) unit number)
+      exponent))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-lambda-order-multiply ())
+      unit
+      number
+      #pt-zero
+      exponent
+      (#pt-app (#pt-use eisenstein-lambda-order-unit ()) unit unit-proof)
+      order-certificate)))

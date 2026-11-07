@@ -30,10 +30,10 @@ fn declaration_roundtrip_preserves_metadata_and_shared_dag() {
     let restored = decode(&bytes).unwrap();
     assert_eq!(restored.universes, d.universes);
     assert!(!Arc::ptr_eq(&restored.ty, restored.value.as_ref().unwrap()));
-    let Term::Pi(a, p) = &*restored.ty else {
+    let Term::Pi(a, p) = restored.ty.as_ref() else {
         panic!("wrong root")
     };
-    let Term::Pair(x, y, _) = &**p else {
+    let Term::Pair(x, y, _) = p.as_ref() else {
         panic!("wrong pair")
     };
     assert!(Arc::ptr_eq(a, x));

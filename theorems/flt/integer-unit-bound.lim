@@ -1,0 +1,361 @@
+; A signed three-square budget 4=3*x*x+r*r restricts x to 0, 1, -1.
+; Natural square witnesses and formal-difference injectivity feed the
+; checked natural bound. No ordered-integer or finite-search oracle is used.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias integer-zero-of-magnitude-zero = ./integer-magnitude.lim::integer-zero-of-magnitude-zero)
+(#alias
+  integer-square-magnitude-positive
+  =
+  ./integer-nonnegative.lim::integer-square-magnitude-positive)
+(#alias integer-square-nonnegative = ./integer-nonnegative.lim::integer-square-nonnegative)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias substitution = ./equality.lim::substitution)
+(#alias
+  natural-three-square-budget-small
+  =
+  ./natural-unit-bound.lim::natural-three-square-budget-small)
+(#theorem integer-three-square-magnitude-small
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter remainder (#pt-use integer ()))
+    (#parameter magnitude #pt-nat)
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude))
+    (#parameter budget-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) (#pt-app (#pt-use integer-multiply ()) number number)) (#pt-app (#pt-use integer-multiply ()) remainder remainder)) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-eq #pt-nat magnitude #pt-zero)
+      (#pt-eq #pt-nat magnitude (#pt-succ #pt-zero))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-square #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-multiply ()) remainder remainder)
+            (#pt-app (#pt-use integer-of-natural ()) candidate-square))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-square #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-multiply ()) remainder remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-square))))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-eq #pt-nat magnitude #pt-zero)
+          (#pt-eq #pt-nat magnitude (#pt-succ #pt-zero))))
+      (
+        (#pt-lambda
+          (
+            (square-value #pt-nat)
+            (square-equivalence
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app (#pt-use integer-multiply ()) remainder remainder)
+                (#pt-app (#pt-use integer-of-natural ()) square-value))))
+          (#pt-app
+            (#pt-use natural-three-square-budget-small ())
+            magnitude
+            square-value
+            (#pt-app
+              (#pt-use integer-of-natural-injective ())
+              (#pt-numeral 4)
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-numeral 3)
+                  (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                square-value)
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                    (#pt-app (#pt-use integer-multiply ()) number number))
+                  (#pt-app (#pt-use integer-multiply ()) remainder remainder))
+                (#pt-app
+                  (#pt-use integer-of-natural ())
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-numeral 3)
+                      (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                    square-value))
+                (#pt-app
+                  (#pt-use integer-symmetric ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app (#pt-use integer-multiply ()) number number))
+                    (#pt-app (#pt-use integer-multiply ()) remainder remainder))
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                  budget-equation)
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app (#pt-use integer-multiply ()) number number))
+                    (#pt-app (#pt-use integer-multiply ()) remainder remainder))
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                    (#pt-app (#pt-use integer-of-natural ()) square-value))
+                  (#pt-app
+                    (#pt-use integer-of-natural ())
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-numeral 3)
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                      square-value))
+                  (#pt-app
+                    (#pt-use integer-add-congruent ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app (#pt-use integer-multiply ()) number number))
+                    (#pt-app (#pt-use integer-multiply ()) remainder remainder)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                    (#pt-app (#pt-use integer-of-natural ()) square-value)
+                    (#pt-app
+                      (#pt-use integer-multiply-congruent ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app (#pt-use integer-multiply ()) number number)
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                      (#pt-app
+                        (#pt-use integer-reflexive ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                      (#pt-app
+                        (#pt-use integer-square-magnitude-positive ())
+                        number
+                        magnitude
+                        magnitude-proof))
+                    square-equivalence)
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use integer-of-natural ())
+                          (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                      (#pt-app (#pt-use integer-of-natural ()) square-value))
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-numeral 3)
+                          (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                      (#pt-app (#pt-use integer-of-natural ()) square-value))
+                    (#pt-app
+                      (#pt-use integer-of-natural ())
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-numeral 3)
+                          (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                        square-value))
+                    (#pt-app
+                      (#pt-use integer-add-congruent ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use integer-of-natural ())
+                          (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                      (#pt-app (#pt-use integer-of-natural ()) square-value)
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-numeral 3)
+                          (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+                      (#pt-app (#pt-use integer-of-natural ()) square-value)
+                      (#pt-app
+                        (#pt-use integer-multiply-of-natural ())
+                        (#pt-numeral 3)
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                      (#pt-app
+                        (#pt-use integer-reflexive ())
+                        (#pt-app (#pt-use integer-of-natural ()) square-value)))
+                    (#pt-app
+                      (#pt-use integer-add-of-natural ())
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-numeral 3)
+                        (#pt-app (#pt-use multiply ()) magnitude magnitude))
+                      square-value))))))))
+      (#pt-app (#pt-use integer-square-nonnegative ()) remainder))))
+(#theorem integer-three-square-value-small
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter remainder (#pt-use integer ()))
+    (#parameter budget-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) (#pt-app (#pt-use integer-multiply ()) number number)) (#pt-app (#pt-use integer-multiply ()) remainder remainder)) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-equal ())
+          number
+          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-one ()))
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-eq #pt-nat magnitude #pt-zero)
+            (#pt-eq #pt-nat magnitude (#pt-succ #pt-zero))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-one ()))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  number
+                  (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+            (#pt-lambda
+              ((zero-magnitude (#pt-eq #pt-nat magnitude #pt-zero)))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-one ()))
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    number
+                    (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+                (#pt-app
+                  (#pt-use integer-zero-of-magnitude-zero ())
+                  number
+                  magnitude
+                  magnitude-proof
+                  zero-magnitude)))
+            (#pt-lambda
+              ((one-magnitude (#pt-eq #pt-nat magnitude (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-use disjunction-right ())
+                (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-one ()))
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    number
+                    (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use integer-magnitude ()) number endpoint))
+                  magnitude
+                  (#pt-succ #pt-zero)
+                  one-magnitude
+                  magnitude-proof)))
+            (#pt-app
+              (#pt-use integer-three-square-magnitude-small ())
+              number
+              remainder
+              magnitude
+              magnitude-proof
+              budget-equation))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))

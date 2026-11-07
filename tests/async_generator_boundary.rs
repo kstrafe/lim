@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -58,7 +60,7 @@ fn generated_standalone_with_config(
     let standalone = format!(
         "{}\n{}\n{}",
         &source[..form.span.start],
-        artifact,
+        generated_source::ordinary_source(&artifact),
         &source[form.span.end..]
     );
     assert!(!standalone.contains("#generate #async-fn"), "{standalone}");
@@ -124,7 +126,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
             };
             match pair.as_slice() {
                 [lim::Expr::Symbol(field), lim::Expr::List(ty)]
-                    if field.ends_with(".binding.2-words") => {
+                    if field.rsplit("::").next() == Some("binding-2-words") => {
                     assert!(matches!(ty.as_slice(), [lim::Expr::Symbol(array), lim::Expr::Symbol(element), lim::Expr::Integer(1)]
                         if array == "#array" && element == "#u64"));
                     Some(field)
@@ -204,7 +206,38 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
             &config,
         );
         if !mutable {
-            assert!(standalone.contains("external.0"), "{standalone}");
+            // The external loan must remain in a typed frame slot. Discover
+            // the slot's generated identity without depending on its counter.
+            let declarations = lim::parse(&standalone).unwrap();
+            let external_slot = declarations.iter().find_map(|node| {
+                let lim::Expr::List(items) = &node.expr else { return None; };
+                let [lim::Expr::Symbol(head), lim::Expr::Symbol(name), _, lim::Expr::List(fields)] = items.as_slice() else {
+                    return None;
+                };
+                if head != "#struct" || name != "Work::Frame" {
+                    return None;
+                }
+                fields.iter().find_map(|field| {
+                    let lim::Expr::List(pair) = field else { return None; };
+                    match pair.as_slice() {
+                        [lim::Expr::Symbol(field), lim::Expr::Symbol(slot)]
+                            if field.rsplit("::").next() == Some("external-0") => Some(slot),
+                        _ => None,
+                    }
+                })
+            }).unwrap_or_else(|| panic!("missing typed external frame slot: {standalone}"));
+            assert!(declarations.iter().any(|node| {
+                let lim::Expr::List(items) = &node.expr else { return false; };
+                let [lim::Expr::Symbol(head), lim::Expr::Symbol(name), _, lim::Expr::List(variants)] = items.as_slice() else {
+                    return false;
+                };
+                head == "#enum" && name == external_slot && variants.iter().any(|variant| {
+                    let lim::Expr::List(parts) = variant else { return false; };
+                    matches!(parts.as_slice(), [lim::Expr::Symbol(_), lim::Expr::List(ty)]
+                        if matches!(ty.as_slice(), [lim::Expr::Symbol(reference), lim::Expr::Symbol(element)]
+                            if reference == "#ref" && element == "#u64"))
+                })
+            }), "external frame slot must retain a shared #u64 loan: {standalone}");
         }
         assert!(standalone.contains(if mutable {
             "(#ref-mut #u64)"

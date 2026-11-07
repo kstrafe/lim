@@ -1,0 +1,84 @@
+; Constructive conjunction and disjunction through checked inductives.
+(#math-inductive conjunction ()
+  ((p #pt-prop) (q #pt-prop))
+  #pt-prop
+  ((both ((left-proof p) (right-proof q)))))
+(#math-inductive disjunction ()
+  ((p #pt-prop) (q #pt-prop))
+  #pt-prop
+  ((left ((left-proof p))) (right ((right-proof q)))))
+(#theorem conjunction-introduce
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter proof-p p)
+    (#parameter proof-q q))
+  (#statement (#pt-app (#pt-use conjunction ()) p q))
+  (#proof (#pt-construct conjunction () (p q) both (proof-p proof-q))))
+(#theorem conjunction-left
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter conjunction-proof (#pt-app (#pt-use conjunction ()) p q)))
+  (#statement p)
+  (#proof
+    (#pt-induct
+      conjunction
+      ()
+      (p q)
+      (#pt-lambda ((case-value (#pt-app (#pt-use conjunction ()) p q))) p)
+      ((#pt-lambda ((left-proof p) (right-proof q)) left-proof))
+      conjunction-proof)))
+(#theorem conjunction-right
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter conjunction-proof (#pt-app (#pt-use conjunction ()) p q)))
+  (#statement q)
+  (#proof
+    (#pt-induct
+      conjunction
+      ()
+      (p q)
+      (#pt-lambda ((case-value (#pt-app (#pt-use conjunction ()) p q))) q)
+      ((#pt-lambda ((left-proof p) (right-proof q)) right-proof))
+      conjunction-proof)))
+(#theorem disjunction-left
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter proof-p p))
+  (#statement (#pt-app (#pt-use disjunction ()) p q))
+  (#proof (#pt-construct disjunction () (p q) left (proof-p))))
+(#theorem disjunction-right
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter proof-q q))
+  (#statement (#pt-app (#pt-use disjunction ()) p q))
+  (#proof (#pt-construct disjunction () (p q) right (proof-q))))
+(#theorem disjunction-eliminate
+  (#universes)
+  (#parameters
+    (#parameter p #pt-prop)
+    (#parameter q #pt-prop)
+    (#parameter result #pt-prop)
+    (#parameter from-left (#pt-pi ((hypothesis-p p)) result))
+    (#parameter from-right (#pt-pi ((hypothesis-q q)) result))
+    (#parameter disjunction-proof (#pt-app (#pt-use disjunction ()) p q)))
+  (#statement result)
+  (#proof
+    (#pt-induct
+      disjunction
+      ()
+      (p q)
+      (#pt-lambda ((case-value (#pt-app (#pt-use disjunction ()) p q))) result)
+      (
+        (#pt-lambda ((left-proof p)) (#pt-app from-left left-proof))
+        (#pt-lambda ((right-proof q)) (#pt-app from-right right-proof)))
+      disjunction-proof)))

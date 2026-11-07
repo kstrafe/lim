@@ -5,10 +5,13 @@ use super::*;
 mod arithmetic;
 #[path = "natural_comparison.rs"]
 mod comparison;
+#[path = "delayed.rs"]
+mod delayed;
 #[path = "natural_division_arithmetic.rs"]
 mod division_arithmetic;
 #[path = "natural_euclidean.rs"]
 mod euclidean;
+use euclidean::EuclideanModel;
 #[path = "natural_fold.rs"]
 mod fold;
 #[path = "natural_fusion.rs"]
@@ -66,7 +69,7 @@ impl Kernel {
     /// theorem or alias can make an arbitrary datatype into natural numbers.
     pub(super) fn natural_family(&mut self, name: &str, depth: usize) -> Result<Family> {
         self.tick(depth)?;
-        if self.provisional_family(name) || self.nested.contains_key(name) {
+        if self.provisional_family(name) || self.nested.contains_key(name)? {
             return Err("natural literal requires a completed natural-number family".into());
         }
         let (family, _) = self.family(name, &[], depth + 1)?;
@@ -83,7 +86,7 @@ impl Kernel {
         depth: usize,
     ) -> Result<Option<Family>> {
         self.tick(depth)?;
-        if self.provisional_family(name) || self.nested.contains_key(name) {
+        if self.provisional_family(name) || self.nested.contains_key(name)? {
             return Ok(None);
         }
         let Some(declaration) = self.declarations.get(name)? else {
@@ -135,7 +138,7 @@ impl Kernel {
     }
 }
 
-fn natural_shape(name: &str, family: &Family) -> Result<bool> {
+pub(super) fn natural_shape(name: &str, family: &Family) -> Result<bool> {
     Ok(family.group == [name]
         && family.parameters.is_empty()
         && family.indices.is_empty()

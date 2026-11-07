@@ -1,0 +1,168 @@
+; Multiplication commutativity, proved from the existing recursive arithmetic.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias add-associative = ./natural-addition.lim::add-associative)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#theorem add-left-commutative
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use add ()) first (#pt-app (#pt-use add ()) second third))
+      (#pt-app (#pt-use add ()) second (#pt-app (#pt-use add ()) first third))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app (#pt-use add ()) first (#pt-app (#pt-use add ()) second third))
+      (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) first second) third)
+      (#pt-app (#pt-use add ()) second (#pt-app (#pt-use add ()) first third))
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) first second) third)
+        (#pt-app (#pt-use add ()) first (#pt-app (#pt-use add ()) second third))
+        (#pt-app (#pt-use add-associative ()) first second third))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) first second) third)
+        (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) second first) third)
+        (#pt-app (#pt-use add ()) second (#pt-app (#pt-use add ()) first third))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((summand #pt-nat)) (#pt-app (#pt-use add ()) summand third))
+          (#pt-app (#pt-use add ()) first second)
+          (#pt-app (#pt-use add ()) second first)
+          (#pt-app (#pt-use add-commutative ()) first second))
+        (#pt-app (#pt-use add-associative ()) second first third)))))
+(#theorem multiply-successor-right
+  (#universes)
+  (#parameters
+    (#parameter left #pt-nat)
+    (#parameter right #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) left (#pt-succ right))
+      (#pt-app (#pt-use add ()) left (#pt-app (#pt-use multiply ()) left right))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) index (#pt-succ right))
+          (#pt-app (#pt-use add ()) index (#pt-app (#pt-use multiply ()) index right))))
+      (#pt-refl #pt-nat #pt-zero)
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-result
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use multiply ()) previous (#pt-succ right))
+              (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use multiply ()) previous right)))))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-succ previous) (#pt-succ right))
+          (#pt-succ
+            (#pt-app
+              (#pt-use add ())
+              right
+              (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use multiply ()) previous right))))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-succ previous)
+            (#pt-app (#pt-use multiply ()) (#pt-succ previous) right))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((tail #pt-nat)) (#pt-app (#pt-use add ()) (#pt-succ right) tail))
+            (#pt-app (#pt-use multiply ()) previous (#pt-succ right))
+            (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use multiply ()) previous right))
+            previous-result)
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((sum #pt-nat)) (#pt-succ sum))
+            (#pt-app
+              (#pt-use add ())
+              right
+              (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use multiply ()) previous right)))
+            (#pt-app
+              (#pt-use add ())
+              previous
+              (#pt-app (#pt-use add ()) right (#pt-app (#pt-use multiply ()) previous right)))
+            (#pt-app
+              (#pt-use add-left-commutative ())
+              right
+              previous
+              (#pt-app (#pt-use multiply ()) previous right)))))
+      left)))
+(#theorem multiply-commutative
+  (#universes)
+  (#parameters
+    (#parameter left #pt-nat)
+    (#parameter right #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) left right)
+      (#pt-app (#pt-use multiply ()) right left)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) index right)
+          (#pt-app (#pt-use multiply ()) right index)))
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) right #pt-zero)
+        #pt-zero
+        (#pt-app (#pt-use multiply-zero-right ()) right))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-result
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use multiply ()) previous right)
+              (#pt-app (#pt-use multiply ()) right previous))))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-succ previous) right)
+          (#pt-app (#pt-use add ()) right (#pt-app (#pt-use multiply ()) right previous))
+          (#pt-app (#pt-use multiply ()) right (#pt-succ previous))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((product #pt-nat)) (#pt-app (#pt-use add ()) right product))
+            (#pt-app (#pt-use multiply ()) previous right)
+            (#pt-app (#pt-use multiply ()) right previous)
+            previous-result)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) right (#pt-succ previous))
+            (#pt-app (#pt-use add ()) right (#pt-app (#pt-use multiply ()) right previous))
+            (#pt-app (#pt-use multiply-successor-right ()) right previous))))
+      left)))

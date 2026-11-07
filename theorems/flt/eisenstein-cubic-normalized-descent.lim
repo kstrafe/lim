@@ -1,0 +1,788 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Native mathematical source adaptation under Apache-2.0; see provenance.json.
+; Construct the actual next solution in FLT/Three.lean:690-733.
+; Cube residues force the left coefficient to one or negative one,
+; which is absorbed into its root. The new solution retains actual
+; unit, lambda-free, nonzero, coprime, divisor and equation evidence.
+; Its lambda order is the positive, strictly smaller predecessor.
+; This theorem starts from normalized roots, not an original solution.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-lambda-order = ./eisenstein-lambda-order.lim::eisenstein-lambda-order)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  eisenstein-cubic-solution-certificate
+  =
+  ./eisenstein-cubic-descent-defs.lim::eisenstein-cubic-solution-certificate)
+(#alias
+  eisenstein-cubic-ordered-solution
+  =
+  ./eisenstein-cubic-descent-defs.lim::eisenstein-cubic-ordered-solution)
+(#alias
+  eisenstein-has-smaller-cubic-solution
+  =
+  ./eisenstein-cubic-descent-defs.lim::eisenstein-has-smaller-cubic-solution)
+(#alias
+  natural-cubic-predecessor-positive
+  =
+  ./eisenstein-cubic-descent-orders.lim::natural-cubic-predecessor-positive)
+(#alias
+  natural-cubic-predecessor-smaller
+  =
+  ./eisenstein-cubic-descent-orders.lim::natural-cubic-predecessor-smaller)
+(#alias
+  eisenstein-positive-lambda-power-product-divides
+  =
+  ./eisenstein-cubic-descent-orders.lim::eisenstein-positive-lambda-power-product-divides)
+(#alias
+  eisenstein-lambda-powered-free-residual-order
+  =
+  ./eisenstein-cubic-descent-orders.lim::eisenstein-lambda-powered-free-residual-order)
+(#alias
+  eisenstein-lambda-powered-free-residual-nonzero
+  =
+  ./eisenstein-cubic-descent-orders.lim::eisenstein-lambda-powered-free-residual-nonzero)
+(#alias
+  eisenstein-signed-cubic-absorption
+  =
+  ./eisenstein-cubic-signed-coefficient.lim::eisenstein-signed-cubic-absorption)
+(#alias
+  eisenstein-unit-product-nondivisor
+  =
+  ./eisenstein-cubic-signed-coefficient.lim::eisenstein-unit-product-nondivisor)
+(#alias
+  eisenstein-coprime-unit-product-right
+  =
+  ./eisenstein-cubic-signed-coefficient.lim::eisenstein-coprime-unit-product-right)
+(#alias
+  eisenstein-square-divides-scaled-cube-from-divisor
+  =
+  ./eisenstein-cubic-square-divisor.lim::eisenstein-square-divides-scaled-cube-from-divisor)
+(#alias
+  eisenstein-normalized-cubic-coefficient-sign
+  =
+  ./eisenstein-normalized-cubic-sign.lim::eisenstein-normalized-cubic-coefficient-sign)
+(#theorem eisenstein-normalized-cubic-smaller-ordered-solution
+  (#universes)
+  (#parameters
+    (#parameter previous-order #pt-nat)
+    (#parameter predecessor #pt-nat)
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter second-root (#pt-use eisenstein ()))
+    (#parameter third-root (#pt-use eisenstein ()))
+    (#parameter left-unit (#pt-use eisenstein ()))
+    (#parameter right-unit (#pt-use eisenstein ()))
+    (#parameter previous-large (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) previous-order))
+    (#parameter predecessor-equation (#pt-eq #pt-nat previous-order (#pt-succ predecessor)))
+    (#parameter first-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first-root))) #pt-false))
+    (#parameter second-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root))) #pt-false))
+    (#parameter third-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third-root))) #pt-false))
+    (#parameter roots-coprime (#pt-app (#pt-use eisenstein-coprime ()) second-root third-root))
+    (#parameter left-unit-certificate (#pt-app (#pt-use eisenstein-unit ()) left-unit))
+    (#parameter right-unit-certificate (#pt-app (#pt-use eisenstein-unit ()) right-unit))
+    (#parameter normalized-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3)) (#pt-app (#pt-use eisenstein-multiply ()) left-unit (#pt-app (#pt-use eisenstein-power ()) third-root (#pt-numeral 3)))) (#pt-app (#pt-use eisenstein-multiply ()) right-unit (#pt-app (#pt-use eisenstein-power ()) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor) first-root) (#pt-numeral 3))))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-cubic-ordered-solution ())
+      second-root
+      (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+        first-root)
+      right-unit
+      predecessor))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use eisenstein-cubic-solution-certificate ())
+        second-root
+        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+          first-root)
+        right-unit)
+      (#pt-app
+        (#pt-use eisenstein-lambda-order ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+          first-root)
+        predecessor)
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use eisenstein-unit ()) right-unit)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root)))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))))
+              #pt-false)
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          predecessor)
+                        first-root)
+                      (#pt-use eisenstein-zero ()))))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-coprime ())
+                  second-root
+                  (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3)))))))))
+        right-unit-certificate
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root)))
+            #pt-false)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))))
+              #pt-false)
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          predecessor)
+                        first-root)
+                      (#pt-use eisenstein-zero ()))))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-coprime ())
+                  second-root
+                  (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3))))))))
+          second-root-free
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))))
+              #pt-false)
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          predecessor)
+                        first-root)
+                      (#pt-use eisenstein-zero ()))))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-coprime ())
+                  second-root
+                  (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3)))))))
+            (#pt-app
+              (#pt-use eisenstein-unit-product-nondivisor ())
+              (#pt-use eisenstein-lambda ())
+              left-unit
+              third-root
+              left-unit-certificate
+              third-root-free)
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          predecessor)
+                        first-root)
+                      (#pt-use eisenstein-zero ()))))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-coprime ())
+                  second-root
+                  (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3))))))
+              (#pt-app
+                (#pt-use eisenstein-lambda-powered-free-residual-nonzero ())
+                predecessor
+                first-root
+                first-root-free)
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app
+                  (#pt-use eisenstein-coprime ())
+                  second-root
+                  (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3)))))
+                (#pt-app
+                  (#pt-use eisenstein-coprime-unit-product-right ())
+                  second-root
+                  third-root
+                  left-unit
+                  roots-coprime
+                  left-unit-certificate)
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        predecessor)
+                      first-root))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3))))
+                  (#pt-app
+                    (#pt-use eisenstein-positive-lambda-power-product-divides ())
+                    predecessor
+                    first-root
+                    (#pt-app
+                      (#pt-use natural-cubic-predecessor-positive ())
+                      previous-order
+                      predecessor
+                      previous-large
+                      predecessor-equation))
+                  (#pt-app
+                    (#pt-use eisenstein-signed-cubic-absorption ())
+                    second-root
+                    third-root
+                    left-unit
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      right-unit
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use eisenstein-normalized-cubic-coefficient-sign ())
+                      second-root
+                      third-root
+                      left-unit
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        right-unit
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              predecessor)
+                            first-root)
+                          (#pt-numeral 3)))
+                      second-root-free
+                      third-root-free
+                      normalized-equation
+                      (#pt-app
+                        (#pt-use eisenstein-square-divides-scaled-cube-from-divisor ())
+                        (#pt-use eisenstein-lambda ())
+                        right-unit
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-lambda ())
+                            predecessor)
+                          first-root)
+                        (#pt-app
+                          (#pt-use eisenstein-positive-lambda-power-product-divides ())
+                          predecessor
+                          first-root
+                          (#pt-app
+                            (#pt-use natural-cubic-predecessor-positive ())
+                            previous-order
+                            predecessor
+                            previous-large
+                            predecessor-equation)))
+                      left-unit-certificate)
+                    normalized-equation)))))))
+      (#pt-app
+        (#pt-use eisenstein-lambda-powered-free-residual-order ())
+        predecessor
+        first-root
+        first-root-free))))
+(#theorem eisenstein-normalized-cubic-has-smaller-solution
+  (#universes)
+  (#parameters
+    (#parameter previous-order #pt-nat)
+    (#parameter predecessor #pt-nat)
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter second-root (#pt-use eisenstein ()))
+    (#parameter third-root (#pt-use eisenstein ()))
+    (#parameter left-unit (#pt-use eisenstein ()))
+    (#parameter right-unit (#pt-use eisenstein ()))
+    (#parameter previous-large (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) previous-order))
+    (#parameter predecessor-equation (#pt-eq #pt-nat previous-order (#pt-succ predecessor)))
+    (#parameter first-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first-root))) #pt-false))
+    (#parameter second-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root))) #pt-false))
+    (#parameter third-root-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third-root))) #pt-false))
+    (#parameter roots-coprime (#pt-app (#pt-use eisenstein-coprime ()) second-root third-root))
+    (#parameter left-unit-certificate (#pt-app (#pt-use eisenstein-unit ()) left-unit))
+    (#parameter right-unit-certificate (#pt-app (#pt-use eisenstein-unit ()) right-unit))
+    (#parameter normalized-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3)) (#pt-app (#pt-use eisenstein-multiply ()) left-unit (#pt-app (#pt-use eisenstein-power ()) third-root (#pt-numeral 3)))) (#pt-app (#pt-use eisenstein-multiply ()) right-unit (#pt-app (#pt-use eisenstein-power ()) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor) first-root) (#pt-numeral 3))))))
+  (#statement (#pt-app (#pt-use eisenstein-has-smaller-cubic-solution ()) previous-order))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-first (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-second (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-third (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-unit (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use less-than ()) candidate-order previous-order)
+                            (#pt-app
+                              (#pt-use eisenstein-cubic-ordered-solution ())
+                              candidate-first
+                              candidate-second
+                              candidate-third
+                              candidate-unit
+                              candidate-order))))))))))))
+      introduce
+      (second-root
+        (#pt-construct
+          exists
+          (0)
+          (
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-second (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-third (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-unit (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use less-than ()) candidate-order previous-order)
+                            (#pt-app
+                              (#pt-use eisenstein-cubic-ordered-solution ())
+                              second-root
+                              candidate-second
+                              candidate-third
+                              candidate-unit
+                              candidate-order))))))))))
+          introduce
+          (
+            (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-third (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-unit (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use less-than ()) candidate-order previous-order)
+                            (#pt-app
+                              (#pt-use eisenstein-cubic-ordered-solution ())
+                              second-root
+                              (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                              candidate-third
+                              candidate-unit
+                              candidate-order))))))))
+              introduce
+              (
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+                  first-root)
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-unit (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use less-than ()) candidate-order previous-order)
+                            (#pt-app
+                              (#pt-use eisenstein-cubic-ordered-solution ())
+                              second-root
+                              (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  predecessor)
+                                first-root)
+                              candidate-unit
+                              candidate-order))))))
+                  introduce
+                  (right-unit
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use less-than ()) candidate-order previous-order)
+                            (#pt-app
+                              (#pt-use eisenstein-cubic-ordered-solution ())
+                              second-root
+                              (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-lambda ())
+                                  predecessor)
+                                first-root)
+                              right-unit
+                              candidate-order))))
+                      introduce
+                      (predecessor
+                        (#pt-app
+                          (#pt-use conjunction-introduce ())
+                          (#pt-app (#pt-use less-than ()) predecessor previous-order)
+                          (#pt-app
+                            (#pt-use eisenstein-cubic-ordered-solution ())
+                            second-root
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-unit third-root)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-lambda ())
+                                predecessor)
+                              first-root)
+                            right-unit
+                            predecessor)
+                          (#pt-app
+                            (#pt-use natural-cubic-predecessor-smaller ())
+                            previous-order
+                            predecessor
+                            predecessor-equation)
+                          (#pt-app
+                            (#pt-use eisenstein-normalized-cubic-smaller-ordered-solution ())
+                            previous-order
+                            predecessor
+                            first-root
+                            second-root
+                            third-root
+                            left-unit
+                            right-unit
+                            previous-large
+                            predecessor-equation
+                            first-root-free
+                            second-root-free
+                            third-root-free
+                            roots-coprime
+                            left-unit-certificate
+                            right-unit-certificate
+                            normalized-equation))))))))))))))

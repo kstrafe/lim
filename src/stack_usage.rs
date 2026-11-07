@@ -577,7 +577,7 @@ fn call_path_usage(
     Ok(result)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::stack_usage_report;
 

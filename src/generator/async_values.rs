@@ -181,7 +181,7 @@ pub(crate) fn plan_with_types(
 
 // Legacy planner fixtures do not model linear preview aliases. Production
 // must always use plan_with_types and the checked program's type declarations.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn plan(body: &Body, flow: &FlowGraph, await_results: &[NodeId]) -> Result<Plan, Error> {
     plan_impl(body, flow, await_results, None)
 }
@@ -762,7 +762,7 @@ impl Walker<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use crate::typed_ir::Declarations;

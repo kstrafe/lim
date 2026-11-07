@@ -1,0 +1,170 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Port dvd_Delta_of_isIntegralModelOf_of_isSemistableModel.
+; Actual model changes give the cross identity; source semistability
+; excludes the c4-power divisor branch. No geometric predicate assumed.
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias integer-weierstrass-c4 = ./integer-weierstrass-defs.lim::integer-weierstrass-c4)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#alias
+  integer-divides-product-right
+  =
+  ./integer-power-divisibility.lim::integer-divides-product-right)
+(#alias
+  integer-prime-divides-product
+  =
+  ./integer-prime-divisibility.lim::integer-prime-divides-product)
+(#alias integer-prime-divides-power = ./integer-prime-divisibility.lim::integer-prime-divides-power)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias
+  integer-integral-model-cross-invariant
+  =
+  ./integer-integral-model-comparison.lim::integer-integral-model-cross-invariant)
+(#alias
+  integer-is-integral-model-of
+  =
+  ./integer-integral-model-defs.lim::integer-is-integral-model-of)
+(#alias integer-is-semistable-model = ./integer-model-prime-defs.lim::integer-is-semistable-model)
+(#theorem integer-integral-model-bad-prime-transfer
+  (#universes)
+  (#parameters
+    (#parameter first-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter second-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter rational-curve (#pt-use rational-weierstrass-curve ()))
+    (#parameter prime-number #pt-nat)
+    (#parameter first-model-certificate (#pt-app (#pt-use integer-is-integral-model-of ()) first-model rational-curve))
+    (#parameter second-model-certificate (#pt-app (#pt-use integer-is-integral-model-of ()) second-model rational-curve))
+    (#parameter semistable-certificate (#pt-app (#pt-use integer-is-semistable-model ()) first-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-bad-prime (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-weierstrass-discriminant ()) first-model))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))
+      (#pt-lambda
+        (
+          (c4-cube-divides
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+                (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))
+          (#pt-app
+            semistable-certificate
+            prime-number
+            prime-proof
+            first-bad-prime
+            (#pt-app
+              (#pt-use integer-prime-divides-power ())
+              prime-number
+              (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+              (#pt-numeral 3)
+              prime-proof
+              c4-cube-divides))))
+      (#pt-lambda
+        (
+          (second-bad-prime
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))))
+        second-bad-prime)
+      (#pt-app
+        (#pt-use integer-prime-divides-product ())
+        prime-number
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+          (#pt-numeral 3))
+        (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model)
+        prime-proof
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-c4 ()) second-model)
+              (#pt-numeral 3))
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) first-model))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+              (#pt-numeral 3))
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-c4 ()) first-model)
+                (#pt-numeral 3))
+              (#pt-app (#pt-use integer-weierstrass-discriminant ()) second-model))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-c4 ()) second-model)
+                (#pt-numeral 3))
+              (#pt-app (#pt-use integer-weierstrass-discriminant ()) first-model))
+            (#pt-app
+              (#pt-use integer-integral-model-cross-invariant ())
+              first-model
+              second-model
+              rational-curve
+              first-model-certificate
+              second-model-certificate))
+          (#pt-app
+            (#pt-use integer-divides-product-right ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) first-model)
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-c4 ()) second-model)
+              (#pt-numeral 3))
+            first-bad-prime))))))

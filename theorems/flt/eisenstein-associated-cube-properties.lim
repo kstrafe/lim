@@ -1,0 +1,175 @@
+; Root properties needed at FLT/Three.lean:599-618.
+; Actual cube equations construct root divisors, so nondivisibility
+; descends to roots and implies nonzero. Actual coprimality descends
+; through both witnessed divisors without a power/coprime axiom.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-divides-zero = ./eisenstein-divisibility.lim::eisenstein-divides-zero)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias eisenstein-power-divisor = ./eisenstein-power-divisibility.lim::eisenstein-power-divisor)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias
+  eisenstein-coprime-divisor-left
+  =
+  ./eisenstein-prime-cube-laws.lim::eisenstein-coprime-divisor-left)
+(#alias
+  eisenstein-coprime-symmetric
+  =
+  ./eisenstein-coprime-factors.lim::eisenstein-coprime-symmetric)
+(#theorem eisenstein-cube-root-divides-value
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter first-unit (#pt-use eisenstein ()))
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter cube-equation (#pt-app (#pt-use eisenstein-equal ()) first (#pt-app (#pt-use eisenstein-multiply ()) first-unit (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))))))
+  (#statement (#pt-app (#pt-use eisenstein-divides ()) first-root first))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-transitive ())
+      first-root
+      (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+      first
+      (#pt-app (#pt-use eisenstein-power-divisor ()) first-root (#pt-numeral 2))
+      (#pt-construct
+        exists
+        (0)
+        (
+          (#pt-use eisenstein ())
+          (#pt-lambda
+            ((candidate-factor (#pt-use eisenstein ())))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                candidate-factor))))
+        introduce
+        (first-unit
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first-unit
+              (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+              first-unit)
+            cube-equation
+            (#pt-app
+              (#pt-use eisenstein-multiply-commutative ())
+              first-unit
+              (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)))))))))
+(#theorem eisenstein-nondivisor-implies-nonzero
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) divisor first))) #pt-false)))
+  (#statement
+    (#pt-pi
+      ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) first (#pt-use eisenstein-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      ((value-zero (#pt-app (#pt-use eisenstein-equal ()) first (#pt-use eisenstein-zero ()))))
+      (#pt-app
+        not-divides
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          divisor
+          (#pt-use eisenstein-zero ())
+          first
+          (#pt-app (#pt-use eisenstein-symmetric ()) first (#pt-use eisenstein-zero ()) value-zero)
+          (#pt-app (#pt-use eisenstein-divides-zero ()) divisor))))))
+(#theorem eisenstein-cube-root-nondivisor
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter first-unit (#pt-use eisenstein ()))
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter cube-equation (#pt-app (#pt-use eisenstein-equal ()) first (#pt-app (#pt-use eisenstein-multiply ()) first-unit (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)))))
+    (#parameter not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) divisor first))) #pt-false)))
+  (#statement
+    (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) divisor first-root))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((root-divided (#pt-app (#pt-use eisenstein-divides ()) divisor first-root)))
+      (#pt-app
+        not-divides
+        (#pt-app
+          (#pt-use eisenstein-divides-transitive ())
+          divisor
+          first-root
+          first
+          root-divided
+          (#pt-app
+            (#pt-use eisenstein-cube-root-divides-value ())
+            first
+            first-unit
+            first-root
+            cube-equation))))))
+(#theorem eisenstein-cube-roots-coprime
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter first-unit (#pt-use eisenstein ()))
+    (#parameter second-unit (#pt-use eisenstein ()))
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter second-root (#pt-use eisenstein ()))
+    (#parameter first-cube-equation (#pt-app (#pt-use eisenstein-equal ()) first (#pt-app (#pt-use eisenstein-multiply ()) first-unit (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)))))
+    (#parameter second-cube-equation (#pt-app (#pt-use eisenstein-equal ()) second (#pt-app (#pt-use eisenstein-multiply ()) second-unit (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3)))))
+    (#parameter coprime-certificate (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) first-root second-root))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-coprime-symmetric ())
+      second-root
+      first-root
+      (#pt-app
+        (#pt-use eisenstein-coprime-divisor-left ())
+        second
+        first-root
+        second-root
+        (#pt-app
+          (#pt-use eisenstein-coprime-symmetric ())
+          first-root
+          second
+          (#pt-app
+            (#pt-use eisenstein-coprime-divisor-left ())
+            first
+            second
+            first-root
+            coprime-certificate
+            (#pt-app
+              (#pt-use eisenstein-cube-root-divides-value ())
+              first
+              first-unit
+              first-root
+              first-cube-equation)))
+        (#pt-app
+          (#pt-use eisenstein-cube-root-divides-value ())
+          second
+          second-unit
+          second-root
+          second-cube-equation)))))

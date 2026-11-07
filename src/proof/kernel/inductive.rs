@@ -31,8 +31,13 @@ impl Kernel {
             .map(|input| input.name.clone())
             .collect::<Vec<_>>();
         let unique = names.iter().collect::<std::collections::HashSet<_>>();
-        if unique.len() != names.len() || names.iter().any(|name| self.contains(name)) {
+        if unique.len() != names.len() {
             return Err("duplicate kernel declaration in inductive group".into());
+        }
+        for name in &names {
+            if self.contains(name)? {
+                return Err("duplicate kernel declaration in inductive group".into());
+            }
         }
         let universes = first.universes.clone();
         let sort = first.sort.clone();
@@ -81,8 +86,8 @@ impl Kernel {
                 context.push(index.clone());
             }
         }
-        for input in &inputs {
-            self.declarations.insert(
+        for (installed, input) in inputs.iter().enumerate() {
+            if let Err(error) = self.declarations.insert(
                 input.name.clone(),
                 Declaration {
                     universes: universes.clone(),
@@ -102,7 +107,14 @@ impl Kernel {
                         large: names.len() == 1 && input.constructors.len() <= 1,
                     }),
                 },
-            );
+            ) {
+                for prior in &names[..installed] {
+                    self.declarations.remove(prior).map_err(|rollback| {
+                        format!("{error}; removing partially installed inductive header '{prior}' also failed: {rollback}")
+                    })?;
+                }
+                return Err(error);
+            }
         }
         let levels = universes
             .iter()
@@ -175,11 +187,14 @@ impl Kernel {
                         result_indices,
                     });
                 }
-                self.declarations
-                    .get_mut(name)?
-                    .or_else(|| self.nested.get_mut(name).map(|view| &mut view.declaration))
-                    .ok_or("missing provisional inductive family")?
-                    .family = Some(family);
+                let declaration = match self.declarations.get_mut(name)? {
+                    Some(declaration) => declaration,
+                    None => self
+                        .nested
+                        .declaration_mut(name)?
+                        .ok_or("missing provisional inductive family")?,
+                };
+                declaration.family = Some(family);
                 queue.extend(
                     self.nested_build
                         .as_mut()
@@ -199,11 +214,13 @@ impl Kernel {
                 .collect::<Vec<_>>();
             outcome = (|| {
                 for name in &group {
-                    let declaration = self
-                        .declarations
-                        .get_mut(name)?
-                        .or_else(|| self.nested.get_mut(name).map(|view| &mut view.declaration))
-                        .ok_or("missing checked group family")?;
+                    let declaration = match self.declarations.get_mut(name)? {
+                        Some(declaration) => declaration,
+                        None => self
+                            .nested
+                            .declaration_mut(name)?
+                            .ok_or("missing checked group family")?,
+                    };
                     let family = declaration
                         .family
                         .as_mut()
@@ -216,15 +233,28 @@ impl Kernel {
                 Ok(())
             })();
         }
-        if outcome.is_err() {
+        if let Err(original) = outcome {
+            let mut cleanup_error = None;
+            // Preserve the validation failure and attempt both stores' cleanup
+            // even if an earlier removal fails. Never reuse a damaged kernel.
             for name in &names {
-                self.declarations.remove(name);
+                if let Err(why) = self.declarations.remove(name) {
+                    cleanup_error.get_or_insert_with(|| format!("{name}: {why}"));
+                }
             }
             for name in build.aliases {
-                self.nested.remove(&name);
+                if let Err(why) = self.nested.remove(&name) {
+                    cleanup_error.get_or_insert_with(|| format!("{name}: {why}"));
+                }
             }
+            return Err(if let Some(why) = cleanup_error {
+                self.nested.invalidate();
+                format!("{original}; inductive group rollback also failed: {why}")
+            } else {
+                original
+            });
         }
-        outcome
+        Ok(())
     }
 
     #[expect(clippy::too_many_arguments)]

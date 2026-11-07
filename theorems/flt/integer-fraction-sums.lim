@@ -1,0 +1,915 @@
+; Actual integer cross-sum congruence and associativity for rational
+; arithmetic. Every regrouping is an explicit consequence of the proved
+; integer ring laws; there is no polynomial normalization oracle.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-multiply-distributive = ./integer-multiplication.lim::integer-multiply-distributive)
+(#alias integer-add-associative = ./integer-addition.lim::integer-add-associative)
+(#alias
+  integer-multiply-four-interchange
+  =
+  ./integer-cross-products.lim::integer-multiply-four-interchange)
+(#theorem integer-cross-sum-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-other (#pt-use integer ()))
+    (#parameter second-other (#pt-use integer ()))
+    (#parameter first-denominator (#pt-use integer ()))
+    (#parameter second-denominator (#pt-use integer ()))
+    (#parameter first-other-denominator (#pt-use integer ()))
+    (#parameter second-other-denominator (#pt-use integer ()))
+    (#parameter first-cross-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) first first-other-denominator) (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)))
+    (#parameter second-cross-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) second second-other-denominator) (#pt-app (#pt-use integer-multiply ()) second-other second-denominator))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+          (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+        (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+          (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator))
+        (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+          (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+        (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+          (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+          (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator)))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+          (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator))
+        (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+      (#pt-app
+        (#pt-use integer-multiply-distributive ())
+        (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+        (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+        (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator))
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-other-denominator second-other-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first-other-denominator
+                second-other-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first first-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) second-denominator second-other-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+            (#pt-app
+              (#pt-use integer-multiply-four-interchange ())
+              first
+              second-denominator
+              first-other-denominator
+              second-other-denominator)
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) first first-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) second-denominator second-other-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                (#pt-app (#pt-use integer-multiply ()) second-denominator second-other-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+              (#pt-app
+                (#pt-use integer-multiply-congruent ())
+                (#pt-app (#pt-use integer-multiply ()) first first-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) second-denominator second-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                (#pt-app (#pt-use integer-multiply ()) second-denominator second-other-denominator)
+                first-cross-equation
+                (#pt-app
+                  (#pt-use integer-reflexive ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second-denominator
+                    second-other-denominator)))
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second-denominator
+                    second-other-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second-other-denominator
+                    second-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply-congruent ())
+                  (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second-denominator
+                    second-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second-other-denominator
+                    second-denominator)
+                  (#pt-app
+                    (#pt-use integer-reflexive ())
+                    (#pt-app (#pt-use integer-multiply ()) first-other first-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply-commutative ())
+                    second-denominator
+                    second-other-denominator))
+                (#pt-app
+                  (#pt-use integer-symmetric ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+                    (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) first-other first-denominator)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      second-other-denominator
+                      second-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply-four-interchange ())
+                    first-other
+                    second-other-denominator
+                    first-denominator
+                    second-denominator)))))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first-other-denominator
+                second-other-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second-other-denominator
+                first-other-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+            (#pt-app
+              (#pt-use integer-multiply-congruent ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first-other-denominator
+                second-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second-other-denominator
+                first-other-denominator)
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply-commutative ())
+                first-other-denominator
+                second-other-denominator))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second-other-denominator
+                  first-other-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) second second-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) first-denominator first-other-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+              (#pt-app
+                (#pt-use integer-multiply-four-interchange ())
+                second
+                first-denominator
+                second-other-denominator
+                first-other-denominator)
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) second second-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator first-other-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator first-other-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply-congruent ())
+                  (#pt-app (#pt-use integer-multiply ()) second second-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator first-other-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) first-denominator first-other-denominator)
+                  second-cross-equation
+                  (#pt-app
+                    (#pt-use integer-reflexive ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      first-denominator
+                      first-other-denominator)))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      first-denominator
+                      first-other-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      first-other-denominator
+                      first-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                    (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply-congruent ())
+                    (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      first-denominator
+                      first-other-denominator)
+                    (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      first-other-denominator
+                      first-denominator)
+                    (#pt-app
+                      (#pt-use integer-reflexive ())
+                      (#pt-app (#pt-use integer-multiply ()) second-other second-denominator))
+                    (#pt-app
+                      (#pt-use integer-multiply-commutative ())
+                      first-denominator
+                      first-other-denominator))
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        first-other-denominator
+                        first-denominator))
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                      (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator))
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                      (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+                    (#pt-app
+                      (#pt-use integer-symmetric ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                        (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator))
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-multiply ()) second-other second-denominator)
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          first-other-denominator
+                          first-denominator))
+                      (#pt-app
+                        (#pt-use integer-multiply-four-interchange ())
+                        second-other
+                        first-other-denominator
+                        second-denominator
+                        first-denominator))
+                    (#pt-app
+                      (#pt-use integer-multiply-congruent ())
+                      (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                      (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator)
+                      (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+                      (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)
+                      (#pt-app
+                        (#pt-use integer-reflexive ())
+                        (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator))
+                      (#pt-app
+                        (#pt-use integer-multiply-commutative ())
+                        second-denominator
+                        first-denominator))))))))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator))
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+          (#pt-app
+            (#pt-use integer-multiply-distributive ())
+            (#pt-app (#pt-use integer-multiply ()) first-other second-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) second-other first-other-denominator)
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))))))
+(#theorem integer-cross-sum-associative
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter first-denominator (#pt-use integer ()))
+    (#parameter second-denominator (#pt-use integer ()))
+    (#parameter third-denominator (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+          third-denominator)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          third
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          first
+          (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+            (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+          first-denominator))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+          third-denominator)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          third
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            third-denominator)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+            third-denominator))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          third
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          first
+          (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+            (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+          first-denominator))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator))
+          third-denominator)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          third
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+            third-denominator)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+            third-denominator))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          third
+          (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+        (#pt-app
+          (#pt-use integer-multiply-distributive ())
+          (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+          (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+          third-denominator)
+        (#pt-app
+          (#pt-use integer-reflexive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            third
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+              third-denominator)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              third-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            third
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              second
+              (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+            first-denominator))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            first
+            (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+              (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+            first-denominator))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+              third-denominator)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              third-denominator))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            third
+            (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              second
+              (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+            first-denominator)
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) first second-denominator)
+              third-denominator)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+              third-denominator)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              second
+              (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+            (#pt-app
+              (#pt-use integer-multiply-associative ())
+              first
+              second-denominator
+              third-denominator)
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) second first-denominator)
+                third-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) first-denominator third-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply-associative ())
+                second
+                first-denominator
+                third-denominator)
+              (#pt-app
+                (#pt-use integer-multiply-congruent ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) first-denominator third-denominator)
+                second
+                (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator)
+                (#pt-app (#pt-use integer-reflexive ()) second)
+                (#pt-app
+                  (#pt-use integer-multiply-commutative ())
+                  first-denominator
+                  third-denominator))))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              third
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              third
+              (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+              first-denominator)
+            (#pt-app
+              (#pt-use integer-multiply-congruent ())
+              third
+              (#pt-app (#pt-use integer-multiply ()) first-denominator second-denominator)
+              third
+              (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator)
+              (#pt-app (#pt-use integer-reflexive ()) third)
+              (#pt-app
+                (#pt-use integer-multiply-commutative ())
+                first-denominator
+                second-denominator))
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                first-denominator)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                third
+                (#pt-app (#pt-use integer-multiply ()) second-denominator first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply-associative ())
+                third
+                second-denominator
+                first-denominator))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator)))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+              first-denominator))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                first-denominator)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+              first-denominator))
+          (#pt-app
+            (#pt-use integer-add-associative ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              second
+              (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+              first-denominator))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                first-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+              first-denominator)
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app (#pt-use integer-multiply ()) second-denominator third-denominator)))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second
+                  (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                  first-denominator))
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                  first-denominator)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                  first-denominator))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+                first-denominator)
+              (#pt-app
+                (#pt-use integer-add-congruent ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  second
+                  (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                  first-denominator)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                  first-denominator)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                  first-denominator)
+                (#pt-app
+                  (#pt-use integer-symmetric ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                    first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    second
+                    (#pt-app (#pt-use integer-multiply ()) third-denominator first-denominator))
+                  (#pt-app
+                    (#pt-use integer-multiply-associative ())
+                    second
+                    third-denominator
+                    first-denominator))
+                (#pt-app
+                  (#pt-use integer-reflexive ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                    first-denominator)))
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                    (#pt-app (#pt-use integer-multiply ()) third second-denominator))
+                  first-denominator)
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                    first-denominator)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                    first-denominator))
+                (#pt-app
+                  (#pt-use integer-multiply-distributive ())
+                  (#pt-app (#pt-use integer-multiply ()) second third-denominator)
+                  (#pt-app (#pt-use integer-multiply ()) third second-denominator)
+                  first-denominator)))))))))

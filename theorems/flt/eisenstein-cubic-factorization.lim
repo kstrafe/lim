@@ -1,0 +1,1196 @@
+; Direct mathematical source port of FLT/Three.lean:300-309.
+; An explicit ring expansion and the proved root equations factor a^3+b^3.
+; Cube products and root-unit rotations support the next solution orientation.
+; All coefficients and inverse witnesses are checked native terms.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-zero = ./eisenstein-ring.lim::eisenstein-multiply-zero)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-one-multiply = ./eisenstein-cubic-bridge.lim::eisenstein-one-multiply)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-omega = ./eisenstein-defs.lim::eisenstein-omega)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-power-three-as-cube = ./eisenstein-ring.lim::eisenstein-power-three-as-cube)
+(#alias eisenstein-power-congruent = ./eisenstein-ring.lim::eisenstein-power-congruent)
+(#alias eisenstein-zero-add = ./eisenstein-additive-divisibility.lim::eisenstein-zero-add)
+(#alias eisenstein-power-one = ./eisenstein-power-divisibility.lim::eisenstein-power-one)
+(#alias eisenstein-omega-polynomial = ./eisenstein-constants.lim::eisenstein-omega-polynomial)
+(#alias eisenstein-omega-cube = ./eisenstein-constants.lim::eisenstein-omega-cube)
+(#alias
+  eisenstein-cubic-factor-expansion
+  =
+  ./eisenstein-cubic-factor-expansion.lim::eisenstein-cubic-factor-expansion)
+(#alias
+  eisenstein-cubic-product-expansion
+  =
+  ./eisenstein-cubic-factor-expansion.lim::eisenstein-cubic-product-expansion)
+(#theorem eisenstein-power-two-as-square
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 2))
+      (#pt-app (#pt-use eisenstein-multiply ()) number number)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-multiply-congruent ())
+      number
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-succ #pt-zero))
+      number
+      number
+      (#pt-app (#pt-use eisenstein-reflexive ()) number)
+      (#pt-app (#pt-use eisenstein-power-one ()) number))))
+(#theorem eisenstein-omega-mixed-polynomial
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          (#pt-use eisenstein-omega ()))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-omega ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+      (#pt-use eisenstein-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          (#pt-use eisenstein-omega ()))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-omega ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          (#pt-use eisenstein-omega ()))
+        (#pt-use eisenstein-one ()))
+      (#pt-use eisenstein-zero ())
+      (#pt-app
+        (#pt-use eisenstein-add-congruent ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          (#pt-use eisenstein-omega ()))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-omega ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          (#pt-use eisenstein-omega ()))
+        (#pt-use eisenstein-one ())
+        (#pt-app
+          (#pt-use eisenstein-reflexive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+            (#pt-use eisenstein-omega ())))
+        (#pt-use eisenstein-omega-cube ()))
+      (#pt-use eisenstein-omega-polynomial ()))))
+(#theorem eisenstein-cubic-root-expansion-reduces
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) first first))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first first)
+              second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                (#pt-use eisenstein-omega ()))
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                first
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))
+                  (#pt-use eisenstein-omega ()))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-omega ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) first first))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          second
+          (#pt-app (#pt-use eisenstein-multiply ()) second second)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-add-congruent ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        first
+        (#pt-app (#pt-use eisenstein-multiply ()) first first))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first first)
+            second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              (#pt-use eisenstein-omega ()))
+            (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) second second))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                (#pt-use eisenstein-omega ()))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-omega ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-omega ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              second
+              (#pt-app (#pt-use eisenstein-multiply ()) second second)))))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        first
+        (#pt-app (#pt-use eisenstein-multiply ()) first first))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        second
+        (#pt-app (#pt-use eisenstein-multiply ()) second second))
+      (#pt-app
+        (#pt-use eisenstein-reflexive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) first first)))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first first)
+              second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                (#pt-use eisenstein-omega ()))
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                first
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))
+                  (#pt-use eisenstein-omega ()))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-omega ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second)))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-use eisenstein-zero ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          second
+          (#pt-app (#pt-use eisenstein-multiply ()) second second))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first first)
+              second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                (#pt-use eisenstein-omega ()))
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                first
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))
+                  (#pt-use eisenstein-omega ()))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-omega ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))))
+          (#pt-use eisenstein-zero ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                second)
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))
+                  (#pt-use eisenstein-omega ()))
+                (#pt-use eisenstein-one ())))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                second)
+              (#pt-use eisenstein-zero ()))
+            (#pt-use eisenstein-zero ())
+            (#pt-app
+              (#pt-use eisenstein-multiply-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                second)
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))
+                  (#pt-use eisenstein-omega ()))
+                (#pt-use eisenstein-one ()))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                second)
+              (#pt-use eisenstein-zero ())
+              (#pt-app
+                (#pt-use eisenstein-reflexive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                  second))
+              (#pt-use eisenstein-omega-polynomial ()))
+            (#pt-app
+              (#pt-use eisenstein-multiply-zero ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                second)))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  first
+                  (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2))
+                    (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  second
+                  (#pt-app (#pt-use eisenstein-multiply ()) second second))))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-zero ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              second
+              (#pt-app (#pt-use eisenstein-multiply ()) second second))
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  first
+                  (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2))
+                    (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  second
+                  (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+              (#pt-use eisenstein-zero ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second))
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2))
+                      (#pt-use eisenstein-omega ()))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-use eisenstein-zero ()))
+                (#pt-use eisenstein-zero ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply-congruent ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2))
+                      (#pt-use eisenstein-omega ()))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2))))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-use eisenstein-zero ())
+                  (#pt-app
+                    (#pt-use eisenstein-reflexive ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      first
+                      (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+                  (#pt-use eisenstein-omega-mixed-polynomial ()))
+                (#pt-app
+                  (#pt-use eisenstein-multiply-zero ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))))
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  second
+                  (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                (#pt-app
+                  (#pt-use eisenstein-multiply-congruent ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-use eisenstein-omega-cube ())
+                  (#pt-app
+                    (#pt-use eisenstein-reflexive ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      second
+                      (#pt-app (#pt-use eisenstein-multiply ()) second second))))
+                (#pt-app
+                  (#pt-use eisenstein-one-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second)))))
+            (#pt-app
+              (#pt-use eisenstein-zero-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) second second)))))
+        (#pt-app
+          (#pt-use eisenstein-zero-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second)))))))
+(#theorem eisenstein-sum-cubes-factor
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+            second)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) first first))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          second
+          (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+            second)))
+      (#pt-app
+        (#pt-use eisenstein-add-congruent ())
+        (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) first first))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          second
+          (#pt-app (#pt-use eisenstein-multiply ()) second second))
+        (#pt-app (#pt-use eisenstein-power-three-as-cube ()) first)
+        (#pt-app (#pt-use eisenstein-power-three-as-cube ()) second))
+      (#pt-app
+        (#pt-use eisenstein-symmetric ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              second)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) first first))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-add ()) first second)
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                first
+                (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                second)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) first first))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) first first)
+                  second)
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2))
+                    (#pt-use eisenstein-omega ()))
+                  (#pt-use eisenstein-one ())))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    first
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2))
+                      (#pt-use eisenstein-omega ()))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    second
+                    (#pt-app (#pt-use eisenstein-multiply ()) second second))))))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) first first))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              second
+              (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+          (#pt-app
+            (#pt-use eisenstein-cubic-factor-expansion ())
+            first
+            second
+            (#pt-use eisenstein-omega ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+          (#pt-app (#pt-use eisenstein-cubic-root-expansion-reduces ()) first second))))))
+(#theorem eisenstein-cube-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+        (#pt-numeral 3))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+        (#pt-numeral 3))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+          (#pt-app (#pt-use eisenstein-multiply ()) first second)))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use eisenstein-power-three-as-cube ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second)
+            (#pt-app (#pt-use eisenstein-multiply ()) first second)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) first first))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+        (#pt-app (#pt-use eisenstein-cubic-product-expansion ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-multiply-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) first first))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            second
+            (#pt-app (#pt-use eisenstein-multiply ()) second second))
+          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3))
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) first first))
+            (#pt-app (#pt-use eisenstein-power-three-as-cube ()) first))
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              second
+              (#pt-app (#pt-use eisenstein-multiply ()) second second))
+            (#pt-app (#pt-use eisenstein-power-three-as-cube ()) second)))))))
+(#theorem eisenstein-omega-square-unit
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-unit ())
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2))
+                candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                candidate-inverse
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-use eisenstein-one ())))))
+      introduce
+      (
+        (#pt-use eisenstein-omega ())
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              (#pt-use eisenstein-omega ()))
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-omega ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              (#pt-use eisenstein-omega ()))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-omega ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+            (#pt-use eisenstein-one ())
+            (#pt-app
+              (#pt-use eisenstein-multiply-commutative ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              (#pt-use eisenstein-omega ()))
+            (#pt-use eisenstein-omega-cube ()))
+          (#pt-use eisenstein-omega-cube ()))))))
+(#theorem eisenstein-omega-product-cube
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number)
+        (#pt-numeral 3))
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number)
+        (#pt-numeral 3))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3)))
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+      (#pt-app (#pt-use eisenstein-cube-product ()) (#pt-use eisenstein-omega ()) number)
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-one ())
+          (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3)))
+        (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-multiply-congruent ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+          (#pt-use eisenstein-one ())
+          (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+          (#pt-use eisenstein-omega-cube ())
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use eisenstein-one-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3)))))))
+(#theorem eisenstein-omega-square-product-cube
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          number)
+        (#pt-numeral 3))
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          number)
+        (#pt-numeral 3))
+      (#pt-app
+        (#pt-use eisenstein-power ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-omega ())
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number))
+        (#pt-numeral 3))
+      (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+      (#pt-app
+        (#pt-use eisenstein-power-congruent ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          number)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-use eisenstein-omega ())
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number))
+        (#pt-numeral 3)
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+            number)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-omega ())
+              (#pt-use eisenstein-omega ()))
+            number)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-use eisenstein-omega ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number))
+          (#pt-app
+            (#pt-use eisenstein-multiply-congruent ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+            number
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-omega ())
+              (#pt-use eisenstein-omega ()))
+            number
+            (#pt-app (#pt-use eisenstein-power-two-as-square ()) (#pt-use eisenstein-omega ()))
+            (#pt-app (#pt-use eisenstein-reflexive ()) number))
+          (#pt-app
+            (#pt-use eisenstein-multiply-associative ())
+            (#pt-use eisenstein-omega ())
+            (#pt-use eisenstein-omega ())
+            number)))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-use eisenstein-omega ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number))
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number)
+          (#pt-numeral 3))
+        (#pt-app (#pt-use eisenstein-power ()) number (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-omega-product-cube ())
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) number))
+        (#pt-app (#pt-use eisenstein-omega-product-cube ()) number)))))

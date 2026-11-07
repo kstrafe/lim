@@ -1,0 +1,593 @@
+; Constructive Euclidean division for every nonzero Eisenstein divisor.
+; The witnesses retain its actual natural norm, quotient, remainder,
+; exact reconstruction, actual remainder norm and strict norm decrease.
+; Signed coordinate division, conjugate algebra and checked norm laws
+; construct these witnesses; no division/PID/factorization axiom is used.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias
+  eisenstein-coordinate-division-spec
+  =
+  ./eisenstein-coordinate-division.lim::eisenstein-coordinate-division-spec)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  eisenstein-division-remainder
+  =
+  ./eisenstein-euclidean-algebra.lim::eisenstein-division-remainder)
+(#alias
+  eisenstein-division-reconstruction
+  =
+  ./eisenstein-euclidean-algebra.lim::eisenstein-division-reconstruction)
+(#alias
+  eisenstein-remainder-small-norm-exists
+  =
+  ./eisenstein-euclidean-norm.lim::eisenstein-remainder-small-norm-exists)
+(#alias
+  eisenstein-coordinate-division-exists
+  =
+  ./eisenstein-coordinate-division.lim::eisenstein-coordinate-division-exists)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias
+  eisenstein-natural-norm-nonzero
+  =
+  ./eisenstein-natural-norm-properties.lim::eisenstein-natural-norm-nonzero)
+(#alias zero-less-nonzero = ./natural-square-order.lim::zero-less-nonzero)
+(#math-definition eisenstein-euclidean-division-spec ()
+  (#pt-pi
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor (#pt-use eisenstein ()))
+      (divisor-norm #pt-nat)
+      (quotient (#pt-use eisenstein ()))
+      (remainder (#pt-use eisenstein ()))
+      (remainder-norm #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor (#pt-use eisenstein ()))
+      (divisor-norm #pt-nat)
+      (quotient (#pt-use eisenstein ()))
+      (remainder (#pt-use eisenstein ()))
+      (remainder-norm #pt-nat))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        dividend
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+          remainder))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use eisenstein-natural-norm ()) remainder remainder-norm)
+        (#pt-app (#pt-use less-than ()) remainder-norm divisor-norm)))))
+(#math-definition eisenstein-euclidean-has-division ()
+  (#pt-pi
+    ((dividend (#pt-use eisenstein ())) (divisor (#pt-use eisenstein ())) (divisor-norm #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    ((dividend (#pt-use eisenstein ())) (divisor (#pt-use eisenstein ())) (divisor-norm #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use eisenstein ())
+      (#pt-lambda
+        ((candidate-quotient (#pt-use eisenstein ())))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use eisenstein ())
+          (#pt-lambda
+            ((candidate-remainder (#pt-use eisenstein ())))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-remainder-norm #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-euclidean-division-spec ())
+                  dividend
+                  divisor
+                  divisor-norm
+                  candidate-quotient
+                  candidate-remainder
+                  candidate-remainder-norm)))))))))
+(#math-definition eisenstein-has-euclidean-division ()
+  (#pt-pi ((dividend (#pt-use eisenstein ())) (divisor (#pt-use eisenstein ()))) #pt-prop)
+  (#pt-lambda
+    ((dividend (#pt-use eisenstein ())) (divisor (#pt-use eisenstein ())))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-divisor-norm #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app (#pt-use eisenstein-natural-norm ()) divisor candidate-divisor-norm)
+          (#pt-app
+            (#pt-use eisenstein-euclidean-has-division ())
+            dividend
+            divisor
+            candidate-divisor-norm))))))
+(#theorem eisenstein-euclidean-division-from-coordinates
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter coordinate-certificate (#pt-app (#pt-use eisenstein-coordinate-division-spec ()) (#pt-app (#pt-use eisenstein-multiply ()) dividend (#pt-app (#pt-use eisenstein-conjugate ()) divisor)) divisor-norm quotient real-remainder omega-remainder))
+    (#parameter divisor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) divisor (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app (#pt-use eisenstein-euclidean-has-division ()) dividend divisor divisor-norm))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-norm #pt-nat))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-natural-norm ())
+              (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+              candidate-norm)
+            (#pt-app (#pt-use less-than ()) candidate-norm divisor-norm))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-norm #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-natural-norm ())
+                    (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                    candidate-norm)
+                  (#pt-app (#pt-use less-than ()) candidate-norm divisor-norm))))))
+        (#pt-app (#pt-use eisenstein-euclidean-has-division ()) dividend divisor divisor-norm))
+      (
+        (#pt-lambda
+          (
+            (remainder-norm #pt-nat)
+            (small-norm-certificate
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-natural-norm ())
+                  (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                  remainder-norm)
+                (#pt-app (#pt-use less-than ()) remainder-norm divisor-norm))))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-quotient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-remainder (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-remainder-norm #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-euclidean-division-spec ())
+                          dividend
+                          divisor
+                          divisor-norm
+                          candidate-quotient
+                          candidate-remainder
+                          candidate-remainder-norm)))))))
+            introduce
+            (quotient
+              (#pt-construct
+                exists
+                (0)
+                (
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-remainder (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-remainder-norm #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-euclidean-division-spec ())
+                          dividend
+                          divisor
+                          divisor-norm
+                          quotient
+                          candidate-remainder
+                          candidate-remainder-norm)))))
+                introduce
+                (
+                  (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+                  (#pt-construct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((candidate-remainder-norm #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-euclidean-division-spec ())
+                          dividend
+                          divisor
+                          divisor-norm
+                          quotient
+                          (#pt-app
+                            (#pt-use eisenstein-division-remainder ())
+                            dividend
+                            divisor
+                            quotient)
+                          candidate-remainder-norm)))
+                    introduce
+                    (remainder-norm
+                      (#pt-app
+                        (#pt-use conjunction-introduce ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          dividend
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+                            (#pt-app
+                              (#pt-use eisenstein-division-remainder ())
+                              dividend
+                              divisor
+                              quotient)))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-natural-norm ())
+                            (#pt-app
+                              (#pt-use eisenstein-division-remainder ())
+                              dividend
+                              divisor
+                              quotient)
+                            remainder-norm)
+                          (#pt-app (#pt-use less-than ()) remainder-norm divisor-norm))
+                        (#pt-app
+                          (#pt-use eisenstein-division-reconstruction ())
+                          dividend
+                          divisor
+                          quotient)
+                        small-norm-certificate)))))))))
+      (#pt-app
+        (#pt-use eisenstein-remainder-small-norm-exists ())
+        dividend
+        divisor
+        quotient
+        divisor-norm
+        real-remainder
+        omega-remainder
+        divisor-norm-certificate
+        coordinate-certificate
+        divisor-nonzero))))
+(#theorem eisenstein-euclidean-division-with-norm-exists
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter divisor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) divisor (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app (#pt-use eisenstein-euclidean-has-division ()) dividend divisor divisor-norm))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-quotient (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-real-remainder #pt-nat))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-omega-remainder #pt-nat))
+                  (#pt-app
+                    (#pt-use eisenstein-coordinate-division-spec ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      dividend
+                      (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                    divisor-norm
+                    candidate-quotient
+                    candidate-real-remainder
+                    candidate-omega-remainder)))))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-quotient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-real-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-omega-remainder #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-coordinate-division-spec ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            dividend
+                            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                          divisor-norm
+                          candidate-quotient
+                          candidate-real-remainder
+                          candidate-omega-remainder)))))))))
+        (#pt-app (#pt-use eisenstein-euclidean-has-division ()) dividend divisor divisor-norm))
+      (
+        (#pt-lambda
+          (
+            (quotient (#pt-use eisenstein ()))
+            (real-remainder-existence
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-real-remainder #pt-nat))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-omega-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use eisenstein-coordinate-division-spec ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          dividend
+                          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                        divisor-norm
+                        quotient
+                        candidate-real-remainder
+                        candidate-omega-remainder)))))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-real-remainder #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-omega-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use eisenstein-coordinate-division-spec ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        dividend
+                        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                      divisor-norm
+                      quotient
+                      candidate-real-remainder
+                      candidate-omega-remainder)))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-real-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-omega-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use eisenstein-coordinate-division-spec ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              dividend
+                              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                            divisor-norm
+                            quotient
+                            candidate-real-remainder
+                            candidate-omega-remainder)))))))
+              (#pt-app (#pt-use eisenstein-euclidean-has-division ()) dividend divisor divisor-norm))
+            (
+              (#pt-lambda
+                (
+                  (real-remainder #pt-nat)
+                  (omega-remainder-existence
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-omega-remainder #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-coordinate-division-spec ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            dividend
+                            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                          divisor-norm
+                          quotient
+                          real-remainder
+                          candidate-omega-remainder)))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-omega-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use eisenstein-coordinate-division-spec ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          dividend
+                          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                        divisor-norm
+                        quotient
+                        real-remainder
+                        candidate-omega-remainder)))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-omega-remainder #pt-nat))
+                            (#pt-app
+                              (#pt-use eisenstein-coordinate-division-spec ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                dividend
+                                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                              divisor-norm
+                              quotient
+                              real-remainder
+                              candidate-omega-remainder)))))
+                    (#pt-app
+                      (#pt-use eisenstein-euclidean-has-division ())
+                      dividend
+                      divisor
+                      divisor-norm))
+                  (
+                    (#pt-lambda
+                      (
+                        (omega-remainder #pt-nat)
+                        (coordinate-certificate
+                          (#pt-app
+                            (#pt-use eisenstein-coordinate-division-spec ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              dividend
+                              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                            divisor-norm
+                            quotient
+                            real-remainder
+                            omega-remainder)))
+                      (#pt-app
+                        (#pt-use eisenstein-euclidean-division-from-coordinates ())
+                        dividend
+                        divisor
+                        divisor-norm
+                        quotient
+                        real-remainder
+                        omega-remainder
+                        divisor-norm-certificate
+                        coordinate-certificate
+                        divisor-nonzero)))
+                  omega-remainder-existence)))
+            real-remainder-existence)))
+      (#pt-app
+        (#pt-use eisenstein-coordinate-division-exists ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          dividend
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+        divisor-norm
+        (#pt-app
+          (#pt-use zero-less-nonzero ())
+          divisor-norm
+          (#pt-app
+            (#pt-use eisenstein-natural-norm-nonzero ())
+            divisor
+            divisor-norm
+            divisor-norm-certificate
+            divisor-nonzero))))))
+(#theorem eisenstein-euclidean-division-exists
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter divisor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) divisor (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement (#pt-app (#pt-use eisenstein-has-euclidean-division ()) dividend divisor))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural-norm #pt-nat))
+          (#pt-app (#pt-use eisenstein-natural-norm ()) divisor candidate-natural-norm)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural-norm #pt-nat))
+                (#pt-app (#pt-use eisenstein-natural-norm ()) divisor candidate-natural-norm)))))
+        (#pt-app (#pt-use eisenstein-has-euclidean-division ()) dividend divisor))
+      (
+        (#pt-lambda
+          (
+            (divisor-norm #pt-nat)
+            (divisor-norm-certificate
+              (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-divisor-norm #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use eisenstein-natural-norm ()) divisor candidate-divisor-norm)
+                  (#pt-app
+                    (#pt-use eisenstein-euclidean-has-division ())
+                    dividend
+                    divisor
+                    candidate-divisor-norm))))
+            introduce
+            (divisor-norm
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm)
+                (#pt-app
+                  (#pt-use eisenstein-euclidean-has-division ())
+                  dividend
+                  divisor
+                  divisor-norm)
+                divisor-norm-certificate
+                (#pt-app
+                  (#pt-use eisenstein-euclidean-division-with-norm-exists ())
+                  dividend
+                  divisor
+                  divisor-norm
+                  divisor-norm-certificate
+                  divisor-nonzero))))))
+      (#pt-app (#pt-use eisenstein-natural-norm-exists ()) divisor))))

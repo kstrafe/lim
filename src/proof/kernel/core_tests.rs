@@ -32,10 +32,28 @@ fn shared_export_terms_cannot_expand_past_the_transformation_allocation_budget()
     }
     k.reset_budget();
     let error = k
-        .definition("oversized-tree", vec![], global(&name), tree, false)
+        .definition("oversized-tree", vec![], global(&name), tree.clone(), false)
+        .unwrap_err();
+    // Scope substitution now retains the shared DAG. Ordinary inference still
+    // spends work on occurrences and must reject when that real limit is hit.
+    assert!(error.contains("work units"), "{error}");
+    assert!(k.transformation_bytes() < k.budget.phase_bytes());
+    assert!(!k.contains("oversized-tree").unwrap());
+    // A smaller explicit byte budget continues to exercise allocation refusal
+    // independently of which resource the default profile reaches first.
+    k.budget = crate::ProofBudget::new(WORK, 32 * 1024, 256 << 20).unwrap();
+    k.reset_budget();
+    let error = k
+        .definition(
+            "allocation-limited-tree",
+            vec![],
+            global(&name),
+            tree,
+            false,
+        )
         .unwrap_err();
     assert!(error.contains("allocation limit"), "{error}");
-    assert!(!k.contains("oversized-tree"));
+    assert!(!k.contains("allocation-limited-tree").unwrap());
     k.reset_budget();
     k.definition("small-tree", vec![], global(&name), leaf, false)
         .unwrap();
@@ -99,8 +117,8 @@ fn mutual_groups_roll_back_every_member_on_cross_family_negative_occurrences() {
         .unwrap_err();
     assert_eq!(error.0, "Right");
     assert!(error.1.contains("strict positivity"), "{error:?}");
-    assert!(!k.contains("Left") && !k.contains("Right"));
-    assert!(k.contains("Kept"));
+    assert!(!k.contains("Left").unwrap() && !k.contains("Right").unwrap());
+    assert!(k.contains("Kept").unwrap());
     // The failed provisional names can be reused, with no leftover metadata.
     k.reset_budget();
     k.mutual_inductive(vec![
@@ -349,7 +367,7 @@ fn mutual_groups_reject_changed_uniform_parameters_without_leaving_stubs() {
         ])
         .unwrap_err();
     assert!(error.1.contains("uniform"), "{error:?}");
-    assert!(!k.contains("UniformA") && !k.contains("UniformB"));
+    assert!(!k.contains("UniformA").unwrap() && !k.contains("UniformB").unwrap());
     k.reset_budget();
     // An unequal header cannot leave even the first family installed.
     let a = input("UniformA", vec![]);
@@ -358,7 +376,7 @@ fn mutual_groups_reject_changed_uniform_parameters_without_leaving_stubs() {
     let error = k.mutual_inductive(vec![a, b]).unwrap_err();
     assert_eq!(error.0, "UniformB");
     assert!(error.1.contains("uniform parameter"), "{error:?}");
-    assert!(!k.contains("UniformA") && !k.contains("UniformB"));
+    assert!(!k.contains("UniformA").unwrap() && !k.contains("UniformB").unwrap());
 }
 
 #[test]
@@ -497,7 +515,7 @@ fn mutual_families_do_not_bypass_the_remaining_nested_occurrence_restriction() {
         ])
         .unwrap_err();
     assert!(error.1.contains("strict positivity"), "{error:?}");
-    assert!(!k.contains("NestedA") && !k.contains("NestedB"));
+    assert!(!k.contains("NestedA").unwrap() && !k.contains("NestedB").unwrap());
 }
 
 fn sort(n: u32) -> T {
@@ -1183,7 +1201,7 @@ fn unused_proof_let_definitions_are_checked_before_zeta_reduction() {
         assert!(k
             .definition(name, vec![], expected.clone(), value, true)
             .is_err());
-        assert!(!k.contains(name));
+        assert!(!k.contains(name).unwrap());
     }
 }
 
@@ -1209,7 +1227,7 @@ fn proof_lets_cannot_hide_negative_inductive_occurrences() {
             )
             .unwrap_err();
         assert!(error.contains("strict positivity"), "{error}");
-        assert!(!k.contains("BadLet"));
+        assert!(!k.contains("BadLet").unwrap());
     }
 }
 
@@ -1315,7 +1333,7 @@ fn indexed_constructor_results_reject_unbound_variables_without_installing_the_f
             )
             .unwrap_err();
         assert!(error.contains("unbound kernel variable"), "{error}");
-        assert!(!k.contains("BadIndex"));
+        assert!(!k.contains("BadIndex").unwrap());
     }
 }
 
@@ -1937,7 +1955,7 @@ fn positive_recursive_let_wrappers_cannot_erase_bad_definitions() {
         )
         .unwrap_err();
     assert!(error.contains("type mismatch"), "{error}");
-    assert!(!k.contains("BadLetFan"));
+    assert!(!k.contains("BadLetFan").unwrap());
 }
 
 #[test]
@@ -2037,7 +2055,7 @@ fn failed_declarations_do_not_extend_the_environment() {
             vec![("roll".into(), vec![pi(global("bad"), falsity())])]
         )
         .is_err());
-    assert!(!k.contains("bad"));
+    assert!(!k.contains("bad").unwrap());
     k.inductive("bad", vec![], vec![], level(1), vec![("ok".into(), vec![])])
         .unwrap();
     assert!(k
@@ -2049,7 +2067,7 @@ fn failed_declarations_do_not_extend_the_environment() {
             false
         )
         .is_err());
-    assert!(!k.contains("free-level"));
+    assert!(!k.contains("free-level").unwrap());
 }
 
 #[test]
@@ -2233,7 +2251,7 @@ fn monomorphic_body_reuse_does_not_skip_scope_arity_or_opacity_checks() {
         .definition("bad", vec![], nat(), invalid, false)
         .unwrap_err();
     assert!(why.contains("universe"), "{why}");
-    assert!(!kernel.contains("bad"));
+    assert!(!kernel.contains("bad").unwrap());
     let ty = pi(nat(), nat());
     let body = lam(nat(), var(0));
     kernel
@@ -2290,14 +2308,14 @@ fn syntactic_conversion_never_certifies_an_untyped_reflexive_source() {
         .definition("untyped-reflexivity", vec![], claim, proof, true)
         .unwrap_err();
     assert!(why.contains("type mismatch"), "{why}");
-    assert!(!kernel.contains("untyped-reflexivity"));
+    assert!(!kernel.contains("untyped-reflexivity").unwrap());
 
     let erased = term(Term::Let(nat(), sort(0), zero()));
     let why = kernel
         .definition("bad-erased-value", vec![], nat(), erased, false)
         .unwrap_err();
     assert!(why.contains("type mismatch"), "{why}");
-    assert!(!kernel.contains("bad-erased-value"));
+    assert!(!kernel.contains("bad-erased-value").unwrap());
 }
 
 #[test]
@@ -2336,14 +2354,22 @@ fn substitution_reuse_preserves_depth_overflow_and_allocation_checks() {
         .instantiate(&lam(nat(), var(1)), &var(usize::MAX), 0)
         .unwrap_err();
     assert!(why.contains("variable index overflow"), "{why}");
-    let why = kernel
+    // A closed argument can be shared at the limit without visiting children.
+    let shared = kernel
         .instantiate(&lam(nat(), var(1)), &lam(nat(), zero()), DEPTH - 1)
+        .unwrap();
+    assert!(kernel
+        .same_syntax(&shared, &lam(nat(), lam(nat(), zero())))
+        .unwrap());
+    // An open annotation requires an actual child shift beyond the limit.
+    let why = kernel
+        .instantiate(&lam(nat(), var(1)), &lam(var(0), zero()), DEPTH - 1)
         .unwrap_err();
     assert!(why.contains("resource limit"), "{why}");
     kernel.reset_budget();
-    // The body charges 128 bytes and the local entry 256. Identity shares
+    // The body charges one node and the local entry 256 bytes. Identity shares
     // the argument without allocating a replacement node.
-    kernel.transformed_bytes = 64 * 1024 * 1024 - 383;
+    kernel.transformed_bytes = kernel.budget.phase_bytes() - TERM_NODE_BYTES - 255;
     assert!(kernel
         .instantiate(&var(0), &var(0), 0)
         .unwrap_err()
@@ -2413,5 +2439,5 @@ fn sharing_global_leaves_preserves_universe_scope_and_initial_arity_checks() {
     assert!(k
         .definition("invalid-arity", vec![], nat(), erased, false)
         .is_err());
-    assert!(!k.contains("invalid-arity"));
+    assert!(!k.contains("invalid-arity").unwrap());
 }

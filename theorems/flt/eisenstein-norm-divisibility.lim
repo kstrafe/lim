@@ -1,0 +1,169 @@
+; Natural norms preserve divisibility, including divisor zero.
+; Quotient and norm witnesses are eliminated only into propositions.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-injective
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias
+  eisenstein-natural-norm-unique
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-unique)
+(#alias
+  eisenstein-natural-norm-congruent
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-congruent)
+(#alias
+  eisenstein-natural-norm-multiply
+  =
+  ./eisenstein-natural-norm-multiply.lim::eisenstein-natural-norm-multiply)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#theorem eisenstein-natural-norm-divides
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter number-norm #pt-nat)
+    (#parameter divisor-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter number-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number number-norm))
+    (#parameter divides-proof (#pt-app (#pt-use eisenstein-divides ()) divisor number)))
+  (#statement (#pt-app (#pt-use divides ()) divisor-norm number-norm))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor candidate-factor))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor candidate-factor))))))
+        (#pt-app (#pt-use divides ()) divisor-norm number-norm))
+      (
+        (#pt-lambda
+          (
+            (factor (#pt-use eisenstein ()))
+            (factor-equivalence
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor factor))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-norm #pt-nat))
+                (#pt-app (#pt-use eisenstein-natural-norm ()) factor candidate-norm)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-norm #pt-nat))
+                      (#pt-app (#pt-use eisenstein-natural-norm ()) factor candidate-norm)))))
+              (#pt-app (#pt-use divides ()) divisor-norm number-norm))
+            (
+              (#pt-lambda
+                (
+                  (factor-norm #pt-nat)
+                  (factor-certificate
+                    (#pt-app (#pt-use eisenstein-natural-norm ()) factor factor-norm)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-factor #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        number-norm
+                        (#pt-app (#pt-use multiply ()) divisor-norm candidate-factor))))
+                  introduce
+                  (factor-norm
+                    (#pt-app
+                      (#pt-use eisenstein-natural-norm-unique ())
+                      number
+                      number-norm
+                      (#pt-app (#pt-use multiply ()) divisor-norm factor-norm)
+                      number-certificate
+                      (#pt-app
+                        (#pt-use eisenstein-natural-norm-congruent ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                        number
+                        (#pt-app (#pt-use multiply ()) divisor-norm factor-norm)
+                        (#pt-app
+                          (#pt-use eisenstein-symmetric ())
+                          number
+                          (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                          factor-equivalence)
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm-multiply ())
+                          divisor
+                          factor
+                          divisor-norm
+                          factor-norm
+                          divisor-certificate
+                          factor-certificate)))))))
+            (#pt-app (#pt-use eisenstein-natural-norm-exists ()) factor))))
+      divides-proof)))

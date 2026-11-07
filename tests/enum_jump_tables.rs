@@ -31,19 +31,19 @@ fn fieldless_source(tags: &[u64]) -> String {
     let variants = tags
         .iter()
         .enumerate()
-        .map(|(index, tag)| format!("(Variant{index} {tag})"))
+        .map(|(index, tag)| format!("(Tag.Variant{index} {tag})"))
         .collect::<Vec<_>>()
         .join(" ");
     // Neither declaration nor arm order needs to equal tag order.
     let arms = (0..tags.len())
         .rev()
-        .map(|index| format!("(#case Variant{index} {}u64)", index + 10))
+        .map(|index| format!("(#case Tag.Variant{index} {}u64)", index + 10))
         .collect::<Vec<_>>()
         .join(" ");
     let checks = (0..tags.len())
         .map(|index| {
             format!(
-                "(#assert (#u64::eq (#call dispatch (: value Variant{index})) {}u64))",
+                "(#assert (#u64::eq (#call dispatch (: value Tag.Variant{index})) {}u64))",
                 index + 10
             )
         })

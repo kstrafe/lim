@@ -1,0 +1,444 @@
+; Actual norm n bounds both coordinate magnitudes below 4*n+1.
+; The two checked four-square identities supply arbitrary signed
+; square budgets. Magnitudes and natural-square witnesses justify
+; the finite bound for every sign and noncanonical representation.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias integer-add-commutative = ./integer-addition.lim::integer-add-commutative)
+(#alias
+  integer-three-square-magnitude-bound
+  =
+  ./integer-coordinate-search-bound.lim::integer-three-square-magnitude-bound)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias
+  eisenstein-norm-four-square-real
+  =
+  ./eisenstein-norm-symmetries.lim::eisenstein-norm-four-square-real)
+(#alias eisenstein-norm-four-squares = ./eisenstein-norm-squares.lim::eisenstein-norm-four-squares)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias less-than = ./natural-order.lim::less-than)
+(#theorem eisenstein-natural-norm-real-square-budget
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 number)
+            (#pt-project eisenstein 0 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))))
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 number)
+            (#pt-project eisenstein 0 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 1 number))))))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app (#pt-use eisenstein-norm ()) number))
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use eisenstein-norm ()) number))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-project eisenstein 0 number)
+              (#pt-project eisenstein 0 number)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project eisenstein 0 number)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                  (#pt-project eisenstein 1 number))))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project eisenstein 0 number)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                  (#pt-project eisenstein 1 number))))))
+        (#pt-app (#pt-use eisenstein-norm-four-square-real ()) number))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use eisenstein-norm ()) number))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use integer-of-natural ()) natural-norm))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))
+        (#pt-app
+          (#pt-use integer-multiply-congruent ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use eisenstein-norm ()) number)
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use integer-of-natural ()) natural-norm)
+          (#pt-app
+            (#pt-use integer-reflexive ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+          norm-certificate)
+        (#pt-app (#pt-use integer-multiply-of-natural ()) (#pt-numeral 4) natural-norm)))))
+(#theorem eisenstein-real-coordinate-magnitude-bound
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter coordinate-magnitude #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm))
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) (#pt-project eisenstein 0 number) coordinate-magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      coordinate-magnitude
+      (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-three-square-magnitude-bound ())
+      (#pt-project eisenstein 0 number)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-project eisenstein 0 number)
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+            (#pt-project eisenstein 1 number))))
+      coordinate-magnitude
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+      magnitude-proof
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-real-square-budget ())
+        number
+        natural-norm
+        norm-certificate))))
+(#theorem eisenstein-natural-norm-omega-square-budget
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 number)
+            (#pt-project eisenstein 1 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))))
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 number)
+            (#pt-project eisenstein 1 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number))))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 number)
+            (#pt-project eisenstein 1 number))))
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))
+      (#pt-app
+        (#pt-use integer-add-commutative ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 number)
+            (#pt-project eisenstein 1 number)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+              (#pt-project eisenstein 0 number))
+            (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 0 number))
+              (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                (#pt-project eisenstein 0 number))
+              (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number))))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-project eisenstein 1 number)
+              (#pt-project eisenstein 1 number))))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use eisenstein-norm ()) number))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app (#pt-use eisenstein-norm ()) number))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                  (#pt-project eisenstein 0 number))
+                (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+                  (#pt-project eisenstein 0 number))
+                (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number))))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-project eisenstein 1 number)
+                (#pt-project eisenstein 1 number))))
+          (#pt-app (#pt-use eisenstein-norm-four-squares ()) number))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app (#pt-use eisenstein-norm ()) number))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app (#pt-use integer-of-natural ()) natural-norm))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app (#pt-use eisenstein-norm ()) number)
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app (#pt-use integer-of-natural ()) natural-norm)
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+            norm-certificate)
+          (#pt-app (#pt-use integer-multiply-of-natural ()) (#pt-numeral 4) natural-norm))))))
+(#theorem eisenstein-omega-coordinate-magnitude-bound
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter coordinate-magnitude #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm))
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) (#pt-project eisenstein 1 number) coordinate-magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      coordinate-magnitude
+      (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-three-square-magnitude-bound ())
+      (#pt-project eisenstein 1 number)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2))
+          (#pt-project eisenstein 0 number))
+        (#pt-app (#pt-use integer-negate ()) (#pt-project eisenstein 1 number)))
+      coordinate-magnitude
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+      magnitude-proof
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-omega-square-budget ())
+        number
+        natural-norm
+        norm-certificate))))

@@ -1,0 +1,872 @@
+; Constructive nonnegative certificates for signed formal differences.
+; Every witness is a natural representative inside a proposition. Closure,
+; squares, zero-sum separation and positive-scale reflection are proved.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias
+  integer-multiply-congruent-second
+  =
+  ./integer-multiplication.lim::integer-multiply-congruent-second)
+(#alias
+  integer-multiply-negative-second
+  =
+  ./integer-divisibility.lim::integer-multiply-negative-second)
+(#alias integer-multiply-two-negatives = ./integer-divisibility.lim::integer-multiply-two-negatives)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias integer-add-inverse = ./integer-addition.lim::integer-add-inverse)
+(#alias natural-zero-sum-first = ./integer-natural-bridge.lim::natural-zero-sum-first)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias integer-add-commutative = ./integer-addition.lim::integer-add-commutative)
+(#alias
+  multiply-cancel-left-nonzero
+  =
+  ./natural-square-arithmetic.lim::multiply-cancel-left-nonzero)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias substitution = ./equality.lim::substitution)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#math-definition integer-nonnegative ()
+  (#pt-pi ((number (#pt-use integer ()))) #pt-prop)
+  (#pt-lambda
+    ((number (#pt-use integer ())))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-natural #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          number
+          (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+(#theorem integer-natural-nonnegative
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement
+    (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-of-natural ()) number)))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-of-natural ()) number)
+            (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+      introduce
+      (number
+        (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-of-natural ()) number))))))
+(#theorem integer-nonnegative-congruent
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter other (#pt-use integer ()))
+    (#parameter equivalent (#pt-app (#pt-use integer-equal ()) number other))
+    (#parameter nonnegative-proof (#pt-app (#pt-use integer-nonnegative ()) number)))
+  (#statement (#pt-app (#pt-use integer-nonnegative ()) other))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            number
+            (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  number
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+        (#pt-app (#pt-use integer-nonnegative ()) other))
+      (
+        (#pt-lambda
+          (
+            (first-natural #pt-nat)
+            (natural-equivalence
+              (#pt-app
+                (#pt-use integer-equal ())
+                number
+                (#pt-app (#pt-use integer-of-natural ()) first-natural))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  other
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+            introduce
+            (first-natural
+              (#pt-app
+                (#pt-use integer-transitive ())
+                other
+                number
+                (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                (#pt-app (#pt-use integer-symmetric ()) number other equivalent)
+                natural-equivalence)))))
+      nonnegative-proof)))
+(#theorem integer-nonnegative-add
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonnegative (#pt-app (#pt-use integer-nonnegative ()) first))
+    (#parameter second-nonnegative (#pt-app (#pt-use integer-nonnegative ()) second)))
+  (#statement
+    (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-add ()) first second)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            first
+            (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  first
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+        (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-add ()) first second)))
+      (
+        (#pt-lambda
+          (
+            (first-natural #pt-nat)
+            (first-equivalence
+              (#pt-app
+                (#pt-use integer-equal ())
+                first
+                (#pt-app (#pt-use integer-of-natural ()) first-natural))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-natural #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        second
+                        (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+              (#pt-app
+                (#pt-use integer-nonnegative ())
+                (#pt-app (#pt-use integer-add ()) first second)))
+            (
+              (#pt-lambda
+                (
+                  (second-natural #pt-nat)
+                  (second-equivalence
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      second
+                      (#pt-app (#pt-use integer-of-natural ()) second-natural))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-natural #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        (#pt-app (#pt-use integer-add ()) first second)
+                        (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+                  introduce
+                  (
+                    (#pt-app (#pt-use add ()) first-natural second-natural)
+                    (#pt-app
+                      (#pt-use integer-transitive ())
+                      (#pt-app (#pt-use integer-add ()) first second)
+                      (#pt-app
+                        (#pt-use integer-add ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use add ()) first-natural second-natural))
+                      (#pt-app
+                        (#pt-use integer-add-congruent ())
+                        first
+                        second
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                        first-equivalence
+                        second-equivalence)
+                      (#pt-app (#pt-use integer-add-of-natural ()) first-natural second-natural))))))
+            second-nonnegative)))
+      first-nonnegative)))
+(#theorem integer-nonnegative-multiply
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonnegative (#pt-app (#pt-use integer-nonnegative ()) first))
+    (#parameter second-nonnegative (#pt-app (#pt-use integer-nonnegative ()) second)))
+  (#statement
+    (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-multiply ()) first second)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            first
+            (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  first
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+        (#pt-app
+          (#pt-use integer-nonnegative ())
+          (#pt-app (#pt-use integer-multiply ()) first second)))
+      (
+        (#pt-lambda
+          (
+            (first-natural #pt-nat)
+            (first-equivalence
+              (#pt-app
+                (#pt-use integer-equal ())
+                first
+                (#pt-app (#pt-use integer-of-natural ()) first-natural))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-natural #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        second
+                        (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+              (#pt-app
+                (#pt-use integer-nonnegative ())
+                (#pt-app (#pt-use integer-multiply ()) first second)))
+            (
+              (#pt-lambda
+                (
+                  (second-natural #pt-nat)
+                  (second-equivalence
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      second
+                      (#pt-app (#pt-use integer-of-natural ()) second-natural))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-natural #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        (#pt-app (#pt-use integer-multiply ()) first second)
+                        (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+                  introduce
+                  (
+                    (#pt-app (#pt-use multiply ()) first-natural second-natural)
+                    (#pt-app
+                      (#pt-use integer-transitive ())
+                      (#pt-app (#pt-use integer-multiply ()) first second)
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                      (#pt-app
+                        (#pt-use integer-of-natural ())
+                        (#pt-app (#pt-use multiply ()) first-natural second-natural))
+                      (#pt-app
+                        (#pt-use integer-multiply-congruent ())
+                        first
+                        second
+                        (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                        (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                        first-equivalence
+                        second-equivalence)
+                      (#pt-app
+                        (#pt-use integer-multiply-of-natural ())
+                        first-natural
+                        second-natural))))))
+            second-nonnegative)))
+      first-nonnegative)))
+(#theorem integer-square-magnitude-positive
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter magnitude #pt-nat)
+    (#parameter magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) number number)
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use multiply ()) magnitude magnitude))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        number
+        (#pt-app (#pt-use integer-of-natural ()) magnitude))
+      (#pt-app
+        (#pt-use integer-equal ())
+        number
+        (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-app (#pt-use integer-multiply ()) number number)
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use multiply ()) magnitude magnitude)))
+      (#pt-lambda
+        (
+          (square-sign-positive
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app (#pt-use integer-of-natural ()) magnitude))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app (#pt-use integer-multiply ()) number number)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) magnitude))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) magnitude magnitude))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            number
+            number
+            (#pt-app (#pt-use integer-of-natural ()) magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) magnitude)
+            square-sign-positive
+            square-sign-positive)
+          (#pt-app (#pt-use integer-multiply-of-natural ()) magnitude magnitude)))
+      (#pt-lambda
+        (
+          (square-sign-negative
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app (#pt-use integer-negative-natural ()) magnitude))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app (#pt-use integer-multiply ()) number number)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+            (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) magnitude magnitude))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            number
+            number
+            (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+            (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+            square-sign-negative
+            square-sign-negative)
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) magnitude)
+              (#pt-app (#pt-use integer-of-natural ()) magnitude))
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) magnitude magnitude))
+            (#pt-app
+              (#pt-use integer-multiply-two-negatives ())
+              (#pt-app (#pt-use integer-of-natural ()) magnitude)
+              (#pt-app (#pt-use integer-of-natural ()) magnitude))
+            (#pt-app (#pt-use integer-multiply-of-natural ()) magnitude magnitude))))
+      magnitude-proof)))
+(#theorem integer-square-nonnegative
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ())))
+  (#statement
+    (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-multiply ()) number number)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app
+          (#pt-use integer-nonnegative ())
+          (#pt-app (#pt-use integer-multiply ()) number number)))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-multiply ()) number number)
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+            introduce
+            (
+              (#pt-app (#pt-use multiply ()) magnitude magnitude)
+              (#pt-app
+                (#pt-use integer-square-magnitude-positive ())
+                number
+                magnitude
+                magnitude-proof)))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))
+(#theorem integer-nonnegative-zero-sum-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonnegative (#pt-app (#pt-use integer-nonnegative ()) first))
+    (#parameter second-nonnegative (#pt-app (#pt-use integer-nonnegative ()) second))
+    (#parameter sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) first second) (#pt-use integer-zero ()))))
+  (#statement (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-natural #pt-nat))
+          (#pt-app
+            (#pt-use integer-equal ())
+            first
+            (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  first
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+        (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))
+      (
+        (#pt-lambda
+          (
+            (first-natural #pt-nat)
+            (first-equivalence
+              (#pt-app
+                (#pt-use integer-equal ())
+                first
+                (#pt-app (#pt-use integer-of-natural ()) first-natural))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-natural #pt-nat))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-natural #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        second
+                        (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))))
+              (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))
+            (
+              (#pt-lambda
+                (
+                  (second-natural #pt-nat)
+                  (second-equivalence
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      second
+                      (#pt-app (#pt-use integer-of-natural ()) second-natural))))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      first
+                      (#pt-app (#pt-use integer-of-natural ()) endpoint)))
+                  first-natural
+                  #pt-zero
+                  (#pt-app
+                    (#pt-use natural-zero-sum-first ())
+                    first-natural
+                    second-natural
+                    (#pt-app
+                      (#pt-use integer-of-natural-injective ())
+                      (#pt-app (#pt-use add ()) first-natural second-natural)
+                      #pt-zero
+                      (#pt-app
+                        (#pt-use integer-transitive ())
+                        (#pt-app
+                          (#pt-use integer-of-natural ())
+                          (#pt-app (#pt-use add ()) first-natural second-natural))
+                        (#pt-app
+                          (#pt-use integer-add ())
+                          (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                          (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                        (#pt-use integer-zero ())
+                        (#pt-app
+                          (#pt-use integer-symmetric ())
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                            (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                          (#pt-app
+                            (#pt-use integer-of-natural ())
+                            (#pt-app (#pt-use add ()) first-natural second-natural))
+                          (#pt-app (#pt-use integer-add-of-natural ()) first-natural second-natural))
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                            (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                          (#pt-app (#pt-use integer-add ()) first second)
+                          (#pt-use integer-zero ())
+                          (#pt-app
+                            (#pt-use integer-symmetric ())
+                            (#pt-app (#pt-use integer-add ()) first second)
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                              (#pt-app (#pt-use integer-of-natural ()) second-natural))
+                            (#pt-app
+                              (#pt-use integer-add-congruent ())
+                              first
+                              second
+                              (#pt-app (#pt-use integer-of-natural ()) first-natural)
+                              (#pt-app (#pt-use integer-of-natural ()) second-natural)
+                              first-equivalence
+                              second-equivalence))
+                          sum-zero))))
+                  first-equivalence)))
+            second-nonnegative)))
+      first-nonnegative)))
+(#theorem integer-nonnegative-zero-sum-second
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonnegative (#pt-app (#pt-use integer-nonnegative ()) first))
+    (#parameter second-nonnegative (#pt-app (#pt-use integer-nonnegative ()) second))
+    (#parameter sum-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) first second) (#pt-use integer-zero ()))))
+  (#statement (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use integer-nonnegative-zero-sum-first ())
+      second
+      first
+      second-nonnegative
+      first-nonnegative
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app (#pt-use integer-add ()) second first)
+        (#pt-app (#pt-use integer-add ()) first second)
+        (#pt-use integer-zero ())
+        (#pt-app (#pt-use integer-add-commutative ()) second first)
+        sum-zero))))
+(#theorem integer-negative-natural-nonnegative-zero
+  (#universes)
+  (#parameters
+    (#parameter natural #pt-nat)
+    (#parameter negative-nonnegative (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-negative-natural ()) natural))))
+  (#statement (#pt-eq #pt-nat natural #pt-zero))
+  (#proof
+    (#pt-app
+      (#pt-use integer-of-natural-injective ())
+      natural
+      #pt-zero
+      (#pt-app
+        (#pt-use integer-nonnegative-zero-sum-first ())
+        (#pt-app (#pt-use integer-of-natural ()) natural)
+        (#pt-app (#pt-use integer-negative-natural ()) natural)
+        (#pt-app (#pt-use integer-natural-nonnegative ()) natural)
+        negative-nonnegative
+        (#pt-app (#pt-use integer-add-inverse ()) (#pt-app (#pt-use integer-of-natural ()) natural))))))
+(#theorem integer-nonnegative-scale-reflect
+  (#universes)
+  (#parameters
+    (#parameter positive-factor #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat positive-factor #pt-zero))) #pt-false))
+    (#parameter scaled-nonnegative (#pt-app (#pt-use integer-nonnegative ()) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) positive-factor) number))))
+  (#statement (#pt-app (#pt-use integer-nonnegative ()) number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app (#pt-use integer-nonnegative ()) number))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app (#pt-use integer-of-natural ()) magnitude))
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+            (#pt-app (#pt-use integer-nonnegative ()) number)
+            (#pt-lambda
+              (
+                (scale-sign-positive
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    number
+                    (#pt-app (#pt-use integer-of-natural ()) magnitude))))
+              (#pt-construct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((candidate-natural #pt-nat))
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      number
+                      (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+                introduce
+                (magnitude scale-sign-positive)))
+            (#pt-lambda
+              (
+                (scale-sign-negative
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    number
+                    (#pt-app (#pt-use integer-negative-natural ()) magnitude))))
+              (#pt-construct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((candidate-natural #pt-nat))
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      number
+                      (#pt-app (#pt-use integer-of-natural ()) candidate-natural))))
+                introduce
+                (#pt-zero
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        number
+                        (#pt-app (#pt-use integer-negative-natural ()) endpoint)))
+                    magnitude
+                    #pt-zero
+                    (#pt-app
+                      (#pt-use multiply-cancel-left-nonzero ())
+                      positive-factor
+                      magnitude
+                      #pt-zero
+                      factor-nonzero
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) positive-factor magnitude)
+                        #pt-zero
+                        (#pt-app (#pt-use multiply ()) positive-factor #pt-zero)
+                        (#pt-app
+                          (#pt-use integer-negative-natural-nonnegative-zero ())
+                          (#pt-app (#pt-use multiply ()) positive-factor magnitude)
+                          (#pt-app
+                            (#pt-use integer-nonnegative-congruent ())
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                              number)
+                            (#pt-app
+                              (#pt-use integer-negative-natural ())
+                              (#pt-app (#pt-use multiply ()) positive-factor magnitude))
+                            (#pt-app
+                              (#pt-use integer-transitive ())
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                number)
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+                              (#pt-app
+                                (#pt-use integer-negative-natural ())
+                                (#pt-app (#pt-use multiply ()) positive-factor magnitude))
+                              (#pt-app
+                                (#pt-use integer-multiply-congruent-second ())
+                                (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                number
+                                (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+                                scale-sign-negative)
+                              (#pt-app
+                                (#pt-use integer-transitive ())
+                                (#pt-app
+                                  (#pt-use integer-multiply ())
+                                  (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                  (#pt-app (#pt-use integer-negative-natural ()) magnitude))
+                                (#pt-app
+                                  (#pt-use integer-negate ())
+                                  (#pt-app
+                                    (#pt-use integer-multiply ())
+                                    (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                    (#pt-app (#pt-use integer-of-natural ()) magnitude)))
+                                (#pt-app
+                                  (#pt-use integer-negative-natural ())
+                                  (#pt-app (#pt-use multiply ()) positive-factor magnitude))
+                                (#pt-app
+                                  (#pt-use integer-multiply-negative-second ())
+                                  (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                  (#pt-app (#pt-use integer-of-natural ()) magnitude))
+                                (#pt-app
+                                  (#pt-use integer-negate-congruent ())
+                                  (#pt-app
+                                    (#pt-use integer-multiply ())
+                                    (#pt-app (#pt-use integer-of-natural ()) positive-factor)
+                                    (#pt-app (#pt-use integer-of-natural ()) magnitude))
+                                  (#pt-app
+                                    (#pt-use integer-of-natural ())
+                                    (#pt-app (#pt-use multiply ()) positive-factor magnitude))
+                                  (#pt-app
+                                    (#pt-use integer-multiply-of-natural ())
+                                    positive-factor
+                                    magnitude))))
+                            scaled-nonnegative))
+                        (#pt-app
+                          (#pt-use symmetry (0))
+                          #pt-nat
+                          (#pt-app (#pt-use multiply ()) positive-factor #pt-zero)
+                          #pt-zero
+                          (#pt-app (#pt-use multiply-zero-right ()) positive-factor))))
+                    scale-sign-negative))))
+            magnitude-proof)))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))

@@ -1,0 +1,166 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Direct port of S_FreyPackage_frey_isSemistableModel.lean.
+; Every actual certified Frey model satisfies the exact source
+; arithmetic IsSemistableModel predicate. Construct such a model
+; from the proved integral coefficient quotients. Generic variable
+; changes, geometric reduction and modularity are not asserted.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#alias integer-frey-model-certificate = ./integer-frey-model.lim::integer-frey-model-certificate)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias integer-is-semistable-model = ./integer-model-prime-defs.lim::integer-is-semistable-model)
+(#alias frey-package-certificate = ./frey-package.lim::frey-package-certificate)
+(#alias
+  frey-package-prime-disjoint-invariants
+  =
+  ./frey-package-c4-primes.lim::frey-package-prime-disjoint-invariants)
+(#alias
+  frey-package-has-integral-model
+  =
+  ./frey-package-integral-model.lim::frey-package-has-integral-model)
+(#theorem frey-package-is-semistable-model
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent model)))
+  (#statement (#pt-app (#pt-use integer-is-semistable-model ()) model))
+  (#proof
+    (#pt-lambda
+      (
+        (prime-number #pt-nat)
+        (prime-proof (#pt-app (#pt-use prime ()) prime-number))
+        (discriminant-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) model))))
+      (#pt-app
+        (#pt-use frey-package-prime-disjoint-invariants ())
+        prime-number
+        first
+        second
+        third
+        exponent
+        package
+        model
+        model-certificate
+        prime-proof
+        discriminant-divides))))
+(#theorem frey-package-has-semistable-model
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer-weierstrass-curve ())
+      (#pt-lambda
+        ((candidate-model (#pt-use integer-weierstrass-curve ())))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use integer-frey-model-certificate ())
+            first
+            second
+            exponent
+            candidate-model)
+          (#pt-app (#pt-use integer-is-semistable-model ()) candidate-model)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer-weierstrass-curve ())
+        (#pt-lambda
+          ((candidate-model (#pt-use integer-weierstrass-curve ())))
+          (#pt-app
+            (#pt-use integer-frey-model-certificate ())
+            first
+            second
+            exponent
+            candidate-model)))
+      (#pt-lambda
+        (
+          (model-existence
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer-weierstrass-curve ())
+              (#pt-lambda
+                ((candidate-model (#pt-use integer-weierstrass-curve ())))
+                (#pt-app
+                  (#pt-use integer-frey-model-certificate ())
+                  first
+                  second
+                  exponent
+                  candidate-model)))))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use integer-weierstrass-curve ())
+          (#pt-lambda
+            ((candidate-model (#pt-use integer-weierstrass-curve ())))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use integer-frey-model-certificate ())
+                first
+                second
+                exponent
+                candidate-model)
+              (#pt-app (#pt-use integer-is-semistable-model ()) candidate-model)))))
+      (
+        (#pt-lambda
+          (
+            (model (#pt-use integer-weierstrass-curve ()))
+            (model-certificate
+              (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent model)))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use integer-weierstrass-curve ())
+              (#pt-lambda
+                ((candidate-model (#pt-use integer-weierstrass-curve ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-frey-model-certificate ())
+                    first
+                    second
+                    exponent
+                    candidate-model)
+                  (#pt-app (#pt-use integer-is-semistable-model ()) candidate-model))))
+            introduce
+            (model
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent model)
+                (#pt-app (#pt-use integer-is-semistable-model ()) model)
+                model-certificate
+                (#pt-app
+                  (#pt-use frey-package-is-semistable-model ())
+                  first
+                  second
+                  third
+                  exponent
+                  package
+                  model
+                  model-certificate))))))
+      (#pt-app (#pt-use frey-package-has-integral-model ()) first second third exponent package))))

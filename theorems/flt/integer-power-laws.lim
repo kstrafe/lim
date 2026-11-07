@@ -1,0 +1,537 @@
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Signed power laws used in S_FreyPackage_of_counterexample:31-58.
+; Natural embeddings and base equivalences pass through arbitrary powers.
+; Nat induction on an actual half proves even negation cancellation;
+; an actual odd-half witness gives (-x)^n=-(x^n), including noncanonical
+; integer representatives. No odd-exponent or sign oracle is assumed.
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias substitution = ./equality.lim::substitution)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias integer-multiply-negative = ./integer-multiplication.lim::integer-multiply-negative)
+(#alias integer-multiply-two-negatives = ./integer-divisibility.lim::integer-multiply-two-negatives)
+(#alias
+  multiply-successor-right
+  =
+  ./natural-multiplication-commutative.lim::multiply-successor-right)
+(#alias odd = ./natural-parity.lim::odd)
+(#theorem integer-power-congruent
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter other (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter base-equivalence (#pt-app (#pt-use integer-equal ()) number other)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-power ()) number exponent)
+      (#pt-app (#pt-use integer-power ()) other exponent)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app (#pt-use integer-power ()) number index)
+          (#pt-app (#pt-use integer-power ()) other index)))
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-one ()))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-equivalence
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app (#pt-use integer-power ()) number previous-exponent)
+              (#pt-app (#pt-use integer-power ()) other previous-exponent))))
+        (#pt-app
+          (#pt-use integer-multiply-congruent ())
+          number
+          (#pt-app (#pt-use integer-power ()) number previous-exponent)
+          other
+          (#pt-app (#pt-use integer-power ()) other previous-exponent)
+          base-equivalence
+          previous-equivalence))
+      exponent)))
+(#theorem integer-power-of-natural
+  (#universes)
+  (#parameters
+    (#parameter natural-number #pt-nat)
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-of-natural ()) natural-number)
+        exponent)
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use power ()) natural-number exponent))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-number)
+            index)
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use power ()) natural-number index))))
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-one ()))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-natural-power
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-number)
+                previous-exponent)
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use power ()) natural-number previous-exponent)))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-number)
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-number)
+              previous-exponent))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-number)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use power ()) natural-number previous-exponent)))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use multiply ())
+              natural-number
+              (#pt-app (#pt-use power ()) natural-number previous-exponent)))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-number)
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-number)
+              previous-exponent)
+            (#pt-app (#pt-use integer-of-natural ()) natural-number)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use power ()) natural-number previous-exponent))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-number))
+            previous-natural-power)
+          (#pt-app
+            (#pt-use integer-multiply-of-natural ())
+            natural-number
+            (#pt-app (#pt-use power ()) natural-number previous-exponent))))
+      exponent)))
+(#theorem natural-double-successor-shape
+  (#universes)
+  (#parameters
+    (#parameter half #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-succ half))
+      (#pt-succ (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half)))))
+  (#proof (#pt-app (#pt-use multiply-successor-right ()) (#pt-succ (#pt-succ #pt-zero)) half)))
+(#theorem integer-negative-even-power
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter half #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-negate ()) number)
+        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half))
+      (#pt-app
+        (#pt-use integer-power ())
+        number
+        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-negate ()) number)
+            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) index))
+          (#pt-app
+            (#pt-use integer-power ())
+            number
+            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) index))))
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-one ()))
+      (#pt-lambda
+        (
+          (previous-half #pt-nat)
+          (previous-even-power
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))
+              (#pt-app
+                (#pt-use integer-power ())
+                number
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))))
+        (#pt-app
+          (#pt-use substitution (0))
+          #pt-nat
+          (#pt-lambda
+            ((endpoint #pt-nat))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                endpoint)
+              (#pt-app (#pt-use integer-power ()) number endpoint)))
+          (#pt-succ
+            (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-succ previous-half))
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) (#pt-succ previous-half))
+            (#pt-succ
+              (#pt-succ
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+            (#pt-app (#pt-use natural-double-successor-shape ()) previous-half))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negate ()) number)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negate ()) number)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              number
+              (#pt-app
+                (#pt-use integer-multiply ())
+                number
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+            (#pt-app
+              (#pt-use integer-multiply-congruent ())
+              (#pt-app (#pt-use integer-negate ()) number)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+              (#pt-app (#pt-use integer-negate ()) number)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+              (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-negate ()) number))
+              (#pt-app
+                (#pt-use integer-multiply-congruent ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))
+                (#pt-app
+                  (#pt-use integer-reflexive ())
+                  (#pt-app (#pt-use integer-negate ()) number))
+                previous-even-power))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use integer-negate ()) number))
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                number
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  number
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negate ()) number)
+                    (#pt-app (#pt-use integer-negate ()) number))
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negate ()) number)
+                    (#pt-app
+                      (#pt-use integer-power ())
+                      number
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+                (#pt-app
+                  (#pt-use integer-multiply-associative ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negate ()) number)
+                    (#pt-app (#pt-use integer-negate ()) number))
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-multiply ()) number number)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half)))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  number
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    number
+                    (#pt-app
+                      (#pt-use integer-power ())
+                      number
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+                (#pt-app
+                  (#pt-use integer-multiply-congruent ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-negate ()) number)
+                    (#pt-app (#pt-use integer-negate ()) number))
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))
+                  (#pt-app (#pt-use integer-multiply ()) number number)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))
+                  (#pt-app (#pt-use integer-multiply-two-negatives ()) number number)
+                  (#pt-app
+                    (#pt-use integer-reflexive ())
+                    (#pt-app
+                      (#pt-use integer-power ())
+                      number
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))
+                (#pt-app
+                  (#pt-use integer-multiply-associative ())
+                  number
+                  number
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) previous-half))))))))
+      half)))
+(#theorem integer-negative-odd-power
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) number) exponent)
+      (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) number exponent))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-half #pt-nat))
+          (#pt-eq
+            #pt-nat
+            exponent
+            (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) candidate-half)))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-half #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  exponent
+                  (#pt-succ
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) candidate-half)))))))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app (#pt-use integer-power ()) (#pt-app (#pt-use integer-negate ()) number) exponent)
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) number exponent))))
+      (
+        (#pt-lambda
+          (
+            (odd-half #pt-nat)
+            (odd-position
+              (#pt-eq
+                #pt-nat
+                exponent
+                (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half)))))
+          (#pt-app
+            (#pt-use substitution (0))
+            #pt-nat
+            (#pt-lambda
+              ((endpoint #pt-nat))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  endpoint)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-power ()) number endpoint))))
+            (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half))
+            exponent
+            (#pt-app
+              (#pt-use symmetry (0))
+              #pt-nat
+              exponent
+              (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half))
+              odd-position)
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half)))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half)))
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  number
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    number
+                    (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half))))
+              (#pt-app
+                (#pt-use integer-multiply-congruent ())
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-negate ()) number)
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half))
+                (#pt-app (#pt-use integer-negate ()) number)
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half))
+                (#pt-app
+                  (#pt-use integer-reflexive ())
+                  (#pt-app (#pt-use integer-negate ()) number))
+                (#pt-app (#pt-use integer-negative-even-power ()) number odd-half))
+              (#pt-app
+                (#pt-use integer-multiply-negative ())
+                number
+                (#pt-app
+                  (#pt-use integer-power ())
+                  number
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) odd-half)))))))
+      odd-exponent)))

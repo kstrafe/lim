@@ -1,0 +1,911 @@
+; Copyright (c) 2023 Kevin Buzzard and contributors; 2024 Riccardo Brasca and contributors.
+; Generalization of the earlier native primitive cubic source adaptation.
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Construct a primitive power counterexample for every positive exponent.
+; An actual gcd is zero, one or has an actual prime divisor. The zero
+; case contradicts a nonzero coordinate; the one case supplies coprimality.
+; Otherwise witnessed prime removal strictly lowers the third coordinate,
+; and strong induction supplies the actual primitive solution.
+; Native positive-Nat adaptation of S_FreyPackage_of_counterexample:17-29;
+; primitive existence, factorization and the FLT conclusion are not assumed.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias substitution = ./equality.lim::substitution)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias natural-power-solution = ./fermat-power-defs.lim::natural-power-solution)
+(#alias
+  has-natural-primitive-power-solution
+  =
+  ./fermat-power-defs.lim::has-natural-primitive-power-solution)
+(#alias
+  power-common-prime-descends
+  =
+  ./fermat-power-factor-descent.lim::power-common-prime-descends)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias gcd-spec = ./natural-gcd.lim::gcd-spec)
+(#alias gcd-exists = ./natural-gcd.lim::gcd-exists)
+(#alias coprime-of-gcd-one = ./natural-coprime.lim::coprime-of-gcd-one)
+(#alias divides-transitive = ./natural-divisibility.lim::divides-transitive)
+(#alias zero-divisor-equation = ./decidable-divisibility.lim::zero-divisor-equation)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias exists-prime-divisor = ./natural-prime.lim::exists-prime-divisor)
+(#alias fermat-for = ./fermat-for.lim::fermat-for)
+(#theorem natural-power-primitive-induction-step
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter third #pt-nat)
+    (#parameter smaller-cases (#pt-pi ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier third))) (#pt-pi ((candidate-first #pt-nat) (candidate-second #pt-nat) (candidate-solution (#pt-app (#pt-use natural-power-solution ()) exponent candidate-first candidate-second earlier))) (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)))))
+  (#statement
+    (#pt-pi
+      (
+        (candidate-first #pt-nat)
+        (candidate-second #pt-nat)
+        (candidate-solution
+          (#pt-app
+            (#pt-use natural-power-solution ())
+            exponent
+            candidate-first
+            candidate-second
+            third)))
+      (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)))
+  (#proof
+    (#pt-lambda
+      (
+        (first #pt-nat)
+        (second #pt-nat)
+        (solution (#pt-app (#pt-use natural-power-solution ()) exponent first second third)))
+      (#pt-induct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-gcd #pt-nat))
+            (#pt-app (#pt-use gcd-spec ()) first second candidate-gcd)))
+        (#pt-lambda
+          (
+            (certificate
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-gcd #pt-nat))
+                  (#pt-app (#pt-use gcd-spec ()) first second candidate-gcd)))))
+          (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent))
+        (
+          (#pt-lambda
+            (
+              (greatest-divisor #pt-nat)
+              (gcd-certificate (#pt-app (#pt-use gcd-spec ()) first second greatest-divisor)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-eq #pt-nat greatest-divisor #pt-zero)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+                (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor))
+              (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)
+              (#pt-lambda
+                ((zero-equation (#pt-eq #pt-nat greatest-divisor #pt-zero)))
+                (#pt-app
+                  (#pt-use false-elimination ())
+                  (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)
+                  (#pt-app
+                    (#pt-project natural-power-solution 0 solution)
+                    (#pt-app
+                      (#pt-use zero-divisor-equation ())
+                      first
+                      (#pt-app
+                        (#pt-use substitution (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((endpoint #pt-nat))
+                          (#pt-app (#pt-use divides ()) endpoint first))
+                        greatest-divisor
+                        #pt-zero
+                        zero-equation
+                        (#pt-app
+                          (#pt-use conjunction-left ())
+                          (#pt-app (#pt-use divides ()) greatest-divisor first)
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use divides ()) greatest-divisor second)
+                            (#pt-pi
+                              (
+                                (candidate-common #pt-nat)
+                                (candidate-first
+                                  (#pt-app (#pt-use divides ()) candidate-common first))
+                                (candidate-second
+                                  (#pt-app (#pt-use divides ()) candidate-common second)))
+                              (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                          gcd-certificate))))))
+              (#pt-lambda
+                (
+                  (unit-or-large
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+                      (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor))))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+                  (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor)
+                  (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)
+                  (#pt-lambda
+                    ((one-equation (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))))
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-first #pt-nat))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-second #pt-nat))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-third #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app
+                                      (#pt-use natural-power-solution ())
+                                      exponent
+                                      candidate-first
+                                      candidate-second
+                                      candidate-third)
+                                    (#pt-app (#pt-use coprime ()) candidate-first candidate-second))))))))
+                      introduce
+                      (first
+                        (#pt-construct
+                          exists
+                          (0)
+                          (#pt-nat
+                            (#pt-lambda
+                              ((candidate-second #pt-nat))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-third #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app
+                                      (#pt-use natural-power-solution ())
+                                      exponent
+                                      first
+                                      candidate-second
+                                      candidate-third)
+                                    (#pt-app (#pt-use coprime ()) first candidate-second))))))
+                          introduce
+                          (second
+                            (#pt-construct
+                              exists
+                              (0)
+                              (#pt-nat
+                                (#pt-lambda
+                                  ((candidate-third #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app
+                                      (#pt-use natural-power-solution ())
+                                      exponent
+                                      first
+                                      second
+                                      candidate-third)
+                                    (#pt-app (#pt-use coprime ()) first second))))
+                              introduce
+                              (third
+                                (#pt-app
+                                  (#pt-use conjunction-introduce ())
+                                  (#pt-app
+                                    (#pt-use natural-power-solution ())
+                                    exponent
+                                    first
+                                    second
+                                    third)
+                                  (#pt-app (#pt-use coprime ()) first second)
+                                  solution
+                                  (#pt-app
+                                    (#pt-use coprime-of-gcd-one ())
+                                    first
+                                    second
+                                    greatest-divisor
+                                    gcd-certificate
+                                    one-equation)))))))))
+                  (#pt-lambda
+                    (
+                      (larger-than-one
+                        (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor)))
+                    (#pt-induct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-prime #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use prime ()) candidate-prime)
+                            (#pt-app (#pt-use divides ()) candidate-prime greatest-divisor))))
+                      (#pt-lambda
+                        (
+                          (certificate
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-prime #pt-nat))
+                                (#pt-app
+                                  (#pt-use conjunction ())
+                                  (#pt-app (#pt-use prime ()) candidate-prime)
+                                  (#pt-app (#pt-use divides ()) candidate-prime greatest-divisor))))))
+                        (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent))
+                      (
+                        (#pt-lambda
+                          (
+                            (prime-number #pt-nat)
+                            (prime-certificate
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use prime ()) prime-number)
+                                (#pt-app (#pt-use divides ()) prime-number greatest-divisor))))
+                          (#pt-induct
+                            exists
+                            (0)
+                            (#pt-nat
+                              (#pt-lambda
+                                ((candidate-first #pt-nat))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-second #pt-nat))
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-third #pt-nat))
+                                        (#pt-app
+                                          (#pt-use conjunction ())
+                                          (#pt-app
+                                            (#pt-use natural-power-solution ())
+                                            exponent
+                                            candidate-first
+                                            candidate-second
+                                            candidate-third)
+                                          (#pt-app (#pt-use less-than ()) candidate-third third))))))))
+                            (#pt-lambda
+                              (
+                                (certificate
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-first #pt-nat))
+                                      (#pt-app
+                                        (#pt-use exists (0))
+                                        #pt-nat
+                                        (#pt-lambda
+                                          ((candidate-second #pt-nat))
+                                          (#pt-app
+                                            (#pt-use exists (0))
+                                            #pt-nat
+                                            (#pt-lambda
+                                              ((candidate-third #pt-nat))
+                                              (#pt-app
+                                                (#pt-use conjunction ())
+                                                (#pt-app
+                                                  (#pt-use natural-power-solution ())
+                                                  exponent
+                                                  candidate-first
+                                                  candidate-second
+                                                  candidate-third)
+                                                (#pt-app
+                                                  (#pt-use less-than ())
+                                                  candidate-third
+                                                  third))))))))))
+                              (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent))
+                            (
+                              (#pt-lambda
+                                (
+                                  (reduced-first #pt-nat)
+                                  (second-certificate
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-second #pt-nat))
+                                        (#pt-app
+                                          (#pt-use exists (0))
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((candidate-third #pt-nat))
+                                            (#pt-app
+                                              (#pt-use conjunction ())
+                                              (#pt-app
+                                                (#pt-use natural-power-solution ())
+                                                exponent
+                                                reduced-first
+                                                candidate-second
+                                                candidate-third)
+                                              (#pt-app (#pt-use less-than ()) candidate-third third))))))))
+                                (#pt-induct
+                                  exists
+                                  (0)
+                                  (#pt-nat
+                                    (#pt-lambda
+                                      ((candidate-second #pt-nat))
+                                      (#pt-app
+                                        (#pt-use exists (0))
+                                        #pt-nat
+                                        (#pt-lambda
+                                          ((candidate-third #pt-nat))
+                                          (#pt-app
+                                            (#pt-use conjunction ())
+                                            (#pt-app
+                                              (#pt-use natural-power-solution ())
+                                              exponent
+                                              reduced-first
+                                              candidate-second
+                                              candidate-third)
+                                            (#pt-app (#pt-use less-than ()) candidate-third third))))))
+                                  (#pt-lambda
+                                    (
+                                      (certificate
+                                        (#pt-app
+                                          (#pt-use exists (0))
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((candidate-second #pt-nat))
+                                            (#pt-app
+                                              (#pt-use exists (0))
+                                              #pt-nat
+                                              (#pt-lambda
+                                                ((candidate-third #pt-nat))
+                                                (#pt-app
+                                                  (#pt-use conjunction ())
+                                                  (#pt-app
+                                                    (#pt-use natural-power-solution ())
+                                                    exponent
+                                                    reduced-first
+                                                    candidate-second
+                                                    candidate-third)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    candidate-third
+                                                    third))))))))
+                                    (#pt-app
+                                      (#pt-use has-natural-primitive-power-solution ())
+                                      exponent))
+                                  (
+                                    (#pt-lambda
+                                      (
+                                        (reduced-second #pt-nat)
+                                        (third-certificate
+                                          (#pt-app
+                                            (#pt-use exists (0))
+                                            #pt-nat
+                                            (#pt-lambda
+                                              ((candidate-third #pt-nat))
+                                              (#pt-app
+                                                (#pt-use conjunction ())
+                                                (#pt-app
+                                                  (#pt-use natural-power-solution ())
+                                                  exponent
+                                                  reduced-first
+                                                  reduced-second
+                                                  candidate-third)
+                                                (#pt-app
+                                                  (#pt-use less-than ())
+                                                  candidate-third
+                                                  third))))))
+                                      (#pt-induct
+                                        exists
+                                        (0)
+                                        (#pt-nat
+                                          (#pt-lambda
+                                            ((candidate-third #pt-nat))
+                                            (#pt-app
+                                              (#pt-use conjunction ())
+                                              (#pt-app
+                                                (#pt-use natural-power-solution ())
+                                                exponent
+                                                reduced-first
+                                                reduced-second
+                                                candidate-third)
+                                              (#pt-app (#pt-use less-than ()) candidate-third third))))
+                                        (#pt-lambda
+                                          (
+                                            (certificate
+                                              (#pt-app
+                                                (#pt-use exists (0))
+                                                #pt-nat
+                                                (#pt-lambda
+                                                  ((candidate-third #pt-nat))
+                                                  (#pt-app
+                                                    (#pt-use conjunction ())
+                                                    (#pt-app
+                                                      (#pt-use natural-power-solution ())
+                                                      exponent
+                                                      reduced-first
+                                                      reduced-second
+                                                      candidate-third)
+                                                    (#pt-app
+                                                      (#pt-use less-than ())
+                                                      candidate-third
+                                                      third))))))
+                                          (#pt-app
+                                            (#pt-use has-natural-primitive-power-solution ())
+                                            exponent))
+                                        (
+                                          (#pt-lambda
+                                            (
+                                              (reduced-third #pt-nat)
+                                              (smaller-certificate
+                                                (#pt-app
+                                                  (#pt-use conjunction ())
+                                                  (#pt-app
+                                                    (#pt-use natural-power-solution ())
+                                                    exponent
+                                                    reduced-first
+                                                    reduced-second
+                                                    reduced-third)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    reduced-third
+                                                    third))))
+                                            (#pt-app
+                                              smaller-cases
+                                              reduced-third
+                                              (#pt-app
+                                                (#pt-use conjunction-right ())
+                                                (#pt-app
+                                                  (#pt-use natural-power-solution ())
+                                                  exponent
+                                                  reduced-first
+                                                  reduced-second
+                                                  reduced-third)
+                                                (#pt-app (#pt-use less-than ()) reduced-third third)
+                                                smaller-certificate)
+                                              reduced-first
+                                              reduced-second
+                                              (#pt-app
+                                                (#pt-use conjunction-left ())
+                                                (#pt-app
+                                                  (#pt-use natural-power-solution ())
+                                                  exponent
+                                                  reduced-first
+                                                  reduced-second
+                                                  reduced-third)
+                                                (#pt-app (#pt-use less-than ()) reduced-third third)
+                                                smaller-certificate))))
+                                        third-certificate)))
+                                  second-certificate)))
+                            (#pt-app
+                              (#pt-use power-common-prime-descends ())
+                              exponent
+                              first
+                              second
+                              third
+                              positive-exponent
+                              solution
+                              prime-number
+                              (#pt-app
+                                (#pt-use conjunction-left ())
+                                (#pt-app (#pt-use prime ()) prime-number)
+                                (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                                prime-certificate)
+                              (#pt-app
+                                (#pt-use divides-transitive ())
+                                prime-number
+                                greatest-divisor
+                                first
+                                (#pt-app
+                                  (#pt-use conjunction-right ())
+                                  (#pt-app (#pt-use prime ()) prime-number)
+                                  (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                                  prime-certificate)
+                                (#pt-app
+                                  (#pt-use conjunction-left ())
+                                  (#pt-app (#pt-use divides ()) greatest-divisor first)
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app (#pt-use divides ()) greatest-divisor second)
+                                    (#pt-pi
+                                      (
+                                        (candidate-common #pt-nat)
+                                        (candidate-first
+                                          (#pt-app (#pt-use divides ()) candidate-common first))
+                                        (candidate-second
+                                          (#pt-app (#pt-use divides ()) candidate-common second)))
+                                      (#pt-app
+                                        (#pt-use divides ())
+                                        candidate-common
+                                        greatest-divisor)))
+                                  gcd-certificate))
+                              (#pt-app
+                                (#pt-use divides-transitive ())
+                                prime-number
+                                greatest-divisor
+                                second
+                                (#pt-app
+                                  (#pt-use conjunction-right ())
+                                  (#pt-app (#pt-use prime ()) prime-number)
+                                  (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                                  prime-certificate)
+                                (#pt-app
+                                  (#pt-use conjunction-left ())
+                                  (#pt-app (#pt-use divides ()) greatest-divisor second)
+                                  (#pt-pi
+                                    (
+                                      (candidate-common #pt-nat)
+                                      (candidate-first
+                                        (#pt-app (#pt-use divides ()) candidate-common first))
+                                      (candidate-second
+                                        (#pt-app (#pt-use divides ()) candidate-common second)))
+                                    (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+                                  (#pt-app
+                                    (#pt-use conjunction-right ())
+                                    (#pt-app (#pt-use divides ()) greatest-divisor first)
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app (#pt-use divides ()) greatest-divisor second)
+                                      (#pt-pi
+                                        (
+                                          (candidate-common #pt-nat)
+                                          (candidate-first
+                                            (#pt-app (#pt-use divides ()) candidate-common first))
+                                          (candidate-second
+                                            (#pt-app (#pt-use divides ()) candidate-common second)))
+                                        (#pt-app
+                                          (#pt-use divides ())
+                                          candidate-common
+                                          greatest-divisor)))
+                                    gcd-certificate)))))))
+                      (#pt-app (#pt-use exists-prime-divisor ()) greatest-divisor larger-than-one)))
+                  unit-or-large))
+              (#pt-app (#pt-use zero-one-or-large ()) greatest-divisor))))
+        (#pt-app (#pt-use gcd-exists ()) first second)))))
+(#theorem natural-power-has-primitive
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first second third)))
+  (#statement (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use strong-induction ())
+        (#pt-lambda
+          ((bound #pt-nat))
+          (#pt-pi
+            (
+              (candidate-first #pt-nat)
+              (candidate-second #pt-nat)
+              (candidate-solution
+                (#pt-app
+                  (#pt-use natural-power-solution ())
+                  exponent
+                  candidate-first
+                  candidate-second
+                  bound)))
+            (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)))
+        (#pt-lambda
+          (
+            (bound #pt-nat)
+            (previous-cases
+              (#pt-pi
+                ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier bound)))
+                (#pt-pi
+                  (
+                    (candidate-first #pt-nat)
+                    (candidate-second #pt-nat)
+                    (candidate-solution
+                      (#pt-app
+                        (#pt-use natural-power-solution ())
+                        exponent
+                        candidate-first
+                        candidate-second
+                        earlier)))
+                  (#pt-app (#pt-use has-natural-primitive-power-solution ()) exponent)))))
+          (#pt-app
+            (#pt-use natural-power-primitive-induction-step ())
+            exponent
+            positive-exponent
+            bound
+            previous-cases)))
+      third
+      first
+      second
+      solution)))
+(#theorem natural-power-refuted-by-primitive
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter primitive-case (#pt-pi ((case-first #pt-nat) (case-second #pt-nat) (case-third #pt-nat) (case-solution (#pt-app (#pt-use natural-power-solution ()) exponent case-first case-second case-third)) (case-coprime (#pt-app (#pt-use coprime ()) case-first case-second))) #pt-false))
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first second third)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-first #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-second #pt-nat))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-third #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use natural-power-solution ())
+                      exponent
+                      candidate-first
+                      candidate-second
+                      candidate-third)
+                    (#pt-app (#pt-use coprime ()) candidate-first candidate-second))))))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-first #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-second #pt-nat))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-third #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            candidate-first
+                            candidate-second
+                            candidate-third)
+                          (#pt-app (#pt-use coprime ()) candidate-first candidate-second))))))))))
+        #pt-false)
+      (
+        (#pt-lambda
+          (
+            (primitive-first #pt-nat)
+            (second-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-second #pt-nat))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-third #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use natural-power-solution ())
+                          exponent
+                          primitive-first
+                          candidate-second
+                          candidate-third)
+                        (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-second #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-third #pt-nat))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use natural-power-solution ())
+                        exponent
+                        primitive-first
+                        candidate-second
+                        candidate-third)
+                      (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-second #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-third #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app
+                              (#pt-use natural-power-solution ())
+                              exponent
+                              primitive-first
+                              candidate-second
+                              candidate-third)
+                            (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))))
+              #pt-false)
+            (
+              (#pt-lambda
+                (
+                  (primitive-second #pt-nat)
+                  (third-certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-third #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            primitive-first
+                            primitive-second
+                            candidate-third)
+                          (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-third #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use natural-power-solution ())
+                          exponent
+                          primitive-first
+                          primitive-second
+                          candidate-third)
+                        (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-third #pt-nat))
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app
+                                (#pt-use natural-power-solution ())
+                                exponent
+                                primitive-first
+                                primitive-second
+                                candidate-third)
+                              (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))))
+                    #pt-false)
+                  (
+                    (#pt-lambda
+                      (
+                        (primitive-third #pt-nat)
+                        (primitive-certificate
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app
+                              (#pt-use natural-power-solution ())
+                              exponent
+                              primitive-first
+                              primitive-second
+                              primitive-third)
+                            (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))
+                      (#pt-app
+                        primitive-case
+                        primitive-first
+                        primitive-second
+                        primitive-third
+                        (#pt-app
+                          (#pt-use conjunction-left ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            primitive-first
+                            primitive-second
+                            primitive-third)
+                          (#pt-app (#pt-use coprime ()) primitive-first primitive-second)
+                          primitive-certificate)
+                        (#pt-app
+                          (#pt-use conjunction-right ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            primitive-first
+                            primitive-second
+                            primitive-third)
+                          (#pt-app (#pt-use coprime ()) primitive-first primitive-second)
+                          primitive-certificate))))
+                  third-certificate)))
+            second-certificate)))
+      (#pt-app
+        (#pt-use natural-power-has-primitive ())
+        exponent
+        first
+        second
+        third
+        positive-exponent
+        solution))))
+(#theorem fermat-for-from-primitive-power
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter primitive-case (#pt-pi ((case-first #pt-nat) (case-second #pt-nat) (case-third #pt-nat) (case-solution (#pt-app (#pt-use natural-power-solution ()) exponent case-first case-second case-third)) (case-coprime (#pt-app (#pt-use coprime ()) case-first case-second))) #pt-false)))
+  (#statement (#pt-app (#pt-use fermat-for ()) exponent))
+  (#proof
+    (#pt-lambda
+      (
+        (first #pt-nat)
+        (second #pt-nat)
+        (third #pt-nat)
+        (first-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+        (second-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat third #pt-zero))) #pt-false))
+        (power-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first exponent)
+              (#pt-app (#pt-use power ()) second exponent))
+            (#pt-app (#pt-use power ()) third exponent))))
+      (#pt-app
+        (#pt-use natural-power-refuted-by-primitive ())
+        exponent
+        positive-exponent
+        primitive-case
+        first
+        second
+        third
+        (#pt-construct
+          natural-power-solution
+          ()
+          (exponent first second third)
+          introduce
+          (first-nonzero second-nonzero third-nonzero power-equation))))))

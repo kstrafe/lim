@@ -1,4 +1,6 @@
 //! Operation-local and retired poll-local references in movable async frames.
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -72,8 +74,9 @@ fn run_with_role(source: &str, expected_stdout: &[u8], role: &str) {
             })
             .unwrap();
         let standalone = format!(
-            "{}\n{artifact}\n{}",
+            "{}\n{}\n{}",
             &source[..invocation.span.start],
+            generated_source::ordinary_source(&artifact),
             &source[invocation.span.end..]
         );
         let ordinary = lim::parse_program(&standalone).unwrap();

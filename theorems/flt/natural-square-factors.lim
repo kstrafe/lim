@@ -1,0 +1,1183 @@
+; A coprime natural factor of a square is itself a square.
+; This specializes the mathematical square-extraction prerequisite used by
+; Int.sq_of_gcd_eq_one in FLT/Four.lean to nonnegative natural factors.
+; Strong induction removes a prime square; Euclid's lemma supplies the second factor.
+; This is not the signed-integer theorem or the FLT exponent-four theorem.
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#alias multiply-one-right = ./natural-multiplication-right.lim::multiply-one-right)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias multiply-nonzero = ./natural-nonzero.lim::multiply-nonzero)
+(#alias square-product = ./natural-square-arithmetic.lim::square-product)
+(#alias
+  multiply-cancel-left-nonzero
+  =
+  ./natural-square-arithmetic.lim::multiply-cancel-left-nonzero)
+(#alias nonunit-multiple-above = ./natural-square-arithmetic.lim::nonunit-multiple-above)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-multiple = ./natural-divisibility.lim::divides-multiple)
+(#alias divides-transitive = ./natural-divisibility.lim::divides-transitive)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-larger-than-one = ./natural-prime.lim::prime-larger-than-one)
+(#alias exists-prime-divisor = ./natural-prime.lim::exists-prime-divisor)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias prime-divides-square = ./natural-prime-divisibility.lim::prime-divides-square)
+(#alias prime-divides-product = ./natural-prime-divisibility.lim::prime-divides-product)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias coprime-symmetric = ./natural-coprime.lim::coprime-symmetric)
+(#alias coprime-divisor-right = ./natural-euclid.lim::coprime-divisor-right)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#math-definition is-square ()
+  (#pt-pi ((number #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((number #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-root #pt-nat))
+        (#pt-eq #pt-nat number (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))))
+(#theorem square-remove-first-factor
+  (#universes)
+  (#parameters
+    (#parameter factor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter root-factor #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second) (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor root-factor) (#pt-app (#pt-use multiply ()) factor root-factor)))))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first second)
+      (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) root-factor root-factor))))
+  (#proof
+    (#pt-app
+      (#pt-use multiply-cancel-left-nonzero ())
+      factor
+      (#pt-app (#pt-use multiply ()) first second)
+      (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) root-factor root-factor))
+      factor-nonzero
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) first second))
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second)
+        (#pt-app
+          (#pt-use multiply ())
+          factor
+          (#pt-app
+            (#pt-use multiply ())
+            factor
+            (#pt-app (#pt-use multiply ()) root-factor root-factor)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second)
+          (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) first second))
+          (#pt-app (#pt-use multiply-associative ()) factor first second))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second)
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use multiply ()) factor root-factor)
+            (#pt-app (#pt-use multiply ()) factor root-factor))
+          (#pt-app
+            (#pt-use multiply ())
+            factor
+            (#pt-app
+              (#pt-use multiply ())
+              factor
+              (#pt-app (#pt-use multiply ()) root-factor root-factor)))
+          equation
+          (#pt-app
+            (#pt-use transitivity (0))
+            #pt-nat
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use multiply ()) factor root-factor)
+              (#pt-app (#pt-use multiply ()) factor root-factor))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use multiply ()) factor factor)
+              (#pt-app (#pt-use multiply ()) root-factor root-factor))
+            (#pt-app
+              (#pt-use multiply ())
+              factor
+              (#pt-app
+                (#pt-use multiply ())
+                factor
+                (#pt-app (#pt-use multiply ()) root-factor root-factor)))
+            (#pt-app (#pt-use square-product ()) factor root-factor)
+            (#pt-app
+              (#pt-use multiply-associative ())
+              factor
+              factor
+              (#pt-app (#pt-use multiply ()) root-factor root-factor))))))))
+(#theorem square-remove-second-factor
+  (#universes)
+  (#parameters
+    (#parameter factor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter root-factor #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second) (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) root-factor root-factor)))))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first second)
+      (#pt-app (#pt-use multiply ()) root-factor root-factor)))
+  (#proof
+    (#pt-app
+      (#pt-use multiply-cancel-left-nonzero ())
+      factor
+      (#pt-app (#pt-use multiply ()) first second)
+      (#pt-app (#pt-use multiply ()) root-factor root-factor)
+      factor-nonzero
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) first second))
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second)
+        (#pt-app
+          (#pt-use multiply ())
+          factor
+          (#pt-app (#pt-use multiply ()) root-factor root-factor))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) factor first) second)
+          (#pt-app (#pt-use multiply ()) factor (#pt-app (#pt-use multiply ()) first second))
+          (#pt-app (#pt-use multiply-associative ()) factor first second))
+        equation))))
+(#theorem square-restore-double-prime-factor
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter prime-number #pt-nat)
+    (#parameter remaining-factor #pt-nat)
+    (#parameter reduced-root #pt-nat)
+    (#parameter smaller-cases (#pt-pi ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier first))) (#pt-pi ((other #pt-nat) (square-root #pt-nat) (coprime-evidence (#pt-app (#pt-use coprime ()) earlier other)) (square-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) earlier other) (#pt-app (#pt-use multiply ()) square-root square-root)))) (#pt-app (#pt-use is-square ()) earlier))))
+    (#parameter factor-equation (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number (#pt-app (#pt-use multiply ()) prime-number remaining-factor))))
+    (#parameter reduced-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) remaining-factor second) (#pt-app (#pt-use multiply ()) reduced-root reduced-root)))
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number)))
+  (#statement (#pt-app (#pt-use is-square ()) first))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-eq #pt-nat remaining-factor #pt-zero)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat remaining-factor (#pt-succ #pt-zero))
+        (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) remaining-factor))
+      (#pt-app (#pt-use is-square ()) first)
+      (#pt-lambda
+        ((zero-equation (#pt-eq #pt-nat remaining-factor #pt-zero)))
+        (#pt-construct
+          exists
+          (0)
+          (#pt-nat
+            (#pt-lambda
+              ((candidate-root #pt-nat))
+              (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+          introduce
+          (#pt-zero
+            (#pt-app
+              (#pt-use transitivity (0))
+              #pt-nat
+              first
+              (#pt-app
+                (#pt-use multiply ())
+                prime-number
+                (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+              #pt-zero
+              factor-equation
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                (#pt-app
+                  (#pt-use multiply ())
+                  prime-number
+                  (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                (#pt-app
+                  (#pt-use multiply ())
+                  prime-number
+                  (#pt-app (#pt-use multiply ()) prime-number #pt-zero))
+                #pt-zero
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda
+                    ((factor-value #pt-nat))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use multiply ()) prime-number factor-value)))
+                  remaining-factor
+                  #pt-zero
+                  zero-equation)
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use multiply ())
+                    prime-number
+                    (#pt-app (#pt-use multiply ()) prime-number #pt-zero))
+                  (#pt-app (#pt-use multiply ()) prime-number #pt-zero)
+                  #pt-zero
+                  (#pt-app
+                    (#pt-use congruence (0 0))
+                    #pt-nat
+                    #pt-nat
+                    (#pt-lambda
+                      ((factor-value #pt-nat))
+                      (#pt-app (#pt-use multiply ()) prime-number factor-value))
+                    (#pt-app (#pt-use multiply ()) prime-number #pt-zero)
+                    #pt-zero
+                    (#pt-app (#pt-use multiply-zero-right ()) prime-number))
+                  (#pt-app (#pt-use multiply-zero-right ()) prime-number)))))))
+      (#pt-lambda
+        (
+          (nonzero-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat remaining-factor (#pt-succ #pt-zero))
+              (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) remaining-factor))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat remaining-factor (#pt-succ #pt-zero))
+          (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) remaining-factor)
+          (#pt-app (#pt-use is-square ()) first)
+          (#pt-lambda
+            ((one-equation (#pt-eq #pt-nat remaining-factor (#pt-succ #pt-zero))))
+            (#pt-construct
+              exists
+              (0)
+              (#pt-nat
+                (#pt-lambda
+                  ((candidate-root #pt-nat))
+                  (#pt-eq
+                    #pt-nat
+                    first
+                    (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+              introduce
+              (prime-number
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  first
+                  (#pt-app
+                    (#pt-use multiply ())
+                    prime-number
+                    (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                  (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                  factor-equation
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use multiply ()) prime-number (#pt-succ #pt-zero)))
+                    (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                    (#pt-app
+                      (#pt-use congruence (0 0))
+                      #pt-nat
+                      #pt-nat
+                      (#pt-lambda
+                        ((factor-value #pt-nat))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          prime-number
+                          (#pt-app (#pt-use multiply ()) prime-number factor-value)))
+                      remaining-factor
+                      (#pt-succ #pt-zero)
+                      one-equation)
+                    (#pt-app
+                      (#pt-use congruence (0 0))
+                      #pt-nat
+                      #pt-nat
+                      (#pt-lambda
+                        ((factor-value #pt-nat))
+                        (#pt-app (#pt-use multiply ()) prime-number factor-value))
+                      (#pt-app (#pt-use multiply ()) prime-number (#pt-succ #pt-zero))
+                      prime-number
+                      (#pt-app (#pt-use multiply-one-right ()) prime-number)))))))
+          (#pt-lambda
+            (
+              (larger-than-one
+                (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) remaining-factor)))
+            (#pt-induct
+              exists
+              (0)
+              (#pt-nat
+                (#pt-lambda
+                  ((candidate-root #pt-nat))
+                  (#pt-eq
+                    #pt-nat
+                    remaining-factor
+                    (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+              (#pt-lambda
+                (
+                  (certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-root #pt-nat))
+                        (#pt-eq
+                          #pt-nat
+                          remaining-factor
+                          (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))))
+                (#pt-app (#pt-use is-square ()) first))
+              (
+                (#pt-lambda
+                  (
+                    (smaller-root #pt-nat)
+                    (smaller-equation
+                      (#pt-eq
+                        #pt-nat
+                        remaining-factor
+                        (#pt-app (#pt-use multiply ()) smaller-root smaller-root))))
+                  (#pt-construct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((candidate-root #pt-nat))
+                        (#pt-eq
+                          #pt-nat
+                          first
+                          (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+                    introduce
+                    (
+                      (#pt-app (#pt-use multiply ()) prime-number smaller-root)
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        first
+                        (#pt-app
+                          (#pt-use multiply ())
+                          prime-number
+                          (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use multiply ()) prime-number smaller-root)
+                          (#pt-app (#pt-use multiply ()) prime-number smaller-root))
+                        factor-equation
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use multiply ())
+                            prime-number
+                            (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                            remaining-factor)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use multiply ()) prime-number smaller-root)
+                            (#pt-app (#pt-use multiply ()) prime-number smaller-root))
+                          (#pt-app
+                            (#pt-use symmetry (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                              remaining-factor)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              prime-number
+                              (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                            (#pt-app
+                              (#pt-use multiply-associative ())
+                              prime-number
+                              prime-number
+                              remaining-factor))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                              remaining-factor)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                              (#pt-app (#pt-use multiply ()) smaller-root smaller-root))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number smaller-root)
+                              (#pt-app (#pt-use multiply ()) prime-number smaller-root))
+                            (#pt-app
+                              (#pt-use congruence (0 0))
+                              #pt-nat
+                              #pt-nat
+                              (#pt-lambda
+                                ((factor-value #pt-nat))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                                  factor-value))
+                              remaining-factor
+                              (#pt-app (#pt-use multiply ()) smaller-root smaller-root)
+                              smaller-equation)
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app (#pt-use multiply ()) prime-number smaller-root)
+                                (#pt-app (#pt-use multiply ()) prime-number smaller-root))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                                (#pt-app (#pt-use multiply ()) smaller-root smaller-root))
+                              (#pt-app (#pt-use square-product ()) prime-number smaller-root)))))))))
+              (#pt-app
+                smaller-cases
+                remaining-factor
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use less-than ()) remaining-factor endpoint))
+                  (#pt-app
+                    (#pt-use multiply ())
+                    prime-number
+                    (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                  first
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    first
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                    factor-equation)
+                  (#pt-app
+                    (#pt-use less-than-transitive ())
+                    remaining-factor
+                    (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                    (#pt-app
+                      (#pt-use nonunit-multiple-above ())
+                      remaining-factor
+                      prime-number
+                      (#pt-app
+                        (#pt-use less-than-upper-nonzero ())
+                        (#pt-succ #pt-zero)
+                        remaining-factor
+                        larger-than-one)
+                      (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+                    (#pt-app
+                      (#pt-use nonunit-multiple-above ())
+                      (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                      prime-number
+                      (#pt-app
+                        (#pt-use multiply-nonzero ())
+                        prime-number
+                        remaining-factor
+                        (#pt-app
+                          (#pt-use less-than-upper-nonzero ())
+                          (#pt-succ #pt-zero)
+                          prime-number
+                          (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+                        (#pt-app
+                          (#pt-use less-than-upper-nonzero ())
+                          (#pt-succ #pt-zero)
+                          remaining-factor
+                          larger-than-one))
+                      (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))))
+                second
+                reduced-root
+                (#pt-app
+                  (#pt-use coprime-symmetric ())
+                  second
+                  remaining-factor
+                  (#pt-app
+                    (#pt-use coprime-divisor-right ())
+                    second
+                    first
+                    remaining-factor
+                    (#pt-app (#pt-use coprime-symmetric ()) first second coprime-proof)
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-factor #pt-nat))
+                          (#pt-eq
+                            #pt-nat
+                            first
+                            (#pt-app (#pt-use multiply ()) remaining-factor candidate-factor))))
+                      introduce
+                      (
+                        (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          first
+                          (#pt-app
+                            (#pt-use multiply ())
+                            prime-number
+                            (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            remaining-factor
+                            (#pt-app (#pt-use multiply ()) prime-number prime-number))
+                          factor-equation
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              prime-number
+                              (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                              remaining-factor)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              remaining-factor
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number))
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                                remaining-factor)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                prime-number
+                                (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                              (#pt-app
+                                (#pt-use multiply-associative ())
+                                prime-number
+                                prime-number
+                                remaining-factor))
+                            (#pt-app
+                              (#pt-use multiply-commutative ())
+                              (#pt-app (#pt-use multiply ()) prime-number prime-number)
+                              remaining-factor)))))))
+                reduced-equation)))
+          nonzero-case))
+      (#pt-app (#pt-use zero-one-or-large ()) remaining-factor))))
+(#theorem square-factor-prime-step
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter root #pt-nat)
+    (#parameter prime-number #pt-nat)
+    (#parameter smaller-cases (#pt-pi ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier first))) (#pt-pi ((other #pt-nat) (square-root #pt-nat) (coprime-evidence (#pt-app (#pt-use coprime ()) earlier other)) (square-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) earlier other) (#pt-app (#pt-use multiply ()) square-root square-root)))) (#pt-app (#pt-use is-square ()) earlier))))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter prime-divides (#pt-app (#pt-use divides ()) prime-number first))
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second))
+    (#parameter square-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) first second) (#pt-app (#pt-use multiply ()) root root))))
+  (#statement (#pt-app (#pt-use is-square ()) first))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-factor #pt-nat))
+          (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+        (#pt-app (#pt-use is-square ()) first))
+      (
+        (#pt-lambda
+          (
+            (first-factor #pt-nat)
+            (first-equation
+              (#pt-eq #pt-nat first (#pt-app (#pt-use multiply ()) prime-number first-factor))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq #pt-nat root (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-factor #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        root
+                        (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+              (#pt-app (#pt-use is-square ()) first))
+            (
+              (#pt-lambda
+                (
+                  (root-factor #pt-nat)
+                  (root-equation
+                    (#pt-eq #pt-nat root (#pt-app (#pt-use multiply ()) prime-number root-factor))))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-app (#pt-use divides ()) prime-number first-factor)
+                  (#pt-app (#pt-use divides ()) prime-number second)
+                  (#pt-app (#pt-use is-square ()) first)
+                  (#pt-lambda
+                    ((remaining-divides (#pt-app (#pt-use divides ()) prime-number first-factor)))
+                    (#pt-induct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-factor #pt-nat))
+                          (#pt-eq
+                            #pt-nat
+                            first-factor
+                            (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+                      (#pt-lambda
+                        (
+                          (certificate
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-factor #pt-nat))
+                                (#pt-eq
+                                  #pt-nat
+                                  first-factor
+                                  (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+                        (#pt-app (#pt-use is-square ()) first))
+                      (
+                        (#pt-lambda
+                          (
+                            (remaining-factor #pt-nat)
+                            (remaining-equation
+                              (#pt-eq
+                                #pt-nat
+                                first-factor
+                                (#pt-app (#pt-use multiply ()) prime-number remaining-factor))))
+                          (#pt-app
+                            (#pt-use square-restore-double-prime-factor ())
+                            first
+                            second
+                            prime-number
+                            remaining-factor
+                            root-factor
+                            smaller-cases
+                            (#pt-app
+                              (#pt-use transitivity (0))
+                              #pt-nat
+                              first
+                              (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                prime-number
+                                (#pt-app (#pt-use multiply ()) prime-number remaining-factor))
+                              first-equation
+                              (#pt-app
+                                (#pt-use congruence (0 0))
+                                #pt-nat
+                                #pt-nat
+                                (#pt-lambda
+                                  ((factor-value #pt-nat))
+                                  (#pt-app (#pt-use multiply ()) prime-number factor-value))
+                                first-factor
+                                (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                                remaining-equation))
+                            (#pt-app
+                              (#pt-use square-remove-second-factor ())
+                              prime-number
+                              remaining-factor
+                              second
+                              root-factor
+                              (#pt-app
+                                (#pt-use less-than-upper-nonzero ())
+                                (#pt-succ #pt-zero)
+                                prime-number
+                                (#pt-app
+                                  (#pt-use prime-larger-than-one ())
+                                  prime-number
+                                  prime-proof))
+                              (#pt-app
+                                (#pt-use transitivity (0))
+                                #pt-nat
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                                  second)
+                                (#pt-app (#pt-use multiply ()) first-factor second)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  prime-number
+                                  (#pt-app (#pt-use multiply ()) root-factor root-factor))
+                                (#pt-app
+                                  (#pt-use congruence (0 0))
+                                  #pt-nat
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((factor-value #pt-nat))
+                                    (#pt-app (#pt-use multiply ()) factor-value second))
+                                  (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                                  first-factor
+                                  (#pt-app
+                                    (#pt-use symmetry (0))
+                                    #pt-nat
+                                    first-factor
+                                    (#pt-app (#pt-use multiply ()) prime-number remaining-factor)
+                                    remaining-equation))
+                                (#pt-app
+                                  (#pt-use square-remove-first-factor ())
+                                  prime-number
+                                  first-factor
+                                  second
+                                  root-factor
+                                  (#pt-app
+                                    (#pt-use less-than-upper-nonzero ())
+                                    (#pt-succ #pt-zero)
+                                    prime-number
+                                    (#pt-app
+                                      (#pt-use prime-larger-than-one ())
+                                      prime-number
+                                      prime-proof))
+                                  (#pt-app
+                                    (#pt-use transitivity (0))
+                                    #pt-nat
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                                      second)
+                                    (#pt-app (#pt-use multiply ()) first second)
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                      (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                                    (#pt-app
+                                      (#pt-use congruence (0 0))
+                                      #pt-nat
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((factor-value #pt-nat))
+                                        (#pt-app (#pt-use multiply ()) factor-value second))
+                                      (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                                      first
+                                      (#pt-app
+                                        (#pt-use symmetry (0))
+                                        #pt-nat
+                                        first
+                                        (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                                        first-equation))
+                                    (#pt-app
+                                      (#pt-use transitivity (0))
+                                      #pt-nat
+                                      (#pt-app (#pt-use multiply ()) first second)
+                                      (#pt-app (#pt-use multiply ()) root root)
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                        (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                                      square-equation
+                                      (#pt-app
+                                        (#pt-use transitivity (0))
+                                        #pt-nat
+                                        (#pt-app (#pt-use multiply ()) root root)
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                          root)
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                          (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                                        (#pt-app
+                                          (#pt-use congruence (0 0))
+                                          #pt-nat
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((factor-value #pt-nat))
+                                            (#pt-app (#pt-use multiply ()) factor-value root))
+                                          root
+                                          (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                          root-equation)
+                                        (#pt-app
+                                          (#pt-use congruence (0 0))
+                                          #pt-nat
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((factor-value #pt-nat))
+                                            (#pt-app
+                                              (#pt-use multiply ())
+                                              (#pt-app
+                                                (#pt-use multiply ())
+                                                prime-number
+                                                root-factor)
+                                              factor-value))
+                                          root
+                                          (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                          root-equation)))))))
+                            coprime-proof
+                            prime-proof)))
+                      remaining-divides))
+                  (#pt-lambda
+                    ((second-divides (#pt-app (#pt-use divides ()) prime-number second)))
+                    (#pt-app
+                      (#pt-use false-elimination ())
+                      (#pt-app (#pt-use is-square ()) first)
+                      (#pt-app
+                        (#pt-lambda
+                          (
+                            (counterexample-divides
+                              (#pt-app (#pt-use divides ()) prime-number second)))
+                          (#pt-app
+                            (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof)
+                            (#pt-app
+                              coprime-proof
+                              prime-number
+                              prime-divides
+                              counterexample-divides)))
+                        second-divides)))
+                  (#pt-app
+                    (#pt-use prime-divides-product ())
+                    prime-number
+                    first-factor
+                    second
+                    prime-proof
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-factor #pt-nat))
+                          (#pt-eq
+                            #pt-nat
+                            (#pt-app (#pt-use multiply ()) first-factor second)
+                            (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+                      introduce
+                      (
+                        (#pt-app (#pt-use multiply ()) root-factor root-factor)
+                        (#pt-app
+                          (#pt-use square-remove-first-factor ())
+                          prime-number
+                          first-factor
+                          second
+                          root-factor
+                          (#pt-app
+                            (#pt-use less-than-upper-nonzero ())
+                            (#pt-succ #pt-zero)
+                            prime-number
+                            (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                              second)
+                            (#pt-app (#pt-use multiply ()) first second)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                              (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                            (#pt-app
+                              (#pt-use congruence (0 0))
+                              #pt-nat
+                              #pt-nat
+                              (#pt-lambda
+                                ((factor-value #pt-nat))
+                                (#pt-app (#pt-use multiply ()) factor-value second))
+                              (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                              first
+                              (#pt-app
+                                (#pt-use symmetry (0))
+                                #pt-nat
+                                first
+                                (#pt-app (#pt-use multiply ()) prime-number first-factor)
+                                first-equation))
+                            (#pt-app
+                              (#pt-use transitivity (0))
+                              #pt-nat
+                              (#pt-app (#pt-use multiply ()) first second)
+                              (#pt-app (#pt-use multiply ()) root root)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                              square-equation
+                              (#pt-app
+                                (#pt-use transitivity (0))
+                                #pt-nat
+                                (#pt-app (#pt-use multiply ()) root root)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                  root)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                  (#pt-app (#pt-use multiply ()) prime-number root-factor))
+                                (#pt-app
+                                  (#pt-use congruence (0 0))
+                                  #pt-nat
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((factor-value #pt-nat))
+                                    (#pt-app (#pt-use multiply ()) factor-value root))
+                                  root
+                                  (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                  root-equation)
+                                (#pt-app
+                                  (#pt-use congruence (0 0))
+                                  #pt-nat
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((factor-value #pt-nat))
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                      factor-value))
+                                  root
+                                  (#pt-app (#pt-use multiply ()) prime-number root-factor)
+                                  root-equation)))))))))))
+            (#pt-app
+              (#pt-use prime-divides-square ())
+              prime-number
+              root
+              prime-proof
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app (#pt-use divides ()) prime-number endpoint))
+                (#pt-app (#pt-use multiply ()) first second)
+                (#pt-app (#pt-use multiply ()) root root)
+                square-equation
+                (#pt-app
+                  (#pt-use divides-transitive ())
+                  prime-number
+                  first
+                  (#pt-app (#pt-use multiply ()) first second)
+                  prime-divides
+                  (#pt-app (#pt-use divides-multiple ()) first second)))))))
+      prime-divides)))
+(#theorem square-factor-induction-step
+  (#universes)
+  (#parameters
+    (#parameter stage #pt-nat)
+    (#parameter smaller-cases (#pt-pi ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier stage))) (#pt-pi ((other #pt-nat) (square-root #pt-nat) (coprime-evidence (#pt-app (#pt-use coprime ()) earlier other)) (square-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) earlier other) (#pt-app (#pt-use multiply ()) square-root square-root)))) (#pt-app (#pt-use is-square ()) earlier)))))
+  (#statement
+    (#pt-pi
+      (
+        (other #pt-nat)
+        (square-root #pt-nat)
+        (coprime-evidence (#pt-app (#pt-use coprime ()) stage other))
+        (square-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) stage other)
+            (#pt-app (#pt-use multiply ()) square-root square-root))))
+      (#pt-app (#pt-use is-square ()) stage)))
+  (#proof
+    (#pt-lambda
+      (
+        (other #pt-nat)
+        (square-root #pt-nat)
+        (coprime-evidence (#pt-app (#pt-use coprime ()) stage other))
+        (square-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) stage other)
+            (#pt-app (#pt-use multiply ()) square-root square-root))))
+      (#pt-app
+        (#pt-use disjunction-eliminate ())
+        (#pt-eq #pt-nat stage #pt-zero)
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-eq #pt-nat stage (#pt-succ #pt-zero))
+          (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) stage))
+        (#pt-app (#pt-use is-square ()) stage)
+        (#pt-lambda
+          ((zero-equation (#pt-eq #pt-nat stage #pt-zero)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-root #pt-nat))
+                (#pt-eq #pt-nat stage (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+            introduce
+            (#pt-zero zero-equation)))
+        (#pt-lambda
+          (
+            (nonzero-case
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat stage (#pt-succ #pt-zero))
+                (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) stage))))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-eq #pt-nat stage (#pt-succ #pt-zero))
+            (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) stage)
+            (#pt-app (#pt-use is-square ()) stage)
+            (#pt-lambda
+              ((one-equation (#pt-eq #pt-nat stage (#pt-succ #pt-zero))))
+              (#pt-construct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((candidate-root #pt-nat))
+                    (#pt-eq
+                      #pt-nat
+                      stage
+                      (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+                introduce
+                ((#pt-succ #pt-zero) one-equation)))
+            (#pt-lambda
+              ((larger-than-one (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) stage)))
+              (#pt-induct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((prime-candidate #pt-nat))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use prime ()) prime-candidate)
+                      (#pt-app (#pt-use divides ()) prime-candidate stage))))
+                (#pt-lambda
+                  (
+                    (certificate
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((prime-candidate #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app (#pt-use prime ()) prime-candidate)
+                            (#pt-app (#pt-use divides ()) prime-candidate stage))))))
+                  (#pt-app (#pt-use is-square ()) stage))
+                (
+                  (#pt-lambda
+                    (
+                      (prime-number #pt-nat)
+                      (prime-certificate
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app (#pt-use prime ()) prime-number)
+                          (#pt-app (#pt-use divides ()) prime-number stage))))
+                    (#pt-app
+                      (#pt-use square-factor-prime-step ())
+                      stage
+                      other
+                      square-root
+                      prime-number
+                      smaller-cases
+                      (#pt-app
+                        (#pt-use conjunction-left ())
+                        (#pt-app (#pt-use prime ()) prime-number)
+                        (#pt-app (#pt-use divides ()) prime-number stage)
+                        prime-certificate)
+                      (#pt-app
+                        (#pt-use conjunction-right ())
+                        (#pt-app (#pt-use prime ()) prime-number)
+                        (#pt-app (#pt-use divides ()) prime-number stage)
+                        prime-certificate)
+                      coprime-evidence
+                      square-equation)))
+                (#pt-app (#pt-use exists-prime-divisor ()) stage larger-than-one)))
+            nonzero-case))
+        (#pt-app (#pt-use zero-one-or-large ()) stage)))))
+(#theorem coprime-product-square
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter root #pt-nat)
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second))
+    (#parameter product-is-square (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) first second) (#pt-app (#pt-use multiply ()) root root))))
+  (#statement (#pt-app (#pt-use is-square ()) first))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use strong-induction ())
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (other #pt-nat)
+              (square-root #pt-nat)
+              (coprime-evidence (#pt-app (#pt-use coprime ()) index other))
+              (square-equation
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) index other)
+                  (#pt-app (#pt-use multiply ()) square-root square-root))))
+            (#pt-app (#pt-use is-square ()) index)))
+        (#pt-lambda
+          (
+            (stage #pt-nat)
+            (smaller-cases
+              (#pt-pi
+                ((earlier #pt-nat) (earlier-proof (#pt-app (#pt-use less-than ()) earlier stage)))
+                (#pt-pi
+                  (
+                    (other #pt-nat)
+                    (square-root #pt-nat)
+                    (coprime-evidence (#pt-app (#pt-use coprime ()) earlier other))
+                    (square-equation
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) earlier other)
+                        (#pt-app (#pt-use multiply ()) square-root square-root))))
+                  (#pt-app (#pt-use is-square ()) earlier)))))
+          (#pt-app (#pt-use square-factor-induction-step ()) stage smaller-cases)))
+      first
+      second
+      root
+      coprime-proof
+      product-is-square)))

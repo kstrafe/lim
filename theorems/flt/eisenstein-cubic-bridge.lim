@@ -1,0 +1,551 @@
+; Scalar specialization of the generalized exponent-three descent statement.
+; Adapted from Mathlib/NumberTheory/FLT/Three.lean:161-180.
+; Copyright (c) 2024 Riccardo Brasca. Apache-2.0 source adaptation.
+; The generalized theorem is an explicit hypothesis, not a proved global fact.
+; Primitive counterexample normalization and the actual descent remain separate.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-add-zero = ./integer-addition.lim::integer-add-zero)
+(#alias integer-one-multiply = ./integer-bezout-algebra.lim::integer-one-multiply)
+(#alias integer-zero-multiply = ./integer-bezout-algebra.lim::integer-zero-multiply)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-coprime = ./integer-gcd-bezout.lim::integer-coprime)
+(#alias integer-coprime-of-gcd-one = ./integer-gcd-bezout.lim::integer-coprime-of-gcd-one)
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-congruent
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-congruent)
+(#alias eisenstein-of-integer-add = ./eisenstein-embedding.lim::eisenstein-of-integer-add)
+(#alias eisenstein-of-integer-power = ./eisenstein-embedding.lim::eisenstein-of-integer-power)
+(#alias eisenstein-embedded-nonzero = ./eisenstein-embedding.lim::eisenstein-embedded-nonzero)
+(#alias eisenstein-coprime-of-integer = ./eisenstein-bezout.lim::eisenstein-coprime-of-integer)
+(#alias
+  eisenstein-lambda-not-divides-of-integer
+  =
+  ./eisenstein-lambda.lim::eisenstein-lambda-not-divides-of-integer)
+(#alias
+  eisenstein-lambda-divides-of-three
+  =
+  ./eisenstein-lambda.lim::eisenstein-lambda-divides-of-three)
+(#theorem eisenstein-one-multiply
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number)
+      number))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number))
+        (#pt-project eisenstein 0 number))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number))
+        (#pt-project eisenstein 1 number))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-project
+          eisenstein
+          0
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-project eisenstein 0 number)
+          (#pt-use integer-zero ()))
+        (#pt-project eisenstein 0 number)
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-one ())
+            (#pt-project eisenstein 0 number))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 number)))
+          (#pt-project eisenstein 0 number)
+          (#pt-use integer-zero ())
+          (#pt-app (#pt-use integer-one-multiply ()) (#pt-project eisenstein 0 number))
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 number))
+            (#pt-use integer-zero ())
+            (#pt-app (#pt-use integer-zero-multiply ()) (#pt-project eisenstein 1 number))))
+        (#pt-app (#pt-use integer-add-zero ()) (#pt-project eisenstein 0 number)))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-project
+          eisenstein
+          1
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-zero ()))
+          (#pt-use integer-zero ()))
+        (#pt-project eisenstein 1 number)
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-one ())
+              (#pt-project eisenstein 1 number))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 0 number)))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 number)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-zero ()))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-one ())
+              (#pt-project eisenstein 1 number))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 0 number))
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-zero ())
+            (#pt-app (#pt-use integer-one-multiply ()) (#pt-project eisenstein 1 number))
+            (#pt-app (#pt-use integer-zero-multiply ()) (#pt-project eisenstein 0 number)))
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 number))
+            (#pt-use integer-zero ())
+            (#pt-app (#pt-use integer-zero-multiply ()) (#pt-project eisenstein 1 number))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project eisenstein 1 number)
+              (#pt-use integer-zero ()))
+            (#pt-use integer-zero ()))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-zero ()))
+          (#pt-project eisenstein 1 number)
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project eisenstein 1 number)
+              (#pt-use integer-zero ()))
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-zero ())
+            (#pt-app (#pt-use integer-add-zero ()) (#pt-project eisenstein 1 number))
+            (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-zero ())))
+          (#pt-app (#pt-use integer-add-zero ()) (#pt-project eisenstein 1 number)))))))
+(#theorem eisenstein-one-unit
+  (#universes)
+  (#parameters)
+  (#statement (#pt-app (#pt-use eisenstein-unit ()) (#pt-use eisenstein-one ())))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-one ())
+                candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                candidate-inverse
+                (#pt-use eisenstein-one ()))
+              (#pt-use eisenstein-one ())))))
+      introduce
+      (
+        (#pt-use eisenstein-one ())
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ()))
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ()))
+            (#pt-use eisenstein-one ()))
+          (#pt-app (#pt-use eisenstein-one-multiply ()) (#pt-use eisenstein-one ()))
+          (#pt-app (#pt-use eisenstein-one-multiply ()) (#pt-use eisenstein-one ())))))))
+(#math-definition eisenstein-fermat-three-general ()
+  #pt-prop
+  (#pt-pi
+    (
+      (first (#pt-use eisenstein ()))
+      (second (#pt-use eisenstein ()))
+      (third (#pt-use eisenstein ()))
+      (unit (#pt-use eisenstein ()))
+      (unit-proof (#pt-app (#pt-use eisenstein-unit ()) unit))
+      (third-nonzero
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+          #pt-false))
+      (first-nondivisible
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)))
+          #pt-false))
+      (second-nondivisible
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second)))
+          #pt-false))
+      (third-divisible
+        (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third))
+      (pair-coprime (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))))
+      #pt-false)))
+(#theorem integer-fermat-three-residual-of-eisenstein
+  (#universes)
+  (#parameters
+    (#parameter general-case (#pt-use eisenstein-fermat-three-general ()))
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter third-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) third (#pt-use integer-zero ())))) #pt-false))
+    (#parameter first-nondivisible (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) first))) #pt-false))
+    (#parameter second-nondivisible (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) second))) #pt-false))
+    (#parameter third-divisible (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) third))
+    (#parameter pair-coprime (#pt-app (#pt-use integer-coprime ()) first second)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3)))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (integer-equation
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3)))))
+      (#pt-app
+        (#pt-app
+          general-case
+          (#pt-app (#pt-use eisenstein-of-integer ()) first)
+          (#pt-app (#pt-use eisenstein-of-integer ()) second)
+          (#pt-app (#pt-use eisenstein-of-integer ()) third)
+          (#pt-use eisenstein-one ())
+          (#pt-use eisenstein-one-unit ())
+          (#pt-app (#pt-use eisenstein-embedded-nonzero ()) third third-nonzero)
+          (#pt-app (#pt-use eisenstein-lambda-not-divides-of-integer ()) first first-nondivisible)
+          (#pt-app (#pt-use eisenstein-lambda-not-divides-of-integer ()) second second-nondivisible)
+          (#pt-app (#pt-use eisenstein-lambda-divides-of-three ()) third third-divisible)
+          (#pt-app (#pt-use eisenstein-coprime-of-integer ()) first second pair-coprime))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) first)
+              (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) second)
+              (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-use eisenstein-one ())
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) third)
+              (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) first)
+              (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) second)
+              (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-app (#pt-use eisenstein-of-integer ()) first)
+                (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-of-integer-power ()) first (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-app (#pt-use eisenstein-of-integer ()) second)
+                (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-of-integer-power ()) second (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+                (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-one ())
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+                  (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3)))
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+              (#pt-app
+                (#pt-use eisenstein-of-integer-add ())
+                (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+                (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+            (#pt-app
+              (#pt-use eisenstein-transitive ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+                  (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3))))
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-use eisenstein-one ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                  (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-of-integer-congruent ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+                  (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+                (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3))
+                integer-equation)
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3)))
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                  (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                    (#pt-numeral 3)))
+                (#pt-app (#pt-use eisenstein-of-integer-power ()) third (#pt-numeral 3))
+                (#pt-app
+                  (#pt-use eisenstein-symmetric ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                      (#pt-numeral 3)))
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                    (#pt-numeral 3))
+                  (#pt-app
+                    (#pt-use eisenstein-one-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-app (#pt-use eisenstein-of-integer ()) third)
+                      (#pt-numeral 3))))))))))))
+(#theorem integer-fermat-three-residual-gcd-of-eisenstein
+  (#universes)
+  (#parameters
+    (#parameter general-case (#pt-use eisenstein-fermat-three-general ()))
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter third-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) third (#pt-use integer-zero ())))) #pt-false))
+    (#parameter first-nondivisible (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) first))) #pt-false))
+    (#parameter second-nondivisible (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) second))) #pt-false))
+    (#parameter third-divisible (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)) third))
+    (#parameter pair-gcd-one (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero))))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use integer-power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use integer-power ()) third (#pt-numeral 3)))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use integer-fermat-three-residual-of-eisenstein ())
+      general-case
+      first
+      second
+      third
+      third-nonzero
+      first-nondivisible
+      second-nondivisible
+      third-divisible
+      (#pt-app (#pt-use integer-coprime-of-gcd-one ()) first second pair-gcd-one))))

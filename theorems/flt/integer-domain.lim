@@ -1,0 +1,365 @@
+; Domain and cancellation laws for formal-difference integers.
+; Magnitudes reduce the nonzero-product claim to proved natural arithmetic.
+; Equality decisions are the existing constructive natural cross-sum cases.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias integer-nonzero-magnitude = ./integer-magnitude.lim::integer-nonzero-magnitude)
+(#alias
+  integer-zero-forces-magnitude-zero
+  =
+  ./integer-magnitude.lim::integer-zero-forces-magnitude-zero)
+(#alias integer-magnitude-multiply = ./integer-magnitude-products.lim::integer-magnitude-multiply)
+(#alias multiply-nonzero = ./natural-nonzero.lim::multiply-nonzero)
+(#alias natural-equality-decided = ./natural-decision.lim::natural-equality-decided)
+(#alias integer-add-inverse = ./integer-addition.lim::integer-add-inverse)
+(#alias integer-zero-difference = ./integer-linear-identities.lim::integer-zero-difference)
+(#alias
+  integer-multiply-distribute-second
+  =
+  ./integer-divisibility-addition.lim::integer-multiply-distribute-second)
+(#alias
+  integer-multiply-negative-second
+  =
+  ./integer-divisibility.lim::integer-multiply-negative-second)
+(#alias integer-multiply-zero = ./integer-multiplication.lim::integer-multiply-zero)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#theorem integer-equality-decided
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use integer-equal ()) first second)
+      (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first second))) #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use natural-equality-decided ())
+      (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 1 second))
+      (#pt-app (#pt-use add ()) (#pt-project integer 0 second) (#pt-project integer 1 first)))))
+(#theorem integer-natural-embedding-nonzero
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-of-natural ()) number)
+            (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (embedded-zero
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-of-natural ()) number)
+            (#pt-use integer-zero ()))))
+      (#pt-app
+        number-nonzero
+        (#pt-app (#pt-use integer-of-natural-injective ()) number #pt-zero embedded-zero)))))
+(#theorem integer-nonzero-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false))
+    (#parameter second-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ())))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) first candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) first candidate-magnitude)))))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-use integer-zero ()))))
+          #pt-false))
+      (
+        (#pt-lambda
+          (
+            (first-magnitude #pt-nat)
+            (first-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) first first-magnitude)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) second candidate-magnitude)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-magnitude #pt-nat))
+                      (#pt-app (#pt-use integer-magnitude ()) second candidate-magnitude)))))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      (#pt-app (#pt-use integer-multiply ()) first second)
+                      (#pt-use integer-zero ()))))
+                #pt-false))
+            (
+              (#pt-lambda
+                (
+                  (second-magnitude #pt-nat)
+                  (second-magnitude-proof
+                    (#pt-app (#pt-use integer-magnitude ()) second second-magnitude)))
+                (#pt-lambda
+                  (
+                    (product-zero
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        (#pt-app (#pt-use integer-multiply ()) first second)
+                        (#pt-use integer-zero ()))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use multiply-nonzero ())
+                      first-magnitude
+                      second-magnitude
+                      (#pt-app
+                        (#pt-use integer-nonzero-magnitude ())
+                        first
+                        first-magnitude
+                        first-magnitude-proof
+                        first-nonzero)
+                      (#pt-app
+                        (#pt-use integer-nonzero-magnitude ())
+                        second
+                        second-magnitude
+                        second-magnitude-proof
+                        second-nonzero))
+                    (#pt-app
+                      (#pt-use integer-zero-forces-magnitude-zero ())
+                      (#pt-app (#pt-use integer-multiply ()) first second)
+                      (#pt-app (#pt-use multiply ()) first-magnitude second-magnitude)
+                      (#pt-app
+                        (#pt-use integer-magnitude-multiply ())
+                        first
+                        second
+                        first-magnitude
+                        second-magnitude
+                        first-magnitude-proof
+                        second-magnitude-proof)
+                      product-zero)))))
+            (#pt-app (#pt-use integer-magnitude-exists ()) second))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) first))))
+(#theorem integer-product-zero-cancel-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false))
+    (#parameter product-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) first second) (#pt-use integer-zero ()))))
+  (#statement (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))
+      (#pt-pi
+        ((denied-proof (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))))
+        #pt-false)
+      (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))
+      (#pt-lambda
+        ((second-zero (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))))
+        second-zero)
+      (#pt-lambda
+        (
+          (second-nonzero
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))))
+              #pt-false)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app (#pt-use integer-equal ()) second (#pt-use integer-zero ()))
+          (#pt-app
+            (#pt-app (#pt-use integer-nonzero-product ()) first second first-nonzero second-nonzero)
+            product-zero)))
+      (#pt-app (#pt-use integer-equality-decided ()) second (#pt-use integer-zero ())))))
+(#theorem integer-square-zero
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter square-zero (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) first first) (#pt-use integer-zero ()))))
+  (#statement (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))
+      (#pt-pi
+        ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))))
+        #pt-false)
+      (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))
+      (#pt-lambda
+        ((number-zero (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))))
+        number-zero)
+      (#pt-lambda
+        (
+          (number-nonzero
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))))
+              #pt-false)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ()))
+          (#pt-app
+            (#pt-app (#pt-use integer-nonzero-product ()) first first number-nonzero number-nonzero)
+            square-zero)))
+      (#pt-app (#pt-use integer-equality-decided ()) first (#pt-use integer-zero ())))))
+(#theorem integer-multiply-cancel-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) first (#pt-use integer-zero ())))) #pt-false))
+    (#parameter products-equivalent (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) first second) (#pt-app (#pt-use integer-multiply ()) first third))))
+  (#statement (#pt-app (#pt-use integer-equal ()) second third))
+  (#proof
+    (#pt-app
+      (#pt-use integer-zero-difference ())
+      second
+      third
+      (#pt-app
+        (#pt-use integer-product-zero-cancel-first ())
+        first
+        (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) third))
+        factor-nonzero
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            first
+            (#pt-app (#pt-use integer-add ()) second (#pt-app (#pt-use integer-negate ()) third)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) first second)
+            (#pt-app
+              (#pt-use integer-multiply ())
+              first
+              (#pt-app (#pt-use integer-negate ()) third)))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-multiply-distribute-second ())
+            first
+            second
+            (#pt-app (#pt-use integer-negate ()) third))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app (#pt-use integer-negate ()) third)))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) first third)))
+            (#pt-use integer-zero ())
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                first
+                (#pt-app (#pt-use integer-negate ()) third))
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-multiply ()) first third))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-multiply ()) first second))
+              (#pt-app (#pt-use integer-multiply-negative-second ()) first third))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first third)))
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) first third)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first third)))
+              (#pt-use integer-zero ())
+              (#pt-app
+                (#pt-use integer-add-congruent ())
+                (#pt-app (#pt-use integer-multiply ()) first second)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first third))
+                (#pt-app (#pt-use integer-multiply ()) first third)
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-multiply ()) first third))
+                products-equivalent
+                (#pt-app
+                  (#pt-use integer-reflexive ())
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-multiply ()) first third))))
+              (#pt-app
+                (#pt-use integer-add-inverse ())
+                (#pt-app (#pt-use integer-multiply ()) first third)))))))))

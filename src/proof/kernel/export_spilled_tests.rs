@@ -1,5 +1,31 @@
 use super::*;
 
+#[test]
+fn selected_scratch_limit_pages_entries_and_rejects_exhaustion() {
+    // Four 32-byte index records fit exactly; the next record must refuse.
+    let mut entries = Entries::with_storage_limits(0, 128);
+    for id in 0..4 {
+        entries.push(entry(Expression::Var(id), id)).unwrap();
+    }
+    assert!(entries.is_spilled());
+    assert!(matches!(
+        entries.get(1).unwrap().expression,
+        Expression::Var(1)
+    ));
+    assert!(matches!(
+        entries.get(3).unwrap().expression,
+        Expression::Var(3)
+    ));
+    let mut exhausted = false;
+    for id in 4..30 {
+        if entries.push(entry(Expression::Var(id), id)).is_err() {
+            exhausted = true;
+            break;
+        }
+    }
+    assert!(exhausted);
+}
+
 fn same_expression(a: &Expression, b: &Expression) -> bool {
     match (a, b) {
         (Expression::Var(a), Expression::Var(b))

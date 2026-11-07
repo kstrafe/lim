@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
+[features]
+# Compile frontend code in its production configuration while retaining all
+# proof tests, keeping the proof harness within the development memory guard.
+proof-kernel-tests = []
+
 [lints.rust]
 warnings = "deny"
 

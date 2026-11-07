@@ -158,7 +158,7 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
     Ok(declarations)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

@@ -170,10 +170,13 @@ fn public_type_mismatch_span_and_rendering_point_at_rhs() {
     assert_eq!(after.span, error.span);
     assert_eq!(
         parsed[0].children[4].children[1].expr,
-        Expr::List(vec![
-            Expr::Symbol("#literal".into()),
-            Expr::Symbol("#u64".into()),
-            Expr::Integer(23),
-        ])
+        Expr::List(
+            vec![
+                Expr::Symbol("#literal".into()),
+                Expr::Symbol("#u64".into()),
+                Expr::Integer(23),
+            ]
+            .into()
+        )
     );
 }

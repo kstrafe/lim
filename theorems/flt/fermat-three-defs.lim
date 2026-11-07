@@ -1,0 +1,79 @@
+; Explicit positive cubic solutions and primitive/smaller solution witnesses.
+; These propositions state actual cubic equations and nonzero premises.
+; A primitive witness must carry checked coprimality, not an annotation.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias cube = ./natural-ninth-residues.lim::cube)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias less-than = ./natural-order.lim::less-than)
+(#math-inductive natural-cubic-solution ()
+  ((first #pt-nat) (second #pt-nat) (third #pt-nat))
+  #pt-prop
+  (
+    (introduce
+      (
+        (first-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+        (second-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat third #pt-zero))) #pt-false))
+        (equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use cube ()) first)
+              (#pt-app (#pt-use cube ()) second))
+            (#pt-app (#pt-use cube ()) third)))))))
+(#math-definition has-natural-primitive-cubic ()
+  #pt-prop
+  (#pt-app
+    (#pt-use exists (0))
+    #pt-nat
+    (#pt-lambda
+      ((candidate-first #pt-nat))
+      (#pt-app
+        (#pt-use exists (0))
+        #pt-nat
+        (#pt-lambda
+          ((candidate-second #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-third #pt-nat))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use natural-cubic-solution ())
+                  candidate-first
+                  candidate-second
+                  candidate-third)
+                (#pt-app (#pt-use coprime ()) candidate-first candidate-second)))))))))
+(#math-definition has-smaller-natural-cubic ()
+  (#pt-pi ((bound #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((bound #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-first #pt-nat))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-second #pt-nat))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-third #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use natural-cubic-solution ())
+                    candidate-first
+                    candidate-second
+                    candidate-third)
+                  (#pt-app (#pt-use less-than ()) candidate-third bound))))))))))

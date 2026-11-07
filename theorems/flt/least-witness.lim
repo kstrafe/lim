@@ -1,0 +1,229 @@
+; Least witnesses from explicit pointwise decisions and a proved witness.
+; The natural bound is arbitrary: this is not a finite substitute for FLT.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-zero = ./natural-order.lim::not-less-than-zero)
+(#alias decision = ./logical-decision.lim::decision)
+(#alias any-up-to = ./bounded-existence.lim::any-up-to)
+(#alias any-up-to-here = ./bounded-existence.lim::any-up-to-here)
+(#alias decide-any-up-to = ./bounded-search.lim::decide-any-up-to)
+(#alias any-up-to-from-less-successor = ./decidable-order.lim::any-up-to-from-less-successor)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#math-definition minimum ()
+  (#pt-pi ((property (#pt-pi ((index #pt-nat)) #pt-prop)) (value #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((property (#pt-pi ((index #pt-nat)) #pt-prop)) (value #pt-nat))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app property value)
+      (#pt-pi
+        (
+          (smaller #pt-nat)
+          (smaller-proof (#pt-app (#pt-use less-than ()) smaller value))
+          (smaller-property (#pt-app property smaller)))
+        #pt-false))))
+(#math-definition has-minimum ()
+  (#pt-pi ((property (#pt-pi ((index #pt-nat)) #pt-prop))) #pt-prop)
+  (#pt-lambda
+    ((property (#pt-pi ((index #pt-nat)) #pt-prop)))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((minimum-candidate #pt-nat))
+        (#pt-app (#pt-use minimum ()) property minimum-candidate)))))
+(#theorem bounded-minimum
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter pointwise-decision (#pt-pi ((candidate #pt-nat)) (#pt-app (#pt-use decision ()) (#pt-app property candidate))))
+    (#parameter limit #pt-nat)
+    (#parameter found (#pt-app (#pt-use any-up-to ()) property limit)))
+  (#statement (#pt-app (#pt-use has-minimum ()) property))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((bound #pt-nat))
+          (#pt-pi
+            ((prefix-proof (#pt-app (#pt-use any-up-to ()) property bound)))
+            (#pt-app (#pt-use has-minimum ()) property)))
+        (#pt-lambda
+          ((at-zero (#pt-app property #pt-zero)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((minimum-candidate #pt-nat))
+                (#pt-app (#pt-use minimum ()) property minimum-candidate)))
+            introduce
+            (#pt-zero
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app property #pt-zero)
+                (#pt-pi
+                  (
+                    (smaller #pt-nat)
+                    (smaller-proof (#pt-app (#pt-use less-than ()) smaller #pt-zero))
+                    (smaller-property (#pt-app property smaller)))
+                  #pt-false)
+                at-zero
+                (#pt-lambda
+                  (
+                    (earlier #pt-nat)
+                    (earlier-proof (#pt-app (#pt-use less-than ()) earlier #pt-zero))
+                    (competing-proof (#pt-app property earlier)))
+                  (#pt-app (#pt-app (#pt-use not-less-than-zero ()) earlier) earlier-proof))))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-minimum
+              (#pt-pi
+                ((prefix-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                (#pt-app (#pt-use has-minimum ()) property)))
+            (current-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+          (#pt-induct
+            decision
+            ()
+            ((#pt-app (#pt-use any-up-to ()) property previous))
+            (#pt-lambda
+              (
+                (prefix-decision
+                  (#pt-app (#pt-use decision ()) (#pt-app (#pt-use any-up-to ()) property previous))))
+              (#pt-app (#pt-use has-minimum ()) property))
+            (
+              (#pt-lambda
+                (
+                  (no-prefix
+                    (#pt-pi
+                      ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                      #pt-false)))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-app (#pt-use any-up-to ()) property previous)
+                  (#pt-app property (#pt-succ previous))
+                  (#pt-app (#pt-use has-minimum ()) property)
+                  (#pt-lambda
+                    ((already-found (#pt-app (#pt-use any-up-to ()) property previous)))
+                    (#pt-app
+                      (#pt-use false-elimination ())
+                      (#pt-app (#pt-use has-minimum ()) property)
+                      (#pt-app no-prefix already-found)))
+                  (#pt-lambda
+                    ((at-endpoint (#pt-app property (#pt-succ previous))))
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((minimum-candidate #pt-nat))
+                          (#pt-app (#pt-use minimum ()) property minimum-candidate)))
+                      introduce
+                      (
+                        (#pt-succ previous)
+                        (#pt-app
+                          (#pt-use conjunction-introduce ())
+                          (#pt-app property (#pt-succ previous))
+                          (#pt-pi
+                            (
+                              (smaller #pt-nat)
+                              (smaller-proof
+                                (#pt-app (#pt-use less-than ()) smaller (#pt-succ previous)))
+                              (smaller-property (#pt-app property smaller)))
+                            #pt-false)
+                          at-endpoint
+                          (#pt-lambda
+                            (
+                              (earlier #pt-nat)
+                              (earlier-proof
+                                (#pt-app (#pt-use less-than ()) earlier (#pt-succ previous)))
+                              (competing-proof (#pt-app property earlier)))
+                            (#pt-app
+                              no-prefix
+                              (#pt-app
+                                (#pt-use any-up-to-from-less-successor ())
+                                property
+                                earlier
+                                previous
+                                earlier-proof
+                                competing-proof)))))))
+                  current-proof))
+              (#pt-lambda
+                ((already-found (#pt-app (#pt-use any-up-to ()) property previous)))
+                (#pt-app previous-minimum already-found)))
+            (#pt-app (#pt-use decide-any-up-to ()) property pointwise-decision previous)))
+        limit)
+      found)))
+(#theorem least-witness
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter pointwise-decision (#pt-pi ((candidate #pt-nat)) (#pt-app (#pt-use decision ()) (#pt-app property candidate))))
+    (#parameter found-witness (#pt-app (#pt-use exists (0)) #pt-nat property)))
+  (#statement (#pt-app (#pt-use has-minimum ()) property))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat property)
+      (#pt-lambda
+        ((existence-proof (#pt-app (#pt-use exists (0)) #pt-nat property)))
+        (#pt-app (#pt-use has-minimum ()) property))
+      (
+        (#pt-lambda
+          ((witness #pt-nat) (at-witness (#pt-app property witness)))
+          (#pt-app
+            (#pt-use bounded-minimum ())
+            property
+            pointwise-decision
+            witness
+            (#pt-app (#pt-use any-up-to-here ()) property witness at-witness))))
+      found-witness)))
+(#theorem minimum-holds
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter value #pt-nat)
+    (#parameter minimum-proof (#pt-app (#pt-use minimum ()) property value)))
+  (#statement (#pt-app property value))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-left ())
+      (#pt-app property value)
+      (#pt-pi
+        (
+          (smaller #pt-nat)
+          (smaller-proof (#pt-app (#pt-use less-than ()) smaller value))
+          (smaller-property (#pt-app property smaller)))
+        #pt-false)
+      minimum-proof)))
+(#theorem minimum-excludes-earlier
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter value #pt-nat)
+    (#parameter minimum-proof (#pt-app (#pt-use minimum ()) property value))
+    (#parameter earlier #pt-nat)
+    (#parameter earlier-proof (#pt-app (#pt-use less-than ()) earlier value)))
+  (#statement (#pt-pi ((denied-proof (#pt-app property earlier))) #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use conjunction-right ())
+        (#pt-app property value)
+        (#pt-pi
+          (
+            (smaller #pt-nat)
+            (smaller-proof (#pt-app (#pt-use less-than ()) smaller value))
+            (smaller-property (#pt-app property smaller)))
+          #pt-false)
+        minimum-proof)
+      earlier
+      earlier-proof)))

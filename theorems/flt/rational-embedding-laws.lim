@@ -1,0 +1,354 @@
+; Explicit compatibility of exact rational fractions with integer
+; negation and arbitrary powers. Multiplying a fraction by a natural
+; multiple of its nonzero denominator requires no nonzero multiplier.
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-one = ./rational-defs.lim::rational-one)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-symmetric = ./rational-equality.lim::rational-symmetric)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-multiply-congruent = ./rational-congruence.lim::rational-multiply-congruent)
+(#alias rational-of-integer-congruent = ./rational-congruence.lim::rational-of-integer-congruent)
+(#alias
+  rational-fraction-times-denominator
+  =
+  ./rational-fractions.lim::rational-fraction-times-denominator)
+(#alias rational-multiply-associative = ./rational-ring.lim::rational-multiply-associative)
+(#alias rational-of-integer-multiply = ./rational-congruence.lim::rational-of-integer-multiply)
+(#theorem rational-of-integer-negate
+  (#universes)
+  (#parameters
+    (#parameter integer-value (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-negate ())
+        (#pt-app (#pt-use rational-of-integer ()) integer-value))
+      (#pt-app (#pt-use rational-of-integer ()) (#pt-app (#pt-use integer-negate ()) integer-value))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-reflexive ())
+      (#pt-app
+        (#pt-use rational-negate ())
+        (#pt-app (#pt-use rational-of-integer ()) integer-value)))))
+(#theorem rational-of-integer-power
+  (#universes)
+  (#parameters
+    (#parameter integer-value (#pt-use integer ()))
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-power ())
+        (#pt-app (#pt-use rational-of-integer ()) integer-value)
+        exponent)
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app (#pt-use integer-power ()) integer-value exponent))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app (#pt-use rational-of-integer ()) integer-value)
+            index)
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-power ()) integer-value index))))
+      (#pt-app (#pt-use rational-reflexive ()) (#pt-use rational-one ()))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-embedding
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-app (#pt-use rational-of-integer ()) integer-value)
+                previous-exponent)
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-power ()) integer-value previous-exponent)))))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-of-integer ()) integer-value)
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app (#pt-use rational-of-integer ()) integer-value)
+              previous-exponent))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app (#pt-use rational-of-integer ()) integer-value)
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-power ()) integer-value previous-exponent)))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              integer-value
+              (#pt-app (#pt-use integer-power ()) integer-value previous-exponent)))
+          (#pt-app
+            (#pt-use rational-multiply-congruent ())
+            (#pt-app (#pt-use rational-of-integer ()) integer-value)
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-app (#pt-use rational-of-integer ()) integer-value)
+              previous-exponent)
+            (#pt-app (#pt-use rational-of-integer ()) integer-value)
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-power ()) integer-value previous-exponent))
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app (#pt-use rational-of-integer ()) integer-value))
+            previous-embedding)
+          (#pt-app
+            (#pt-use rational-of-integer-multiply ())
+            integer-value
+            (#pt-app (#pt-use integer-power ()) integer-value previous-exponent))))
+      exponent)))
+(#theorem rational-natural-multiple-times-fraction
+  (#universes)
+  (#parameters
+    (#parameter numerator (#pt-use integer ()))
+    (#parameter denominator #pt-nat)
+    (#parameter multiplier #pt-nat)
+    (#parameter denominator-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat denominator #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) multiplier denominator)))
+        (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) multiplier)
+          numerator))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-transitive ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) multiplier denominator)))
+        (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) denominator)))
+        (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) multiplier)
+          numerator))
+      (#pt-app
+        (#pt-use rational-multiply-congruent ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app (#pt-use multiply ()) multiplier denominator)))
+        (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) denominator)))
+        (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) multiplier denominator)))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier)
+              (#pt-app (#pt-use integer-of-natural ()) denominator)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) denominator)))
+          (#pt-app
+            (#pt-use rational-of-integer-congruent ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) multiplier denominator))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier)
+              (#pt-app (#pt-use integer-of-natural ()) denominator))
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) multiplier)
+                (#pt-app (#pt-use integer-of-natural ()) denominator))
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use multiply ()) multiplier denominator))
+              (#pt-app (#pt-use integer-multiply-of-natural ()) multiplier denominator)))
+          (#pt-app
+            (#pt-use rational-symmetric ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) multiplier))
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) denominator)))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) multiplier)
+                (#pt-app (#pt-use integer-of-natural ()) denominator)))
+            (#pt-app
+              (#pt-use rational-of-integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier)
+              (#pt-app (#pt-use integer-of-natural ()) denominator))))
+        (#pt-app
+          (#pt-use rational-reflexive ())
+          (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))))
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) denominator)))
+          (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) denominator))
+            (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))))
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier)
+            numerator))
+        (#pt-app
+          (#pt-use rational-multiply-associative ())
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-of-natural ()) denominator))
+          (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) denominator))
+              (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app (#pt-use rational-of-integer ()) numerator))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier)
+              numerator))
+          (#pt-app
+            (#pt-use rational-multiply-congruent ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) denominator))
+              (#pt-construct rational () () fraction (numerator denominator denominator-nonzero)))
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) multiplier))
+            (#pt-app (#pt-use rational-of-integer ()) numerator)
+            (#pt-app
+              (#pt-use rational-reflexive ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) multiplier)))
+            (#pt-app
+              (#pt-use rational-fraction-times-denominator ())
+              numerator
+              denominator
+              denominator-nonzero))
+          (#pt-app
+            (#pt-use rational-of-integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) multiplier)
+            numerator))))))

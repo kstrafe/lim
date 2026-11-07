@@ -1,0 +1,600 @@
+; Equivalence and operation congruence for concrete Eisenstein expressions.
+; Prove well-definedness over integer equivalence rather than identifying
+; distinct signed or Eisenstein records with the kernel identity type.
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#theorem eisenstein-reflexive
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ())))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) first first))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 first))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 first))
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-project eisenstein 0 first))
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-project eisenstein 1 first)))))
+(#theorem eisenstein-symmetric
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter equivalent (#pt-app (#pt-use eisenstein-equal ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) second first))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 0 first))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 second)
+        (#pt-project eisenstein 1 first))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent)))))
+(#theorem eisenstein-transitive
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter first-equivalence (#pt-app (#pt-use eisenstein-equal ()) first second))
+    (#parameter second-equivalence (#pt-app (#pt-use eisenstein-equal ()) second third)))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) first third))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 third))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 third))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 0 third)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          first-equivalence)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 second)
+            (#pt-project eisenstein 0 third))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 third))
+          second-equivalence))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-project eisenstein 1 third)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          first-equivalence)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 second)
+            (#pt-project eisenstein 0 third))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 third))
+          second-equivalence)))))
+(#theorem eisenstein-negate-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter equivalent (#pt-app (#pt-use eisenstein-equal ()) first second)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-negate ()) first)
+      (#pt-app (#pt-use eisenstein-negate ()) second)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-negate ()) first))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-negate ()) second)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-negate ()) first))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-negate ()) second)))
+      (#pt-app
+        (#pt-use integer-negate-congruent ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent))
+      (#pt-app
+        (#pt-use integer-negate-congruent ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          equivalent)))))
+(#theorem eisenstein-add-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter fourth (#pt-use eisenstein ()))
+    (#parameter first-equivalence (#pt-app (#pt-use eisenstein-equal ()) first third))
+    (#parameter second-equivalence (#pt-app (#pt-use eisenstein-equal ()) second fourth)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-add ()) first second)
+      (#pt-app (#pt-use eisenstein-add ()) third fourth)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-add ()) first second))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-add ()) third fourth)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-add ()) first second))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-add ()) third fourth)))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-project eisenstein 0 third)
+        (#pt-project eisenstein 0 fourth)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 third))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 third))
+          first-equivalence)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 second)
+            (#pt-project eisenstein 0 fourth))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 fourth))
+          second-equivalence))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-project eisenstein 1 third)
+        (#pt-project eisenstein 1 fourth)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 0 third))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 third))
+          first-equivalence)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 second)
+            (#pt-project eisenstein 0 fourth))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 fourth))
+          second-equivalence)))))
+(#theorem eisenstein-multiply-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter fourth (#pt-use eisenstein ()))
+    (#parameter first-equivalence (#pt-app (#pt-use eisenstein-equal ()) first third))
+    (#parameter second-equivalence (#pt-app (#pt-use eisenstein-equal ()) second fourth)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-multiply ()) first second)
+      (#pt-app (#pt-use eisenstein-multiply ()) third fourth)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-multiply ()) first second))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-multiply ()) third fourth)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-multiply ()) first second))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-multiply ()) third fourth)))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-project eisenstein 0 first)
+          (#pt-project eisenstein 0 second))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second)))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-project eisenstein 0 third)
+          (#pt-project eisenstein 0 fourth))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth)))
+        (#pt-app
+          (#pt-use integer-multiply-congruent ())
+          (#pt-project eisenstein 0 first)
+          (#pt-project eisenstein 0 second)
+          (#pt-project eisenstein 0 third)
+          (#pt-project eisenstein 0 fourth)
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 first)
+              (#pt-project eisenstein 0 third))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 first)
+              (#pt-project eisenstein 1 third))
+            first-equivalence)
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 second)
+              (#pt-project eisenstein 0 fourth))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 second)
+              (#pt-project eisenstein 1 fourth))
+            second-equivalence))
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 first)
+                (#pt-project eisenstein 0 third))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 first)
+                (#pt-project eisenstein 1 third))
+              first-equivalence)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 second)
+                (#pt-project eisenstein 0 fourth))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 second)
+                (#pt-project eisenstein 1 fourth))
+              second-equivalence))))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 1 second))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 0 second)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 third)
+            (#pt-project eisenstein 1 fourth))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 0 fourth)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth)))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 1 second))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 0 third)
+            (#pt-project eisenstein 1 fourth))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 0 fourth))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-project eisenstein 0 first)
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 0 third)
+            (#pt-project eisenstein 1 fourth)
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 first)
+                (#pt-project eisenstein 0 third))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 first)
+                (#pt-project eisenstein 1 third))
+              first-equivalence)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 second)
+                (#pt-project eisenstein 0 fourth))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 second)
+                (#pt-project eisenstein 1 fourth))
+              second-equivalence))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 0 second)
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 0 fourth)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 first)
+                (#pt-project eisenstein 0 third))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 first)
+                (#pt-project eisenstein 1 third))
+              first-equivalence)
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 second)
+                (#pt-project eisenstein 0 fourth))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 second)
+                (#pt-project eisenstein 1 fourth))
+              second-equivalence)))
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-project eisenstein 1 first)
+            (#pt-project eisenstein 1 second)
+            (#pt-project eisenstein 1 third)
+            (#pt-project eisenstein 1 fourth)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 first)
+                (#pt-project eisenstein 0 third))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 first)
+                (#pt-project eisenstein 1 third))
+              first-equivalence)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 second)
+                (#pt-project eisenstein 0 fourth))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 second)
+                (#pt-project eisenstein 1 fourth))
+              second-equivalence)))))))
+(#theorem eisenstein-of-integer-congruent
+  (#universes)
+  (#parameters
+    (#parameter first-integer (#pt-use integer ()))
+    (#parameter second-integer (#pt-use integer ()))
+    (#parameter equivalent (#pt-app (#pt-use integer-equal ()) first-integer second-integer)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app (#pt-use eisenstein-of-integer ()) first-integer)
+      (#pt-app (#pt-use eisenstein-of-integer ()) second-integer)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-of-integer ()) first-integer))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-of-integer ()) second-integer)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-of-integer ()) first-integer))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-of-integer ()) second-integer)))
+      equivalent
+      (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-zero ())))))
+(#theorem eisenstein-of-integer-injective
+  (#universes)
+  (#parameters
+    (#parameter first-integer (#pt-use integer ()))
+    (#parameter second-integer (#pt-use integer ()))
+    (#parameter embedded-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-of-integer ()) first-integer) (#pt-app (#pt-use eisenstein-of-integer ()) second-integer))))
+  (#statement (#pt-app (#pt-use integer-equal ()) first-integer second-integer))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-left ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-of-integer ()) first-integer))
+        (#pt-project eisenstein 0 (#pt-app (#pt-use eisenstein-of-integer ()) second-integer)))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-of-integer ()) first-integer))
+        (#pt-project eisenstein 1 (#pt-app (#pt-use eisenstein-of-integer ()) second-integer)))
+      embedded-equivalence)))

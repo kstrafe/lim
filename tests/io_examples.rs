@@ -12,7 +12,7 @@ fn native_x86_64_syscall_catalog_is_complete_and_ordered() {
     let mut names = HashSet::new();
     let mut entries = Vec::new();
     for line in source.lines() {
-        let Some(rest) = line.strip_prefix("(#const LINUX-SYS-") else {
+        let Some(rest) = line.strip_prefix("(#const lINUX-SYS-") else {
             continue;
         };
         let (name, rest) = rest.split_once(' ').expect("syscall name and type");

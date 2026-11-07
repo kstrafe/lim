@@ -1,0 +1,905 @@
+; Copyright (c) 2024 Kevin Buzzard, Ruben Van de Velde, Pietro Monticone. All rights reserved.
+; Source structure adapted from the Imperial College London FLT formalization.
+; Copyright 2026 Anthropic, PBC
+; Native mathematical source adaptation under Apache-2.0; see NOTICE.FLT.
+; Actual Frey-package construction from any alleged natural counterexample.
+; Native positive-Nat source adaptation of S_FreyPackage_of_counterexample:12-66.
+; Every prime, exponent bound, nonzero, power, gcd, evenness and residue
+; condition has an actual retained certificate. Primitive existence,
+; orientation and normalization are proved constructions, not hypotheses.
+; The final FLT reduction keeps Frey-package refutation explicit: the
+; Mazur/modularity/level-lowering/vanishing argument is still unproved.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias substitution = ./equality.lim::substitution)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias
+  normalized-integer-power-packet
+  =
+  ./frey-normalized-power-packet.lim::normalized-integer-power-packet)
+(#alias
+  has-normalized-integer-power-packet
+  =
+  ./frey-normalized-power-packet.lim::has-normalized-integer-power-packet)
+(#alias
+  natural-primitive-power-has-normalized-signed-packet
+  =
+  ./frey-normalized-power-packet.lim::natural-primitive-power-has-normalized-signed-packet)
+(#alias natural-power-solution = ./fermat-power-defs.lim::natural-power-solution)
+(#alias natural-power-has-primitive = ./fermat-power-primitive.lim::natural-power-has-primitive)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-not-two-is-odd = ./natural-parity.lim::prime-not-two-is-odd)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias less-than-successor = ./natural-order.lim::less-than-successor)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias zero-less-successor = ./natural-discrete-order.lim::zero-less-successor)
+(#alias fermat-for = ./fermat-for.lim::fermat-for)
+(#alias
+  fermat-statement-from-primes-at-least-five
+  =
+  ./large-prime-reduction.lim::fermat-statement-from-primes-at-least-five)
+(#alias fermats-last-theorem-statement = ./../fermat_statement.lim::fermats-last-theorem-statement)
+(#math-definition frey-package-certificate ()
+  (#pt-pi
+    (
+      (exponent #pt-nat)
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (third (#pt-use integer ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (exponent #pt-nat)
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (third (#pt-use integer ())))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app (#pt-use prime ()) exponent)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use less-than ())
+          (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+          exponent)
+        (#pt-app (#pt-use normalized-integer-power-packet ()) exponent first second third)))))
+(#math-definition has-frey-package-certificate ()
+  (#pt-pi ((exponent #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((exponent #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer ())
+      (#pt-lambda
+        ((candidate-first (#pt-use integer ())))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use integer ())
+          (#pt-lambda
+            ((candidate-second (#pt-use integer ())))
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-third (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use frey-package-certificate ())
+                  exponent
+                  candidate-first
+                  candidate-second
+                  candidate-third)))))))))
+(#math-definition frey-packages-refuted ()
+  #pt-prop
+  (#pt-pi
+    (
+      (exponent #pt-nat)
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (third (#pt-use integer ()))
+      (package-certificate
+        (#pt-app (#pt-use frey-package-certificate ()) exponent first second third)))
+    #pt-false))
+(#theorem large-prime-positive-and-odd
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) exponent))
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) exponent)))
+  (#statement
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app (#pt-use less-than ()) #pt-zero exponent)
+      (#pt-app (#pt-use odd ()) exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use less-than ()) #pt-zero exponent)
+      (#pt-app (#pt-use odd ()) exponent)
+      (#pt-app
+        (#pt-use less-than-transitive ())
+        #pt-zero
+        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+        exponent
+        (#pt-app (#pt-use zero-less-successor ()) (#pt-numeral 3))
+        large-exponent)
+      (#pt-app
+        (#pt-use prime-not-two-is-odd ())
+        exponent
+        prime-certificate
+        (#pt-lambda
+          ((exponent-is-two (#pt-eq #pt-nat exponent (#pt-succ (#pt-succ #pt-zero)))))
+          (#pt-app
+            (#pt-app (#pt-use not-less-than-self ()) (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app
+              (#pt-use less-than-transitive ())
+              (#pt-succ (#pt-succ #pt-zero))
+              (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+              (#pt-succ (#pt-succ #pt-zero))
+              (#pt-app
+                (#pt-use less-than-transitive ())
+                (#pt-succ (#pt-succ #pt-zero))
+                (#pt-numeral 3)
+                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                (#pt-app (#pt-use less-than-successor ()) (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use less-than-successor ()) (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app
+                    (#pt-use less-than ())
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                    endpoint))
+                exponent
+                (#pt-succ (#pt-succ #pt-zero))
+                exponent-is-two
+                large-exponent))))))))
+(#theorem normalized-power-packet-has-frey-package
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) exponent))
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) exponent))
+    (#parameter normalized-existence (#pt-app (#pt-use has-normalized-integer-power-packet ()) exponent)))
+  (#statement (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-first (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-second (#pt-use integer ())))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-third (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use normalized-integer-power-packet ())
+                    exponent
+                    candidate-first
+                    candidate-second
+                    candidate-third)))))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-first (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-second (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use integer ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use integer ())))
+                        (#pt-app
+                          (#pt-use normalized-integer-power-packet ())
+                          exponent
+                          candidate-first
+                          candidate-second
+                          candidate-third)))))))))
+        (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+      (
+        (#pt-lambda
+          (
+            (normalized-first (#pt-use integer ()))
+            (second-normalized-exists
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-second (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use normalized-integer-power-packet ())
+                        exponent
+                        normalized-first
+                        candidate-second
+                        candidate-third)))))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-second (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-third (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use normalized-integer-power-packet ())
+                      exponent
+                      normalized-first
+                      candidate-second
+                      candidate-third)))))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use normalized-integer-power-packet ())
+                            exponent
+                            normalized-first
+                            candidate-second
+                            candidate-third)))))))
+              (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+            (
+              (#pt-lambda
+                (
+                  (normalized-second (#pt-use integer ()))
+                  (third-normalized-exists
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use integer ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use integer ())))
+                        (#pt-app
+                          (#pt-use normalized-integer-power-packet ())
+                          exponent
+                          normalized-first
+                          normalized-second
+                          candidate-third)))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use normalized-integer-power-packet ())
+                        exponent
+                        normalized-first
+                        normalized-second
+                        candidate-third)))
+                  (#pt-lambda
+                    (
+                      (integer-certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use integer ())
+                          (#pt-lambda
+                            ((candidate-third (#pt-use integer ())))
+                            (#pt-app
+                              (#pt-use normalized-integer-power-packet ())
+                              exponent
+                              normalized-first
+                              normalized-second
+                              candidate-third)))))
+                    (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+                  (
+                    (#pt-lambda
+                      (
+                        (normalized-third (#pt-use integer ()))
+                        (normalized-certificate
+                          (#pt-app
+                            (#pt-use normalized-integer-power-packet ())
+                            exponent
+                            normalized-first
+                            normalized-second
+                            normalized-third)))
+                      (#pt-construct
+                        exists
+                        (0)
+                        (
+                          (#pt-use integer ())
+                          (#pt-lambda
+                            ((candidate-first (#pt-use integer ())))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              (#pt-use integer ())
+                              (#pt-lambda
+                                ((candidate-second (#pt-use integer ())))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  (#pt-use integer ())
+                                  (#pt-lambda
+                                    ((candidate-third (#pt-use integer ())))
+                                    (#pt-app
+                                      (#pt-use frey-package-certificate ())
+                                      exponent
+                                      candidate-first
+                                      candidate-second
+                                      candidate-third)))))))
+                        introduce
+                        (normalized-first
+                          (#pt-construct
+                            exists
+                            (0)
+                            (
+                              (#pt-use integer ())
+                              (#pt-lambda
+                                ((candidate-second (#pt-use integer ())))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  (#pt-use integer ())
+                                  (#pt-lambda
+                                    ((candidate-third (#pt-use integer ())))
+                                    (#pt-app
+                                      (#pt-use frey-package-certificate ())
+                                      exponent
+                                      normalized-first
+                                      candidate-second
+                                      candidate-third)))))
+                            introduce
+                            (normalized-second
+                              (#pt-construct
+                                exists
+                                (0)
+                                (
+                                  (#pt-use integer ())
+                                  (#pt-lambda
+                                    ((candidate-third (#pt-use integer ())))
+                                    (#pt-app
+                                      (#pt-use frey-package-certificate ())
+                                      exponent
+                                      normalized-first
+                                      normalized-second
+                                      candidate-third)))
+                                introduce
+                                (normalized-third
+                                  (#pt-app
+                                    (#pt-use conjunction-introduce ())
+                                    (#pt-app (#pt-use prime ()) exponent)
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use less-than ())
+                                        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                        exponent)
+                                      (#pt-app
+                                        (#pt-use normalized-integer-power-packet ())
+                                        exponent
+                                        normalized-first
+                                        normalized-second
+                                        normalized-third))
+                                    prime-certificate
+                                    (#pt-app
+                                      (#pt-use conjunction-introduce ())
+                                      (#pt-app
+                                        (#pt-use less-than ())
+                                        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                        exponent)
+                                      (#pt-app
+                                        (#pt-use normalized-integer-power-packet ())
+                                        exponent
+                                        normalized-first
+                                        normalized-second
+                                        normalized-third)
+                                      large-exponent
+                                      normalized-certificate))))))))))
+                  third-normalized-exists)))
+            second-normalized-exists)))
+      normalized-existence)))
+(#theorem natural-power-counterexample-has-frey-package
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first-natural #pt-nat)
+    (#parameter second-natural #pt-nat)
+    (#parameter third-natural #pt-nat)
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) exponent))
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) exponent))
+    (#parameter solution (#pt-app (#pt-use natural-power-solution ()) exponent first-natural second-natural third-natural)))
+  (#statement (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-first #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-second #pt-nat))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-third #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use natural-power-solution ())
+                      exponent
+                      candidate-first
+                      candidate-second
+                      candidate-third)
+                    (#pt-app (#pt-use coprime ()) candidate-first candidate-second))))))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-first #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-second #pt-nat))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-third #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            candidate-first
+                            candidate-second
+                            candidate-third)
+                          (#pt-app (#pt-use coprime ()) candidate-first candidate-second))))))))))
+        (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+      (
+        (#pt-lambda
+          (
+            (primitive-first #pt-nat)
+            (second-primitive-exists
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-second #pt-nat))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-third #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use natural-power-solution ())
+                          exponent
+                          primitive-first
+                          candidate-second
+                          candidate-third)
+                        (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-second #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-third #pt-nat))
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app
+                        (#pt-use natural-power-solution ())
+                        exponent
+                        primitive-first
+                        candidate-second
+                        candidate-third)
+                      (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-second #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-third #pt-nat))
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app
+                              (#pt-use natural-power-solution ())
+                              exponent
+                              primitive-first
+                              candidate-second
+                              candidate-third)
+                            (#pt-app (#pt-use coprime ()) primitive-first candidate-second))))))))
+              (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+            (
+              (#pt-lambda
+                (
+                  (primitive-second #pt-nat)
+                  (third-primitive-exists
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-third #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app
+                            (#pt-use natural-power-solution ())
+                            exponent
+                            primitive-first
+                            primitive-second
+                            candidate-third)
+                          (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-third #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-app
+                          (#pt-use natural-power-solution ())
+                          exponent
+                          primitive-first
+                          primitive-second
+                          candidate-third)
+                        (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-third #pt-nat))
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app
+                                (#pt-use natural-power-solution ())
+                                exponent
+                                primitive-first
+                                primitive-second
+                                candidate-third)
+                              (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))))
+                    (#pt-app (#pt-use has-frey-package-certificate ()) exponent))
+                  (
+                    (#pt-lambda
+                      (
+                        (primitive-third #pt-nat)
+                        (primitive-certificate
+                          (#pt-app
+                            (#pt-use conjunction ())
+                            (#pt-app
+                              (#pt-use natural-power-solution ())
+                              exponent
+                              primitive-first
+                              primitive-second
+                              primitive-third)
+                            (#pt-app (#pt-use coprime ()) primitive-first primitive-second))))
+                      (#pt-app
+                        (#pt-use normalized-power-packet-has-frey-package ())
+                        exponent
+                        prime-certificate
+                        large-exponent
+                        (#pt-app
+                          (#pt-use natural-primitive-power-has-normalized-signed-packet ())
+                          exponent
+                          primitive-first
+                          primitive-second
+                          primitive-third
+                          (#pt-project
+                            conjunction
+                            0
+                            (#pt-app
+                              (#pt-use large-prime-positive-and-odd ())
+                              exponent
+                              prime-certificate
+                              large-exponent))
+                          (#pt-project
+                            conjunction
+                            1
+                            (#pt-app
+                              (#pt-use large-prime-positive-and-odd ())
+                              exponent
+                              prime-certificate
+                              large-exponent))
+                          (#pt-project conjunction 0 primitive-certificate)
+                          (#pt-project conjunction 1 primitive-certificate)))))
+                  third-primitive-exists)))
+            second-primitive-exists)))
+      (#pt-app
+        (#pt-use natural-power-has-primitive ())
+        exponent
+        first-natural
+        second-natural
+        third-natural
+        (#pt-project
+          conjunction
+          0
+          (#pt-app
+            (#pt-use large-prime-positive-and-odd ())
+            exponent
+            prime-certificate
+            large-exponent))
+        solution))))
+(#theorem fermat-for-large-prime-from-frey-refutation
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter prime-certificate (#pt-app (#pt-use prime ()) exponent))
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) exponent))
+    (#parameter frey-refutation (#pt-use frey-packages-refuted ())))
+  (#statement (#pt-app (#pt-use fermat-for ()) exponent))
+  (#proof
+    (#pt-lambda
+      (
+        (first-natural #pt-nat)
+        (second-natural #pt-nat)
+        (third-natural #pt-nat)
+        (first-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat first-natural #pt-zero))) #pt-false))
+        (second-nonzero
+          (#pt-pi ((denied-proof (#pt-eq #pt-nat second-natural #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat third-natural #pt-zero))) #pt-false))
+        (power-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first-natural exponent)
+              (#pt-app (#pt-use power ()) second-natural exponent))
+            (#pt-app (#pt-use power ()) third-natural exponent))))
+      (#pt-induct
+        exists
+        (0)
+        (
+          (#pt-use integer ())
+          (#pt-lambda
+            ((candidate-first (#pt-use integer ())))
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-second (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-third (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use frey-package-certificate ())
+                      exponent
+                      candidate-first
+                      candidate-second
+                      candidate-third)))))))
+        (#pt-lambda
+          (
+            (integer-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-first (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use frey-package-certificate ())
+                            exponent
+                            candidate-first
+                            candidate-second
+                            candidate-third)))))))))
+          #pt-false)
+        (
+          (#pt-lambda
+            (
+              (package-first (#pt-use integer ()))
+              (second-package-exists
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-second (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use integer ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use integer ())))
+                        (#pt-app
+                          (#pt-use frey-package-certificate ())
+                          exponent
+                          package-first
+                          candidate-second
+                          candidate-third)))))))
+            (#pt-induct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-second (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use frey-package-certificate ())
+                        exponent
+                        package-first
+                        candidate-second
+                        candidate-third)))))
+              (#pt-lambda
+                (
+                  (integer-certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use integer ())
+                      (#pt-lambda
+                        ((candidate-second (#pt-use integer ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use integer ())
+                          (#pt-lambda
+                            ((candidate-third (#pt-use integer ())))
+                            (#pt-app
+                              (#pt-use frey-package-certificate ())
+                              exponent
+                              package-first
+                              candidate-second
+                              candidate-third)))))))
+                #pt-false)
+              (
+                (#pt-lambda
+                  (
+                    (package-second (#pt-use integer ()))
+                    (third-package-exists
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use frey-package-certificate ())
+                            exponent
+                            package-first
+                            package-second
+                            candidate-third)))))
+                  (#pt-induct
+                    exists
+                    (0)
+                    (
+                      (#pt-use integer ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use integer ())))
+                        (#pt-app
+                          (#pt-use frey-package-certificate ())
+                          exponent
+                          package-first
+                          package-second
+                          candidate-third)))
+                    (#pt-lambda
+                      (
+                        (integer-certificate
+                          (#pt-app
+                            (#pt-use exists (0))
+                            (#pt-use integer ())
+                            (#pt-lambda
+                              ((candidate-third (#pt-use integer ())))
+                              (#pt-app
+                                (#pt-use frey-package-certificate ())
+                                exponent
+                                package-first
+                                package-second
+                                candidate-third)))))
+                      #pt-false)
+                    (
+                      (#pt-lambda
+                        (
+                          (package-third (#pt-use integer ()))
+                          (package-certificate
+                            (#pt-app
+                              (#pt-use frey-package-certificate ())
+                              exponent
+                              package-first
+                              package-second
+                              package-third)))
+                        (#pt-app
+                          frey-refutation
+                          exponent
+                          package-first
+                          package-second
+                          package-third
+                          package-certificate)))
+                    third-package-exists)))
+              second-package-exists)))
+        (#pt-app
+          (#pt-use natural-power-counterexample-has-frey-package ())
+          exponent
+          first-natural
+          second-natural
+          third-natural
+          prime-certificate
+          large-exponent
+          (#pt-construct
+            natural-power-solution
+            ()
+            (exponent first-natural second-natural third-natural)
+            introduce
+            (first-nonzero second-nonzero third-nonzero power-equation)))))))
+(#theorem fermat-statement-from-frey-refutation
+  (#universes)
+  (#parameters
+    (#parameter frey-refutation (#pt-use frey-packages-refuted ())))
+  (#statement (#pt-use fermats-last-theorem-statement ()))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-statement-from-primes-at-least-five ())
+      (#pt-lambda
+        (
+          (exponent #pt-nat)
+          (prime-certificate (#pt-app (#pt-use prime ()) exponent))
+          (large-exponent
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+              exponent)))
+        (#pt-app
+          (#pt-use fermat-for-large-prime-from-frey-refutation ())
+          exponent
+          prime-certificate
+          large-exponent
+          frey-refutation)))))

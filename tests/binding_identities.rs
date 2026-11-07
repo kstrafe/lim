@@ -49,9 +49,9 @@ fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
         let ty = binding.split_whitespace().last().unwrap();
         assert!(
             dump.lines()
-                .any(|line| line.contains(&format!("Maybe.Some({ty})"))
+                .any(|line| line.contains(&format!("Some({ty})"))
                     && line.contains("Symbol {")
-                    && line.contains(&format!("binding: Maybe.Some(BindingId({id}))"))),
+                    && line.contains(&format!("binding: Some(BindingId({id}))"))),
             "binding {id} has no correctly typed Symbol use: {dump}"
         );
     }
@@ -93,7 +93,7 @@ fn unused_destructured_names_are_recorded_as_bindings() {
             .next()
             .unwrap();
         assert!(
-            dump.contains(&format!("binding: Maybe.Some(BindingId({id}))")),
+            dump.contains(&format!("binding: Some(BindingId({id}))")),
             "{dump}"
         );
     }
@@ -134,7 +134,7 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
         "local assignment lacks binding identity: {dump}"
     );
     assert!(
-        dump.contains("Declaration(global(GlobalId(0)))"),
+        dump.contains("Declaration(Global(GlobalId(0)))"),
         "static reference lacks global identity: {dump}"
     );
 }
@@ -191,9 +191,9 @@ fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
         assert!(
             failure
                 .lines()
-                .any(|line| line.contains(&format!("Maybe.Some({ty})"))
+                .any(|line| line.contains(&format!("Some({ty})"))
                     && line.contains("Symbol {")
-                    && line.contains(&format!("binding: Maybe.Some(BindingId({id}))"))),
+                    && line.contains(&format!("binding: Some(BindingId({id}))"))),
             "payload binding {id} has no correctly typed symbol use: {failure}"
         );
     }

@@ -308,7 +308,7 @@ pub(crate) fn extract(
     Ok((remaining, requirements))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

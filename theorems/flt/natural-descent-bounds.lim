@@ -1,0 +1,352 @@
+; Explicit addition gaps and strict bounds for the Fermat exponent-four descent.
+; No non-strict order or hidden subtraction is assumed.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  multiply-successor-right
+  =
+  ./natural-multiplication-commutative.lim::multiply-successor-right)
+(#alias add-associative = ./natural-addition.lim::add-associative)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias multiply-nonzero = ./natural-nonzero.lim::multiply-nonzero)
+(#alias positive-summand-above = ./natural-square-order.lim::positive-summand-above)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem square-has-self-gap
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-gap #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) number number)
+          (#pt-app (#pt-use add ()) number candidate-gap)))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use multiply ()) index index)
+              (#pt-app (#pt-use add ()) index candidate-gap)))))
+      (#pt-construct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use multiply ()) #pt-zero #pt-zero)
+              (#pt-app (#pt-use add ()) #pt-zero candidate-gap))))
+        introduce
+        (#pt-zero (#pt-refl #pt-nat #pt-zero)))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (unused-previous
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) previous previous)
+                  (#pt-app (#pt-use add ()) previous candidate-gap))))))
+        (#pt-construct
+          exists
+          (0)
+          (#pt-nat
+            (#pt-lambda
+              ((candidate-gap #pt-nat))
+              (#pt-eq
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) (#pt-succ previous) (#pt-succ previous))
+                (#pt-app (#pt-use add ()) (#pt-succ previous) candidate-gap))))
+          introduce
+          (
+            (#pt-app (#pt-use multiply ()) (#pt-succ previous) previous)
+            (#pt-app (#pt-use multiply-successor-right ()) (#pt-succ previous) previous))))
+      number)))
+(#theorem less-than-lower-addend
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter gap #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) (#pt-app (#pt-use add ()) lower gap) upper)))
+  (#statement (#pt-app (#pt-use less-than ()) lower upper))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            upper
+            (#pt-app (#pt-use add ()) (#pt-succ (#pt-app (#pt-use add ()) lower gap)) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  upper
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-succ (#pt-app (#pt-use add ()) lower gap))
+                    candidate-gap))))))
+        (#pt-app (#pt-use less-than ()) lower upper))
+      (
+        (#pt-lambda
+          (
+            (further-gap #pt-nat)
+            (gap-equation
+              (#pt-eq
+                #pt-nat
+                upper
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-succ (#pt-app (#pt-use add ()) lower gap))
+                  further-gap))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+            introduce
+            (
+              (#pt-app (#pt-use add ()) gap further-gap)
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                upper
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-succ (#pt-app (#pt-use add ()) lower gap))
+                  further-gap)
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-succ lower)
+                  (#pt-app (#pt-use add ()) gap further-gap))
+                gap-equation
+                (#pt-app (#pt-use add-associative ()) (#pt-succ lower) gap further-gap))))))
+      less-proof)))
+(#theorem square-root-below-square-sum
+  (#universes)
+  (#parameters
+    (#parameter root #pt-nat)
+    (#parameter larger #pt-nat)
+    (#parameter smaller #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter root-equation (#pt-eq #pt-nat larger (#pt-app (#pt-use multiply ()) root root)))
+    (#parameter hypotenuse-equation (#pt-eq #pt-nat hypotenuse (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) larger larger) (#pt-app (#pt-use multiply ()) smaller smaller))))
+    (#parameter smaller-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat smaller #pt-zero))) #pt-false)))
+  (#statement (#pt-app (#pt-use less-than ()) root hypotenuse))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) larger larger)
+            (#pt-app (#pt-use add ()) larger candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) larger larger)
+                  (#pt-app (#pt-use add ()) larger candidate-gap))))))
+        (#pt-app (#pt-use less-than ()) root hypotenuse))
+      (
+        (#pt-lambda
+          (
+            (larger-gap #pt-nat)
+            (larger-gap-equation
+              (#pt-eq
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) larger larger)
+                (#pt-app (#pt-use add ()) larger larger-gap))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) root root)
+                  (#pt-app (#pt-use add ()) root candidate-gap))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-gap #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) root root)
+                        (#pt-app (#pt-use add ()) root candidate-gap))))))
+              (#pt-app (#pt-use less-than ()) root hypotenuse))
+            (
+              (#pt-lambda
+                (
+                  (root-gap #pt-nat)
+                  (root-gap-equation
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app (#pt-use multiply ()) root root)
+                      (#pt-app (#pt-use add ()) root root-gap))))
+                (#pt-app
+                  (#pt-use less-than-lower-addend ())
+                  root
+                  root-gap
+                  hypotenuse
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app (#pt-use less-than ()) endpoint hypotenuse))
+                    larger
+                    (#pt-app (#pt-use add ()) root root-gap)
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      larger
+                      (#pt-app (#pt-use multiply ()) root root)
+                      (#pt-app (#pt-use add ()) root root-gap)
+                      root-equation
+                      root-gap-equation)
+                    (#pt-app
+                      (#pt-use less-than-lower-addend ())
+                      larger
+                      larger-gap
+                      hypotenuse
+                      (#pt-app
+                        (#pt-use substitution (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((endpoint #pt-nat))
+                          (#pt-app (#pt-use less-than ()) endpoint hypotenuse))
+                        (#pt-app (#pt-use multiply ()) larger larger)
+                        (#pt-app (#pt-use add ()) larger larger-gap)
+                        larger-gap-equation
+                        (#pt-app
+                          (#pt-use substitution (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((endpoint #pt-nat))
+                            (#pt-app
+                              (#pt-use less-than ())
+                              (#pt-app (#pt-use multiply ()) larger larger)
+                              endpoint))
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) larger larger)
+                            (#pt-app (#pt-use multiply ()) smaller smaller))
+                          hypotenuse
+                          (#pt-app
+                            (#pt-use symmetry (0))
+                            #pt-nat
+                            hypotenuse
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) larger larger)
+                              (#pt-app (#pt-use multiply ()) smaller smaller))
+                            hypotenuse-equation)
+                          (#pt-app
+                            (#pt-use substitution (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((endpoint #pt-nat))
+                              (#pt-app
+                                (#pt-use less-than ())
+                                (#pt-app (#pt-use multiply ()) larger larger)
+                                endpoint))
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) smaller smaller)
+                              (#pt-app (#pt-use multiply ()) larger larger))
+                            (#pt-app
+                              (#pt-use add ())
+                              (#pt-app (#pt-use multiply ()) larger larger)
+                              (#pt-app (#pt-use multiply ()) smaller smaller))
+                            (#pt-app
+                              (#pt-use add-commutative ())
+                              (#pt-app (#pt-use multiply ()) smaller smaller)
+                              (#pt-app (#pt-use multiply ()) larger larger))
+                            (#pt-app
+                              (#pt-use positive-summand-above ())
+                              (#pt-app (#pt-use multiply ()) smaller smaller)
+                              (#pt-app (#pt-use multiply ()) larger larger)
+                              (#pt-app
+                                (#pt-use multiply-nonzero ())
+                                smaller
+                                smaller
+                                smaller-nonzero
+                                smaller-nonzero))))))))))
+            (#pt-app (#pt-use square-has-self-gap ()) root))))
+      (#pt-app (#pt-use square-has-self-gap ()) larger))))
+(#theorem nonzero-square-root
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter root #pt-nat)
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false))
+    (#parameter square-equation (#pt-eq #pt-nat number (#pt-app (#pt-use multiply ()) root root))))
+  (#statement (#pt-pi ((denied-proof (#pt-eq #pt-nat root #pt-zero))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((zero-root (#pt-eq #pt-nat root #pt-zero)))
+      (#pt-app
+        number-nonzero
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          number
+          (#pt-app (#pt-use multiply ()) root root)
+          (#pt-app (#pt-use multiply ()) #pt-zero #pt-zero)
+          square-equation
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use multiply ()) endpoint endpoint))
+            root
+            #pt-zero
+            zero-root))))))

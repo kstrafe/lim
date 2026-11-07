@@ -1,0 +1,260 @@
+; Constructive proposition-valued signed divisibility cases.
+; Magnitude witnesses remain inside Prop; no computational data escapes it.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias integer-divides-magnitude = ./integer-magnitude.lim::integer-divides-magnitude)
+(#alias integer-divides-of-magnitude = ./integer-magnitude.lim::integer-divides-of-magnitude)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias natural-divisibility-decided = ./decidable-divisibility.lim::natural-divisibility-decided)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias integer-divides-zero = ./integer-divisibility.lim::integer-divides-zero)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias
+  integer-divides-negative-target
+  =
+  ./integer-divisibility.lim::integer-divides-negative-target)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-negate-involution = ./integer-addition.lim::integer-negate-involution)
+(#theorem integer-natural-divisibility-decided
+  (#universes)
+  (#parameters
+    (#parameter natural-divisor #pt-nat)
+    (#parameter number (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+        number)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+              number)))
+        #pt-false)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+            number)
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use integer-divides ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                  number)))
+            #pt-false)))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-proof (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app (#pt-use divides ()) natural-divisor magnitude)
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use divides ()) natural-divisor magnitude)))
+              #pt-false)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use integer-divides ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                number)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use integer-divides ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                      number)))
+                #pt-false))
+            (#pt-lambda
+              ((natural-divides (#pt-app (#pt-use divides ()) natural-divisor magnitude)))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app
+                  (#pt-use integer-divides ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                  number)
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use integer-divides ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                        number)))
+                  #pt-false)
+                (#pt-app
+                  (#pt-use integer-divides-of-magnitude ())
+                  natural-divisor
+                  number
+                  magnitude
+                  magnitude-proof
+                  natural-divides)))
+            (#pt-lambda
+              (
+                (natural-not-divides
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) natural-divisor magnitude)))
+                    #pt-false)))
+              (#pt-app
+                (#pt-use disjunction-right ())
+                (#pt-app
+                  (#pt-use integer-divides ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                  number)
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use integer-divides ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                        number)))
+                  #pt-false)
+                (#pt-lambda
+                  (
+                    (signed-divides
+                      (#pt-app
+                        (#pt-use integer-divides ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-divisor)
+                        number)))
+                  (#pt-app
+                    natural-not-divides
+                    (#pt-app
+                      (#pt-use integer-divides-magnitude ())
+                      natural-divisor
+                      number
+                      magnitude
+                      magnitude-proof
+                      signed-divides)))))
+            (#pt-app (#pt-use natural-divisibility-decided ()) natural-divisor magnitude))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))
+(#theorem integer-nonzero-of-not-divisible
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use integer ()))
+    (#parameter number (#pt-use integer ()))
+    (#parameter not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) divisor number))) #pt-false)))
+  (#statement
+    (#pt-pi
+      ((denied-proof (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      ((zero-equivalence (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ()))))
+      (#pt-app
+        not-divides
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          divisor
+          (#pt-use integer-zero ())
+          number
+          (#pt-app (#pt-use integer-symmetric ()) number (#pt-use integer-zero ()) zero-equivalence)
+          (#pt-app (#pt-use integer-divides-zero ()) divisor))))))
+(#theorem integer-not-divides-negative-target
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use integer ()))
+    (#parameter number (#pt-use integer ()))
+    (#parameter not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) divisor number))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            divisor
+            (#pt-app (#pt-use integer-negate ()) number))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (negative-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            divisor
+            (#pt-app (#pt-use integer-negate ()) number))))
+      (#pt-app
+        not-divides
+        (#pt-app
+          (#pt-use integer-divides-negative-target ())
+          divisor
+          (#pt-app (#pt-use integer-negate ()) number)
+          negative-divides)))))
+(#theorem integer-negative-nonzero
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ())))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-negate ()) number)
+            (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (negative-zero
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-negate ()) number)
+            (#pt-use integer-zero ()))))
+      (#pt-app
+        number-nonzero
+        (#pt-app
+          (#pt-use integer-transitive ())
+          number
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-negate ()) number))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-negate ()) number))
+            number
+            (#pt-app (#pt-use integer-negate-involution ()) number))
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app (#pt-use integer-negate ()) number)
+            (#pt-use integer-zero ())
+            negative-zero))))))

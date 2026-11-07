@@ -1,0 +1,432 @@
+; Order preservation and cancellation by a positive multiplication factor.
+; These are structural Nat proofs for the Euclidean arithmetic used by FLT descent.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias multiply-add-left = ./natural-multiplication.lim::multiply-add-left)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias add-left-commutative = ./natural-multiplication-commutative.lim::add-left-commutative)
+(#alias add-associative = ./natural-addition.lim::add-associative)
+(#alias add-successor-right = ./natural-addition.lim::add-successor-right)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem multiply-add-right
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use add ()) second third))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) first third))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use add ()) second third))
+      (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use add ()) second third) first)
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) first third))
+      (#pt-app (#pt-use multiply-commutative ()) first (#pt-app (#pt-use add ()) second third))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use add ()) second third) first)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) second first)
+          (#pt-app (#pt-use multiply ()) third first))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first second)
+          (#pt-app (#pt-use multiply ()) first third))
+        (#pt-app (#pt-use multiply-add-left ()) second third first)
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) second first)
+            (#pt-app (#pt-use multiply ()) third first))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) first second)
+            (#pt-app (#pt-use multiply ()) third first))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) first second)
+            (#pt-app (#pt-use multiply ()) first third))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda
+              ((product #pt-nat))
+              (#pt-app (#pt-use add ()) product (#pt-app (#pt-use multiply ()) third first)))
+            (#pt-app (#pt-use multiply ()) second first)
+            (#pt-app (#pt-use multiply ()) first second)
+            (#pt-app (#pt-use multiply-commutative ()) second first))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda
+              ((product #pt-nat))
+              (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first second) product))
+            (#pt-app (#pt-use multiply ()) third first)
+            (#pt-app (#pt-use multiply ()) first third)
+            (#pt-app (#pt-use multiply-commutative ()) third first)))))))
+(#theorem multiply-less-right-successor
+  (#universes)
+  (#parameters
+    (#parameter positive-predecessor #pt-nat)
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+      (#pt-app (#pt-use multiply ()) upper (#pt-succ positive-predecessor))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))))
+        (#pt-app
+          (#pt-use less-than ())
+          (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+          (#pt-app (#pt-use multiply ()) upper (#pt-succ positive-predecessor))))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (gap-equation (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) gap))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) upper (#pt-succ positive-predecessor))
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-succ (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                    candidate-gap))))
+            introduce
+            (
+              (#pt-app
+                (#pt-use add ())
+                positive-predecessor
+                (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor)))
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) upper (#pt-succ positive-predecessor))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                  (#pt-succ positive-predecessor))
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-succ (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                  (#pt-app
+                    (#pt-use add ())
+                    positive-predecessor
+                    (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use multiply ()) endpoint (#pt-succ positive-predecessor)))
+                  upper
+                  (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                  gap-equation)
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                    (#pt-succ positive-predecessor))
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-succ positive-predecessor)
+                      (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                    (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor)))
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-succ (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                    (#pt-app
+                      (#pt-use add ())
+                      positive-predecessor
+                      (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                  (#pt-app
+                    (#pt-use multiply-add-left ())
+                    (#pt-succ lower)
+                    gap
+                    (#pt-succ positive-predecessor))
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-succ positive-predecessor)
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                      (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor)))
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-succ positive-predecessor)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                        (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-succ
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                      (#pt-app
+                        (#pt-use add ())
+                        positive-predecessor
+                        (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                    (#pt-app
+                      (#pt-use add-associative ())
+                      (#pt-succ positive-predecessor)
+                      (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                      (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor)))
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-succ positive-predecessor)
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                          (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-succ positive-predecessor)
+                          (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-succ
+                          (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor)))
+                        (#pt-app
+                          (#pt-use add ())
+                          positive-predecessor
+                          (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))
+                      (#pt-app
+                        (#pt-use add-left-commutative ())
+                        (#pt-succ positive-predecessor)
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                        (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor)))
+                      (#pt-app
+                        (#pt-use add-successor-right ())
+                        (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+                        (#pt-app
+                          (#pt-use add ())
+                          positive-predecessor
+                          (#pt-app (#pt-use multiply ()) gap (#pt-succ positive-predecessor))))))))))))
+      less-proof)))
+(#theorem multiply-less-left-successor
+  (#universes)
+  (#parameters
+    (#parameter positive-predecessor #pt-nat)
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) lower)
+      (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) upper)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      #pt-nat
+      (#pt-lambda
+        ((endpoint #pt-nat))
+        (#pt-app
+          (#pt-use less-than ())
+          endpoint
+          (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) upper)))
+      (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+      (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) lower)
+      (#pt-app (#pt-use multiply-commutative ()) lower (#pt-succ positive-predecessor))
+      (#pt-app
+        (#pt-use substitution (0))
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use less-than ())
+            (#pt-app (#pt-use multiply ()) lower (#pt-succ positive-predecessor))
+            endpoint))
+        (#pt-app (#pt-use multiply ()) upper (#pt-succ positive-predecessor))
+        (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) upper)
+        (#pt-app (#pt-use multiply-commutative ()) upper (#pt-succ positive-predecessor))
+        (#pt-app
+          (#pt-use multiply-less-right-successor ())
+          positive-predecessor
+          lower
+          upper
+          less-proof)))))
+(#theorem multiply-cancel-right-successor
+  (#universes)
+  (#parameters
+    (#parameter positive-predecessor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter product-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor)) (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor)))))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) first second)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat first second)
+        (#pt-app (#pt-use less-than ()) second first))
+      (#pt-eq #pt-nat first second)
+      (#pt-lambda
+        ((first-less (#pt-app (#pt-use less-than ()) first second)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat first second)
+          (#pt-app
+            (#pt-app
+              (#pt-use not-less-than-self ())
+              (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor)))
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor))
+                  endpoint))
+              (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+              (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor))
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor))
+                (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+                product-equation)
+              (#pt-app
+                (#pt-use multiply-less-right-successor ())
+                positive-predecessor
+                first
+                second
+                first-less)))))
+      (#pt-lambda
+        (
+          (remaining-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat first second)
+              (#pt-app (#pt-use less-than ()) second first))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat first second)
+          (#pt-app (#pt-use less-than ()) second first)
+          (#pt-eq #pt-nat first second)
+          (#pt-lambda ((equal-proof (#pt-eq #pt-nat first second))) equal-proof)
+          (#pt-lambda
+            ((second-less (#pt-app (#pt-use less-than ()) second first)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-eq #pt-nat first second)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor)))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+                      endpoint))
+                  (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor))
+                  (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+                  product-equation
+                  (#pt-app
+                    (#pt-use multiply-less-right-successor ())
+                    positive-predecessor
+                    second
+                    first
+                    second-less)))))
+          remaining-case))
+      (#pt-app (#pt-use natural-trichotomy ()) first second))))
+(#theorem multiply-cancel-left-successor
+  (#universes)
+  (#parameters
+    (#parameter positive-predecessor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter product-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) first) (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) second))))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-use multiply-cancel-right-successor ())
+      positive-predecessor
+      first
+      second
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) first (#pt-succ positive-predecessor))
+        (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) first)
+        (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+        (#pt-app (#pt-use multiply-commutative ()) first (#pt-succ positive-predecessor))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) first)
+          (#pt-app (#pt-use multiply ()) (#pt-succ positive-predecessor) second)
+          (#pt-app (#pt-use multiply ()) second (#pt-succ positive-predecessor))
+          product-equation
+          (#pt-app (#pt-use multiply-commutative ()) (#pt-succ positive-predecessor) second))))))

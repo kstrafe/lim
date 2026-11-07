@@ -1,0 +1,601 @@
+; Concrete additive steps for FLT/Three.lean:243-276.
+; The equal cube signs would force lambda to divide2, which is impossible.
+; Every divisibility assertion carries an actual factor.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-add-associative = ./eisenstein-ring.lim::eisenstein-add-associative)
+(#alias eisenstein-add-commutative = ./eisenstein-ring.lim::eisenstein-add-commutative)
+(#alias eisenstein-add-inverse = ./eisenstein-ring.lim::eisenstein-add-inverse)
+(#alias eisenstein-add-zero = ./eisenstein-ring.lim::eisenstein-add-zero)
+(#alias eisenstein-negate-add = ./eisenstein-ring.lim::eisenstein-negate-add)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias eisenstein-divides-add = ./eisenstein-additive-divisibility.lim::eisenstein-divides-add)
+(#alias
+  eisenstein-divides-negative-target
+  =
+  ./eisenstein-additive-divisibility.lim::eisenstein-divides-negative-target)
+(#alias
+  eisenstein-divides-add-cancel-left
+  =
+  ./eisenstein-additive-divisibility.lim::eisenstein-divides-add-cancel-left)
+(#alias eisenstein-power-divisor = ./eisenstein-power-divisibility.lim::eisenstein-power-divisor)
+(#alias
+  integer-three-divides-coordinate-sum
+  =
+  ./eisenstein-lambda-decision-core.lim::integer-three-divides-coordinate-sum)
+(#alias
+  integer-natural-divisibility-reflects
+  =
+  ./integer-natural-bridge.lim::integer-natural-divisibility-reflects)
+(#alias three-not-divides-two = ./natural-prime-three.lim::three-not-divides-two)
+(#alias eisenstein-negate-involution = ./eisenstein-ring.lim::eisenstein-negate-involution)
+(#theorem eisenstein-add-four-interchange
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter first-shift (#pt-use eisenstein ()))
+    (#parameter second-shift (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first first-shift)
+        (#pt-app (#pt-use eisenstein-add ()) second second-shift))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first first-shift)
+        (#pt-app (#pt-use eisenstein-add ()) second second-shift))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        first
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first-shift
+          (#pt-app (#pt-use eisenstein-add ()) second second-shift)))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+      (#pt-app
+        (#pt-use eisenstein-add-associative ())
+        first
+        first-shift
+        (#pt-app (#pt-use eisenstein-add ()) second second-shift))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first-shift
+            (#pt-app (#pt-use eisenstein-add ()) second second-shift)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+            second-shift))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          first
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first-shift
+            (#pt-app (#pt-use eisenstein-add ()) second second-shift))
+          first
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+            second-shift)
+          (#pt-app (#pt-use eisenstein-reflexive ()) first)
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+              second-shift)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first-shift
+              (#pt-app (#pt-use eisenstein-add ()) second second-shift))
+            (#pt-app (#pt-use eisenstein-add-associative ()) first-shift second second-shift)))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+              second-shift))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) second first-shift)
+              second-shift))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)
+            (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+              second-shift)
+            first
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) second first-shift)
+              second-shift)
+            (#pt-app (#pt-use eisenstein-reflexive ()) first)
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app (#pt-use eisenstein-add ()) first-shift second)
+              second-shift
+              (#pt-app (#pt-use eisenstein-add ()) second first-shift)
+              second-shift
+              (#pt-app (#pt-use eisenstein-add-commutative ()) first-shift second)
+              (#pt-app (#pt-use eisenstein-reflexive ()) second-shift)))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-add ()) second first-shift)
+                second-shift))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                second
+                (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift)))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-add ()) first second)
+              (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              first
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-add ()) second first-shift)
+                second-shift)
+              first
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                second
+                (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+              (#pt-app (#pt-use eisenstein-reflexive ()) first)
+              (#pt-app (#pt-use eisenstein-add-associative ()) second first-shift second-shift))
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-add ()) first second)
+                (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                first
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  second
+                  (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift)))
+              (#pt-app
+                (#pt-use eisenstein-add-associative ())
+                first
+                second
+                (#pt-app (#pt-use eisenstein-add ()) first-shift second-shift)))))))))
+(#theorem eisenstein-add-opposite-shifts
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter first-shift (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first first-shift)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          second
+          (#pt-app (#pt-use eisenstein-negate ()) first-shift)))
+      (#pt-app (#pt-use eisenstein-add ()) first second)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first first-shift)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          second
+          (#pt-app (#pt-use eisenstein-negate ()) first-shift)))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first-shift
+          (#pt-app (#pt-use eisenstein-negate ()) first-shift)))
+      (#pt-app (#pt-use eisenstein-add ()) first second)
+      (#pt-app
+        (#pt-use eisenstein-add-four-interchange ())
+        first
+        second
+        first-shift
+        (#pt-app (#pt-use eisenstein-negate ()) first-shift))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first-shift
+            (#pt-app (#pt-use eisenstein-negate ()) first-shift)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-use eisenstein-zero ()))
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first-shift
+            (#pt-app (#pt-use eisenstein-negate ()) first-shift))
+          (#pt-app (#pt-use eisenstein-add ()) first second)
+          (#pt-use eisenstein-zero ())
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app (#pt-use eisenstein-add ()) first second))
+          (#pt-app (#pt-use eisenstein-add-inverse ()) first-shift))
+        (#pt-app
+          (#pt-use eisenstein-add-zero ())
+          (#pt-app (#pt-use eisenstein-add ()) first second))))))
+(#theorem eisenstein-add-negative-one-shifts
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          second
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ()))))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          first
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          second
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ()))))
+      (#pt-app
+        (#pt-use eisenstein-add-four-interchange ())
+        first
+        second
+        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+      (#pt-app
+        (#pt-use eisenstein-add-congruent ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-reflexive ())
+          (#pt-app (#pt-use eisenstein-add ()) first second))
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-negate-add ())
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ())))))))
+(#theorem eisenstein-lambda-not-divides-two
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ())))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (lambda-divides-two
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ())))))
+      (#pt-app
+        (#pt-use three-not-divides-two ())
+        (#pt-app
+          (#pt-use integer-natural-divisibility-reflects ())
+          (#pt-numeral 3)
+          (#pt-numeral 2)
+          (#pt-app
+            (#pt-use integer-three-divides-coordinate-sum ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ()))
+            lambda-divides-two))))))
+(#theorem eisenstein-lambda-four-divisibility-descends
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter fourth-power-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) first)))
+  (#statement (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-divides-transitive ())
+      (#pt-use eisenstein-lambda ())
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+      first
+      (#pt-app (#pt-use eisenstein-power-divisor ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 3))
+      fourth-power-divides)))
+(#theorem eisenstein-lambda-same-negative-residues-impossible
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter sum-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) (#pt-app (#pt-use eisenstein-add ()) first second)))
+    (#parameter first-residue (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+    (#parameter second-residue (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) (#pt-app (#pt-use eisenstein-add ()) second (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-lambda-not-divides-two ())
+      (#pt-app
+        (#pt-use eisenstein-divides-congruent-target ())
+        (#pt-use eisenstein-lambda ())
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ()))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-use eisenstein-one ())
+          (#pt-use eisenstein-one ()))
+        (#pt-app
+          (#pt-use eisenstein-negate-involution ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-divides-negative-target ())
+          (#pt-use eisenstein-lambda ())
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-divides-add-cancel-left ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-use eisenstein-one ())
+                (#pt-use eisenstein-one ())))
+            sum-divides
+            (#pt-app
+              (#pt-use eisenstein-divides-congruent-target ())
+              (#pt-use eisenstein-lambda ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  first
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  second
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-add ()) first second)
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-use eisenstein-one ()))))
+              (#pt-app (#pt-use eisenstein-add-negative-one-shifts ()) first second)
+              (#pt-app
+                (#pt-use eisenstein-divides-add ())
+                (#pt-use eisenstein-lambda ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  first
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  second
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use eisenstein-lambda-four-divisibility-descends ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    first
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                  first-residue)
+                (#pt-app
+                  (#pt-use eisenstein-lambda-four-divisibility-descends ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    second
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                  second-residue)))))))))
+(#theorem eisenstein-lambda-same-positive-residues-impossible
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter sum-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) (#pt-app (#pt-use eisenstein-add ()) first second)))
+    (#parameter first-residue (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) (#pt-app (#pt-use eisenstein-add ()) first (#pt-use eisenstein-one ()))))
+    (#parameter second-residue (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) (#pt-app (#pt-use eisenstein-add ()) second (#pt-use eisenstein-one ())))))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-lambda-not-divides-two ())
+      (#pt-app
+        (#pt-use eisenstein-divides-add-cancel-left ())
+        (#pt-use eisenstein-lambda ())
+        (#pt-app (#pt-use eisenstein-add ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-use eisenstein-one ())
+          (#pt-use eisenstein-one ()))
+        sum-divides
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          (#pt-use eisenstein-lambda ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-add ()) first (#pt-use eisenstein-one ()))
+            (#pt-app (#pt-use eisenstein-add ()) second (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-use eisenstein-one ())
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-add-four-interchange ())
+            first
+            second
+            (#pt-use eisenstein-one ())
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-divides-add ())
+            (#pt-use eisenstein-lambda ())
+            (#pt-app (#pt-use eisenstein-add ()) first (#pt-use eisenstein-one ()))
+            (#pt-app (#pt-use eisenstein-add ()) second (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-lambda-four-divisibility-descends ())
+              (#pt-app (#pt-use eisenstein-add ()) first (#pt-use eisenstein-one ()))
+              first-residue)
+            (#pt-app
+              (#pt-use eisenstein-lambda-four-divisibility-descends ())
+              (#pt-app (#pt-use eisenstein-add ()) second (#pt-use eisenstein-one ()))
+              second-residue)))))))

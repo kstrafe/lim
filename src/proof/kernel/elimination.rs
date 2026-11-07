@@ -409,6 +409,71 @@ impl Kernel {
         subject: &T,
         depth: usize,
     ) -> Result<Option<T>> {
+        // Observe a closed scalar recursor over a recursive data carrier
+        // before exposing its computed subject. For lists this shares the
+        // filtered/cartesian tails instead of substituting them repeatedly.
+        // The existing closure evaluator must compute the actual result;
+        // this changes scheduling, never an elimination or typing rule.
+        if ctx.is_empty()
+            && !self.delayed_active
+            && self.reduction_probe_budget.is_none()
+            && self.delayed_data_fold_attempts < 4
+            && levels.is_empty()
+            && indices.is_empty()
+            && cases.len() == 1
+            && cases[0].family == name
+            && !self.provisional_family(name)
+            && !self.nested.contains_key(name)?
+            && !matches!(
+                subject.as_ref(),
+                Term::Ctor { .. } | Term::NatLiteral { .. }
+            )
+        {
+            if let Term::Lam(_, range) = cases[0].motive.as_ref() {
+                if let Term::Global(natural, natural_levels) = range.as_ref() {
+                    if natural != name
+                        && natural_levels.is_empty()
+                        && self.natural_recursor_family(natural, depth + 1)?.is_some()
+                    {
+                        let (carrier, _) = self.family(name, levels, depth + 1)?;
+                        self.charge_work(carrier.constructors.iter().fold(
+                            0usize,
+                            |cost, ctor| {
+                                cost.saturating_add(1).saturating_add(ctor.recursive.len())
+                            },
+                        ))?;
+                        if carrier.group.len() == 1
+                            && carrier.sort.equivalent(&Level::number(1)?)?
+                            && carrier.constructors.iter().any(|constructor| {
+                                constructor.recursive.iter().any(Option::is_some)
+                            })
+                        {
+                            self.delayed_data_fold_attempts += 1;
+                            self.charge_transformation(
+                                384usize.saturating_add(name.len()).saturating_add(
+                                    parameters
+                                        .len()
+                                        .saturating_add(cases[0].branches.len())
+                                        .saturating_mul(std::mem::size_of::<T>()),
+                                ),
+                            )?;
+                            let fold = term(Term::Induct {
+                                family: name.into(),
+                                levels: levels.to_vec(),
+                                parameters: parameters.to_vec(),
+                                indices: vec![],
+                                motive: cases[0].motive.clone(),
+                                branches: cases[0].branches.clone(),
+                                subject: subject.clone(),
+                            });
+                            if let Some(reduced) = self.delayed_closed_fold(&fold, depth + 1)? {
+                                return Ok(Some(reduced));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let subject = self.whnf(ctx, subject, depth + 1)?;
         if let Some(value) = self.natural_fold(
             name,
@@ -432,6 +497,37 @@ impl Kernel {
             depth + 1,
         )? {
             return Ok(Some(value));
+        }
+        // Scalar arithmetic has already had its affine/subtraction fast paths.
+        // Keep a remaining closed natural fold in one delayed environment,
+        // rather than duplicating its previous result through every step.
+        if ctx.is_empty()
+            && !self.delayed_active
+            && self.reduction_probe_budget.is_none()
+            && levels.is_empty()
+            && parameters.is_empty()
+            && indices.is_empty()
+            && cases.len() == 1
+            && cases[0].family == name
+            && cases[0].branches.len() == 2
+            && matches!(subject.as_ref(),Term::NatLiteral { family,value } if family == name && value.decimal() != "0")
+            && matches!(cases[0].motive.as_ref(),Term::Lam(domain,range)
+                if matches!(domain.as_ref(),Term::Global(family,levels) if family == name && levels.is_empty())
+                && matches!(range.as_ref(),Term::Global(family,levels) if family == name && levels.is_empty()))
+        {
+            self.charge_transformation(384 + name.len())?;
+            let fold = term(Term::Induct {
+                family: name.into(),
+                levels: vec![],
+                parameters: vec![],
+                indices: vec![],
+                motive: cases[0].motive.clone(),
+                branches: cases[0].branches.clone(),
+                subject: subject.clone(),
+            });
+            if let Some(value) = self.delayed_closed_fold(&fold, depth + 1)? {
+                return Ok(Some(value));
+            }
         }
         let subject = self.natural_constructor(&subject, depth + 1)?;
         let (desc, map) = self.family(name, levels, depth + 1)?;

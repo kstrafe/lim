@@ -1,0 +1,16 @@
+; Signed valuations are witnessed natural valuations of actual magnitudes.
+; The explicit parameter order is prime, valuation index, integer value.
+; This matches padicValInt on nonzero integers without choosing data
+; from Prop. A separate theorem constructs the signed cofactor.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#math-inductive integer-prime-order ()
+  ((prime-number #pt-nat) (valuation #pt-nat) (number (#pt-use integer ())))
+  #pt-prop
+  (
+    (introduce
+      (
+        (magnitude #pt-nat)
+        (natural-order (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation))
+        (magnitude-certificate (#pt-app (#pt-use integer-magnitude ()) number magnitude))))))

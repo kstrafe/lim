@@ -1,0 +1,50 @@
+; Signed formal-difference square identity for the exact Frey model.
+; Its explicit natural cross certificate is checked, not trusted.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias
+  frey-discriminant-square-cross
+  =
+  ./frey-discriminant-square-cross.lim::frey-discriminant-square-cross)
+(#theorem frey-discriminant-square-integer
+  (#universes)
+  (#parameters
+    (#parameter first-power (#pt-use integer ()))
+    (#parameter second-power (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app
+            (#pt-use integer-add ())
+            second-power
+            (#pt-app (#pt-use integer-negate ()) first-power))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negate ()) first-power)
+              second-power))))
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-add ()) first-power second-power)
+        (#pt-succ (#pt-succ #pt-zero)))))
+  (#proof
+    (#pt-app
+      (#pt-use frey-discriminant-square-cross ())
+      (#pt-project integer 0 first-power)
+      (#pt-project integer 1 first-power)
+      (#pt-project integer 0 second-power)
+      (#pt-project integer 1 second-power))))

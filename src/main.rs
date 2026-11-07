@@ -1,3 +1,5 @@
+mod cli_lean_export_limits;
+mod cli_native_proof_limits;
 mod cli_proof_budget;
 
 use std::{
@@ -213,7 +215,9 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [PROOF-BUDGET] [--timings]\n       PROOF-BUDGET: [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [PROOF-BUDGET] [--timings]\n       lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [PROOF-BUDGET] [EXPORT-LIMITS] [NATIVE-PROOF-LIMITS] [--timings]\n       PROOF-BUDGET: [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("       lim --check-proof-artifact INPUT TARGET [PROOF-BUDGET] [NATIVE-PROOF-LIMITS]\nNATIVE-PROOF-LIMITS: [--native-proof-bytes N] [--native-proof-declarations N] [--native-proof-directory-bytes N] [--native-proof-render-nodes N] [--native-proof-correspondence-nodes N] [--native-proof-correspondence-bytes N] [--native-proof-scratch-bytes N]\nArtifact checks accept closed mathematical source only; imports and program source use --check-theorem.");
+        println!("EXPORT-LIMITS: [--export-bytes N] [--export-names N] [--export-name-bytes N] [--export-levels N] [--export-expressions N] [--export-declarations N] [--export-dependencies N] [--export-dependency-bytes N] [--export-payload-bytes N] [--export-scratch-bytes N]\nThese select raw export totals; per-record, native-source, scratch and host limits are separate.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -239,6 +243,9 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     }
     if arguments.first().map(String::as_str) == Some("--check-lean-export") {
         return check_lean_export_command(&arguments);
+    }
+    if arguments.first().map(String::as_str) == Some("--check-proof-artifact") {
+        return check_proof_artifact_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("fmt") {
         if arguments.len() != 2 {
@@ -457,41 +464,28 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     compile_with_links(&input_path, &output_path, false, &config, target, &links)
 }
 
-enum LeanCommandReport {
-    Materialized(lim::LeanExportReport),
-    Paged(lim::LeanExportReceipt),
-}
-
-impl LeanCommandReport {
-    fn declaration_count(&self) -> usize {
-        match self {
-            Self::Materialized(report) => report.declarations.len(),
-            Self::Paged(report) => report.declaration_count(),
-        }
-    }
-    fn axioms(&self) -> &[String] {
-        match self {
-            Self::Materialized(report) => &report.axioms,
-            Self::Paged(report) => report.axioms(),
-        }
-    }
-    fn target_axioms(&self) -> &[String] {
-        match self {
-            Self::Materialized(report) => &report.target_axioms,
-            Self::Paged(report) => report.target_axioms(),
-        }
-    }
-    fn write_json(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        match self {
-            Self::Materialized(report) => report.write_json(writer),
-            Self::Paged(report) => report.write_json(writer),
-        }
-    }
-}
-
 fn check_lean_export_command(arguments: &[String]) -> ExitCode {
-    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N]";
+    let usage = "usage: lim --check-lean-export INPUT TARGET [--report PATH] [--emit-proof PATH] [--lean-foundations] [--proof-work N] [--proof-phase-bytes N] [--proof-total-bytes N] [--export-bytes N] [--export-names N] [--export-name-bytes N] [--export-levels N] [--export-expressions N] [--export-declarations N] [--export-dependencies N] [--export-dependency-bytes N] [--export-payload-bytes N] [--export-scratch-bytes N]";
     let (arguments, budget) = match cli_proof_budget::parse(arguments) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (arguments, export_limits) = match cli_lean_export_limits::parse(&arguments) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let native_requested = arguments
+        .iter()
+        .any(|arg| arg.starts_with("--native-proof-"));
+    let (arguments, native_limits) = match cli_native_proof_limits::parse(&arguments) {
         Ok(parsed) => parsed,
         Err(error) => {
             eprintln!("lim: {error}");
@@ -557,6 +551,10 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
         index += 2;
     }
 
+    if native_requested && proof_path.is_none() {
+        eprintln!("lim: native proof limits require --emit-proof");
+        return ExitCode::FAILURE;
+    }
     if let (Some(proof), Some(report)) = (proof_path, report_path) {
         if same_output_path(proof, report) {
             eprintln!("lim: proof and report outputs refer to the same file");
@@ -588,8 +586,12 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (report, emitted) = if proof_path.is_some() {
-        match lim::translate_lean_export_with_budget(
+    enum CheckedExport {
+        Proof(lim::LeanExportArtifactTranslation),
+        Receipt(lim::LeanExportReceipt),
+    }
+    let checked = if proof_path.is_some() {
+        match lim::translate_lean_export_artifact_with_profiles(
             std::io::BufReader::new(file),
             target,
             if lean_foundations {
@@ -598,18 +600,17 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
                 lim::LeanFoundationPolicy::Constructive
             },
             budget,
+            export_limits,
+            native_limits,
         ) {
-            Ok(translation) => (
-                LeanCommandReport::Materialized(translation.report),
-                Some((translation.target, translation.source)),
-            ),
+            Ok(translation) => CheckedExport::Proof(translation),
             Err(error) => {
                 eprintln!("lim: {}: {error}", input.display());
                 return ExitCode::FAILURE;
             }
         }
     } else {
-        match lim::check_lean_export_receipt_with_budget(
+        match lim::check_lean_export_receipt_with_limits(
             std::io::BufReader::new(file),
             target,
             if lean_foundations {
@@ -618,16 +619,26 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
                 lim::LeanFoundationPolicy::Constructive
             },
             budget,
+            export_limits,
         ) {
-            Ok(report) => (LeanCommandReport::Paged(report), None),
+            Ok(receipt) => CheckedExport::Receipt(receipt),
             Err(error) => {
                 eprintln!("lim: {}: {error}", input.display());
                 return ExitCode::FAILURE;
             }
         }
     };
-    if let (Some(path), Some((_, source))) = (proof_path, emitted.as_ref()) {
-        if let Err(error) = lim::write_output_atomic(path, source.as_bytes()) {
+    let report = match &checked {
+        CheckedExport::Proof(translation) => &translation.receipt,
+        CheckedExport::Receipt(receipt) => receipt,
+    };
+    if let (Some(path), CheckedExport::Proof(translation)) = (proof_path, &checked) {
+        if let Err(error) = lim::write_output_atomic_with(path, |file| {
+            use std::io::Write;
+            let mut output = std::io::BufWriter::with_capacity(64 * 1024, file);
+            translation.write_source(&mut output)?;
+            output.flush()
+        }) {
             eprintln!("lim: {}: {error}", path.display());
             return ExitCode::FAILURE;
         }
@@ -667,10 +678,74 @@ fn check_lean_export_command(arguments: &[String]) -> ExitCode {
             }
         );
     }
-    if let (Some(path), Some((target, _))) = (proof_path, emitted) {
+    print_native_proof_limits(native_limits);
+    if let (Some(path), CheckedExport::Proof(translation)) = (proof_path, &checked) {
+        let target = &translation.target;
         println!("emitted native theorem {target} to {}", path.display());
     }
     ExitCode::SUCCESS
+}
+
+fn print_native_proof_limits(limits: lim::NativeProofLimits) {
+    if limits != lim::NativeProofLimits::default() {
+        println!("native proof limits: {limits}");
+    }
+}
+
+fn check_proof_artifact_command(arguments: &[String]) -> ExitCode {
+    let usage =
+        "usage: lim --check-proof-artifact INPUT TARGET [PROOF-BUDGET] [NATIVE-PROOF-LIMITS]";
+    let parsed = cli_proof_budget::parse(arguments).and_then(|(arguments, budget)| {
+        cli_native_proof_limits::parse(&arguments)
+            .map(|(arguments, limits)| (arguments, budget, limits))
+    });
+    let (arguments, budget, limits) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if arguments.len() != 3
+        || arguments[1..]
+            .iter()
+            .any(|arg| arg.is_empty() || arg.starts_with('-'))
+    {
+        eprintln!("{usage}");
+        return ExitCode::FAILURE;
+    }
+    let input = &arguments[1];
+    match lim::check_proof_artifact_from_path(Path::new(input), budget, limits, &arguments[2]) {
+        Ok(checked) => {
+            println!("checked proof artifact theorem {}", checked.name);
+            if !cli_proof_budget::is_default(budget) {
+                println!(
+                    "proof budget: work={} phase-bytes={} total-bytes={}",
+                    budget.work(),
+                    budget.phase_bytes(),
+                    budget.total_bytes()
+                );
+            }
+            print_native_proof_limits(limits);
+            if !checked.foundations.is_empty() {
+                println!("logical foundations: {}", checked.foundations.join(", "));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            if let Some(diagnostic) = error.diagnostic() {
+                if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::eprintln!("{}", lim::render_diagnostic_json(diagnostic, input));
+                } else {
+                    std::eprintln!("{error}");
+                }
+            } else {
+                eprintln!("lim: {input}: {error}");
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn same_output_path(left: &Path, right: &Path) -> bool {
@@ -946,20 +1021,9 @@ fn check_command(arguments: &[String]) -> ExitCode {
         config = config.with_target(target);
     }
 
-    let _input_timing = lim::timing_stage("input_read");
-    let source = match fs::read_to_string(input_path) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("lim: {input_path}: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    drop(_input_timing);
     let input_file = Path::new(input_path);
     if let Some(name) = theorem {
-        return match lim::check_theorem_details_from_path_with_config(
-            &source, input_file, &config, name,
-        ) {
+        return match lim::check_theorem_details_from_file_with_config(input_file, &config, name) {
             Ok(checked) => {
                 println!("checked theorem {name}");
                 if !cli_proof_budget::is_default(budget) {
@@ -975,12 +1039,29 @@ fn check_command(arguments: &[String]) -> ExitCode {
                 }
                 ExitCode::SUCCESS
             }
-            Err(diagnostic) => {
-                emit_diagnostic(&diagnostic, &source, input_path);
+            Err(error) => {
+                if let Some(diagnostic) = error.diagnostic() {
+                    if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
+                        std::eprintln!("{}", lim::render_diagnostic_json(diagnostic, input_path));
+                    } else {
+                        std::eprintln!("{error}");
+                    }
+                } else {
+                    eprintln!("lim: {input_path}: {error}");
+                }
                 ExitCode::FAILURE
             }
         };
     }
+    let _input_timing = lim::timing_stage("input_read");
+    let source = match fs::read_to_string(input_path) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("lim: {input_path}: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    drop(_input_timing);
     let generated_directory = input_file
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -1477,11 +1558,11 @@ fn compile_with_links(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[path = "../tests/support/process.rs"]
 mod test_process;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use std::os::unix::process::ExitStatusExt;

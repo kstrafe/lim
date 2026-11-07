@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -53,8 +55,9 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
                 .is_some_and(|rest| rest.trim_start().starts_with("#async-fn"))
         })
         .unwrap();
+    let ordinary_artifact = generated_source::ordinary_source(&artifact);
     let standalone = format!(
-        "{}\n{artifact}\n{}",
+        "{}\n{ordinary_artifact}\n{}",
         &source[..invocation.span.start],
         &source[invocation.span.end..]
     );

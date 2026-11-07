@@ -226,10 +226,13 @@ impl Replay {
                     .collect::<Result<Vec<_>>>()?,
             )
             .collect::<Vec<_>>();
-        if all_names.iter().collect::<HashSet<_>>().len() != all_names.len()
-            || all_names.iter().any(|name| self.kernel.contains(name))
-        {
+        if all_names.iter().collect::<HashSet<_>>().len() != all_names.len() {
             return Err("duplicate declaration identity in inductive block".into());
+        }
+        for name in &all_names {
+            if self.kernel.contains(name)? {
+                return Err("duplicate declaration identity in inductive block".into());
+            }
         }
         let inputs = types
             .iter()

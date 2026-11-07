@@ -1,0 +1,500 @@
+; Multiply the retained cofactor equations and use Euclid prime-product
+; divisibility to retain cofactor nondivisibility. Natural induction
+; proves the power law, including exponent zero. No valuation oracle.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-left-commutative = ./natural-square-arithmetic.lim::multiply-left-commutative)
+(#alias power-add = ./natural-powers.lim::power-add)
+(#alias prime-divides-product = ./natural-prime-divisibility.lim::prime-divides-product)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#alias natural-prime-order-one = ./natural-prime-order-uniqueness.lim::natural-prime-order-one)
+(#theorem natural-valuation-factor-interchange
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter fourth #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) third fourth))
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first third)
+        (#pt-app (#pt-use multiply ()) second fourth))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) third fourth))
+      (#pt-app
+        (#pt-use multiply ())
+        first
+        (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) third fourth)))
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first third)
+        (#pt-app (#pt-use multiply ()) second fourth))
+      (#pt-app
+        (#pt-use multiply-associative ())
+        first
+        second
+        (#pt-app (#pt-use multiply ()) third fourth))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use multiply ())
+          first
+          (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) third fourth)))
+        (#pt-app
+          (#pt-use multiply ())
+          first
+          (#pt-app (#pt-use multiply ()) third (#pt-app (#pt-use multiply ()) second fourth)))
+        (#pt-app
+          (#pt-use multiply ())
+          (#pt-app (#pt-use multiply ()) first third)
+          (#pt-app (#pt-use multiply ()) second fourth))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((inner-product #pt-nat)) (#pt-app (#pt-use multiply ()) first inner-product))
+          (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) third fourth))
+          (#pt-app (#pt-use multiply ()) third (#pt-app (#pt-use multiply ()) second fourth))
+          (#pt-app (#pt-use multiply-left-commutative ()) second third fourth))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use multiply ()) first third)
+            (#pt-app (#pt-use multiply ()) second fourth))
+          (#pt-app
+            (#pt-use multiply ())
+            first
+            (#pt-app (#pt-use multiply ()) third (#pt-app (#pt-use multiply ()) second fourth)))
+          (#pt-app
+            (#pt-use multiply-associative ())
+            first
+            third
+            (#pt-app (#pt-use multiply ()) second fourth)))))))
+(#theorem natural-prime-order-multiply
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first-number #pt-nat)
+    (#parameter second-number #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter other-valuation #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-order (#pt-app (#pt-use natural-prime-order ()) prime-number first-number valuation))
+    (#parameter second-order (#pt-app (#pt-use natural-prime-order ()) prime-number second-number other-valuation)))
+  (#statement
+    (#pt-app
+      (#pt-use natural-prime-order ())
+      prime-number
+      (#pt-app (#pt-use multiply ()) first-number second-number)
+      (#pt-app (#pt-use add ()) valuation other-valuation)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-cofactor #pt-nat))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-eq
+              #pt-nat
+              first-number
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) prime-number valuation)
+                candidate-cofactor))
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+              #pt-false))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-cofactor #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq
+                    #pt-nat
+                    first-number
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use power ()) prime-number valuation)
+                      candidate-cofactor))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                    #pt-false))))))
+        (#pt-app
+          (#pt-use natural-prime-order ())
+          prime-number
+          (#pt-app (#pt-use multiply ()) first-number second-number)
+          (#pt-app (#pt-use add ()) valuation other-valuation)))
+      (
+        (#pt-lambda
+          (
+            (cofactor #pt-nat)
+            (first-cofactor
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-eq
+                  #pt-nat
+                  first-number
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app (#pt-use power ()) prime-number valuation)
+                    cofactor))
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use divides ()) prime-number cofactor)))
+                  #pt-false))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-cofactor #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq
+                    #pt-nat
+                    second-number
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use power ()) prime-number other-valuation)
+                      candidate-cofactor))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                    #pt-false))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-cofactor #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-eq
+                          #pt-nat
+                          second-number
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use power ()) prime-number other-valuation)
+                            candidate-cofactor))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                          #pt-false))))))
+              (#pt-app
+                (#pt-use natural-prime-order ())
+                prime-number
+                (#pt-app (#pt-use multiply ()) first-number second-number)
+                (#pt-app (#pt-use add ()) valuation other-valuation)))
+            (
+              (#pt-lambda
+                (
+                  (other-cofactor #pt-nat)
+                  (second-cofactor
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-eq
+                        #pt-nat
+                        second-number
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use power ()) prime-number other-valuation)
+                          other-cofactor))
+                      (#pt-pi
+                        ((denied-proof (#pt-app (#pt-use divides ()) prime-number other-cofactor)))
+                        #pt-false))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-cofactor #pt-nat))
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-app (#pt-use multiply ()) first-number second-number)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use power ())
+                              prime-number
+                              (#pt-app (#pt-use add ()) valuation other-valuation))
+                            candidate-cofactor))
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                          #pt-false))))
+                  introduce
+                  (
+                    (#pt-app (#pt-use multiply ()) cofactor other-cofactor)
+                    (#pt-app
+                      (#pt-use conjunction-introduce ())
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) first-number second-number)
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app
+                            (#pt-use power ())
+                            prime-number
+                            (#pt-app (#pt-use add ()) valuation other-valuation))
+                          (#pt-app (#pt-use multiply ()) cofactor other-cofactor)))
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app
+                              (#pt-use divides ())
+                              prime-number
+                              (#pt-app (#pt-use multiply ()) cofactor other-cofactor))))
+                        #pt-false)
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) first-number second-number)
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use power ()) prime-number valuation)
+                            cofactor)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app (#pt-use power ()) prime-number other-valuation)
+                            other-cofactor))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app
+                            (#pt-use power ())
+                            prime-number
+                            (#pt-app (#pt-use add ()) valuation other-valuation))
+                          (#pt-app (#pt-use multiply ()) cofactor other-cofactor))
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app (#pt-use multiply ()) first-number second-number)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              cofactor)
+                            second-number)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              cofactor)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number other-valuation)
+                              other-cofactor))
+                          (#pt-app
+                            (#pt-use congruence (0 0))
+                            #pt-nat
+                            #pt-nat
+                            (#pt-lambda
+                              ((product-left #pt-nat))
+                              (#pt-app (#pt-use multiply ()) product-left second-number))
+                            first-number
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              cofactor)
+                            (#pt-project conjunction 0 first-cofactor))
+                          (#pt-app
+                            (#pt-use congruence (0 0))
+                            #pt-nat
+                            #pt-nat
+                            (#pt-lambda
+                              ((product-right #pt-nat))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-app (#pt-use power ()) prime-number valuation)
+                                  cofactor)
+                                product-right))
+                            second-number
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number other-valuation)
+                              other-cofactor)
+                            (#pt-project conjunction 0 second-cofactor)))
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              cofactor)
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number other-valuation)
+                              other-cofactor))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              (#pt-app (#pt-use power ()) prime-number other-valuation))
+                            (#pt-app (#pt-use multiply ()) cofactor other-cofactor))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-app
+                              (#pt-use power ())
+                              prime-number
+                              (#pt-app (#pt-use add ()) valuation other-valuation))
+                            (#pt-app (#pt-use multiply ()) cofactor other-cofactor))
+                          (#pt-app
+                            (#pt-use natural-valuation-factor-interchange ())
+                            (#pt-app (#pt-use power ()) prime-number valuation)
+                            cofactor
+                            (#pt-app (#pt-use power ()) prime-number other-valuation)
+                            other-cofactor)
+                          (#pt-app
+                            (#pt-use congruence (0 0))
+                            #pt-nat
+                            #pt-nat
+                            (#pt-lambda
+                              ((combined-power #pt-nat))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                combined-power
+                                (#pt-app (#pt-use multiply ()) cofactor other-cofactor)))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app (#pt-use power ()) prime-number valuation)
+                              (#pt-app (#pt-use power ()) prime-number other-valuation))
+                            (#pt-app
+                              (#pt-use power ())
+                              prime-number
+                              (#pt-app (#pt-use add ()) valuation other-valuation))
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use power ())
+                                prime-number
+                                (#pt-app (#pt-use add ()) valuation other-valuation))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app (#pt-use power ()) prime-number valuation)
+                                (#pt-app (#pt-use power ()) prime-number other-valuation))
+                              (#pt-app
+                                (#pt-use power-add ())
+                                prime-number
+                                valuation
+                                other-valuation)))))
+                      (#pt-lambda
+                        (
+                          (product-divides
+                            (#pt-app
+                              (#pt-use divides ())
+                              prime-number
+                              (#pt-app (#pt-use multiply ()) cofactor other-cofactor))))
+                        (#pt-app
+                          (#pt-use disjunction-eliminate ())
+                          (#pt-app (#pt-use divides ()) prime-number cofactor)
+                          (#pt-app (#pt-use divides ()) prime-number other-cofactor)
+                          #pt-false
+                          (#pt-lambda
+                            ((first-divides (#pt-app (#pt-use divides ()) prime-number cofactor)))
+                            (#pt-app (#pt-project conjunction 1 first-cofactor) first-divides))
+                          (#pt-lambda
+                            (
+                              (second-divides
+                                (#pt-app (#pt-use divides ()) prime-number other-cofactor)))
+                            (#pt-app (#pt-project conjunction 1 second-cofactor) second-divides))
+                          (#pt-app
+                            (#pt-use prime-divides-product ())
+                            prime-number
+                            cofactor
+                            other-cofactor
+                            prime-proof
+                            product-divides))))))))
+            second-order)))
+      first-order)))
+(#theorem natural-prime-order-power
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first-number #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter order-certificate (#pt-app (#pt-use natural-prime-order ()) prime-number first-number valuation)))
+  (#statement
+    (#pt-app
+      (#pt-use natural-prime-order ())
+      prime-number
+      (#pt-app (#pt-use power ()) first-number exponent)
+      (#pt-app (#pt-use multiply ()) exponent valuation)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((power-index #pt-nat))
+        (#pt-app
+          (#pt-use natural-prime-order ())
+          prime-number
+          (#pt-app (#pt-use power ()) first-number power-index)
+          (#pt-app (#pt-use multiply ()) power-index valuation)))
+      (#pt-app (#pt-use natural-prime-order-one ()) prime-number prime-proof)
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-order
+            (#pt-app
+              (#pt-use natural-prime-order ())
+              prime-number
+              (#pt-app (#pt-use power ()) first-number previous-exponent)
+              (#pt-app (#pt-use multiply ()) previous-exponent valuation))))
+        (#pt-app
+          (#pt-use natural-prime-order-multiply ())
+          prime-number
+          first-number
+          (#pt-app (#pt-use power ()) first-number previous-exponent)
+          valuation
+          (#pt-app (#pt-use multiply ()) previous-exponent valuation)
+          prime-proof
+          order-certificate
+          previous-order))
+      exponent)))

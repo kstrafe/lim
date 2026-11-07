@@ -1,0 +1,811 @@
+; Exact lambda multiplicities constructed by strict norm descent.
+; Concrete counterpart of the natural multiplicities in FLT/Three:217-224.
+; A dividing power and refutation of its successor determine the unique
+; maximal exponent. All witnesses and decisions remain in Prop.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias eisenstein-one-divides = ./eisenstein-divisibility.lim::eisenstein-one-divides)
+(#alias eisenstein-divides-zero = ./eisenstein-divisibility.lim::eisenstein-divides-zero)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-congruent-divisor
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-divisor)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias eisenstein-power-one = ./eisenstein-power-divisibility.lim::eisenstein-power-one)
+(#alias
+  eisenstein-power-divides-add
+  =
+  ./eisenstein-power-divisibility.lim::eisenstein-power-divides-add)
+(#alias
+  eisenstein-power-divides-product-raise
+  =
+  ./eisenstein-power-divisibility.lim::eisenstein-power-divides-product-raise)
+(#alias
+  eisenstein-lambda-power-divides-product-cancel
+  =
+  ./eisenstein-lambda-cancellation.lim::eisenstein-lambda-power-divides-product-cancel)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-lambda-nonzero = ./eisenstein-constants.lim::eisenstein-lambda-nonzero)
+(#alias
+  eisenstein-lambda-not-divides-one
+  =
+  ./eisenstein-lambda-decision-core.lim::eisenstein-lambda-not-divides-one)
+(#alias
+  eisenstein-lambda-power-divisibility-decided
+  =
+  ./eisenstein-lambda-power-decision.lim::eisenstein-lambda-power-divisibility-decided)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias substitution = ./equality.lim::substitution)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias
+  eisenstein-lambda-divisibility-decided
+  =
+  ./eisenstein-lambda-decision-core.lim::eisenstein-lambda-divisibility-decided)
+(#alias
+  eisenstein-lambda-quotient-norm-less
+  =
+  ./eisenstein-lambda-norm-descent.lim::eisenstein-lambda-quotient-norm-less)
+(#alias
+  eisenstein-lambda-quotient-nonzero
+  =
+  ./eisenstein-lambda-norm-descent.lim::eisenstein-lambda-quotient-nonzero)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias add = ../fermat_statement.lim::add)
+(#math-inductive eisenstein-lambda-order ()
+  ((number (#pt-use eisenstein ())) (exponent #pt-nat))
+  #pt-prop
+  (
+    (introduce
+      (
+        (power-divides
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+            number))
+        (next-not-divides
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-succ exponent))
+                  number)))
+            #pt-false))))))
+(#theorem eisenstein-lambda-order-excludes-higher
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter other-exponent #pt-nat)
+    (#parameter order-proof (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent))
+    (#parameter higher-exponent (#pt-app (#pt-use less-than ()) exponent other-exponent)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) other-exponent)
+            number)))
+      #pt-false))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            other-exponent
+            (#pt-app (#pt-use add ()) (#pt-succ exponent) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  other-exponent
+                  (#pt-app (#pt-use add ()) (#pt-succ exponent) candidate-gap))))))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  other-exponent)
+                number)))
+          #pt-false))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (position
+              (#pt-eq #pt-nat other-exponent (#pt-app (#pt-use add ()) (#pt-succ exponent) gap))))
+          (#pt-lambda
+            (
+              (higher-divides
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    other-exponent)
+                  number)))
+            (#pt-app
+              (#pt-project eisenstein-lambda-order 1 order-proof)
+              (#pt-app
+                (#pt-use eisenstein-divides-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-succ exponent))
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  other-exponent)
+                number
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-succ exponent))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        endpoint)))
+                  (#pt-app (#pt-use add ()) (#pt-succ exponent) gap)
+                  other-exponent
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    other-exponent
+                    (#pt-app (#pt-use add ()) (#pt-succ exponent) gap)
+                    position)
+                  (#pt-app
+                    (#pt-use eisenstein-power-divides-add ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-succ exponent)
+                    gap))
+                higher-divides)))))
+      higher-exponent)))
+(#theorem eisenstein-lambda-order-unique
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter other-exponent #pt-nat)
+    (#parameter first-order (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent))
+    (#parameter second-order (#pt-app (#pt-use eisenstein-lambda-order ()) number other-exponent)))
+  (#statement (#pt-eq #pt-nat exponent other-exponent))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) exponent other-exponent)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat exponent other-exponent)
+        (#pt-app (#pt-use less-than ()) other-exponent exponent))
+      (#pt-eq #pt-nat exponent other-exponent)
+      (#pt-lambda
+        ((first-less (#pt-app (#pt-use less-than ()) exponent other-exponent)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat exponent other-exponent)
+          (#pt-app
+            (#pt-app
+              (#pt-use eisenstein-lambda-order-excludes-higher ())
+              number
+              exponent
+              other-exponent
+              first-order
+              first-less)
+            (#pt-project eisenstein-lambda-order 0 second-order))))
+      (#pt-lambda
+        (
+          (not-first-less
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat exponent other-exponent)
+              (#pt-app (#pt-use less-than ()) other-exponent exponent))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat exponent other-exponent)
+          (#pt-app (#pt-use less-than ()) other-exponent exponent)
+          (#pt-eq #pt-nat exponent other-exponent)
+          (#pt-lambda ((same-exponent (#pt-eq #pt-nat exponent other-exponent))) same-exponent)
+          (#pt-lambda
+            ((second-less (#pt-app (#pt-use less-than ()) other-exponent exponent)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-eq #pt-nat exponent other-exponent)
+              (#pt-app
+                (#pt-app
+                  (#pt-use eisenstein-lambda-order-excludes-higher ())
+                  number
+                  other-exponent
+                  exponent
+                  second-order
+                  second-less)
+                (#pt-project eisenstein-lambda-order 0 first-order))))
+          not-first-less))
+      (#pt-app (#pt-use natural-trichotomy ()) exponent other-exponent))))
+(#theorem eisenstein-lambda-order-congruent
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter other (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter equivalent (#pt-app (#pt-use eisenstein-equal ()) number other))
+    (#parameter order-proof (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent)))
+  (#statement (#pt-app (#pt-use eisenstein-lambda-order ()) other exponent))
+  (#proof
+    (#pt-construct
+      eisenstein-lambda-order
+      ()
+      (other exponent)
+      introduce
+      (
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+          number
+          other
+          equivalent
+          (#pt-project eisenstein-lambda-order 0 order-proof))
+        (#pt-lambda
+          (
+            (next-divides
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-succ exponent))
+                other)))
+          (#pt-app
+            (#pt-project eisenstein-lambda-order 1 order-proof)
+            (#pt-app
+              (#pt-use eisenstein-divides-congruent-target ())
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-use eisenstein-lambda ())
+                (#pt-succ exponent))
+              other
+              number
+              (#pt-app (#pt-use eisenstein-symmetric ()) number other equivalent)
+              next-divides)))))))
+(#theorem eisenstein-lambda-order-nonzero
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter order-proof (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent)))
+  (#statement
+    (#pt-pi
+      ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      ((number-zero (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ()))))
+      (#pt-app
+        (#pt-project eisenstein-lambda-order 1 order-proof)
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ exponent))
+          (#pt-use eisenstein-zero ())
+          number
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            number
+            (#pt-use eisenstein-zero ())
+            number-zero)
+          (#pt-app
+            (#pt-use eisenstein-divides-zero ())
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-use eisenstein-lambda ())
+              (#pt-succ exponent))))))))
+(#theorem eisenstein-lambda-order-one
+  (#universes)
+  (#parameters)
+  (#statement (#pt-app (#pt-use eisenstein-lambda-order ()) (#pt-use eisenstein-one ()) #pt-zero))
+  (#proof
+    (#pt-construct
+      eisenstein-lambda-order
+      ()
+      ((#pt-use eisenstein-one ()) #pt-zero)
+      introduce
+      (
+        (#pt-app (#pt-use eisenstein-one-divides ()) (#pt-use eisenstein-one ()))
+        (#pt-lambda
+          (
+            (next-divides
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-succ #pt-zero))
+                (#pt-use eisenstein-one ()))))
+          (#pt-app
+            (#pt-use eisenstein-lambda-not-divides-one ())
+            (#pt-app
+              (#pt-use eisenstein-divides-congruent-divisor ())
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-use eisenstein-lambda ())
+                (#pt-succ #pt-zero))
+              (#pt-use eisenstein-lambda ())
+              (#pt-use eisenstein-one ())
+              (#pt-app (#pt-use eisenstein-power-one ()) (#pt-use eisenstein-lambda ()))
+              next-divides)))))))
+(#theorem eisenstein-lambda-order-step
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter exponent #pt-nat)
+    (#parameter order-proof (#pt-app (#pt-use eisenstein-lambda-order ()) number exponent)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-lambda-order ())
+      (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) number)
+      (#pt-succ exponent)))
+  (#proof
+    (#pt-construct
+      eisenstein-lambda-order
+      ()
+      (
+        (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) number)
+        (#pt-succ exponent))
+      introduce
+      (
+        (#pt-app
+          (#pt-use eisenstein-power-divides-product-raise ())
+          (#pt-use eisenstein-lambda ())
+          exponent
+          number
+          (#pt-project eisenstein-lambda-order 0 order-proof))
+        (#pt-lambda
+          (
+            (next-divides
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-succ (#pt-succ exponent)))
+                (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) number))))
+          (#pt-app
+            (#pt-project eisenstein-lambda-order 1 order-proof)
+            (#pt-app
+              (#pt-use eisenstein-lambda-power-divides-product-cancel ())
+              (#pt-succ exponent)
+              number
+              next-divides)))))))
+(#theorem eisenstein-lambda-order-exists
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-order #pt-nat))
+        (#pt-app (#pt-use eisenstein-lambda-order ()) number candidate-order))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-norm #pt-nat))
+          (#pt-app (#pt-use eisenstein-natural-norm ()) number candidate-norm)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-norm #pt-nat))
+                (#pt-app (#pt-use eisenstein-natural-norm ()) number candidate-norm)))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-order #pt-nat))
+            (#pt-app (#pt-use eisenstein-lambda-order ()) number candidate-order))))
+      (
+        (#pt-lambda
+          (
+            (natural-norm #pt-nat)
+            (norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)))
+          (#pt-app
+            (#pt-app
+              (#pt-use strong-induction ())
+              (#pt-lambda
+                ((ordinal #pt-nat))
+                (#pt-pi
+                  (
+                    (stage-number (#pt-use eisenstein ()))
+                    (stage-certificate
+                      (#pt-app (#pt-use eisenstein-natural-norm ()) stage-number ordinal))
+                    (stage-nonzero
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-app
+                              (#pt-use eisenstein-equal ())
+                              stage-number
+                              (#pt-use eisenstein-zero ()))))
+                        #pt-false)))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-order #pt-nat))
+                      (#pt-app (#pt-use eisenstein-lambda-order ()) stage-number candidate-order)))))
+              (#pt-lambda
+                (
+                  (stage-norm #pt-nat)
+                  (earlier-orders
+                    (#pt-pi
+                      (
+                        (earlier #pt-nat)
+                        (earlier-less (#pt-app (#pt-use less-than ()) earlier stage-norm)))
+                      (#pt-pi
+                        (
+                          (stage-number (#pt-use eisenstein ()))
+                          (stage-certificate
+                            (#pt-app (#pt-use eisenstein-natural-norm ()) stage-number earlier))
+                          (stage-nonzero
+                            (#pt-pi
+                              (
+                                (denied-proof
+                                  (#pt-app
+                                    (#pt-use eisenstein-equal ())
+                                    stage-number
+                                    (#pt-use eisenstein-zero ()))))
+                              #pt-false)))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-order #pt-nat))
+                            (#pt-app
+                              (#pt-use eisenstein-lambda-order ())
+                              stage-number
+                              candidate-order))))))
+                  (stage-number (#pt-use eisenstein ()))
+                  (stage-certificate
+                    (#pt-app (#pt-use eisenstein-natural-norm ()) stage-number stage-norm))
+                  (stage-nonzero
+                    (#pt-pi
+                      (
+                        (denied-proof
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            stage-number
+                            (#pt-use eisenstein-zero ()))))
+                      #pt-false)))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-use eisenstein-lambda ())
+                    stage-number)
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app
+                          (#pt-use eisenstein-divides ())
+                          (#pt-use eisenstein-lambda ())
+                          stage-number)))
+                    #pt-false)
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-order #pt-nat))
+                      (#pt-app (#pt-use eisenstein-lambda-order ()) stage-number candidate-order)))
+                  (#pt-lambda
+                    (
+                      (lambda-divides
+                        (#pt-app
+                          (#pt-use eisenstein-divides ())
+                          (#pt-use eisenstein-lambda ())
+                          stage-number)))
+                    (#pt-induct
+                      exists
+                      (0)
+                      (
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-factor (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            stage-number
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-use eisenstein-lambda ())
+                              candidate-factor))))
+                      (#pt-lambda
+                        (
+                          (eisenstein-certificate
+                            (#pt-app
+                              (#pt-use exists (0))
+                              (#pt-use eisenstein ())
+                              (#pt-lambda
+                                ((candidate-factor (#pt-use eisenstein ())))
+                                (#pt-app
+                                  (#pt-use eisenstein-equal ())
+                                  stage-number
+                                  (#pt-app
+                                    (#pt-use eisenstein-multiply ())
+                                    (#pt-use eisenstein-lambda ())
+                                    candidate-factor))))))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-order #pt-nat))
+                            (#pt-app
+                              (#pt-use eisenstein-lambda-order ())
+                              stage-number
+                              candidate-order))))
+                      (
+                        (#pt-lambda
+                          (
+                            (quotient (#pt-use eisenstein ()))
+                            (factor-equivalence
+                              (#pt-app
+                                (#pt-use eisenstein-equal ())
+                                stage-number
+                                (#pt-app
+                                  (#pt-use eisenstein-multiply ())
+                                  (#pt-use eisenstein-lambda ())
+                                  quotient))))
+                          (#pt-induct
+                            exists
+                            (0)
+                            (#pt-nat
+                              (#pt-lambda
+                                ((candidate-norm #pt-nat))
+                                (#pt-app
+                                  (#pt-use eisenstein-natural-norm ())
+                                  quotient
+                                  candidate-norm)))
+                            (#pt-lambda
+                              (
+                                (certificate
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-norm #pt-nat))
+                                      (#pt-app
+                                        (#pt-use eisenstein-natural-norm ())
+                                        quotient
+                                        candidate-norm)))))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-order #pt-nat))
+                                  (#pt-app
+                                    (#pt-use eisenstein-lambda-order ())
+                                    stage-number
+                                    candidate-order))))
+                            (
+                              (#pt-lambda
+                                (
+                                  (quotient-norm #pt-nat)
+                                  (quotient-certificate
+                                    (#pt-app
+                                      (#pt-use eisenstein-natural-norm ())
+                                      quotient
+                                      quotient-norm)))
+                                (#pt-induct
+                                  exists
+                                  (0)
+                                  (#pt-nat
+                                    (#pt-lambda
+                                      ((candidate-order #pt-nat))
+                                      (#pt-app
+                                        (#pt-use eisenstein-lambda-order ())
+                                        quotient
+                                        candidate-order)))
+                                  (#pt-lambda
+                                    (
+                                      (certificate
+                                        (#pt-app
+                                          (#pt-use exists (0))
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((candidate-order #pt-nat))
+                                            (#pt-app
+                                              (#pt-use eisenstein-lambda-order ())
+                                              quotient
+                                              candidate-order)))))
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-order #pt-nat))
+                                        (#pt-app
+                                          (#pt-use eisenstein-lambda-order ())
+                                          stage-number
+                                          candidate-order))))
+                                  (
+                                    (#pt-lambda
+                                      (
+                                        (quotient-order #pt-nat)
+                                        (quotient-order-proof
+                                          (#pt-app
+                                            (#pt-use eisenstein-lambda-order ())
+                                            quotient
+                                            quotient-order)))
+                                      (#pt-construct
+                                        exists
+                                        (0)
+                                        (#pt-nat
+                                          (#pt-lambda
+                                            ((candidate-order #pt-nat))
+                                            (#pt-app
+                                              (#pt-use eisenstein-lambda-order ())
+                                              stage-number
+                                              candidate-order)))
+                                        introduce
+                                        (
+                                          (#pt-succ quotient-order)
+                                          (#pt-app
+                                            (#pt-use eisenstein-lambda-order-congruent ())
+                                            (#pt-app
+                                              (#pt-use eisenstein-multiply ())
+                                              (#pt-use eisenstein-lambda ())
+                                              quotient)
+                                            stage-number
+                                            (#pt-succ quotient-order)
+                                            (#pt-app
+                                              (#pt-use eisenstein-symmetric ())
+                                              stage-number
+                                              (#pt-app
+                                                (#pt-use eisenstein-multiply ())
+                                                (#pt-use eisenstein-lambda ())
+                                                quotient)
+                                              factor-equivalence)
+                                            (#pt-app
+                                              (#pt-use eisenstein-lambda-order-step ())
+                                              quotient
+                                              quotient-order
+                                              quotient-order-proof))))))
+                                  (#pt-app
+                                    earlier-orders
+                                    quotient-norm
+                                    (#pt-app
+                                      (#pt-use eisenstein-lambda-quotient-norm-less ())
+                                      stage-number
+                                      quotient
+                                      stage-norm
+                                      quotient-norm
+                                      stage-certificate
+                                      quotient-certificate
+                                      factor-equivalence
+                                      stage-nonzero)
+                                    quotient
+                                    quotient-certificate
+                                    (#pt-app
+                                      (#pt-use eisenstein-lambda-quotient-nonzero ())
+                                      stage-number
+                                      quotient
+                                      factor-equivalence
+                                      stage-nonzero)))))
+                            (#pt-app (#pt-use eisenstein-natural-norm-exists ()) quotient))))
+                      lambda-divides))
+                  (#pt-lambda
+                    (
+                      (lambda-not-divides
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-app
+                                (#pt-use eisenstein-divides ())
+                                (#pt-use eisenstein-lambda ())
+                                stage-number)))
+                          #pt-false)))
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-order #pt-nat))
+                          (#pt-app
+                            (#pt-use eisenstein-lambda-order ())
+                            stage-number
+                            candidate-order)))
+                      introduce
+                      (#pt-zero
+                        (#pt-construct
+                          eisenstein-lambda-order
+                          ()
+                          (stage-number #pt-zero)
+                          introduce
+                          (
+                            (#pt-app (#pt-use eisenstein-one-divides ()) stage-number)
+                            (#pt-lambda
+                              (
+                                (next-divides
+                                  (#pt-app
+                                    (#pt-use eisenstein-divides ())
+                                    (#pt-app
+                                      (#pt-use eisenstein-power ())
+                                      (#pt-use eisenstein-lambda ())
+                                      (#pt-succ #pt-zero))
+                                    stage-number)))
+                              (#pt-app
+                                lambda-not-divides
+                                (#pt-app
+                                  (#pt-use eisenstein-divides-congruent-divisor ())
+                                  (#pt-app
+                                    (#pt-use eisenstein-power ())
+                                    (#pt-use eisenstein-lambda ())
+                                    (#pt-succ #pt-zero))
+                                  (#pt-use eisenstein-lambda ())
+                                  stage-number
+                                  (#pt-app
+                                    (#pt-use eisenstein-power-one ())
+                                    (#pt-use eisenstein-lambda ()))
+                                  next-divides))))))))
+                  (#pt-app (#pt-use eisenstein-lambda-divisibility-decided ()) stage-number))))
+            natural-norm
+            number
+            norm-certificate
+            number-nonzero)))
+      (#pt-app (#pt-use eisenstein-natural-norm-exists ()) number))))

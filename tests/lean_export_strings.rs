@@ -273,7 +273,7 @@ fn invalid_later_literal_and_evidence_cannot_hide_behind_an_earlier_target() {
 }
 
 #[test]
-fn altered_literal_control_is_refused_under_the_recorded_work_budget() {
+fn altered_literal_control_reports_a_completed_type_mismatch() {
     let mut data = rows();
     let literal = data
         .iter_mut()
@@ -285,13 +285,38 @@ fn altered_literal_control_is_refused_under_the_recorded_work_budget() {
         failure.line,
         id(declaration(TARGETS[1].0).get("line").unwrap())
     );
-    // Conversion can exhaust work here. That outcome is bounded refusal,
-    // not a completed inequality decision; a type mismatch also rejects it.
     assert!(
-        failure.message.contains("resource limit") || failure.message.contains("type mismatch"),
+        failure.message.contains("type mismatch"),
         "{}",
         failure.message
     );
+    assert!(!failure.message.contains("resource limit"));
+}
+
+#[test]
+fn altered_native_ascii_evidence_reports_a_type_mismatch_for_earlier_targets_too() {
+    let marker = "(#theorem lean-374-StringLiteralProbe-ascii";
+    let (prefix, remainder) = NATIVE.split_once(marker).unwrap();
+    let literal = "(#pt-nat-literal lean-10-Nat \"65\")";
+    assert!(remainder.contains(literal));
+    let invalid = format!(
+        "{prefix}{marker}{}",
+        remainder.replacen(literal, "(#pt-nat-literal lean-10-Nat \"66\")", 1)
+    );
+    let mut config = CompileConfig::default();
+    config.set_proof_budget(budget());
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("theorems/lean_replay/strings.lim");
+    for (_, target) in &TARGETS[..2] {
+        let failure =
+            lim::check_theorem_details_from_path_with_config(&invalid, &path, &config, target)
+                .unwrap_err();
+        assert!(
+            failure.message.contains("type mismatch"),
+            "{}",
+            failure.message
+        );
+        assert!(!failure.message.contains("resource limit"));
+    }
 }
 
 #[test]

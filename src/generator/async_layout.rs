@@ -119,7 +119,7 @@ fn order(dependencies: &[Vec<usize>]) -> Result<Vec<usize>, String> {
     Ok(result)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     #[test]

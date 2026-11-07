@@ -1,0 +1,1158 @@
+; Coprimality is equivalent to all actual common divisors being units.
+; The reverse direction uses constructed gcd/Bezout witnesses and an
+; actual inverse; coefficient witnesses also prove Euclid cancellation.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-one-multiply = ./eisenstein-cubic-bridge.lim::eisenstein-one-multiply)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-add-commutative = ./eisenstein-ring.lim::eisenstein-add-commutative)
+(#alias eisenstein-multiply-distributive = ./eisenstein-ring.lim::eisenstein-multiply-distributive)
+(#alias
+  eisenstein-multiply-distribute-second
+  =
+  ./eisenstein-ring.lim::eisenstein-multiply-distribute-second)
+(#alias eisenstein-divides-reflexive = ./eisenstein-divisibility.lim::eisenstein-divides-reflexive)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-product-left
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-product-left)
+(#alias
+  eisenstein-divides-product-right
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-product-right)
+(#alias eisenstein-divides-add = ./eisenstein-additive-divisibility.lim::eisenstein-divides-add)
+(#alias eisenstein-bezout-gcd-spec = ./eisenstein-bezout-gcd-defs.lim::eisenstein-bezout-gcd-spec)
+(#alias
+  eisenstein-unit-of-divides-one
+  =
+  ./eisenstein-unit-divisibility.lim::eisenstein-unit-of-divides-one)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias eisenstein-bezout-gcd-exists = ./eisenstein-bezout-gcd.lim::eisenstein-bezout-gcd-exists)
+(#theorem eisenstein-coprime-common-divisor-unit
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second))
+    (#parameter divides-first (#pt-app (#pt-use eisenstein-divides ()) divisor first))
+    (#parameter divides-second (#pt-app (#pt-use eisenstein-divides ()) divisor second)))
+  (#statement (#pt-app (#pt-use eisenstein-unit ()) divisor))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-left-coefficient (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-right-coefficient (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-use eisenstein-one ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-left-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          candidate-right-coefficient
+                          second)))))))))
+        (#pt-app (#pt-use eisenstein-unit ()) divisor))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use eisenstein ()))
+            (right-coefficient-existence
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-right-coefficient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-right-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))
+            (#pt-lambda
+              (
+                (eisenstein-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-right-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-use eisenstein-one ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            candidate-right-coefficient
+                            second)))))))
+              (#pt-app (#pt-use eisenstein-unit ()) divisor))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use eisenstein ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))))
+                (#pt-app
+                  (#pt-use eisenstein-unit-of-divides-one ())
+                  divisor
+                  (#pt-app
+                    (#pt-use eisenstein-divides-congruent-target ())
+                    divisor
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-symmetric ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                      coefficient-equation)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-add ())
+                      divisor
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                      (#pt-app
+                        (#pt-use eisenstein-divides-product-right ())
+                        divisor
+                        left-coefficient
+                        first
+                        divides-first)
+                      (#pt-app
+                        (#pt-use eisenstein-divides-product-right ())
+                        divisor
+                        right-coefficient
+                        second
+                        divides-second))))))
+            right-coefficient-existence)))
+      coprime-proof)))
+(#theorem eisenstein-coprime-of-unit-bezout-gcd
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter gcd (#pt-use eisenstein ()))
+    (#parameter left-coefficient (#pt-use eisenstein ()))
+    (#parameter right-coefficient (#pt-use eisenstein ()))
+    (#parameter gcd-certificate (#pt-app (#pt-use eisenstein-bezout-gcd-spec ()) first second gcd left-coefficient right-coefficient))
+    (#parameter gcd-unit (#pt-app (#pt-use eisenstein-unit ()) gcd)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) first second))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) gcd candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse gcd)
+              (#pt-use eisenstein-one ())))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-inverse (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) gcd candidate-inverse)
+                    (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse gcd)
+                    (#pt-use eisenstein-one ())))))))
+        (#pt-app (#pt-use eisenstein-coprime ()) first second))
+      (
+        (#pt-lambda
+          (
+            (inverse (#pt-use eisenstein ()))
+            (inverse-certificate
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) gcd inverse)
+                  (#pt-use eisenstein-one ()))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) inverse gcd)
+                  (#pt-use eisenstein-one ())))))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-left-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          candidate-right-coefficient
+                          second)))))))
+            introduce
+            (
+              (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+              (#pt-construct
+                exists
+                (0)
+                (
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                          first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          candidate-right-coefficient
+                          second)))))
+                introduce
+                (
+                  (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                  (#pt-app
+                    (#pt-use eisenstein-transitive ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) inverse gcd)
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                        first)
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                        second))
+                    (#pt-app
+                      (#pt-use eisenstein-symmetric ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) inverse gcd)
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use conjunction-right ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) gcd inverse)
+                          (#pt-use eisenstein-one ()))
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) inverse gcd)
+                          (#pt-use eisenstein-one ()))
+                        inverse-certificate))
+                    (#pt-app
+                      (#pt-use eisenstein-transitive ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) inverse gcd)
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        inverse
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                          first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                          second))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply-congruent ())
+                        inverse
+                        gcd
+                        inverse
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                        (#pt-app (#pt-use eisenstein-reflexive ()) inverse)
+                        (#pt-app
+                          (#pt-use conjunction-right ())
+                          (#pt-app (#pt-use eisenstein-divides ()) gcd second)
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            gcd
+                            (#pt-app
+                              (#pt-use eisenstein-add ())
+                              (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app (#pt-use eisenstein-divides ()) gcd first)
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app (#pt-use eisenstein-divides ()) gcd second)
+                              (#pt-app
+                                (#pt-use eisenstein-equal ())
+                                gcd
+                                (#pt-app
+                                  (#pt-use eisenstein-add ())
+                                  (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                                  (#pt-app
+                                    (#pt-use eisenstein-multiply ())
+                                    right-coefficient
+                                    second))))
+                            gcd-certificate)))
+                      (#pt-app
+                        (#pt-use eisenstein-transitive ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          inverse
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            inverse
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            inverse
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                            first)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                            second))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply-distribute-second ())
+                          inverse
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                        (#pt-app
+                          (#pt-use eisenstein-add-congruent ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            inverse
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            inverse
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                            first)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                            second)
+                          (#pt-app
+                            (#pt-use eisenstein-symmetric ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app (#pt-use eisenstein-multiply ()) inverse left-coefficient)
+                              first)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              inverse
+                              (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply-associative ())
+                              inverse
+                              left-coefficient
+                              first))
+                          (#pt-app
+                            (#pt-use eisenstein-symmetric ())
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              (#pt-app (#pt-use eisenstein-multiply ()) inverse right-coefficient)
+                              second)
+                            (#pt-app
+                              (#pt-use eisenstein-multiply ())
+                              inverse
+                              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                            (#pt-app
+                              (#pt-use eisenstein-multiply-associative ())
+                              inverse
+                              right-coefficient
+                              second))))))))))))
+      gcd-unit)))
+(#theorem eisenstein-coprime-of-common-divisors-unit
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter common-divisors-unit (#pt-pi ((common-divisor (#pt-use eisenstein ())) (divides-first (#pt-app (#pt-use eisenstein-divides ()) common-divisor first)) (divides-second (#pt-app (#pt-use eisenstein-divides ()) common-divisor second))) (#pt-app (#pt-use eisenstein-unit ()) common-divisor))))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) first second))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-gcd (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-left-coefficient (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-right-coefficient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use eisenstein-bezout-gcd-spec ())
+                    first
+                    second
+                    candidate-gcd
+                    candidate-left-coefficient
+                    candidate-right-coefficient)))))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-gcd (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-left-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-right-coefficient (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use eisenstein-bezout-gcd-spec ())
+                          first
+                          second
+                          candidate-gcd
+                          candidate-left-coefficient
+                          candidate-right-coefficient)))))))))
+        (#pt-app (#pt-use eisenstein-coprime ()) first second))
+      (
+        (#pt-lambda
+          (
+            (gcd (#pt-use eisenstein ()))
+            (left-existence
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-left-coefficient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-right-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use eisenstein-bezout-gcd-spec ())
+                        first
+                        second
+                        gcd
+                        candidate-left-coefficient
+                        candidate-right-coefficient)))))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-left-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-bezout-gcd-spec ())
+                      first
+                      second
+                      gcd
+                      candidate-left-coefficient
+                      candidate-right-coefficient)))))
+            (#pt-lambda
+              (
+                (eisenstein-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-left-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-right-coefficient (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use eisenstein-bezout-gcd-spec ())
+                            first
+                            second
+                            gcd
+                            candidate-left-coefficient
+                            candidate-right-coefficient)))))))
+              (#pt-app (#pt-use eisenstein-coprime ()) first second))
+            (
+              (#pt-lambda
+                (
+                  (left-coefficient (#pt-use eisenstein ()))
+                  (right-existence
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-right-coefficient (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use eisenstein-bezout-gcd-spec ())
+                          first
+                          second
+                          gcd
+                          left-coefficient
+                          candidate-right-coefficient)))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-right-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use eisenstein-bezout-gcd-spec ())
+                        first
+                        second
+                        gcd
+                        left-coefficient
+                        candidate-right-coefficient)))
+                  (#pt-lambda
+                    (
+                      (eisenstein-certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use eisenstein ())
+                          (#pt-lambda
+                            ((candidate-right-coefficient (#pt-use eisenstein ())))
+                            (#pt-app
+                              (#pt-use eisenstein-bezout-gcd-spec ())
+                              first
+                              second
+                              gcd
+                              left-coefficient
+                              candidate-right-coefficient)))))
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second))
+                  (
+                    (#pt-lambda
+                      (
+                        (right-coefficient (#pt-use eisenstein ()))
+                        (gcd-certificate
+                          (#pt-app
+                            (#pt-use eisenstein-bezout-gcd-spec ())
+                            first
+                            second
+                            gcd
+                            left-coefficient
+                            right-coefficient)))
+                      (#pt-app
+                        (#pt-use eisenstein-coprime-of-unit-bezout-gcd ())
+                        first
+                        second
+                        gcd
+                        left-coefficient
+                        right-coefficient
+                        gcd-certificate
+                        (#pt-app
+                          common-divisors-unit
+                          gcd
+                          (#pt-app
+                            (#pt-use conjunction-left ())
+                            (#pt-app (#pt-use eisenstein-divides ()) gcd first)
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app (#pt-use eisenstein-divides ()) gcd second)
+                              (#pt-app
+                                (#pt-use eisenstein-equal ())
+                                gcd
+                                (#pt-app
+                                  (#pt-use eisenstein-add ())
+                                  (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                                  (#pt-app
+                                    (#pt-use eisenstein-multiply ())
+                                    right-coefficient
+                                    second))))
+                            gcd-certificate)
+                          (#pt-app
+                            (#pt-use conjunction-left ())
+                            (#pt-app (#pt-use eisenstein-divides ()) gcd second)
+                            (#pt-app
+                              (#pt-use eisenstein-equal ())
+                              gcd
+                              (#pt-app
+                                (#pt-use eisenstein-add ())
+                                (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))
+                            (#pt-app
+                              (#pt-use conjunction-right ())
+                              (#pt-app (#pt-use eisenstein-divides ()) gcd first)
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use eisenstein-divides ()) gcd second)
+                                (#pt-app
+                                  (#pt-use eisenstein-equal ())
+                                  gcd
+                                  (#pt-app
+                                    (#pt-use eisenstein-add ())
+                                    (#pt-app
+                                      (#pt-use eisenstein-multiply ())
+                                      left-coefficient
+                                      first)
+                                    (#pt-app
+                                      (#pt-use eisenstein-multiply ())
+                                      right-coefficient
+                                      second))))
+                              gcd-certificate))))))
+                  right-existence)))
+            left-existence)))
+      (#pt-app (#pt-use eisenstein-bezout-gcd-exists ()) first second))))
+(#theorem eisenstein-coprime-symmetric
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) second first))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-left-coefficient (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-right-coefficient (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-use eisenstein-one ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-left-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          candidate-right-coefficient
+                          second)))))))))
+        (#pt-app (#pt-use eisenstein-coprime ()) second first))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use eisenstein ()))
+            (right-coefficient-existence
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-right-coefficient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-right-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))
+            (#pt-lambda
+              (
+                (eisenstein-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-right-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-use eisenstein-one ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            candidate-right-coefficient
+                            second)))))))
+              (#pt-app (#pt-use eisenstein-coprime ()) second first))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use eisenstein ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-left-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-right-coefficient (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            (#pt-use eisenstein-one ())
+                            (#pt-app
+                              (#pt-use eisenstein-add ())
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                candidate-left-coefficient
+                                second)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                candidate-right-coefficient
+                                first)))))))
+                  introduce
+                  (right-coefficient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-right-coefficient (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            (#pt-use eisenstein-one ())
+                            (#pt-app
+                              (#pt-use eisenstein-add ())
+                              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                              (#pt-app
+                                (#pt-use eisenstein-multiply ())
+                                candidate-right-coefficient
+                                first)))))
+                      introduce
+                      (left-coefficient
+                        (#pt-app
+                          (#pt-use eisenstein-transitive ())
+                          (#pt-use eisenstein-one ())
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first))
+                          coefficient-equation
+                          (#pt-app
+                            (#pt-use eisenstein-add-commutative ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))))))))
+            right-coefficient-existence)))
+      coprime-proof)))
+(#theorem eisenstein-coprime-divides-product
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second))
+    (#parameter product-divides (#pt-app (#pt-use eisenstein-divides ()) first (#pt-app (#pt-use eisenstein-multiply ()) second number))))
+  (#statement (#pt-app (#pt-use eisenstein-divides ()) first number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-left-coefficient (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use eisenstein ())
+            (#pt-lambda
+              ((candidate-right-coefficient (#pt-use eisenstein ())))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-use eisenstein-one ())
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                  (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-left-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-right-coefficient (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) candidate-left-coefficient first)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          candidate-right-coefficient
+                          second)))))))))
+        (#pt-app (#pt-use eisenstein-divides ()) first number))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use eisenstein ()))
+            (right-coefficient-existence
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-right-coefficient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-right-coefficient (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-right-coefficient second)))))
+            (#pt-lambda
+              (
+                (eisenstein-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-right-coefficient (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-use eisenstein-one ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            candidate-right-coefficient
+                            second)))))))
+              (#pt-app (#pt-use eisenstein-divides ()) first number))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use eisenstein ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      (#pt-use eisenstein-one ())
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)))))
+                (#pt-app
+                  (#pt-use eisenstein-divides-congruent-target ())
+                  first
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      number)
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                      number))
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-symmetric ())
+                    number
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                        number)
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                        number))
+                    (#pt-app
+                      (#pt-use eisenstein-transitive ())
+                      number
+                      (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) number)
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          number)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                          number))
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-use eisenstein-one ())
+                          number)
+                        number
+                        (#pt-app (#pt-use eisenstein-one-multiply ()) number))
+                      (#pt-app
+                        (#pt-use eisenstein-transitive ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-use eisenstein-one ())
+                          number)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                          number)
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            number)
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                            number))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply-congruent ())
+                          (#pt-use eisenstein-one ())
+                          number
+                          (#pt-app
+                            (#pt-use eisenstein-add ())
+                            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second))
+                          number
+                          coefficient-equation
+                          (#pt-app (#pt-use eisenstein-reflexive ()) number))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply-distributive ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                          number))))
+                  (#pt-app
+                    (#pt-use eisenstein-divides-add ())
+                    first
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      number)
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                      number)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-product-left ())
+                      first
+                      (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient first)
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-divides-product-right ())
+                        first
+                        left-coefficient
+                        first
+                        (#pt-app (#pt-use eisenstein-divides-reflexive ()) first)))
+                    (#pt-app
+                      (#pt-use eisenstein-divides-congruent-target ())
+                      first
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        right-coefficient
+                        (#pt-app (#pt-use eisenstein-multiply ()) second number))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                        number)
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient second)
+                          number)
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          right-coefficient
+                          (#pt-app (#pt-use eisenstein-multiply ()) second number))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply-associative ())
+                          right-coefficient
+                          second
+                          number))
+                      (#pt-app
+                        (#pt-use eisenstein-divides-product-right ())
+                        first
+                        right-coefficient
+                        (#pt-app (#pt-use eisenstein-multiply ()) second number)
+                        product-divides))))))
+            right-coefficient-existence)))
+      coprime-proof)))

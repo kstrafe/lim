@@ -1,0 +1,736 @@
+; Exhaust the three signed omega-coordinate cases for each real
+; coordinate allowed by norm one. Norm zero and norm three exclude
+; the three invalid lattice points; each remaining point is one of
+; the six concrete roots in Cyclotomic/Three.lean:54-81.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias eisenstein-omega = ./eisenstein-defs.lim::eisenstein-omega)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-norm-congruent = ./eisenstein-norm-basic.lim::eisenstein-norm-congruent)
+(#alias
+  eisenstein-unit-norm-is-one
+  =
+  ./eisenstein-unit-coordinate-bounds.lim::eisenstein-unit-norm-is-one)
+(#alias
+  eisenstein-unit-omega-small
+  =
+  ./eisenstein-unit-coordinate-bounds.lim::eisenstein-unit-omega-small)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias successor-injective = ./natural-successor.lim::successor-injective)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#theorem eisenstein-unit-norm-value-impossible
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter representative (#pt-use eisenstein ()))
+    (#parameter norm-value #pt-nat)
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number))
+    (#parameter representative-equivalence (#pt-app (#pt-use eisenstein-equal ()) number representative))
+    (#parameter representative-norm (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use eisenstein-norm ()) representative) (#pt-app (#pt-use integer-of-natural ()) norm-value)))
+    (#parameter norm-not-one (#pt-pi ((denied-proof (#pt-eq #pt-nat norm-value (#pt-succ #pt-zero)))) #pt-false)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      norm-not-one
+      (#pt-app
+        (#pt-use integer-of-natural-injective ())
+        norm-value
+        (#pt-succ #pt-zero)
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app (#pt-use integer-of-natural ()) norm-value)
+          (#pt-app (#pt-use eisenstein-norm ()) number)
+          (#pt-use integer-one ())
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use eisenstein-norm ()) number)
+            (#pt-app (#pt-use integer-of-natural ()) norm-value)
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app (#pt-use eisenstein-norm ()) number)
+              (#pt-app (#pt-use eisenstein-norm ()) representative)
+              (#pt-app (#pt-use integer-of-natural ()) norm-value)
+              (#pt-app
+                (#pt-use eisenstein-norm-congruent ())
+                number
+                representative
+                representative-equivalence)
+              representative-norm))
+          (#pt-app (#pt-use eisenstein-unit-norm-is-one ()) number unit-proof))))))
+(#theorem eisenstein-unit-zero-real-cases
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number))
+    (#parameter real-equivalence (#pt-app (#pt-use integer-equal ()) (#pt-project eisenstein 0 number) (#pt-use integer-zero ()))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        number
+        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 number)
+        (#pt-use integer-zero ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))))
+      (#pt-lambda
+        (
+          (omega-zero
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 number)
+              (#pt-use integer-zero ()))))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))))
+          (#pt-app
+            (#pt-use eisenstein-unit-norm-value-impossible ())
+            number
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              ((#pt-use integer-zero ()) (#pt-use integer-zero ())))
+            #pt-zero
+            unit-proof
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 number)
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    ((#pt-use integer-zero ()) (#pt-use integer-zero ())))))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    ((#pt-use integer-zero ()) (#pt-use integer-zero ())))))
+              real-equivalence
+              omega-zero)
+            (#pt-refl #pt-nat #pt-zero)
+            (#pt-lambda
+              ((impossible-norm (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero))))
+              (#pt-app
+                (#pt-app (#pt-use successor-not-zero ()) #pt-zero)
+                (#pt-app
+                  (#pt-use symmetry (0))
+                  #pt-nat
+                  #pt-zero
+                  (#pt-succ #pt-zero)
+                  impossible-norm))))))
+      (#pt-lambda
+        (
+          (omega-nonzero
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-one ()))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))))
+          (#pt-lambda
+            (
+              (omega-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-use integer-one ()))))
+            (#pt-app
+              (#pt-use disjunction-left ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-project eisenstein 0 (#pt-use eisenstein-omega ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-project eisenstein 1 (#pt-use eisenstein-omega ())))
+                real-equivalence
+                omega-positive)))
+          (#pt-lambda
+            (
+              (omega-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-project
+                    eisenstein
+                    0
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-project
+                    eisenstein
+                    1
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))))
+                real-equivalence
+                omega-negative)))
+          omega-nonzero))
+      (#pt-app (#pt-use eisenstein-unit-omega-small ()) number unit-proof))))
+(#theorem eisenstein-unit-positive-real-cases
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number))
+    (#parameter real-equivalence (#pt-app (#pt-use integer-equal ()) (#pt-project eisenstein 0 number) (#pt-use integer-one ()))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        number
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 number)
+        (#pt-use integer-zero ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))))
+      (#pt-lambda
+        (
+          (omega-zero
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 number)
+              (#pt-use integer-zero ()))))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 number)
+              (#pt-project eisenstein 0 (#pt-use eisenstein-one ())))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 number)
+              (#pt-project eisenstein 1 (#pt-use eisenstein-one ())))
+            real-equivalence
+            omega-zero)))
+      (#pt-lambda
+        (
+          (omega-nonzero
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-one ()))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))))
+          (#pt-lambda
+            (
+              (omega-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-use integer-one ()))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-project
+                    eisenstein
+                    0
+                    (#pt-app
+                      (#pt-use eisenstein-negate ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-project
+                    eisenstein
+                    1
+                    (#pt-app
+                      (#pt-use eisenstein-negate ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))))
+                real-equivalence
+                omega-positive)))
+          (#pt-lambda
+            (
+              (omega-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-negate ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))))
+              (#pt-app
+                (#pt-use eisenstein-unit-norm-value-impossible ())
+                number
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-use integer-one ())
+                    (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+                (#pt-numeral 3)
+                unit-proof
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    (#pt-project eisenstein 0 number)
+                    (#pt-project
+                      eisenstein
+                      0
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-use integer-one ())
+                          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    (#pt-project eisenstein 1 number)
+                    (#pt-project
+                      eisenstein
+                      1
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-use integer-one ())
+                          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+                  real-equivalence
+                  omega-negative)
+                (#pt-refl #pt-nat (#pt-numeral 3))
+                (#pt-lambda
+                  ((impossible-norm (#pt-eq #pt-nat (#pt-numeral 3) (#pt-succ #pt-zero))))
+                  (#pt-app
+                    (#pt-app (#pt-use successor-not-zero ()) (#pt-succ #pt-zero))
+                    (#pt-app
+                      (#pt-use successor-injective ())
+                      (#pt-numeral 2)
+                      #pt-zero
+                      impossible-norm))))))
+          omega-nonzero))
+      (#pt-app (#pt-use eisenstein-unit-omega-small ()) number unit-proof))))
+(#theorem eisenstein-unit-negative-real-cases
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number))
+    (#parameter real-equivalence (#pt-app (#pt-use integer-equal ()) (#pt-project eisenstein 0 number) (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        number
+        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        number
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 number)
+        (#pt-use integer-zero ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 number)
+          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+      (#pt-lambda
+        (
+          (omega-zero
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 number)
+              (#pt-use integer-zero ()))))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 number)
+              (#pt-project
+                eisenstein
+                0
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 number)
+              (#pt-project
+                eisenstein
+                1
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+            real-equivalence
+            omega-zero)))
+      (#pt-lambda
+        (
+          (omega-nonzero
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 1 number)
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-use integer-one ()))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))))
+          (#pt-lambda
+            (
+              (omega-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-use integer-one ()))))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))))
+              (#pt-app
+                (#pt-use eisenstein-unit-norm-value-impossible ())
+                number
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+                    (#pt-use integer-one ())))
+                (#pt-numeral 3)
+                unit-proof
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    (#pt-project eisenstein 0 number)
+                    (#pt-project
+                      eisenstein
+                      0
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+                          (#pt-use integer-one ())))))
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    (#pt-project eisenstein 1 number)
+                    (#pt-project
+                      eisenstein
+                      1
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+                          (#pt-use integer-one ())))))
+                  real-equivalence
+                  omega-positive)
+                (#pt-refl #pt-nat (#pt-numeral 3))
+                (#pt-lambda
+                  ((impossible-norm (#pt-eq #pt-nat (#pt-numeral 3) (#pt-succ #pt-zero))))
+                  (#pt-app
+                    (#pt-app (#pt-use successor-not-zero ()) (#pt-succ #pt-zero))
+                    (#pt-app
+                      (#pt-use successor-injective ())
+                      (#pt-numeral 2)
+                      #pt-zero
+                      impossible-norm))))))
+          (#pt-lambda
+            (
+              (omega-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-project
+                    eisenstein
+                    0
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2))))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 1 number)
+                  (#pt-project
+                    eisenstein
+                    1
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2))))
+                real-equivalence
+                omega-negative)))
+          omega-nonzero))
+      (#pt-app (#pt-use eisenstein-unit-omega-small ()) number unit-proof))))

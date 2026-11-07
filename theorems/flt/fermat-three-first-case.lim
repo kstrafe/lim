@@ -1,0 +1,237 @@
+; Native Nat port of Mathlib/NumberTheory/FLT/Three.lean:68-76.
+; A cube equation is impossible when three divides none of the coordinates.
+; This is only the elementary first case, not FermatLastTheoremFor 3.
+; Copyright (c) 2024 Riccardo Brasca. Apache 2.0 source adaptation.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-transitive = ./natural-divisibility.lim::divides-transitive)
+(#alias divides-multiple = ./natural-divisibility.lim::divides-multiple)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias cube = ./natural-ninth-residues.lim::cube)
+(#alias power-three-as-cube = ./natural-ninth-residues.lim::power-three-as-cube)
+(#alias
+  nonmultiple-three-cube-residue
+  =
+  ./natural-ninth-residues.lim::nonmultiple-three-cube-residue)
+(#alias
+  ninth-cube-residues-exclude-sum
+  =
+  ./natural-ninth-exclusion.lim::ninth-cube-residues-exclude-sum)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem nondivisor-product-left
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter product-not-divisible (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) divisor (#pt-app (#pt-use multiply ()) first second)))) #pt-false)))
+  (#statement (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) divisor first))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((first-divides (#pt-app (#pt-use divides ()) divisor first)))
+      (#pt-app
+        product-not-divisible
+        (#pt-app
+          (#pt-use divides-transitive ())
+          divisor
+          first
+          (#pt-app (#pt-use multiply ()) first second)
+          first-divides
+          (#pt-app (#pt-use divides-multiple ()) first second))))))
+(#theorem nondivisor-product-right
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter product-not-divisible (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) divisor (#pt-app (#pt-use multiply ()) first second)))) #pt-false)))
+  (#statement (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) divisor second))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((second-divides (#pt-app (#pt-use divides ()) divisor second)))
+      (#pt-app
+        product-not-divisible
+        (#pt-app
+          (#pt-use substitution (0))
+          #pt-nat
+          (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use divides ()) divisor endpoint))
+          (#pt-app (#pt-use multiply ()) second first)
+          (#pt-app (#pt-use multiply ()) first second)
+          (#pt-app (#pt-use multiply-commutative ()) second first)
+          (#pt-app
+            (#pt-use divides-transitive ())
+            divisor
+            second
+            (#pt-app (#pt-use multiply ()) second first)
+            second-divides
+            (#pt-app (#pt-use divides-multiple ()) second first)))))))
+(#theorem fermat-three-first-case-at-coordinates
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter first-not-divisible (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) (#pt-numeral 3) first))) #pt-false))
+    (#parameter second-not-divisible (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) (#pt-numeral 3) second))) #pt-false))
+    (#parameter third-not-divisible (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) (#pt-numeral 3) third))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use power ()) third (#pt-numeral 3)))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (cube-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use power ()) third (#pt-numeral 3)))))
+      (#pt-app
+        (#pt-use ninth-cube-residues-exclude-sum ())
+        (#pt-app (#pt-use cube ()) first)
+        (#pt-app (#pt-use cube ()) second)
+        (#pt-app (#pt-use cube ()) third)
+        (#pt-app (#pt-use nonmultiple-three-cube-residue ()) first first-not-divisible)
+        (#pt-app (#pt-use nonmultiple-three-cube-residue ()) second second-not-divisible)
+        (#pt-app (#pt-use nonmultiple-three-cube-residue ()) third third-not-divisible)
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use cube ()) first)
+            (#pt-app (#pt-use cube ()) second))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+            (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+          (#pt-app (#pt-use cube ()) third)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use cube ()) first)
+              (#pt-app (#pt-use cube ()) second))
+            (#pt-app
+              (#pt-use transitivity (0))
+              #pt-nat
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+                (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use cube ()) second))
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app
+                    (#pt-use add ())
+                    endpoint
+                    (#pt-app (#pt-use power ()) second (#pt-numeral 3))))
+                (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use power-three-as-cube ()) first))
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app (#pt-use add ()) (#pt-app (#pt-use cube ()) first) endpoint))
+                (#pt-app (#pt-use power ()) second (#pt-numeral 3))
+                (#pt-app (#pt-use cube ()) second)
+                (#pt-app (#pt-use power-three-as-cube ()) second))))
+          (#pt-app
+            (#pt-use transitivity (0))
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use power ()) third (#pt-numeral 3))
+            (#pt-app (#pt-use cube ()) third)
+            cube-equation
+            (#pt-app (#pt-use power-three-as-cube ()) third)))))))
+(#theorem fermat-three-first-case
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter not-three-divides-product (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) (#pt-numeral 3) (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) first second) third)))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use power ()) second (#pt-numeral 3)))
+            (#pt-app (#pt-use power ()) third (#pt-numeral 3)))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-three-first-case-at-coordinates ())
+      first
+      second
+      third
+      (#pt-app
+        (#pt-use nondivisor-product-left ())
+        (#pt-numeral 3)
+        first
+        second
+        (#pt-app
+          (#pt-use nondivisor-product-left ())
+          (#pt-numeral 3)
+          (#pt-app (#pt-use multiply ()) first second)
+          third
+          not-three-divides-product))
+      (#pt-app
+        (#pt-use nondivisor-product-right ())
+        (#pt-numeral 3)
+        first
+        second
+        (#pt-app
+          (#pt-use nondivisor-product-left ())
+          (#pt-numeral 3)
+          (#pt-app (#pt-use multiply ()) first second)
+          third
+          not-three-divides-product))
+      (#pt-app
+        (#pt-use nondivisor-product-right ())
+        (#pt-numeral 3)
+        (#pt-app (#pt-use multiply ()) first second)
+        third
+        not-three-divides-product))))

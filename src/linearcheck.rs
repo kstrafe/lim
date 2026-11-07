@@ -1102,7 +1102,7 @@ fn check_expr(
                     }
                     arm_moved.retain(|name| bindings.contains(place_root(name)));
                     if !parts.last().is_some_and(|body| {
-                        expression_returns_with_guard(body, guard.map(Vec::as_slice))
+                        expression_returns_with_guard(body, guard.map(|values| values.as_slice()))
                     }) {
                         exits.push(arm_moved);
                     }
@@ -1709,7 +1709,7 @@ fn check_expr_with_place(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use crate::{check_types, parse_program};
 

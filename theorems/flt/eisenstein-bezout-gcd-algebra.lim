@@ -1,0 +1,421 @@
+; Checked Bezout coefficient update for Euclidean division.
+; If x=y*q+r, then s*y+t*r=t*x+(s-t*q)*y.
+; The exact ring identity transports actual coefficients, not a gcd axiom.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-add-commutative = ./eisenstein-ring.lim::eisenstein-add-commutative)
+(#alias eisenstein-multiply-distributive = ./eisenstein-ring.lim::eisenstein-multiply-distributive)
+(#alias
+  eisenstein-multiply-distribute-second
+  =
+  ./eisenstein-ring.lim::eisenstein-multiply-distribute-second)
+(#alias eisenstein-multiply-negative = ./eisenstein-ring.lim::eisenstein-multiply-negative)
+(#alias
+  eisenstein-add-opposite-shifts
+  =
+  ./eisenstein-cubic-solution-algebra.lim::eisenstein-add-opposite-shifts)
+(#theorem eisenstein-bezout-quotient-row
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter remainder (#pt-use eisenstein ()))
+    (#parameter left-coefficient (#pt-use eisenstein ()))
+    (#parameter right-coefficient (#pt-use eisenstein ()))
+    (#parameter division-equation (#pt-app (#pt-use eisenstein-equal ()) first (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-multiply ()) second quotient) remainder))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient first)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            left-coefficient
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)))
+          second))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient first)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            left-coefficient
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)))
+          second))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+            second)
+          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second))))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+      (#pt-app
+        (#pt-use eisenstein-add-congruent ())
+        (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient first)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            left-coefficient
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)))
+          second)
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+            second)
+          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second)))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient first)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            right-coefficient
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) second quotient)
+              remainder))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second)
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+          (#pt-app
+            (#pt-use eisenstein-multiply-congruent ())
+            right-coefficient
+            first
+            right-coefficient
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) second quotient)
+              remainder)
+            (#pt-app (#pt-use eisenstein-reflexive ()) right-coefficient)
+            division-equation)
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              right-coefficient
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-multiply ()) second quotient)
+                remainder))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                right-coefficient
+                (#pt-app (#pt-use eisenstein-multiply ()) second quotient))
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second)
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+            (#pt-app
+              (#pt-use eisenstein-multiply-distribute-second ())
+              right-coefficient
+              (#pt-app (#pt-use eisenstein-multiply ()) second quotient)
+              remainder)
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                right-coefficient
+                (#pt-app (#pt-use eisenstein-multiply ()) second quotient))
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second)
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  right-coefficient
+                  (#pt-app (#pt-use eisenstein-multiply ()) second quotient))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  right-coefficient
+                  (#pt-app (#pt-use eisenstein-multiply ()) quotient second))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                  second)
+                (#pt-app
+                  (#pt-use eisenstein-multiply-congruent ())
+                  right-coefficient
+                  (#pt-app (#pt-use eisenstein-multiply ()) second quotient)
+                  right-coefficient
+                  (#pt-app (#pt-use eisenstein-multiply ()) quotient second)
+                  (#pt-app (#pt-use eisenstein-reflexive ()) right-coefficient)
+                  (#pt-app (#pt-use eisenstein-multiply-commutative ()) second quotient))
+                (#pt-app
+                  (#pt-use eisenstein-symmetric ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                    second)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    right-coefficient
+                    (#pt-app (#pt-use eisenstein-multiply ()) quotient second))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply-associative ())
+                    right-coefficient
+                    quotient
+                    second)))
+              (#pt-app
+                (#pt-use eisenstein-reflexive ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              left-coefficient
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)))
+            second)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient))
+              second))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second)))
+          (#pt-app
+            (#pt-use eisenstein-multiply-distributive ())
+            left-coefficient
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient))
+            second)
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient))
+              second)
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second))
+            (#pt-app
+              (#pt-use eisenstein-reflexive ())
+              (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second))
+            (#pt-app
+              (#pt-use eisenstein-multiply-negative ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second))))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second)
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+          (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second)
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second)))
+          (#pt-app
+            (#pt-use eisenstein-add-commutative ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second)
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                  second)))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                second))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+                  second))))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder))
+          (#pt-app
+            (#pt-use eisenstein-add-opposite-shifts ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient quotient)
+              second))
+          (#pt-app
+            (#pt-use eisenstein-add-commutative ())
+            (#pt-app (#pt-use eisenstein-multiply ()) right-coefficient remainder)
+            (#pt-app (#pt-use eisenstein-multiply ()) left-coefficient second)))))))

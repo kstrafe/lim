@@ -1,0 +1,289 @@
+; Prime divisors cannot divide one or both coprime coordinates.
+; Actual positive powers and the retained equation derive the other
+; prime-coprimality pairs directly, without a pairwise-coprimality oracle.
+; These apply to arbitrary signed representatives and retain zero cases.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias
+  integer-divides-product-left
+  =
+  ./integer-power-divisibility.lim::integer-divides-product-left)
+(#alias
+  integer-divides-add-cancel-left
+  =
+  ./integer-divisibility-addition.lim::integer-divides-add-cancel-left)
+(#alias
+  integer-divides-add-cancel-right
+  =
+  ./integer-divisibility-addition.lim::integer-divides-add-cancel-right)
+(#alias integer-prime-divides-power = ./integer-prime-divisibility.lim::integer-prime-divides-power)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-gcd-one-common-divisor = ./integer-gcd.lim::integer-gcd-one-common-divisor)
+(#alias
+  integer-natural-divisibility-reflects
+  =
+  ./integer-natural-bridge.lim::integer-natural-divisibility-reflects)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#theorem integer-divides-positive-power
+  (#universes)
+  (#parameters
+    (#parameter divisor (#pt-use integer ()))
+    (#parameter number (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter number-divides (#pt-app (#pt-use integer-divides ()) divisor number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      divisor
+      (#pt-app (#pt-use integer-power ()) number exponent)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat exponent (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  exponent
+                  (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) candidate-gap))))))
+        (#pt-app
+          (#pt-use integer-divides ())
+          divisor
+          (#pt-app (#pt-use integer-power ()) number exponent)))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (exponent-equation
+              (#pt-eq #pt-nat exponent (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) gap))))
+          (#pt-eq-elim
+            #pt-nat
+            (#pt-succ gap)
+            (#pt-lambda
+              (
+                (transport-index #pt-nat)
+                (transport-path (#pt-eq #pt-nat (#pt-succ gap) transport-index)))
+              (#pt-app
+                (#pt-use integer-divides ())
+                divisor
+                (#pt-app (#pt-use integer-power ()) number transport-index)))
+            (#pt-app
+              (#pt-use integer-divides-product-left ())
+              divisor
+              number
+              (#pt-app (#pt-use integer-power ()) number gap)
+              number-divides)
+            exponent
+            (#pt-app (#pt-use symmetry (0)) #pt-nat exponent (#pt-succ gap) exponent-equation))))
+      positive-exponent)))
+(#theorem integer-prime-not-divides-one
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-use integer-one ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (one-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-use integer-one ()))))
+      (#pt-app
+        (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof)
+        (#pt-app
+          (#pt-use divides-one ())
+          prime-number
+          (#pt-app
+            (#pt-use integer-natural-divisibility-reflects ())
+            prime-number
+            (#pt-succ #pt-zero)
+            one-divides))))))
+(#theorem integer-prime-coprime-common
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter gcd-one (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+    (#parameter first-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) first))
+    (#parameter second-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) second)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-app (#pt-use integer-prime-not-divides-one ()) prime-number prime-proof)
+      (#pt-app
+        (#pt-use integer-gcd-one-common-divisor ())
+        first
+        second
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        gcd-one
+        first-divides
+        second-divides))))
+(#theorem integer-prime-solution-common-first-third
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter gcd-one (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+    (#parameter power-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) first exponent) (#pt-app (#pt-use integer-power ()) second exponent)) (#pt-app (#pt-use integer-power ()) third exponent)))
+    (#parameter first-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) first))
+    (#parameter third-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) third)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-use integer-prime-coprime-common ())
+      prime-number
+      first
+      second
+      prime-proof
+      gcd-one
+      first-divides
+      (#pt-app
+        (#pt-use integer-prime-divides-power ())
+        prime-number
+        second
+        exponent
+        prime-proof
+        (#pt-app
+          (#pt-use integer-divides-add-cancel-left ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-power ()) first exponent)
+          (#pt-app (#pt-use integer-power ()) second exponent)
+          (#pt-app
+            (#pt-use integer-divides-positive-power ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            first
+            exponent
+            positive-exponent
+            first-divides)
+          (#pt-app
+            (#pt-use integer-divides-congruent-target ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-power ()) third exponent)
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent))
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) first exponent)
+                (#pt-app (#pt-use integer-power ()) second exponent))
+              (#pt-app (#pt-use integer-power ()) third exponent)
+              power-equation)
+            (#pt-app
+              (#pt-use integer-divides-positive-power ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              third
+              exponent
+              positive-exponent
+              third-divides)))))))
+(#theorem integer-prime-solution-common-second-third
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter positive-exponent (#pt-app (#pt-use less-than ()) #pt-zero exponent))
+    (#parameter gcd-one (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+    (#parameter power-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) first exponent) (#pt-app (#pt-use integer-power ()) second exponent)) (#pt-app (#pt-use integer-power ()) third exponent)))
+    (#parameter second-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) second))
+    (#parameter third-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) third)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-use integer-prime-coprime-common ())
+      prime-number
+      first
+      second
+      prime-proof
+      gcd-one
+      (#pt-app
+        (#pt-use integer-prime-divides-power ())
+        prime-number
+        first
+        exponent
+        prime-proof
+        (#pt-app
+          (#pt-use integer-divides-add-cancel-right ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-power ()) first exponent)
+          (#pt-app (#pt-use integer-power ()) second exponent)
+          (#pt-app
+            (#pt-use integer-divides-positive-power ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            second
+            exponent
+            positive-exponent
+            second-divides)
+          (#pt-app
+            (#pt-use integer-divides-congruent-target ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-power ()) third exponent)
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-app (#pt-use integer-power ()) second exponent))
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) first exponent)
+                (#pt-app (#pt-use integer-power ()) second exponent))
+              (#pt-app (#pt-use integer-power ()) third exponent)
+              power-equation)
+            (#pt-app
+              (#pt-use integer-divides-positive-power ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              third
+              exponent
+              positive-exponent
+              third-divides))))
+      second-divides)))

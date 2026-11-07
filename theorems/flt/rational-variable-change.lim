@@ -1,0 +1,1347 @@
+; Copyright (c) 2024 Jz Pan. All rights reserved.
+; Released under Apache 2.0 license as described in LICENSE.MATHLIB.
+; Authors: Kevin Buzzard, David Kurniadi Angdinata, Jz Pan
+; Native rational specialization of pinned Mathlib VariableChange.lean.
+; Candidate proof terms are checked by Lim; no algebra oracle is used.
+; Two-sided unit/nonzero consequences, actual inverse coordinates,
+; identity action and b2 transformation law. General action composition
+; and the remaining invariant laws are not assumed here.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias substitution = ./equality.lim::substitution)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-zero = ./rational-defs.lim::rational-zero)
+(#alias rational-one = ./rational-defs.lim::rational-one)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias rational-weierstrass-b2 = ./rational-weierstrass-defs.lim::rational-weierstrass-b2)
+(#alias
+  rational-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-equivalent)
+(#alias rational-variable-change = ./rational-variable-change-defs.lim::rational-variable-change)
+(#alias
+  rational-variable-change-identity
+  =
+  ./rational-variable-change-defs.lim::rational-variable-change-identity)
+(#alias
+  rational-variable-change-act
+  =
+  ./rational-variable-change-defs.lim::rational-variable-change-act)
+(#alias rational-is-unit = ./rational-units.lim::rational-is-unit)
+(#alias rational-unit-is-nonzero = ./rational-units.lim::rational-unit-is-nonzero)
+(#alias
+  rational-variable-change-identity-coefficient-0
+  =
+  ./rational-variable-change-identity-polynomials.lim::rational-variable-change-identity-coefficient-0)
+(#alias
+  rational-variable-change-identity-coefficient-1
+  =
+  ./rational-variable-change-identity-polynomials.lim::rational-variable-change-identity-coefficient-1)
+(#alias
+  rational-variable-change-identity-coefficient-2
+  =
+  ./rational-variable-change-identity-polynomials.lim::rational-variable-change-identity-coefficient-2)
+(#alias
+  rational-variable-change-identity-coefficient-3
+  =
+  ./rational-variable-change-identity-polynomials.lim::rational-variable-change-identity-coefficient-3)
+(#alias
+  rational-variable-change-identity-coefficient-4
+  =
+  ./rational-variable-change-identity-polynomials.lim::rational-variable-change-identity-coefficient-4)
+(#alias
+  rational-variable-change-b2-polynomial
+  =
+  ./rational-variable-change-b2-polynomial.lim::rational-variable-change-b2-polynomial)
+(#theorem rational-variable-change-scale-unit
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ())))
+  (#statement
+    (#pt-app (#pt-use rational-is-unit ()) (#pt-project rational-variable-change 0 change)))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use rational ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use rational ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-project rational-variable-change 0 change)
+                candidate-inverse)
+              (#pt-use rational-one ()))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                candidate-inverse
+                (#pt-project rational-variable-change 0 change))
+              (#pt-use rational-one ())))))
+      introduce
+      (
+        (#pt-project rational-variable-change 1 change)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 0 change)
+              (#pt-project rational-variable-change 1 change))
+            (#pt-use rational-one ()))
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 1 change)
+              (#pt-project rational-variable-change 0 change))
+            (#pt-use rational-one ()))
+          (#pt-project rational-variable-change 5 change)
+          (#pt-project rational-variable-change 6 change))))))
+(#theorem rational-variable-change-inverse-scale-unit
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ())))
+  (#statement
+    (#pt-app (#pt-use rational-is-unit ()) (#pt-project rational-variable-change 1 change)))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use rational ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use rational ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-project rational-variable-change 1 change)
+                candidate-inverse)
+              (#pt-use rational-one ()))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                candidate-inverse
+                (#pt-project rational-variable-change 1 change))
+              (#pt-use rational-one ())))))
+      introduce
+      (
+        (#pt-project rational-variable-change 0 change)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 1 change)
+              (#pt-project rational-variable-change 0 change))
+            (#pt-use rational-one ()))
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 0 change)
+              (#pt-project rational-variable-change 1 change))
+            (#pt-use rational-one ()))
+          (#pt-project rational-variable-change 6 change)
+          (#pt-project rational-variable-change 5 change))))))
+(#theorem rational-variable-change-scale-nonzero
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ())))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-variable-change 0 change)
+            (#pt-use rational-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use rational-unit-is-nonzero ())
+      (#pt-project rational-variable-change 0 change)
+      (#pt-app (#pt-use rational-variable-change-scale-unit ()) change))))
+(#theorem rational-variable-change-inverse-scale-nonzero
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ())))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project rational-variable-change 1 change)
+            (#pt-use rational-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use rational-unit-is-nonzero ())
+      (#pt-project rational-variable-change 1 change)
+      (#pt-app (#pt-use rational-variable-change-inverse-scale-unit ()) change))))
+(#math-definition rational-variable-change-inverse ()
+  (#pt-pi ((change (#pt-use rational-variable-change ()))) (#pt-use rational-variable-change ()))
+  (#pt-lambda
+    ((change (#pt-use rational-variable-change ())))
+    (#pt-construct
+      rational-variable-change
+      ()
+      ()
+      coordinates
+      (
+        (#pt-project rational-variable-change 1 change)
+        (#pt-project rational-variable-change 0 change)
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app (#pt-use rational-negate ()) (#pt-project rational-variable-change 2 change))
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-project rational-variable-change 1 change)
+            (#pt-numeral 2)))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app (#pt-use rational-negate ()) (#pt-project rational-variable-change 3 change))
+          (#pt-project rational-variable-change 1 change))
+        (#pt-app
+          (#pt-use rational-multiply ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 2 change)
+              (#pt-project rational-variable-change 3 change))
+            (#pt-app (#pt-use rational-negate ()) (#pt-project rational-variable-change 4 change)))
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-project rational-variable-change 1 change)
+            (#pt-numeral 3)))
+        (#pt-project rational-variable-change 6 change)
+        (#pt-project rational-variable-change 5 change)))))
+(#theorem rational-variable-change-identity-conversion-0
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-eq
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-project rational-variable-change 1 change)
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-project rational-weierstrass-curve 0 curve)
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 3 change))))
+      (#pt-project
+        rational-weierstrass-curve
+        0
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))))
+  (#proof
+    (#pt-refl
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-project rational-variable-change 1 change)
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-project rational-weierstrass-curve 0 curve)
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 3 change)))))))
+(#theorem rational-variable-change-identity-projection-0
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-project
+        rational-weierstrass-curve
+        0
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-project rational-weierstrass-curve 0 curve)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      (#pt-use rational ())
+      (#pt-lambda
+        ((coefficient-value (#pt-use rational ())))
+        (#pt-app
+          (#pt-use rational-equal ())
+          coefficient-value
+          (#pt-project rational-weierstrass-curve 0 curve)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-project rational-variable-change 1 (#pt-use rational-variable-change-identity ()))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-project rational-weierstrass-curve 0 curve)
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 3 (#pt-use rational-variable-change-identity ())))))
+      (#pt-project
+        rational-weierstrass-curve
+        0
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-app
+        (#pt-use rational-variable-change-identity-conversion-0 ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      (#pt-app
+        (#pt-use rational-variable-change-identity-coefficient-0 ())
+        (#pt-project rational-weierstrass-curve 0 curve)
+        (#pt-project rational-weierstrass-curve 1 curve)
+        (#pt-project rational-weierstrass-curve 2 curve)
+        (#pt-project rational-weierstrass-curve 3 curve)
+        (#pt-project rational-weierstrass-curve 4 curve)))))
+(#theorem rational-variable-change-identity-conversion-1
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-eq
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 2))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-project rational-weierstrass-curve 1 curve)
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project rational-variable-change 3 change)
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-project rational-variable-change 2 change)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-project rational-variable-change 3 change)
+              (#pt-numeral 2)))))
+      (#pt-project
+        rational-weierstrass-curve
+        1
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))))
+  (#proof
+    (#pt-refl
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 2))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-project rational-weierstrass-curve 1 curve)
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project rational-variable-change 3 change)
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-project rational-variable-change 2 change)))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-project rational-variable-change 3 change)
+              (#pt-numeral 2))))))))
+(#theorem rational-variable-change-identity-projection-1
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-project
+        rational-weierstrass-curve
+        1
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-project rational-weierstrass-curve 1 curve)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      (#pt-use rational ())
+      (#pt-lambda
+        ((coefficient-value (#pt-use rational ())))
+        (#pt-app
+          (#pt-use rational-equal ())
+          coefficient-value
+          (#pt-project rational-weierstrass-curve 1 curve)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 (#pt-use rational-variable-change-identity ()))
+          (#pt-numeral 2))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-project rational-weierstrass-curve 1 curve)
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project
+                    rational-variable-change
+                    3
+                    (#pt-use rational-variable-change-identity ()))
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-project
+                rational-variable-change
+                2
+                (#pt-use rational-variable-change-identity ()))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-power ())
+              (#pt-project
+                rational-variable-change
+                3
+                (#pt-use rational-variable-change-identity ()))
+              (#pt-numeral 2)))))
+      (#pt-project
+        rational-weierstrass-curve
+        1
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-app
+        (#pt-use rational-variable-change-identity-conversion-1 ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      (#pt-app
+        (#pt-use rational-variable-change-identity-coefficient-1 ())
+        (#pt-project rational-weierstrass-curve 0 curve)
+        (#pt-project rational-weierstrass-curve 1 curve)
+        (#pt-project rational-weierstrass-curve 2 curve)
+        (#pt-project rational-weierstrass-curve 3 curve)
+        (#pt-project rational-weierstrass-curve 4 curve)))))
+(#theorem rational-variable-change-identity-conversion-2
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-eq
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-project rational-weierstrass-curve 2 curve)
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 2 change)
+              (#pt-project rational-weierstrass-curve 0 curve)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 4 change))))
+      (#pt-project
+        rational-weierstrass-curve
+        2
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))))
+  (#proof
+    (#pt-refl
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-project rational-weierstrass-curve 2 curve)
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project rational-variable-change 2 change)
+              (#pt-project rational-weierstrass-curve 0 curve)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 4 change)))))))
+(#theorem rational-variable-change-identity-projection-2
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-project
+        rational-weierstrass-curve
+        2
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-project rational-weierstrass-curve 2 curve)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      (#pt-use rational ())
+      (#pt-lambda
+        ((coefficient-value (#pt-use rational ())))
+        (#pt-app
+          (#pt-use rational-equal ())
+          coefficient-value
+          (#pt-project rational-weierstrass-curve 2 curve)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 (#pt-use rational-variable-change-identity ()))
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-project rational-weierstrass-curve 2 curve)
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-project
+                rational-variable-change
+                2
+                (#pt-use rational-variable-change-identity ()))
+              (#pt-project rational-weierstrass-curve 0 curve)))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+            (#pt-project rational-variable-change 4 (#pt-use rational-variable-change-identity ())))))
+      (#pt-project
+        rational-weierstrass-curve
+        2
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-app
+        (#pt-use rational-variable-change-identity-conversion-2 ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      (#pt-app
+        (#pt-use rational-variable-change-identity-coefficient-2 ())
+        (#pt-project rational-weierstrass-curve 0 curve)
+        (#pt-project rational-weierstrass-curve 1 curve)
+        (#pt-project rational-weierstrass-curve 2 curve)
+        (#pt-project rational-weierstrass-curve 3 curve)
+        (#pt-project rational-weierstrass-curve 4 curve)))))
+(#theorem rational-variable-change-identity-conversion-3
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-eq
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 4))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-project rational-weierstrass-curve 3 curve)
+                  (#pt-app
+                    (#pt-use rational-negate ())
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 3 change)
+                      (#pt-project rational-weierstrass-curve 2 curve))))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                    (#pt-project rational-variable-change 2 change))
+                  (#pt-project rational-weierstrass-curve 1 curve)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project rational-variable-change 4 change)
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-project rational-variable-change 3 change)))
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project rational-variable-change 2 change)
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                (#pt-project rational-variable-change 3 change))
+              (#pt-project rational-variable-change 4 change)))))
+      (#pt-project
+        rational-weierstrass-curve
+        3
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))))
+  (#proof
+    (#pt-refl
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 4))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-project rational-weierstrass-curve 3 curve)
+                  (#pt-app
+                    (#pt-use rational-negate ())
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 3 change)
+                      (#pt-project rational-weierstrass-curve 2 curve))))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                    (#pt-project rational-variable-change 2 change))
+                  (#pt-project rational-weierstrass-curve 1 curve)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project rational-variable-change 4 change)
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-project rational-variable-change 3 change)))
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project rational-variable-change 2 change)
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                (#pt-project rational-variable-change 3 change))
+              (#pt-project rational-variable-change 4 change))))))))
+(#theorem rational-variable-change-identity-projection-3
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-project
+        rational-weierstrass-curve
+        3
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-project rational-weierstrass-curve 3 curve)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      (#pt-use rational ())
+      (#pt-lambda
+        ((coefficient-value (#pt-use rational ())))
+        (#pt-app
+          (#pt-use rational-equal ())
+          coefficient-value
+          (#pt-project rational-weierstrass-curve 3 curve)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 (#pt-use rational-variable-change-identity ()))
+          (#pt-numeral 4))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-project rational-weierstrass-curve 3 curve)
+                  (#pt-app
+                    (#pt-use rational-negate ())
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project
+                        rational-variable-change
+                        3
+                        (#pt-use rational-variable-change-identity ()))
+                      (#pt-project rational-weierstrass-curve 2 curve))))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                    (#pt-project
+                      rational-variable-change
+                      2
+                      (#pt-use rational-variable-change-identity ())))
+                  (#pt-project rational-weierstrass-curve 1 curve)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project
+                      rational-variable-change
+                      4
+                      (#pt-use rational-variable-change-identity ()))
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project
+                        rational-variable-change
+                        2
+                        (#pt-use rational-variable-change-identity ()))
+                      (#pt-project
+                        rational-variable-change
+                        3
+                        (#pt-use rational-variable-change-identity ()))))
+                  (#pt-project rational-weierstrass-curve 0 curve))))
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project
+                  rational-variable-change
+                  2
+                  (#pt-use rational-variable-change-identity ()))
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 2)))
+                (#pt-project
+                  rational-variable-change
+                  3
+                  (#pt-use rational-variable-change-identity ())))
+              (#pt-project
+                rational-variable-change
+                4
+                (#pt-use rational-variable-change-identity ()))))))
+      (#pt-project
+        rational-weierstrass-curve
+        3
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-app
+        (#pt-use rational-variable-change-identity-conversion-3 ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      (#pt-app
+        (#pt-use rational-variable-change-identity-coefficient-3 ())
+        (#pt-project rational-weierstrass-curve 0 curve)
+        (#pt-project rational-weierstrass-curve 1 curve)
+        (#pt-project rational-weierstrass-curve 2 curve)
+        (#pt-project rational-weierstrass-curve 3 curve)
+        (#pt-project rational-weierstrass-curve 4 curve)))))
+(#theorem rational-variable-change-identity-conversion-4
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-eq
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 6))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project rational-weierstrass-curve 4 curve)
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-project rational-weierstrass-curve 3 curve)))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-numeral 2))
+                    (#pt-project rational-weierstrass-curve 1 curve)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  (#pt-project rational-variable-change 2 change)
+                  (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project rational-variable-change 4 change)
+                  (#pt-project rational-weierstrass-curve 2 curve))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project rational-variable-change 4 change)
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-project rational-variable-change 2 change)
+                (#pt-project rational-variable-change 4 change))
+              (#pt-project rational-weierstrass-curve 0 curve)))))
+      (#pt-project
+        rational-weierstrass-curve
+        4
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))))
+  (#proof
+    (#pt-refl
+      (#pt-use rational ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 6))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project rational-weierstrass-curve 4 curve)
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-project rational-weierstrass-curve 3 curve)))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      (#pt-project rational-variable-change 2 change)
+                      (#pt-numeral 2))
+                    (#pt-project rational-weierstrass-curve 1 curve)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  (#pt-project rational-variable-change 2 change)
+                  (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project rational-variable-change 4 change)
+                  (#pt-project rational-weierstrass-curve 2 curve))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project rational-variable-change 4 change)
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-project rational-variable-change 2 change)
+                (#pt-project rational-variable-change 4 change))
+              (#pt-project rational-weierstrass-curve 0 curve))))))))
+(#theorem rational-variable-change-identity-projection-4
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-project
+        rational-weierstrass-curve
+        4
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-project rational-weierstrass-curve 4 curve)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      (#pt-use rational ())
+      (#pt-lambda
+        ((coefficient-value (#pt-use rational ())))
+        (#pt-app
+          (#pt-use rational-equal ())
+          coefficient-value
+          (#pt-project rational-weierstrass-curve 4 curve)))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 (#pt-use rational-variable-change-identity ()))
+          (#pt-numeral 6))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-app
+                    (#pt-use rational-add ())
+                    (#pt-project rational-weierstrass-curve 4 curve)
+                    (#pt-app
+                      (#pt-use rational-multiply ())
+                      (#pt-project
+                        rational-variable-change
+                        2
+                        (#pt-use rational-variable-change-identity ()))
+                      (#pt-project rational-weierstrass-curve 3 curve)))
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-power ())
+                      (#pt-project
+                        rational-variable-change
+                        2
+                        (#pt-use rational-variable-change-identity ()))
+                      (#pt-numeral 2))
+                    (#pt-project rational-weierstrass-curve 1 curve)))
+                (#pt-app
+                  (#pt-use rational-power ())
+                  (#pt-project
+                    rational-variable-change
+                    2
+                    (#pt-use rational-variable-change-identity ()))
+                  (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-project
+                    rational-variable-change
+                    4
+                    (#pt-use rational-variable-change-identity ()))
+                  (#pt-project rational-weierstrass-curve 2 curve))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-power ())
+                (#pt-project
+                  rational-variable-change
+                  4
+                  (#pt-use rational-variable-change-identity ()))
+                (#pt-numeral 2))))
+          (#pt-app
+            (#pt-use rational-negate ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-project
+                  rational-variable-change
+                  2
+                  (#pt-use rational-variable-change-identity ()))
+                (#pt-project
+                  rational-variable-change
+                  4
+                  (#pt-use rational-variable-change-identity ())))
+              (#pt-project rational-weierstrass-curve 0 curve)))))
+      (#pt-project
+        rational-weierstrass-curve
+        4
+        (#pt-app
+          (#pt-use rational-variable-change-act ())
+          (#pt-use rational-variable-change-identity ())
+          curve))
+      (#pt-app
+        (#pt-use rational-variable-change-identity-conversion-4 ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      (#pt-app
+        (#pt-use rational-variable-change-identity-coefficient-4 ())
+        (#pt-project rational-weierstrass-curve 0 curve)
+        (#pt-project rational-weierstrass-curve 1 curve)
+        (#pt-project rational-weierstrass-curve 2 curve)
+        (#pt-project rational-weierstrass-curve 3 curve)
+        (#pt-project rational-weierstrass-curve 4 curve)))))
+(#theorem rational-variable-change-identity-acts
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-weierstrass-equivalent ())
+      (#pt-app
+        (#pt-use rational-variable-change-act ())
+        (#pt-use rational-variable-change-identity ())
+        curve)
+      curve))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project
+          rational-weierstrass-curve
+          0
+          (#pt-app
+            (#pt-use rational-variable-change-act ())
+            (#pt-use rational-variable-change-identity ())
+            curve))
+        (#pt-project rational-weierstrass-curve 0 curve))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app
+              (#pt-use rational-variable-change-act ())
+              (#pt-use rational-variable-change-identity ())
+              curve))
+          (#pt-project rational-weierstrass-curve 1 curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use rational-variable-change-act ())
+                (#pt-use rational-variable-change-identity ())
+                curve))
+            (#pt-project rational-weierstrass-curve 2 curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 3 curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 4 curve)))))
+      (#pt-app (#pt-use rational-variable-change-identity-projection-0 ()) curve)
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app
+              (#pt-use rational-variable-change-act ())
+              (#pt-use rational-variable-change-identity ())
+              curve))
+          (#pt-project rational-weierstrass-curve 1 curve))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use rational-variable-change-act ())
+                (#pt-use rational-variable-change-identity ())
+                curve))
+            (#pt-project rational-weierstrass-curve 2 curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 3 curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 4 curve))))
+        (#pt-app (#pt-use rational-variable-change-identity-projection-1 ()) curve)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use rational-variable-change-act ())
+                (#pt-use rational-variable-change-identity ())
+                curve))
+            (#pt-project rational-weierstrass-curve 2 curve))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 3 curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 4 curve)))
+          (#pt-app (#pt-use rational-variable-change-identity-projection-2 ()) curve)
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 3 curve))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use rational-variable-change-act ())
+                  (#pt-use rational-variable-change-identity ())
+                  curve))
+              (#pt-project rational-weierstrass-curve 4 curve))
+            (#pt-app (#pt-use rational-variable-change-identity-projection-3 ()) curve)
+            (#pt-app (#pt-use rational-variable-change-identity-projection-4 ()) curve)))))))
+(#theorem rational-variable-change-b2
+  (#universes)
+  (#parameters
+    (#parameter change (#pt-use rational-variable-change ()))
+    (#parameter curve (#pt-use rational-weierstrass-curve ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-weierstrass-b2 ())
+        (#pt-app (#pt-use rational-variable-change-act ()) change curve))
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-project rational-variable-change 1 change)
+          (#pt-numeral 2))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app (#pt-use rational-weierstrass-b2 ()) curve)
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 12)))
+            (#pt-project rational-variable-change 2 change))))))
+  (#proof
+    (#pt-app
+      (#pt-use rational-variable-change-b2-polynomial ())
+      (#pt-project rational-variable-change 1 change)
+      (#pt-project rational-variable-change 2 change)
+      (#pt-project rational-variable-change 3 change)
+      (#pt-project rational-weierstrass-curve 0 curve)
+      (#pt-project rational-weierstrass-curve 1 curve))))

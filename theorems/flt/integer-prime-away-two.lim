@@ -1,0 +1,187 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Native denominator step of padicValInt_freyCurveInt_Delta in
+; S_FreyPackage_not_dvd_freyCurveInt_c4.lean. Every natural prime
+; other than two fails to divide every power of two. Explicit
+; prime-product elimination cancels a certified nondivisible factor.
+; Includes exponent zero; no valuation or primality oracle.
+(#alias power = ./../fermat_statement.lim::power)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias integer-power-of-natural = ./integer-power-laws.lim::integer-power-of-natural)
+(#alias
+  integer-prime-divides-product
+  =
+  ./integer-prime-divisibility.lim::integer-prime-divides-product)
+(#alias integer-prime-divides-power = ./integer-prime-divisibility.lim::integer-prime-divides-power)
+(#alias
+  integer-natural-divisibility-reflects
+  =
+  ./integer-natural-bridge.lim::integer-natural-divisibility-reflects)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias prime-divisor-one-or-self = ./natural-prime-divisibility.lim::prime-divisor-one-or-self)
+(#alias prime-two = ./natural-prime-two.lim::prime-two)
+(#theorem integer-prime-divides-two-only-two
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter two-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero))))))
+  (#statement (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-eq #pt-nat prime-number (#pt-succ #pt-zero))
+      (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-lambda
+        ((one-equation (#pt-eq #pt-nat prime-number (#pt-succ #pt-zero))))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-app (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof) one-equation)))
+      (#pt-lambda
+        ((two-equation (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero)))))
+        two-equation)
+      (#pt-app
+        (#pt-use prime-divisor-one-or-self ())
+        (#pt-succ (#pt-succ #pt-zero))
+        prime-number
+        (#pt-use prime-two ())
+        (#pt-app
+          (#pt-use integer-natural-divisibility-reflects ())
+          prime-number
+          (#pt-succ (#pt-succ #pt-zero))
+          two-divides)))))
+(#theorem integer-prime-away-two-not-divides-power
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter not-two (#pt-pi ((denied-proof (#pt-eq #pt-nat prime-number (#pt-succ (#pt-succ #pt-zero))))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent)))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (power-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent)))))
+      (#pt-app
+        not-two
+        (#pt-app
+          (#pt-use integer-prime-divides-two-only-two ())
+          prime-number
+          prime-proof
+          (#pt-app
+            (#pt-use integer-prime-divides-power ())
+            prime-number
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+            exponent
+            prime-proof
+            (#pt-app
+              (#pt-use integer-divides-congruent-target ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                exponent)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+                  exponent)
+                (#pt-app
+                  (#pt-use integer-of-natural ())
+                  (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent))
+                (#pt-app
+                  (#pt-use integer-power-of-natural ())
+                  (#pt-succ (#pt-succ #pt-zero))
+                  exponent))
+              power-divides)))))))
+(#theorem integer-prime-cancel-right
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter second-nondivisor (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) second))) #pt-false))
+    (#parameter product-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-multiply ()) first second))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+      first))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        first)
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        second)
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+        first)
+      (#pt-lambda
+        (
+          (first-divides
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              first)))
+        first-divides)
+      (#pt-lambda
+        (
+          (second-divides
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              second)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            first)
+          (#pt-app second-nondivisor second-divides)))
+      (#pt-app
+        (#pt-use integer-prime-divides-product ())
+        prime-number
+        first
+        second
+        prime-proof
+        product-divides))))

@@ -182,5 +182,5 @@ fn optional_computation_does_not_replace_initial_source_checking() {
     assert!(k
         .definition("bad", vec![], nat(), malformed, false)
         .is_err());
-    assert!(!k.contains("bad"));
+    assert!(!k.contains("bad").unwrap());
 }

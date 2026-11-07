@@ -1,0 +1,92 @@
+; Strict order reflection by a nonzero natural multiplier.
+; Constructive endpoint trichotomy rules out equality and reverse order
+; using actual product order and irreflexivity certificates.
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias multiply-less-right-nonzero = ./natural-square-arithmetic.lim::multiply-less-right-nonzero)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#theorem natural-multiply-strict-reflect
+  (#universes)
+  (#parameters
+    (#parameter factor #pt-nat)
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter product-bound (#pt-app (#pt-use less-than ()) (#pt-app (#pt-use multiply ()) lower factor) (#pt-app (#pt-use multiply ()) upper factor))))
+  (#statement (#pt-app (#pt-use less-than ()) lower upper))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) lower upper)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat lower upper)
+        (#pt-app (#pt-use less-than ()) upper lower))
+      (#pt-app (#pt-use less-than ()) lower upper)
+      (#pt-lambda
+        ((lower-before-upper (#pt-app (#pt-use less-than ()) lower upper)))
+        lower-before-upper)
+      (#pt-lambda
+        (
+          (equal-or-reverse
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat lower upper)
+              (#pt-app (#pt-use less-than ()) upper lower))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat lower upper)
+          (#pt-app (#pt-use less-than ()) upper lower)
+          (#pt-app (#pt-use less-than ()) lower upper)
+          (#pt-lambda
+            ((equal-endpoints (#pt-eq #pt-nat lower upper)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) lower upper)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) upper factor))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      (#pt-app (#pt-use multiply ()) endpoint factor)
+                      (#pt-app (#pt-use multiply ()) upper factor)))
+                  lower
+                  upper
+                  equal-endpoints
+                  product-bound))))
+          (#pt-lambda
+            ((upper-before-lower (#pt-app (#pt-use less-than ()) upper lower)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) lower upper)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) lower factor))
+                (#pt-app
+                  (#pt-use less-than-transitive ())
+                  (#pt-app (#pt-use multiply ()) lower factor)
+                  (#pt-app (#pt-use multiply ()) upper factor)
+                  (#pt-app (#pt-use multiply ()) lower factor)
+                  product-bound
+                  (#pt-app
+                    (#pt-use multiply-less-right-nonzero ())
+                    factor
+                    upper
+                    lower
+                    factor-nonzero
+                    upper-before-lower)))))
+          equal-or-reverse))
+      (#pt-app (#pt-use natural-trichotomy ()) lower upper))))

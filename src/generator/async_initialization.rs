@@ -30,7 +30,7 @@ pub(crate) struct Specialization {
 }
 
 impl Specialization {
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub(crate) fn solve(
         entry: usize,
         successors: &[Vec<usize>],
@@ -151,7 +151,7 @@ impl Specialization {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 #[ignore = "manual initialization-specialization benchmark; run in release with --ignored --nocapture"]
 fn initialization_specialization_retry_timing() {
@@ -187,7 +187,7 @@ fn initialization_specialization_retry_timing() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Fact {
     Empty,
@@ -195,14 +195,14 @@ pub(crate) enum Fact {
     Conditional,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct State {
     must: Vec<bool>,
     may: Vec<bool>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 impl State {
     pub(crate) fn definitely_initialized(&self) -> &[bool] {
         &self.must
@@ -218,13 +218,13 @@ impl State {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) struct Analysis {
     pub(crate) before: Vec<Option<State>>,
     pub(crate) after: Vec<Option<State>>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 impl Analysis {
     /// Transfers assign initialization facts, never inspect data or emit code.
     /// The same transfer runs independently on the must and may domains.
@@ -299,7 +299,7 @@ impl Analysis {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

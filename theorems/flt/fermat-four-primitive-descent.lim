@@ -1,0 +1,1386 @@
+; The actual smaller-solution construction in the primitive exponent-four case.
+; Apply the proved primitive Pythagorean classification twice, extract three
+; coprime square factors, and prove that the new third coordinate is smaller.
+; This follows the mathematics of Mathlib FLT/Four.lean:154-253 on positive Nat.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias quartic = ./fermat-four-defs.lim::quartic)
+(#alias fermat-four-two = ./fermat-four-defs.lim::fermat-four-two)
+(#alias four-two-smaller-than = ./fermat-four-defs.lim::four-two-smaller-than)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias odd-square-is-odd = ./natural-parity-arithmetic.lim::odd-square-is-odd)
+(#alias prime-two = ./natural-prime-two.lim::prime-two)
+(#alias prime-divides-square = ./natural-prime-divisibility.lim::prime-divides-square)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-multiple = ./natural-divisibility.lim::divides-multiple)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias coprime-symmetric = ./natural-coprime.lim::coprime-symmetric)
+(#alias coprime-multiply-left = ./natural-euclid.lim::coprime-multiply-left)
+(#alias coprime-multiply-right = ./natural-euclid.lim::coprime-multiply-right)
+(#alias coprime-square-sum-product = ./natural-euclid.lim::coprime-square-sum-product)
+(#alias is-square = ./natural-square-factors.lim::is-square)
+(#alias coprime-product-square = ./natural-square-factors.lim::coprime-product-square)
+(#alias pythagorean-parameters = ./natural-pythagorean-classification.lim::pythagorean-parameters)
+(#alias
+  primitive-pythagorean-classification
+  =
+  ./natural-pythagorean-classification.lim::primitive-pythagorean-classification)
+(#alias
+  pythagorean-coprime-from-hypotenuse
+  =
+  ./natural-pythagorean-halves.lim::pythagorean-coprime-from-hypotenuse)
+(#alias multiply-nonzero = ./natural-nonzero.lim::multiply-nonzero)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias
+  multiply-cancel-left-nonzero
+  =
+  ./natural-square-arithmetic.lim::multiply-cancel-left-nonzero)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias double-square = ./natural-semiring-identities.lim::double-square)
+(#alias double-product = ./natural-semiring-identities.lim::double-product)
+(#alias square-root-below-square-sum = ./natural-descent-bounds.lim::square-root-below-square-sum)
+(#alias nonzero-square-root = ./natural-descent-bounds.lim::nonzero-square-root)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem four-two-primitive-from-parameters
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter first-larger #pt-nat)
+    (#parameter first-smaller #pt-nat)
+    (#parameter second-larger #pt-nat)
+    (#parameter second-smaller #pt-nat)
+    (#parameter counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse))
+    (#parameter first-parameters (#pt-app (#pt-use pythagorean-parameters ()) (#pt-app (#pt-use multiply ()) first first) (#pt-app (#pt-use multiply ()) second second) hypotenuse first-larger first-smaller))
+    (#parameter second-parameters (#pt-app (#pt-use pythagorean-parameters ()) first first-smaller first-larger second-larger second-smaller)))
+  (#statement (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-factor #pt-nat))
+          (#pt-eq
+            #pt-nat
+            second
+            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) candidate-factor))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-factor #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  second
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) candidate-factor))))))
+        (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+      (
+        (#pt-lambda
+          (
+            (half-second #pt-nat)
+            (half-equation
+              (#pt-eq
+                #pt-nat
+                second
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-root #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  first-larger
+                  (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-root #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        first-larger
+                        (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))))
+              (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+            (
+              (#pt-lambda
+                (
+                  (next-hypotenuse #pt-nat)
+                  (hypotenuse-root
+                    (#pt-eq
+                      #pt-nat
+                      first-larger
+                      (#pt-app (#pt-use multiply ()) next-hypotenuse next-hypotenuse))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-root #pt-nat))
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                        (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-root #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                              (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))))
+                    (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                  (
+                    (#pt-lambda
+                      (
+                        (product-root #pt-nat)
+                        (product-equation
+                          (#pt-eq
+                            #pt-nat
+                            (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                            (#pt-app (#pt-use multiply ()) product-root product-root))))
+                      (#pt-induct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-root #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              second-larger
+                              (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+                        (#pt-lambda
+                          (
+                            (certificate
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-root #pt-nat))
+                                  (#pt-eq
+                                    #pt-nat
+                                    second-larger
+                                    (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))))
+                          (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                        (
+                          (#pt-lambda
+                            (
+                              (next-first #pt-nat)
+                              (first-root
+                                (#pt-eq
+                                  #pt-nat
+                                  second-larger
+                                  (#pt-app (#pt-use multiply ()) next-first next-first))))
+                            (#pt-induct
+                              exists
+                              (0)
+                              (#pt-nat
+                                (#pt-lambda
+                                  ((candidate-root #pt-nat))
+                                  (#pt-eq
+                                    #pt-nat
+                                    second-smaller
+                                    (#pt-app (#pt-use multiply ()) candidate-root candidate-root))))
+                              (#pt-lambda
+                                (
+                                  (certificate
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-root #pt-nat))
+                                        (#pt-eq
+                                          #pt-nat
+                                          second-smaller
+                                          (#pt-app
+                                            (#pt-use multiply ())
+                                            candidate-root
+                                            candidate-root))))))
+                                (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                              (
+                                (#pt-lambda
+                                  (
+                                    (next-second #pt-nat)
+                                    (second-root
+                                      (#pt-eq
+                                        #pt-nat
+                                        second-smaller
+                                        (#pt-app (#pt-use multiply ()) next-second next-second))))
+                                  (#pt-construct
+                                    exists
+                                    (0)
+                                    (#pt-nat
+                                      (#pt-lambda
+                                        ((candidate-first #pt-nat))
+                                        (#pt-app
+                                          (#pt-use exists (0))
+                                          #pt-nat
+                                          (#pt-lambda
+                                            ((candidate-second #pt-nat))
+                                            (#pt-app
+                                              (#pt-use exists (0))
+                                              #pt-nat
+                                              (#pt-lambda
+                                                ((candidate-hypotenuse #pt-nat))
+                                                (#pt-app
+                                                  (#pt-use conjunction ())
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    candidate-first
+                                                    candidate-second
+                                                    candidate-hypotenuse)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    candidate-hypotenuse
+                                                    hypotenuse))))))))
+                                    introduce
+                                    (next-first
+                                      (#pt-construct
+                                        exists
+                                        (0)
+                                        (#pt-nat
+                                          (#pt-lambda
+                                            ((candidate-second #pt-nat))
+                                            (#pt-app
+                                              (#pt-use exists (0))
+                                              #pt-nat
+                                              (#pt-lambda
+                                                ((candidate-hypotenuse #pt-nat))
+                                                (#pt-app
+                                                  (#pt-use conjunction ())
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    next-first
+                                                    candidate-second
+                                                    candidate-hypotenuse)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    candidate-hypotenuse
+                                                    hypotenuse))))))
+                                        introduce
+                                        (next-second
+                                          (#pt-construct
+                                            exists
+                                            (0)
+                                            (#pt-nat
+                                              (#pt-lambda
+                                                ((candidate-hypotenuse #pt-nat))
+                                                (#pt-app
+                                                  (#pt-use conjunction ())
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    next-first
+                                                    next-second
+                                                    candidate-hypotenuse)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    candidate-hypotenuse
+                                                    hypotenuse))))
+                                            introduce
+                                            (next-hypotenuse
+                                              (#pt-app
+                                                (#pt-use conjunction-introduce ())
+                                                (#pt-app
+                                                  (#pt-use fermat-four-two ())
+                                                  next-first
+                                                  next-second
+                                                  next-hypotenuse)
+                                                (#pt-app
+                                                  (#pt-use less-than ())
+                                                  next-hypotenuse
+                                                  hypotenuse)
+                                                (#pt-construct
+                                                  fermat-four-two
+                                                  ()
+                                                  (next-first next-second next-hypotenuse)
+                                                  introduce
+                                                  (
+                                                    (#pt-app
+                                                      (#pt-use nonzero-square-root ())
+                                                      second-larger
+                                                      next-first
+                                                      (#pt-app
+                                                        (#pt-use less-than-upper-nonzero ())
+                                                        second-smaller
+                                                        second-larger
+                                                        (#pt-project
+                                                          pythagorean-parameters
+                                                          5
+                                                          second-parameters))
+                                                      first-root)
+                                                    (#pt-app
+                                                      (#pt-use nonzero-square-root ())
+                                                      second-smaller
+                                                      next-second
+                                                      (#pt-project
+                                                        pythagorean-parameters
+                                                        6
+                                                        second-parameters)
+                                                      second-root)
+                                                    (#pt-app
+                                                      (#pt-use symmetry (0))
+                                                      #pt-nat
+                                                      (#pt-app
+                                                        (#pt-use multiply ())
+                                                        next-hypotenuse
+                                                        next-hypotenuse)
+                                                      (#pt-app
+                                                        (#pt-use add ())
+                                                        (#pt-app (#pt-use quartic ()) next-first)
+                                                        (#pt-app (#pt-use quartic ()) next-second))
+                                                      (#pt-app
+                                                        (#pt-use transitivity (0))
+                                                        #pt-nat
+                                                        (#pt-app
+                                                          (#pt-use multiply ())
+                                                          next-hypotenuse
+                                                          next-hypotenuse)
+                                                        first-larger
+                                                        (#pt-app
+                                                          (#pt-use add ())
+                                                          (#pt-app (#pt-use quartic ()) next-first)
+                                                          (#pt-app (#pt-use quartic ()) next-second))
+                                                        (#pt-app
+                                                          (#pt-use symmetry (0))
+                                                          #pt-nat
+                                                          first-larger
+                                                          (#pt-app
+                                                            (#pt-use multiply ())
+                                                            next-hypotenuse
+                                                            next-hypotenuse)
+                                                          hypotenuse-root)
+                                                        (#pt-app
+                                                          (#pt-use transitivity (0))
+                                                          #pt-nat
+                                                          first-larger
+                                                          (#pt-app
+                                                            (#pt-use add ())
+                                                            (#pt-app
+                                                              (#pt-use multiply ())
+                                                              second-larger
+                                                              second-larger)
+                                                            (#pt-app
+                                                              (#pt-use multiply ())
+                                                              second-smaller
+                                                              second-smaller))
+                                                          (#pt-app
+                                                            (#pt-use add ())
+                                                            (#pt-app
+                                                              (#pt-use quartic ())
+                                                              next-first)
+                                                            (#pt-app
+                                                              (#pt-use quartic ())
+                                                              next-second))
+                                                          (#pt-project
+                                                            pythagorean-parameters
+                                                            2
+                                                            second-parameters)
+                                                          (#pt-app
+                                                            (#pt-use transitivity (0))
+                                                            #pt-nat
+                                                            (#pt-app
+                                                              (#pt-use add ())
+                                                              (#pt-app
+                                                                (#pt-use multiply ())
+                                                                second-larger
+                                                                second-larger)
+                                                              (#pt-app
+                                                                (#pt-use multiply ())
+                                                                second-smaller
+                                                                second-smaller))
+                                                            (#pt-app
+                                                              (#pt-use add ())
+                                                              (#pt-app
+                                                                (#pt-use quartic ())
+                                                                next-first)
+                                                              (#pt-app
+                                                                (#pt-use multiply ())
+                                                                second-smaller
+                                                                second-smaller))
+                                                            (#pt-app
+                                                              (#pt-use add ())
+                                                              (#pt-app
+                                                                (#pt-use quartic ())
+                                                                next-first)
+                                                              (#pt-app
+                                                                (#pt-use quartic ())
+                                                                next-second))
+                                                            (#pt-app
+                                                              (#pt-use congruence (0 0))
+                                                              #pt-nat
+                                                              #pt-nat
+                                                              (#pt-lambda
+                                                                ((endpoint #pt-nat))
+                                                                (#pt-app
+                                                                  (#pt-use add ())
+                                                                  endpoint
+                                                                  (#pt-app
+                                                                    (#pt-use multiply ())
+                                                                    second-smaller
+                                                                    second-smaller)))
+                                                              (#pt-app
+                                                                (#pt-use multiply ())
+                                                                second-larger
+                                                                second-larger)
+                                                              (#pt-app
+                                                                (#pt-use quartic ())
+                                                                next-first)
+                                                              (#pt-app
+                                                                (#pt-use congruence (0 0))
+                                                                #pt-nat
+                                                                #pt-nat
+                                                                (#pt-lambda
+                                                                  ((endpoint #pt-nat))
+                                                                  (#pt-app
+                                                                    (#pt-use multiply ())
+                                                                    endpoint
+                                                                    endpoint))
+                                                                second-larger
+                                                                (#pt-app
+                                                                  (#pt-use multiply ())
+                                                                  next-first
+                                                                  next-first)
+                                                                first-root))
+                                                            (#pt-app
+                                                              (#pt-use congruence (0 0))
+                                                              #pt-nat
+                                                              #pt-nat
+                                                              (#pt-lambda
+                                                                ((endpoint #pt-nat))
+                                                                (#pt-app
+                                                                  (#pt-use add ())
+                                                                  (#pt-app
+                                                                    (#pt-use quartic ())
+                                                                    next-first)
+                                                                  endpoint))
+                                                              (#pt-app
+                                                                (#pt-use multiply ())
+                                                                second-smaller
+                                                                second-smaller)
+                                                              (#pt-app
+                                                                (#pt-use quartic ())
+                                                                next-second)
+                                                              (#pt-app
+                                                                (#pt-use congruence (0 0))
+                                                                #pt-nat
+                                                                #pt-nat
+                                                                (#pt-lambda
+                                                                  ((endpoint #pt-nat))
+                                                                  (#pt-app
+                                                                    (#pt-use multiply ())
+                                                                    endpoint
+                                                                    endpoint))
+                                                                second-smaller
+                                                                (#pt-app
+                                                                  (#pt-use multiply ())
+                                                                  next-second
+                                                                  next-second)
+                                                                second-root))))))))
+                                                (#pt-app
+                                                  (#pt-use square-root-below-square-sum ())
+                                                  next-hypotenuse
+                                                  first-larger
+                                                  first-smaller
+                                                  hypotenuse
+                                                  hypotenuse-root
+                                                  (#pt-project
+                                                    pythagorean-parameters
+                                                    2
+                                                    first-parameters)
+                                                  (#pt-project
+                                                    pythagorean-parameters
+                                                    6
+                                                    first-parameters)))))))))))
+                              (#pt-app
+                                (#pt-use coprime-product-square ())
+                                second-smaller
+                                second-larger
+                                product-root
+                                (#pt-app
+                                  (#pt-use coprime-symmetric ())
+                                  second-larger
+                                  second-smaller
+                                  (#pt-project pythagorean-parameters 3 second-parameters))
+                                (#pt-app
+                                  (#pt-use transitivity (0))
+                                  #pt-nat
+                                  (#pt-app (#pt-use multiply ()) second-smaller second-larger)
+                                  (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                                  (#pt-app (#pt-use multiply ()) product-root product-root)
+                                  (#pt-app
+                                    (#pt-use multiply-commutative ())
+                                    second-smaller
+                                    second-larger)
+                                  product-equation)))))
+                        (#pt-app
+                          (#pt-use coprime-product-square ())
+                          second-larger
+                          second-smaller
+                          product-root
+                          (#pt-project pythagorean-parameters 3 second-parameters)
+                          product-equation))))
+                  (#pt-app
+                    (#pt-use coprime-product-square ())
+                    (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                    first-larger
+                    half-second
+                    (#pt-app
+                      (#pt-use coprime-symmetric ())
+                      first-larger
+                      (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                      (#pt-app
+                        (#pt-use substitution (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((endpoint #pt-nat))
+                          (#pt-app
+                            (#pt-use coprime ())
+                            endpoint
+                            (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) second-larger second-larger)
+                          (#pt-app (#pt-use multiply ()) second-smaller second-smaller))
+                        first-larger
+                        (#pt-app
+                          (#pt-use symmetry (0))
+                          #pt-nat
+                          first-larger
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) second-larger second-larger)
+                            (#pt-app (#pt-use multiply ()) second-smaller second-smaller))
+                          (#pt-project pythagorean-parameters 2 second-parameters))
+                        (#pt-app
+                          (#pt-use coprime-square-sum-product ())
+                          second-larger
+                          second-smaller
+                          (#pt-project pythagorean-parameters 3 second-parameters))))
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                        first-larger)
+                      (#pt-app
+                        (#pt-use multiply ())
+                        first-larger
+                        (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                      (#pt-app (#pt-use multiply ()) half-second half-second)
+                      (#pt-app
+                        (#pt-use multiply-commutative ())
+                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+                        first-larger)
+                      (#pt-app
+                        (#pt-use symmetry (0))
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) half-second half-second)
+                        (#pt-app
+                          (#pt-use multiply ())
+                          first-larger
+                          (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                        (#pt-app
+                          (#pt-use multiply-cancel-left-nonzero ())
+                          (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                          (#pt-app (#pt-use multiply ()) half-second half-second)
+                          (#pt-app
+                            (#pt-use multiply ())
+                            first-larger
+                            (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                          (#pt-app
+                            (#pt-use successor-not-zero ())
+                            (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                              (#pt-app (#pt-use multiply ()) half-second half-second))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                half-second)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                half-second))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                first-larger
+                                (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  half-second)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  half-second))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                (#pt-app (#pt-use multiply ()) half-second half-second))
+                              (#pt-app (#pt-use double-square ()) half-second))
+                            (#pt-app
+                              (#pt-use transitivity (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  half-second)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  half-second))
+                              (#pt-app (#pt-use multiply ()) second second)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  first-larger
+                                  (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                              (#pt-app
+                                (#pt-use congruence (0 0))
+                                #pt-nat
+                                #pt-nat
+                                (#pt-lambda
+                                  ((endpoint #pt-nat))
+                                  (#pt-app (#pt-use multiply ()) endpoint endpoint))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  half-second)
+                                second
+                                (#pt-app
+                                  (#pt-use symmetry (0))
+                                  #pt-nat
+                                  second
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ #pt-zero))
+                                    half-second)
+                                  half-equation))
+                              (#pt-app
+                                (#pt-use transitivity (0))
+                                #pt-nat
+                                (#pt-app (#pt-use multiply ()) second second)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    first-larger
+                                    (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                                (#pt-project pythagorean-parameters 1 first-parameters)
+                                (#pt-app
+                                  (#pt-use transitivity (0))
+                                  #pt-nat
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ #pt-zero))
+                                    (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ #pt-zero))
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      first-larger
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        (#pt-app (#pt-use multiply ()) second-larger second-smaller))))
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      first-larger
+                                      (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                                  (#pt-app
+                                    (#pt-use congruence (0 0))
+                                    #pt-nat
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((endpoint #pt-nat))
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        (#pt-app (#pt-use multiply ()) first-larger endpoint)))
+                                    first-smaller
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-succ (#pt-succ #pt-zero))
+                                      (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                                    (#pt-project pythagorean-parameters 1 second-parameters))
+                                  (#pt-app
+                                    (#pt-use transitivity (0))
+                                    #pt-nat
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-succ (#pt-succ #pt-zero))
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        first-larger
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-succ (#pt-succ #pt-zero))
+                                          (#pt-app
+                                            (#pt-use multiply ())
+                                            second-larger
+                                            second-smaller))))
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        first-larger)
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                                    (#pt-app
+                                      (#pt-use multiply ())
+                                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        first-larger
+                                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                                    (#pt-app
+                                      (#pt-use symmetry (0))
+                                      #pt-nat
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-succ (#pt-succ #pt-zero))
+                                          first-larger)
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-succ (#pt-succ #pt-zero))
+                                          (#pt-app
+                                            (#pt-use multiply ())
+                                            second-larger
+                                            second-smaller)))
+                                      (#pt-app
+                                        (#pt-use multiply ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          first-larger
+                                          (#pt-app
+                                            (#pt-use multiply ())
+                                            (#pt-succ (#pt-succ #pt-zero))
+                                            (#pt-app
+                                              (#pt-use multiply ())
+                                              second-larger
+                                              second-smaller))))
+                                      (#pt-app
+                                        (#pt-use multiply-associative ())
+                                        (#pt-succ (#pt-succ #pt-zero))
+                                        first-larger
+                                        (#pt-app
+                                          (#pt-use multiply ())
+                                          (#pt-succ (#pt-succ #pt-zero))
+                                          (#pt-app
+                                            (#pt-use multiply ())
+                                            second-larger
+                                            second-smaller))))
+                                    (#pt-app
+                                      (#pt-use double-product ())
+                                      first-larger
+                                      (#pt-app (#pt-use multiply ()) second-larger second-smaller))))))))))))))
+            (#pt-app
+              (#pt-use coprime-product-square ())
+              first-larger
+              (#pt-app (#pt-use multiply ()) second-larger second-smaller)
+              half-second
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app
+                    (#pt-use coprime ())
+                    endpoint
+                    (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) second-larger second-larger)
+                  (#pt-app (#pt-use multiply ()) second-smaller second-smaller))
+                first-larger
+                (#pt-app
+                  (#pt-use symmetry (0))
+                  #pt-nat
+                  first-larger
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app (#pt-use multiply ()) second-larger second-larger)
+                    (#pt-app (#pt-use multiply ()) second-smaller second-smaller))
+                  (#pt-project pythagorean-parameters 2 second-parameters))
+                (#pt-app
+                  (#pt-use coprime-square-sum-product ())
+                  second-larger
+                  second-smaller
+                  (#pt-project pythagorean-parameters 3 second-parameters)))
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) half-second half-second)
+                (#pt-app
+                  (#pt-use multiply ())
+                  first-larger
+                  (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                (#pt-app
+                  (#pt-use multiply-cancel-left-nonzero ())
+                  (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                  (#pt-app (#pt-use multiply ()) half-second half-second)
+                  (#pt-app
+                    (#pt-use multiply ())
+                    first-larger
+                    (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                  (#pt-app
+                    (#pt-use successor-not-zero ())
+                    (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                      (#pt-app (#pt-use multiply ()) half-second half-second))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second)
+                      (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                      (#pt-app
+                        (#pt-use multiply ())
+                        first-larger
+                        (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                    (#pt-app
+                      (#pt-use symmetry (0))
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second)
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second))
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                        (#pt-app (#pt-use multiply ()) half-second half-second))
+                      (#pt-app (#pt-use double-square ()) half-second))
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second)
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second))
+                      (#pt-app (#pt-use multiply ()) second second)
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          first-larger
+                          (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                      (#pt-app
+                        (#pt-use congruence (0 0))
+                        #pt-nat
+                        #pt-nat
+                        (#pt-lambda
+                          ((endpoint #pt-nat))
+                          (#pt-app (#pt-use multiply ()) endpoint endpoint))
+                        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second)
+                        second
+                        (#pt-app
+                          (#pt-use symmetry (0))
+                          #pt-nat
+                          second
+                          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) half-second)
+                          half-equation))
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) second second)
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-succ (#pt-succ #pt-zero))
+                          (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            first-larger
+                            (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                        (#pt-project pythagorean-parameters 1 first-parameters)
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-succ (#pt-succ #pt-zero))
+                            (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-succ (#pt-succ #pt-zero))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              first-larger
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                (#pt-app (#pt-use multiply ()) second-larger second-smaller))))
+                          (#pt-app
+                            (#pt-use multiply ())
+                            (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              first-larger
+                              (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                          (#pt-app
+                            (#pt-use congruence (0 0))
+                            #pt-nat
+                            #pt-nat
+                            (#pt-lambda
+                              ((endpoint #pt-nat))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                (#pt-app (#pt-use multiply ()) first-larger endpoint)))
+                            first-smaller
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ (#pt-succ #pt-zero))
+                              (#pt-app (#pt-use multiply ()) second-larger second-smaller))
+                            (#pt-project pythagorean-parameters 1 second-parameters))
+                          (#pt-app
+                            (#pt-use transitivity (0))
+                            #pt-nat
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ (#pt-succ #pt-zero))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                first-larger
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  (#pt-app (#pt-use multiply ()) second-larger second-smaller))))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                first-larger)
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                            (#pt-app
+                              (#pt-use multiply ())
+                              (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                first-larger
+                                (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                            (#pt-app
+                              (#pt-use symmetry (0))
+                              #pt-nat
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  first-larger)
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  (#pt-app (#pt-use multiply ()) second-larger second-smaller)))
+                              (#pt-app
+                                (#pt-use multiply ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  first-larger
+                                  (#pt-app
+                                    (#pt-use multiply ())
+                                    (#pt-succ (#pt-succ #pt-zero))
+                                    (#pt-app (#pt-use multiply ()) second-larger second-smaller))))
+                              (#pt-app
+                                (#pt-use multiply-associative ())
+                                (#pt-succ (#pt-succ #pt-zero))
+                                first-larger
+                                (#pt-app
+                                  (#pt-use multiply ())
+                                  (#pt-succ (#pt-succ #pt-zero))
+                                  (#pt-app (#pt-use multiply ()) second-larger second-smaller))))
+                            (#pt-app
+                              (#pt-use double-product ())
+                              first-larger
+                              (#pt-app (#pt-use multiply ()) second-larger second-smaller)))))))))))))
+      (#pt-app
+        (#pt-use prime-divides-square ())
+        (#pt-succ (#pt-succ #pt-zero))
+        second
+        (#pt-use prime-two ())
+        (#pt-app
+          (#pt-use substitution (0))
+          #pt-nat
+          (#pt-lambda
+            ((endpoint #pt-nat))
+            (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) endpoint))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-succ (#pt-succ #pt-zero))
+            (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+          (#pt-app (#pt-use multiply ()) second second)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) second second)
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-succ (#pt-succ #pt-zero))
+              (#pt-app (#pt-use multiply ()) first-larger first-smaller))
+            (#pt-project pythagorean-parameters 1 first-parameters))
+          (#pt-app
+            (#pt-use divides-multiple ())
+            (#pt-succ (#pt-succ #pt-zero))
+            (#pt-app (#pt-use multiply ()) first-larger first-smaller)))))))
+(#theorem four-two-primitive-descends
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse))
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second))
+    (#parameter first-odd (#pt-app (#pt-use odd ()) first)))
+  (#statement (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-larger #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-smaller #pt-nat))
+              (#pt-app
+                (#pt-use pythagorean-parameters ())
+                (#pt-app (#pt-use multiply ()) first first)
+                (#pt-app (#pt-use multiply ()) second second)
+                hypotenuse
+                candidate-larger
+                candidate-smaller)))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-larger #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-smaller #pt-nat))
+                    (#pt-app
+                      (#pt-use pythagorean-parameters ())
+                      (#pt-app (#pt-use multiply ()) first first)
+                      (#pt-app (#pt-use multiply ()) second second)
+                      hypotenuse
+                      candidate-larger
+                      candidate-smaller)))))))
+        (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+      (
+        (#pt-lambda
+          (
+            (first-larger #pt-nat)
+            (first-smaller-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-smaller #pt-nat))
+                  (#pt-app
+                    (#pt-use pythagorean-parameters ())
+                    (#pt-app (#pt-use multiply ()) first first)
+                    (#pt-app (#pt-use multiply ()) second second)
+                    hypotenuse
+                    first-larger
+                    candidate-smaller)))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-smaller #pt-nat))
+                (#pt-app
+                  (#pt-use pythagorean-parameters ())
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second)
+                  hypotenuse
+                  first-larger
+                  candidate-smaller)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-smaller #pt-nat))
+                      (#pt-app
+                        (#pt-use pythagorean-parameters ())
+                        (#pt-app (#pt-use multiply ()) first first)
+                        (#pt-app (#pt-use multiply ()) second second)
+                        hypotenuse
+                        first-larger
+                        candidate-smaller)))))
+              (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+            (
+              (#pt-lambda
+                (
+                  (first-smaller #pt-nat)
+                  (first-parameters
+                    (#pt-app
+                      (#pt-use pythagorean-parameters ())
+                      (#pt-app (#pt-use multiply ()) first first)
+                      (#pt-app (#pt-use multiply ()) second second)
+                      hypotenuse
+                      first-larger
+                      first-smaller)))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-larger #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-smaller #pt-nat))
+                          (#pt-app
+                            (#pt-use pythagorean-parameters ())
+                            first
+                            first-smaller
+                            first-larger
+                            candidate-larger
+                            candidate-smaller)))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-larger #pt-nat))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-smaller #pt-nat))
+                                (#pt-app
+                                  (#pt-use pythagorean-parameters ())
+                                  first
+                                  first-smaller
+                                  first-larger
+                                  candidate-larger
+                                  candidate-smaller)))))))
+                    (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                  (
+                    (#pt-lambda
+                      (
+                        (second-larger #pt-nat)
+                        (second-smaller-certificate
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-smaller #pt-nat))
+                              (#pt-app
+                                (#pt-use pythagorean-parameters ())
+                                first
+                                first-smaller
+                                first-larger
+                                second-larger
+                                candidate-smaller)))))
+                      (#pt-induct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-smaller #pt-nat))
+                            (#pt-app
+                              (#pt-use pythagorean-parameters ())
+                              first
+                              first-smaller
+                              first-larger
+                              second-larger
+                              candidate-smaller)))
+                        (#pt-lambda
+                          (
+                            (certificate
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-smaller #pt-nat))
+                                  (#pt-app
+                                    (#pt-use pythagorean-parameters ())
+                                    first
+                                    first-smaller
+                                    first-larger
+                                    second-larger
+                                    candidate-smaller)))))
+                          (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                        (
+                          (#pt-lambda
+                            (
+                              (second-smaller #pt-nat)
+                              (second-parameters
+                                (#pt-app
+                                  (#pt-use pythagorean-parameters ())
+                                  first
+                                  first-smaller
+                                  first-larger
+                                  second-larger
+                                  second-smaller)))
+                            (#pt-app
+                              (#pt-use four-two-primitive-from-parameters ())
+                              first
+                              second
+                              hypotenuse
+                              first-larger
+                              first-smaller
+                              second-larger
+                              second-smaller
+                              counterexample
+                              first-parameters
+                              second-parameters)))
+                        second-smaller-certificate)))
+                  (#pt-app
+                    (#pt-use primitive-pythagorean-classification ())
+                    first
+                    first-smaller
+                    first-larger
+                    first-odd
+                    (#pt-project pythagorean-parameters 6 first-parameters)
+                    (#pt-app
+                      (#pt-use coprime-symmetric ())
+                      first-smaller
+                      first
+                      (#pt-app
+                        (#pt-use pythagorean-coprime-from-hypotenuse ())
+                        first-smaller
+                        first
+                        first-larger
+                        (#pt-project pythagorean-parameters 6 first-parameters)
+                        (#pt-app
+                          (#pt-use coprime-symmetric ())
+                          first-larger
+                          first-smaller
+                          (#pt-project pythagorean-parameters 3 first-parameters))
+                        (#pt-app
+                          (#pt-use transitivity (0))
+                          #pt-nat
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) first-smaller first-smaller)
+                            (#pt-app (#pt-use multiply ()) first first))
+                          (#pt-app
+                            (#pt-use add ())
+                            (#pt-app (#pt-use multiply ()) first first)
+                            (#pt-app (#pt-use multiply ()) first-smaller first-smaller))
+                          (#pt-app (#pt-use multiply ()) first-larger first-larger)
+                          (#pt-app
+                            (#pt-use add-commutative ())
+                            (#pt-app (#pt-use multiply ()) first-smaller first-smaller)
+                            (#pt-app (#pt-use multiply ()) first first))
+                          (#pt-project pythagorean-parameters 0 first-parameters))))
+                    (#pt-project pythagorean-parameters 0 first-parameters)))))
+            first-smaller-certificate)))
+      (#pt-app
+        (#pt-use primitive-pythagorean-classification ())
+        (#pt-app (#pt-use multiply ()) first first)
+        (#pt-app (#pt-use multiply ()) second second)
+        hypotenuse
+        (#pt-app (#pt-use odd-square-is-odd ()) first first-odd)
+        (#pt-app
+          (#pt-use multiply-nonzero ())
+          second
+          second
+          (#pt-project fermat-four-two 1 counterexample)
+          (#pt-project fermat-four-two 1 counterexample))
+        (#pt-app
+          (#pt-use coprime-multiply-left ())
+          first
+          first
+          (#pt-app (#pt-use multiply ()) second second)
+          (#pt-app
+            (#pt-use coprime-multiply-right ())
+            first
+            second
+            second
+            coprime-proof
+            coprime-proof)
+          (#pt-app
+            (#pt-use coprime-multiply-right ())
+            first
+            second
+            second
+            coprime-proof
+            coprime-proof))
+        (#pt-project fermat-four-two 2 counterexample)))))

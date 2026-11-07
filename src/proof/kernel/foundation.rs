@@ -96,7 +96,7 @@ impl Kernel {
         if !requested.starts_with("#pt-foundation-") {
             return Ok(());
         }
-        if self.declarations.contains_key(requested) {
+        if self.declarations.contains_key(requested)? {
             return Ok(());
         }
         if let Some((name, _, universes, _, signature)) =
@@ -117,7 +117,7 @@ impl Kernel {
                     value: None,
                     family: None,
                 },
-            );
+            )?;
         }
         Ok(())
     }
@@ -131,7 +131,7 @@ mod tests {
         let mut kernel = Kernel::new();
         assert!(FOUNDATIONS
             .iter()
-            .all(|(name, ..)| !kernel.declarations.contains_key(*name)));
+            .all(|(name, ..)| !kernel.declarations.contains_key(*name).unwrap()));
         for (name, label, universes, source, _) in FOUNDATIONS {
             assert_eq!(super::label(name), Some(*label));
             kernel.ensure_logical_foundation(name, 0).unwrap();
@@ -171,6 +171,9 @@ mod tests {
             .unwrap_err()
             .contains("resource limit"));
         assert!(kernel.work >= WORK);
-        assert!(!kernel.declarations.contains_key("#pt-foundation-choice"));
+        assert!(!kernel
+            .declarations
+            .contains_key("#pt-foundation-choice")
+            .unwrap());
     }
 }

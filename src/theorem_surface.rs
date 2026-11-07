@@ -64,12 +64,12 @@ pub(crate) fn parse(items: &[Expr]) -> Result<Item, String> {
                     return Err("#parameter requires an identifier and an explicit type".into());
                 }
                 symbol(&parts[0])?;
-                bindings.push(Expr::List(parts.to_vec()));
+                bindings.push(Expr::List(parts.to_vec().into()));
             }
             let (ty, value) = if bindings.is_empty() {
                 (statement[0].clone(), evidence[0].clone())
             } else {
-                let parameters = Expr::List(bindings);
+                let parameters = Expr::List(bindings.into());
                 (
                     form("#pt-pi", [parameters.clone(), statement[0].clone()]),
                     form("#pt-lambda", [parameters, evidence[0].clone()]),
@@ -77,7 +77,7 @@ pub(crate) fn parse(items: &[Expr]) -> Result<Item, String> {
             };
             form(
                 "#proof-theorem",
-                [Expr::List(universes.to_vec()), ty, value],
+                [Expr::List(universes.to_vec().into()), ty, value],
             )
         }
         "math-definition" | "math-opaque" => {

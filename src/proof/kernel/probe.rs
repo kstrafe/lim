@@ -10,17 +10,27 @@ impl Kernel {
         depth: usize,
         operation: impl FnOnce(&mut Self) -> Result<R>,
     ) -> Result<Option<R>> {
+        self.reduction_probe_limits(depth, 16_384, 2 * 1024 * 1024, operation)
+    }
+
+    pub(super) fn reduction_probe_limits<R>(
+        &mut self,
+        depth: usize,
+        work: usize,
+        bytes: usize,
+        operation: impl FnOnce(&mut Self) -> Result<R>,
+    ) -> Result<Option<R>> {
         self.tick(depth)?;
         self.charge_transformation(0)?;
         let previous = self.reduction_probe_budget;
         let mut budget = ReductionProbeBudget {
             work: self
                 .work
-                .saturating_add(16_384)
+                .saturating_add(work)
                 .min(self.budget.work().saturating_sub(1)),
             bytes: self
                 .transformed_bytes
-                .saturating_add(2 * 1024 * 1024)
+                .saturating_add(bytes)
                 .min(self.budget.phase_bytes().saturating_sub(1)),
             depth: depth.saturating_add(48).min(DEPTH - 1),
         };

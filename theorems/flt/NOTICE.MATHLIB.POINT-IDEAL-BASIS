@@ -1,0 +1,28 @@
+Mathlib point-ideal determinant attribution
+
+Pinned mathematical sources:
+Mathlib/LinearAlgebra/FreeModule/Norm.lean
+SHA-256: e578f6499d1b2a8b7ba4c7d35cfe4aff6dd0e64435ef9aa1f478da3f07fb1898
+Mathlib/AlgebraicGeometry/EllipticCurve/Affine/Point.lean
+SHA-256: 541c24503064ca053f3f747e2f8c725bea049a04ca561d6d5be17597fd368339
+Revision: db584cd6d46c92f209a44c0f1c829460d327499d
+
+Copyright (c) 2023 Junyan Xu and 2025 David Kurniadi Angdinata.
+License: Apache-2.0, reproduced in LICENSE.MATHLIB.
+
+The native adaptation proves the actual rank-two determinant argument
+needed for point-ideal nonprincipality. It computes a representation in
+the X-x,Y-y columns, constructs both multiplication-matrix factorizations
+from actual ideal membership, and derives both polynomial norm factors.
+Actual product degrees and the already proved Weierstrass norm degree-one
+obstruction then exclude every proposed principal generator.
+
+The full general Smith-coefficient, finite-dimensional module, and
+finrank/norm theorem are not imported or assumed. They remain unported;
+the explicit two-by-two argument proves the point-ideal conclusion needed
+by the native class-group kernel argument directly. Full linear-basis
+independence, nonsingular ideal inverse/addition identities, fractional
+ideals/class groups and point-group injection remain separate obligations.
+
+The actual noncubic model Y^2=X-x is also proved to have point ideal
+principal(Y), exposing the material cubic premise in the obstruction.

@@ -1,0 +1,375 @@
+; Euclid's prime-product lemma and prime divisibility of powers.
+; Prime uses the checked no-proper-nonunit-divisor characterization;
+; the product lemma is proved through constructive gcd-based cancellation.
+(#alias power = ../fermat_statement.lim::power)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#alias divisor-nonzero = ./natural-divisibility-bounds.lim::divisor-nonzero)
+(#alias divisor-not-above = ./natural-divisibility-bounds.lim::divisor-not-above)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-larger-than-one = ./natural-prime.lim::prime-larger-than-one)
+(#alias prime-excludes-proper-divisor = ./natural-prime.lim::prime-excludes-proper-divisor)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias coprime-divides-product-left = ./natural-euclid.lim::coprime-divides-product-left)
+(#alias decision = ./logical-decision.lim::decision)
+(#alias decide-divides = ./decidable-divisibility.lim::decide-divides)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem prime-divisor-one-or-self
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter divisor-proof (#pt-app (#pt-use divides ()) divisor prime-number)))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+      (#pt-eq #pt-nat divisor prime-number)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-eq #pt-nat divisor #pt-zero)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+        (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) divisor))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+        (#pt-eq #pt-nat divisor prime-number))
+      (#pt-lambda
+        ((zero-equation (#pt-eq #pt-nat divisor #pt-zero)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+            (#pt-eq #pt-nat divisor prime-number))
+          (#pt-app
+            (#pt-app
+              (#pt-use divisor-nonzero ())
+              divisor
+              prime-number
+              (#pt-app
+                (#pt-use less-than-upper-nonzero ())
+                (#pt-succ #pt-zero)
+                prime-number
+                (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+              divisor-proof)
+            zero-equation)))
+      (#pt-lambda
+        (
+          (nonzero-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+              (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) divisor))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+          (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) divisor)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+            (#pt-eq #pt-nat divisor prime-number))
+          (#pt-lambda
+            ((one-equation (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use disjunction-left ())
+              (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+              (#pt-eq #pt-nat divisor prime-number)
+              one-equation))
+          (#pt-lambda
+            ((larger-than-one (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) divisor)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use less-than ()) divisor prime-number)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat divisor prime-number)
+                (#pt-app (#pt-use less-than ()) prime-number divisor))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+                (#pt-eq #pt-nat divisor prime-number))
+              (#pt-lambda
+                ((divisor-less (#pt-app (#pt-use less-than ()) divisor prime-number)))
+                (#pt-app
+                  (#pt-use false-elimination ())
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+                    (#pt-eq #pt-nat divisor prime-number))
+                  (#pt-app
+                    (#pt-app (#pt-use prime-excludes-proper-divisor ()) prime-number prime-proof)
+                    divisor
+                    larger-than-one
+                    divisor-less
+                    divisor-proof)))
+              (#pt-lambda
+                (
+                  (comparison-tail
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-eq #pt-nat divisor prime-number)
+                      (#pt-app (#pt-use less-than ()) prime-number divisor))))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-eq #pt-nat divisor prime-number)
+                  (#pt-app (#pt-use less-than ()) prime-number divisor)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+                    (#pt-eq #pt-nat divisor prime-number))
+                  (#pt-lambda
+                    ((equal-proof (#pt-eq #pt-nat divisor prime-number)))
+                    (#pt-app
+                      (#pt-use disjunction-right ())
+                      (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+                      (#pt-eq #pt-nat divisor prime-number)
+                      equal-proof))
+                  (#pt-lambda
+                    ((prime-less (#pt-app (#pt-use less-than ()) prime-number divisor)))
+                    (#pt-app
+                      (#pt-use false-elimination ())
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-eq #pt-nat divisor (#pt-succ #pt-zero))
+                        (#pt-eq #pt-nat divisor prime-number))
+                      (#pt-app
+                        (#pt-app
+                          (#pt-use divisor-not-above ())
+                          divisor
+                          prime-number
+                          (#pt-app
+                            (#pt-use less-than-upper-nonzero ())
+                            (#pt-succ #pt-zero)
+                            prime-number
+                            (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+                          divisor-proof)
+                        prime-less)))
+                  comparison-tail))
+              (#pt-app (#pt-use natural-trichotomy ()) divisor prime-number)))
+          nonzero-case))
+      (#pt-app (#pt-use zero-one-or-large ()) divisor))))
+(#theorem prime-not-one
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number)))
+  (#statement (#pt-pi ((denied-proof (#pt-eq #pt-nat prime-number (#pt-succ #pt-zero)))) #pt-false))
+  (#proof
+    (#pt-lambda
+      ((one-equation (#pt-eq #pt-nat prime-number (#pt-succ #pt-zero))))
+      (#pt-app
+        (#pt-app (#pt-use not-less-than-self ()) (#pt-succ #pt-zero))
+        (#pt-app
+          (#pt-use substitution (0))
+          #pt-nat
+          (#pt-lambda
+            ((endpoint #pt-nat))
+            (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) endpoint))
+          prime-number
+          (#pt-succ #pt-zero)
+          one-equation
+          (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))))))
+(#theorem prime-coprime-of-not-divides
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter other #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) prime-number other))) #pt-false)))
+  (#statement (#pt-app (#pt-use coprime ()) prime-number other))
+  (#proof
+    (#pt-lambda
+      (
+        (common-divisor #pt-nat)
+        (prime-divides (#pt-app (#pt-use divides ()) common-divisor prime-number))
+        (other-divides (#pt-app (#pt-use divides ()) common-divisor other)))
+      (#pt-app
+        (#pt-use disjunction-eliminate ())
+        (#pt-eq #pt-nat common-divisor (#pt-succ #pt-zero))
+        (#pt-eq #pt-nat common-divisor prime-number)
+        (#pt-eq #pt-nat common-divisor (#pt-succ #pt-zero))
+        (#pt-lambda
+          ((one-equation (#pt-eq #pt-nat common-divisor (#pt-succ #pt-zero))))
+          one-equation)
+        (#pt-lambda
+          ((equal-prime (#pt-eq #pt-nat common-divisor prime-number)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-eq #pt-nat common-divisor (#pt-succ #pt-zero))
+            (#pt-app
+              not-divides
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use divides ()) endpoint other))
+                common-divisor
+                prime-number
+                equal-prime
+                other-divides))))
+        (#pt-app
+          (#pt-use prime-divisor-one-or-self ())
+          prime-number
+          common-divisor
+          prime-proof
+          prime-divides)))))
+(#theorem prime-divides-product
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter product-divides (#pt-app (#pt-use divides ()) prime-number (#pt-app (#pt-use multiply ()) first second))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use divides ()) prime-number first)
+      (#pt-app (#pt-use divides ()) prime-number second)))
+  (#proof
+    (#pt-induct
+      decision
+      ()
+      ((#pt-app (#pt-use divides ()) prime-number first))
+      (#pt-lambda
+        (
+          (divisibility-decision
+            (#pt-app (#pt-use decision ()) (#pt-app (#pt-use divides ()) prime-number first))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use divides ()) prime-number first)
+          (#pt-app (#pt-use divides ()) prime-number second)))
+      (
+        (#pt-lambda
+          (
+            (not-first
+              (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) prime-number first))) #pt-false)))
+          (#pt-app
+            (#pt-use disjunction-right ())
+            (#pt-app (#pt-use divides ()) prime-number first)
+            (#pt-app (#pt-use divides ()) prime-number second)
+            (#pt-app
+              (#pt-use coprime-divides-product-left ())
+              prime-number
+              first
+              second
+              (#pt-app
+                (#pt-use prime-coprime-of-not-divides ())
+                prime-number
+                first
+                prime-proof
+                not-first)
+              product-divides)))
+        (#pt-lambda
+          ((first-divides (#pt-app (#pt-use divides ()) prime-number first)))
+          (#pt-app
+            (#pt-use disjunction-left ())
+            (#pt-app (#pt-use divides ()) prime-number first)
+            (#pt-app (#pt-use divides ()) prime-number second)
+            first-divides)))
+      (#pt-app (#pt-use decide-divides ()) prime-number first))))
+(#theorem prime-divides-power
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter base #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter power-divides (#pt-app (#pt-use divides ()) prime-number (#pt-app (#pt-use power ()) base exponent))))
+  (#statement (#pt-app (#pt-use divides ()) prime-number base))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (power-evidence
+                (#pt-app (#pt-use divides ()) prime-number (#pt-app (#pt-use power ()) base index))))
+            (#pt-app (#pt-use divides ()) prime-number base)))
+        (#pt-lambda
+          ((unit-divides (#pt-app (#pt-use divides ()) prime-number (#pt-succ #pt-zero))))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app (#pt-use divides ()) prime-number base)
+            (#pt-app
+              (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof)
+              (#pt-app (#pt-use divides-one ()) prime-number unit-divides))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-result
+              (#pt-pi
+                (
+                  (previous-evidence
+                    (#pt-app
+                      (#pt-use divides ())
+                      prime-number
+                      (#pt-app (#pt-use power ()) base previous))))
+                (#pt-app (#pt-use divides ()) prime-number base)))
+            (successor-divides
+              (#pt-app
+                (#pt-use divides ())
+                prime-number
+                (#pt-app (#pt-use power ()) base (#pt-succ previous)))))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app (#pt-use divides ()) prime-number base)
+            (#pt-app (#pt-use divides ()) prime-number (#pt-app (#pt-use power ()) base previous))
+            (#pt-app (#pt-use divides ()) prime-number base)
+            (#pt-lambda
+              ((base-divides (#pt-app (#pt-use divides ()) prime-number base)))
+              base-divides)
+            (#pt-lambda
+              (
+                (previous-divides
+                  (#pt-app
+                    (#pt-use divides ())
+                    prime-number
+                    (#pt-app (#pt-use power ()) base previous))))
+              (#pt-app previous-result previous-divides))
+            (#pt-app
+              (#pt-use prime-divides-product ())
+              prime-number
+              base
+              (#pt-app (#pt-use power ()) base previous)
+              prime-proof
+              successor-divides)))
+        exponent)
+      power-divides)))
+(#theorem prime-divides-square
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter base #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter square-divides (#pt-app (#pt-use divides ()) prime-number (#pt-app (#pt-use multiply ()) base base))))
+  (#statement (#pt-app (#pt-use divides ()) prime-number base))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use divides ()) prime-number base)
+      (#pt-app (#pt-use divides ()) prime-number base)
+      (#pt-app (#pt-use divides ()) prime-number base)
+      (#pt-lambda
+        ((factor-divides (#pt-app (#pt-use divides ()) prime-number base)))
+        factor-divides)
+      (#pt-lambda
+        ((factor-divides (#pt-app (#pt-use divides ()) prime-number base)))
+        factor-divides)
+      (#pt-app (#pt-use prime-divides-product ()) prime-number base base prime-proof square-divides))))

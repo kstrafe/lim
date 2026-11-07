@@ -5,10 +5,19 @@ use std::collections::HashSet;
 impl Kernel {
     pub(super) fn same_syntax(&mut self, left: &T, right: &T) -> Result<bool> {
         self.charge_transformation(32)?;
-        let mut pending = vec![(Arc::clone(left), Arc::clone(right))];
+        let mut pending = vec![(left.clone(), right.clone())];
         let mut visited = HashSet::new();
 
         while let Some((left, right)) = pending.pop() {
+            // Terms are immutable. An identical subtree is structurally equal
+            // without inspecting its descendants or allocating a visited row.
+            // This is syntax comparison only; source scope and type checking
+            // remain separate, including for erased or otherwise unused terms.
+            if Arc::ptr_eq(&left, &right) {
+                self.tick(0)?;
+                self.charge_transformation(0)?;
+                continue;
+            }
             let key = (Arc::as_ptr(&left) as usize, Arc::as_ptr(&right) as usize);
             if visited.contains(&key) {
                 continue;
@@ -21,7 +30,7 @@ impl Kernel {
             macro_rules! child {
                 ($a:expr, $b:expr) => {{
                     self.charge_transformation(32)?;
-                    pending.push((Arc::clone($a), Arc::clone($b)))
+                    pending.push(($a.clone(), $b.clone()))
                 }};
             }
             macro_rules! children {
@@ -34,15 +43,11 @@ impl Kernel {
                             .checked_mul(32)
                             .ok_or("kernel allocation limit exceeded")?,
                     )?;
-                    pending.extend(
-                        $a.iter()
-                            .zip($b)
-                            .map(|(a, b)| (Arc::clone(a), Arc::clone(b))),
-                    );
+                    pending.extend($a.iter().zip($b).map(|(a, b)| (a.clone(), b.clone())));
                 }};
             }
 
-            match (&*left, &*right) {
+            match (left.as_ref(), right.as_ref()) {
                 (
                     Term::NatLiteral {
                         family: a,
@@ -291,6 +296,10 @@ impl Kernel {
 }
 
 #[cfg(test)]
+#[path = "syntax_shared_tests.rs"]
+mod shared_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -329,7 +338,7 @@ mod tests {
         }
         let mut shared = term(Term::Var(7));
         for _ in 0..10 {
-            shared = term(Term::App(Arc::clone(&shared), Arc::clone(&shared)));
+            shared = term(Term::App(shared.clone(), shared.clone()));
         }
         assert!(compare(shared, unshared(10)).unwrap());
     }
@@ -337,26 +346,32 @@ mod tests {
     #[test]
     fn shared_dag_is_visited_once_per_pointer_pair() {
         let mut dag = term(Term::Var(3));
+        let mut other = term(Term::Var(3));
         for _ in 0..80 {
-            dag = term(Term::App(Arc::clone(&dag), Arc::clone(&dag)));
+            dag = term(Term::App(dag.clone(), dag.clone()));
+            other = term(Term::App(other.clone(), other.clone()));
         }
         let mut kernel = Kernel::new();
-        assert!(kernel.same_syntax(&dag, &dag).unwrap());
+        assert!(kernel.same_syntax(&dag, &other).unwrap());
         assert_eq!(kernel.work, 81);
+        kernel.reset_budget();
+        assert!(kernel.same_syntax(&dag, &dag).unwrap());
+        assert_eq!(kernel.work, 1);
     }
 
     #[test]
     fn structural_comparison_accounts_for_its_pending_and_visited_storage() {
         let value = term(Term::Var(0));
+        let other = term(Term::Var(0));
         let mut kernel = Kernel::new();
         kernel.transformed_bytes = 64 * 1024 * 1024 - 95;
         assert!(kernel
-            .same_syntax(&value, &value)
+            .same_syntax(&value, &other)
             .unwrap_err()
             .contains("allocation limit"));
         kernel.reset_budget();
         kernel.transformed_bytes = 64 * 1024 * 1024 - 96;
-        assert!(kernel.same_syntax(&value, &value).unwrap());
+        assert!(kernel.same_syntax(&value, &other).unwrap());
         assert_eq!(kernel.transformed_bytes, 64 * 1024 * 1024);
         kernel.reset_budget();
         kernel.work = WORK;

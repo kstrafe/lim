@@ -162,21 +162,21 @@ pub(crate) fn merge(forms: Vec<SpannedExpr>) -> Result<Vec<SpannedExpr>, SourceE
             variant_exprs.push(expr);
             variant_children.push(source);
         }
-        let variant_list = Expr::List(variant_exprs);
+        let variant_list = Expr::List(variant_exprs.into());
         result.push(variant_list.clone());
         result_children.push(SpannedExpr {
             expr: variant_list,
             span: form.span,
             children: variant_children.into(),
         });
-        form.expr = Expr::List(result);
+        form.expr = Expr::List(result.into());
         form.children = result_children.into();
         output.push(form);
     }
     Ok(output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 
@@ -204,20 +204,25 @@ mod tests {
         let (xs, _) = enum_form(&forms);
         assert_eq!(
             xs[2],
-            Expr::List(vec![
-                Expr::Symbol("#linear".into()),
-                Expr::Symbol("#repr-c".into())
-            ])
+            Expr::List(
+                vec![
+                    Expr::Symbol("#linear".into()),
+                    Expr::Symbol("#repr-c".into())
+                ]
+                .into()
+            )
         );
         assert_eq!(
             xs[3],
-            Expr::List(vec![
-                Expr::List(vec![Expr::Symbol("E.Alpha".into())]),
-                Expr::List(vec![
-                    Expr::Symbol("E.Zulu".into()),
-                    Expr::Symbol("#u64".into())
-                ]),
-            ])
+            Expr::List(
+                vec![
+                    Expr::List(vec![Expr::Symbol("E.Alpha".into())].into()),
+                    Expr::List(
+                        vec![Expr::Symbol("E.Zulu".into()), Expr::Symbol("#u64".into())].into()
+                    ),
+                ]
+                .into()
+            )
         );
     }
 
@@ -233,10 +238,7 @@ mod tests {
         assert_eq!(variants.len(), 1);
         assert_eq!(
             variants[0],
-            Expr::List(vec![
-                Expr::Symbol("E.A".into()),
-                Expr::Symbol("#u64".into())
-            ])
+            Expr::List(vec![Expr::Symbol("E.A".into()), Expr::Symbol("#u64".into())].into())
         );
         assert_eq!(form.children[3].children[0].expr, variants[0]);
     }
@@ -259,7 +261,7 @@ mod tests {
         let forms = merged("(#enum-contribute E (E.Empty))\n(#distributed-enum E ())");
         assert_eq!(
             enum_form(&forms).0[3],
-            Expr::List(vec![Expr::List(vec![Expr::Symbol("E.Empty".into())])])
+            Expr::List(vec![Expr::List(vec![Expr::Symbol("E.Empty".into())].into())].into())
         );
         let error =
             merge(parse("(#enum-contribute missing (Missing.Empty))")).expect_err("missing target");

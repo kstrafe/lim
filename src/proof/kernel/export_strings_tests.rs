@@ -85,7 +85,7 @@ fn measured_depth(root: &T) -> (usize, usize, HashSet<usize>, usize) {
         deepest = deepest.max(depth);
         let ptr = Arc::as_ptr(&node) as usize;
         if seen.insert(ptr) {
-            owned_node_bytes += std::mem::size_of::<Term>() + 2 * std::mem::size_of::<usize>();
+            owned_node_bytes += std::mem::size_of::<TermNode>() + 2 * std::mem::size_of::<usize>();
             match node.as_ref() {
                 Term::Global(name, _) => owned_payload += name.len(),
                 Term::NatLiteral { family, value } => {

@@ -52,6 +52,35 @@ fn compact_storage_reuses_a_dag_then_releases_dead_weak_allocations() {
 }
 
 #[test]
+fn selected_scratch_limit_pages_expression_entries() {
+    let mut values = Expressions::with_storage_limits(false, 0, 128);
+    let names = root_names();
+    let levels = levels::Levels::try_from(vec![Level::number(0).unwrap()]).unwrap();
+    for id in 0..4 {
+        values
+            .push(Expression::Var(id), 1, id, &names, &levels)
+            .unwrap();
+    }
+    assert!(values.is_spilled());
+    assert_eq!(values.depth(2).unwrap(), 1);
+    assert!(matches!(
+        values.get(2, &names, &levels).unwrap().as_ref(),
+        Term::Var(2)
+    ));
+    let mut exhausted = false;
+    for id in 4..20 {
+        if values
+            .push(Expression::Var(id), 1, id, &names, &levels)
+            .is_err()
+        {
+            exhausted = true;
+            break;
+        }
+    }
+    assert!(exhausted);
+}
+
+#[test]
 fn eviction_sweeps_dead_handles_from_earlier_records_in_both_memo_layouts() {
     for limit in [0, usize::MAX] {
         let names = root_names();
@@ -336,6 +365,9 @@ fn forced_spill_preserves_failures_after_the_selected_target() {
         format!("{original}{{\"ie\":20,\"strVal\":\"unsupported\"}}\n"),
         format!("{original}{{\"ie\":20,\"natVal\":\"0\"}}\n"),
         original.replacen("\"levelParams\":[4]", "\"levelParams\":[]", 1),
+        // The selected theorem is already indexed; a repeated declaration
+        // must still reject the entire input after candidate-index spilling.
+        format!("{original}{}\n", original.lines().last().unwrap()),
     ];
     for source in invalids {
         let normal = check_lean_export(source.as_bytes(), "Audit.identity.theorem").unwrap_err();
@@ -343,6 +375,8 @@ fn forced_spill_preserves_failures_after_the_selected_target() {
         replay.names = names::Names::with_limit(0);
         replay.levels = levels::Levels::with_limit(0);
         replay.expressions = Expressions::with_limit(false, 0);
+        replay.checked = checked::Index::with_limit(0);
+        replay.kernel.declarations.set_limit(0);
         let spilled = match replay_reader(source.as_bytes(), "Audit.identity.theorem", replay) {
             Ok(_) => panic!("invalid source accepted after spilling"),
             Err(error) => error,

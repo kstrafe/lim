@@ -1,0 +1,300 @@
+; Native source port of the divisor dichotomy used by FLT's odd-prime reduction.
+; Mathlib/Data/Nat/Factors.lean:313-319.
+; Prime-factor peeling proves the positive classification directly; no
+; prime-factor list or global number-theoretic theorem is assumed.
+(#alias power = ../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias prime-not-two-is-odd = ./natural-parity.lim::prime-not-two-is-odd)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias power-of-two = ./two-factor-classification.lim::power-of-two)
+(#alias non-two-prime-divisor = ./two-factor-classification.lim::non-two-prime-divisor)
+(#alias classify-positive-number = ./two-factor-classification.lim::classify-positive-number)
+(#alias four-divides-large-two-power = ./two-power-reduction.lim::four-divides-large-two-power)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias substitution = ./equality.lim::substitution)
+(#math-definition odd-prime-divisor ()
+  (#pt-pi ((number #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((number #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((odd-prime-candidate #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app (#pt-use prime ()) odd-prime-candidate)
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app (#pt-use divides ()) odd-prime-candidate number)
+            (#pt-app (#pt-use odd ()) odd-prime-candidate)))))))
+(#theorem non-two-prime-is-odd-divisor
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter non-two-certificate (#pt-app (#pt-use non-two-prime-divisor ()) number)))
+  (#statement (#pt-app (#pt-use odd-prime-divisor ()) number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((prime-candidate #pt-nat))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app (#pt-use prime ()) prime-candidate)
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-pi
+                ((denied-proof (#pt-eq #pt-nat prime-candidate (#pt-succ (#pt-succ #pt-zero)))))
+                #pt-false)
+              (#pt-app (#pt-use divides ()) prime-candidate number)))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((prime-candidate #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use prime ()) prime-candidate)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-pi
+                      (
+                        (denied-proof
+                          (#pt-eq #pt-nat prime-candidate (#pt-succ (#pt-succ #pt-zero)))))
+                      #pt-false)
+                    (#pt-app (#pt-use divides ()) prime-candidate number)))))))
+        (#pt-app (#pt-use odd-prime-divisor ()) number))
+      (
+        (#pt-lambda
+          (
+            (prime-factor #pt-nat)
+            (prime-certificate
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app (#pt-use prime ()) prime-factor)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-pi
+                    ((denied-proof (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                    #pt-false)
+                  (#pt-app (#pt-use divides ()) prime-factor number)))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((odd-prime-candidate #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use prime ()) odd-prime-candidate)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use divides ()) odd-prime-candidate number)
+                    (#pt-app (#pt-use odd ()) odd-prime-candidate)))))
+            introduce
+            (prime-factor
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app (#pt-use prime ()) prime-factor)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app (#pt-use divides ()) prime-factor number)
+                  (#pt-app (#pt-use odd ()) prime-factor))
+                (#pt-app
+                  (#pt-use conjunction-left ())
+                  (#pt-app (#pt-use prime ()) prime-factor)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-pi
+                      ((denied-proof (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                      #pt-false)
+                    (#pt-app (#pt-use divides ()) prime-factor number))
+                  prime-certificate)
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-app (#pt-use divides ()) prime-factor number)
+                  (#pt-app (#pt-use odd ()) prime-factor)
+                  (#pt-app
+                    (#pt-use conjunction-right ())
+                    (#pt-pi
+                      ((denied-proof (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                      #pt-false)
+                    (#pt-app (#pt-use divides ()) prime-factor number)
+                    (#pt-app
+                      (#pt-use conjunction-right ())
+                      (#pt-app (#pt-use prime ()) prime-factor)
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                          #pt-false)
+                        (#pt-app (#pt-use divides ()) prime-factor number))
+                      prime-certificate))
+                  (#pt-app
+                    (#pt-use prime-not-two-is-odd ())
+                    prime-factor
+                    (#pt-app
+                      (#pt-use conjunction-left ())
+                      (#pt-app (#pt-use prime ()) prime-factor)
+                      (#pt-app
+                        (#pt-use conjunction ())
+                        (#pt-pi
+                          (
+                            (denied-proof
+                              (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                          #pt-false)
+                        (#pt-app (#pt-use divides ()) prime-factor number))
+                      prime-certificate)
+                    (#pt-app
+                      (#pt-use conjunction-left ())
+                      (#pt-pi
+                        (
+                          (denied-proof
+                            (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                        #pt-false)
+                      (#pt-app (#pt-use divides ()) prime-factor number)
+                      (#pt-app
+                        (#pt-use conjunction-right ())
+                        (#pt-app (#pt-use prime ()) prime-factor)
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-pi
+                            (
+                              (denied-proof
+                                (#pt-eq #pt-nat prime-factor (#pt-succ (#pt-succ #pt-zero)))))
+                            #pt-false)
+                          (#pt-app (#pt-use divides ()) prime-factor number))
+                        prime-certificate)))))))))
+      non-two-certificate)))
+(#theorem four-divides-or-odd-prime-divides
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter larger-than-two (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ #pt-zero)) number)))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) number)
+      (#pt-app (#pt-use odd-prime-divisor ()) number)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use power-of-two ()) number)
+      (#pt-app (#pt-use non-two-prime-divisor ()) number)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) number)
+        (#pt-app (#pt-use odd-prime-divisor ()) number))
+      (#pt-lambda
+        ((power-certificate (#pt-app (#pt-use power-of-two ()) number)))
+        (#pt-induct
+          exists
+          (0)
+          (#pt-nat
+            (#pt-lambda
+              ((power-exponent #pt-nat))
+              (#pt-eq
+                #pt-nat
+                number
+                (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) power-exponent))))
+          (#pt-lambda
+            (
+              (certificate
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((power-exponent #pt-nat))
+                    (#pt-eq
+                      #pt-nat
+                      number
+                      (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) power-exponent))))))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use divides ())
+                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                number)
+              (#pt-app (#pt-use odd-prime-divisor ()) number)))
+          (
+            (#pt-lambda
+              (
+                (exponent #pt-nat)
+                (power-equation
+                  (#pt-eq
+                    #pt-nat
+                    number
+                    (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent))))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app
+                  (#pt-use divides ())
+                  (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                  number)
+                (#pt-app (#pt-use odd-prime-divisor ()) number)
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use divides ())
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+                      endpoint))
+                  (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                  number
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    number
+                    (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                    power-equation)
+                  (#pt-app
+                    (#pt-use four-divides-large-two-power ())
+                    exponent
+                    (#pt-app
+                      (#pt-use substitution (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((endpoint #pt-nat))
+                        (#pt-app (#pt-use less-than ()) (#pt-succ (#pt-succ #pt-zero)) endpoint))
+                      number
+                      (#pt-app (#pt-use power ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                      power-equation
+                      larger-than-two))))))
+          power-certificate))
+      (#pt-lambda
+        ((non-two-certificate (#pt-app (#pt-use non-two-prime-divisor ()) number)))
+        (#pt-app
+          (#pt-use disjunction-right ())
+          (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))) number)
+          (#pt-app (#pt-use odd-prime-divisor ()) number)
+          (#pt-app (#pt-use non-two-prime-is-odd-divisor ()) number non-two-certificate)))
+      (#pt-app
+        (#pt-use classify-positive-number ())
+        number
+        (#pt-app
+          (#pt-use less-than-upper-nonzero ())
+          (#pt-succ (#pt-succ #pt-zero))
+          number
+          larger-than-two)))))

@@ -2,7 +2,7 @@
 //! exact term DAG and declaration metadata; it performs no kernel validation.
 use super::super::{
     term, Constructor, Declaration, Family, Level, Natural, NestedCase, RecursionCase, Result,
-    Term, T,
+    Term, TermNode, T,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -168,7 +168,7 @@ impl<'a> R<'a> {
             if i >= at {
                 return Err("invalid or forward declaration term reference".into());
             }
-            x.push(Arc::clone(&nodes[i]))
+            x.push(nodes[i].clone())
         }
         Ok(x)
     }
@@ -177,9 +177,67 @@ impl<'a> R<'a> {
         if i >= at {
             return Err("invalid or forward declaration term reference".into());
         }
-        Ok(Arc::clone(&nodes[i]))
+        Ok(nodes[i].clone())
     }
 }
+fn child_count(t: &Term) -> usize {
+    match t {
+        Term::Sort(_)
+        | Term::Var(_)
+        | Term::Global(..)
+        | Term::NatLiteral { .. }
+        | Term::SelfType => 0,
+        Term::Pi(..)
+        | Term::Lam(..)
+        | Term::App(..)
+        | Term::Sigma(..)
+        | Term::Refl(..)
+        | Term::QuotType(..) => 2,
+        Term::Let(..) | Term::Pair(..) | Term::Eq(..) | Term::QuotMake(..) => 3,
+        Term::First(_) | Term::Second(_) | Term::Project { .. } => 1,
+        Term::QuotLift { .. } | Term::EqElim { .. } => 6,
+        Term::QuotInduct { .. } => 5,
+        Term::Ctor {
+            parameters, fields, ..
+        } => parameters.len().saturating_add(fields.len()),
+        Term::Induct {
+            parameters,
+            indices,
+            branches,
+            ..
+        } => parameters
+            .len()
+            .saturating_add(indices.len())
+            .saturating_add(branches.len())
+            .saturating_add(2),
+        Term::MutualInduct {
+            parameters,
+            indices,
+            cases,
+            ..
+        } => cases.iter().fold(
+            parameters
+                .len()
+                .saturating_add(indices.len())
+                .saturating_add(1),
+            |n, case| n.saturating_add(case.branches.len()).saturating_add(1),
+        ),
+        Term::NestedInduct {
+            parameters,
+            indices,
+            cases,
+            ..
+        } => cases.iter().fold(
+            parameters
+                .len()
+                .saturating_add(indices.len())
+                .saturating_add(1),
+            |n, case| n.saturating_add(case.branches.len()).saturating_add(2),
+        ),
+        Term::SelfAt(indices) | Term::Recur(_, indices) => indices.len(),
+    }
+}
+
 fn kids(t: &Term) -> Vec<T> {
     match t {
         Term::Pi(a, b)
@@ -296,7 +354,7 @@ fn kids(t: &Term) -> Vec<T> {
     }
 }
 fn decoded_term_weight(t: &Term) -> usize {
-    let mut n = std::mem::size_of::<Term>() + 64 + kids(t).len() * std::mem::size_of::<T>();
+    let mut n = std::mem::size_of::<TermNode>() + 64 + kids(t).len() * std::mem::size_of::<T>();
     match t {
         Term::Global(s, l) => {
             n += s.capacity() + l.iter().map(Level::storage_memory_weight).sum::<usize>()
@@ -374,7 +432,7 @@ impl Graph {
         if self.active.insert(p, ()).is_some() {
             return Err("cyclic declaration term graph".into());
         }
-        let ch = kids(t);
+        let ch = kids(t.as_ref());
         let mut ci = Vec::with_capacity(ch.len());
         for x in &ch {
             ci.push(self.visit(x, d + 1)?)
@@ -384,7 +442,7 @@ impl Graph {
             return Err("declaration term node limit exceeded".into());
         }
         let mut w = W(vec![]);
-        encode_node(&mut w, t, &ci)?;
+        encode_node(&mut w, t.as_ref(), &ci)?;
         self.bytes = self
             .bytes
             .checked_add(w.0.len() + 4)
@@ -742,13 +800,51 @@ pub(super) fn encode(d: &Declaration) -> Result<Vec<u8>> {
 
 /// Conservative owned-memory estimate, bounded independently at 256 MiB.
 pub(super) fn weight(d: &Declaration) -> Result<usize> {
-    fn add(n: &mut usize, x: usize) -> Result<()> {
+    weight_bounded(d, MAX_ALLOCATED, &mut |_| Ok(())).map(|(weight, _)| weight)
+}
+
+/// Optional term residency estimate. Caller meters all temporary graph state;
+/// exceeding this smaller storage limit declines retention, never checking.
+pub(super) fn term_weight(
+    value: &T,
+    limit: usize,
+    meter: &mut impl FnMut(usize) -> Result<()>,
+) -> Result<Option<(usize, usize)>> {
+    let declaration = Declaration {
+        universes: vec![],
+        ty: value.clone(),
+        value: None,
+        family: None,
+    };
+    match weight_bounded(&declaration, limit, meter) {
+        Ok(weight) => Ok(Some(weight)),
+        Err(why)
+            if matches!(
+                why.as_str(),
+                "declaration weight limit exceeded"
+                    | "declaration term depth limit exceeded"
+                    | "declaration term node limit exceeded"
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(why) => Err(why),
+    }
+}
+
+fn weight_bounded(
+    d: &Declaration,
+    limit: usize,
+    meter: &mut impl FnMut(usize) -> Result<()>,
+) -> Result<(usize, usize)> {
+    fn add(n: &mut usize, x: usize, limit: usize) -> Result<()> {
         *n = n.checked_add(x).ok_or("declaration weight overflow")?;
-        if *n > MAX_ALLOCATED {
+        if *n > limit {
             return Err("declaration weight limit exceeded".into());
         }
         Ok(())
     }
+    #[expect(clippy::too_many_arguments)]
     fn walk(
         t: &T,
         depth: usize,
@@ -757,7 +853,10 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
         n: &mut usize,
         count: &mut usize,
         heights: &mut HashMap<usize, usize>,
+        limit: usize,
+        meter: &mut impl FnMut(usize) -> Result<()>,
     ) -> Result<()> {
+        meter(0)?;
         if depth > MAX_DEPTH {
             return Err("declaration term depth limit exceeded".into());
         }
@@ -768,15 +867,15 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
             }
             return Ok(());
         }
-        if active.insert(p, ()).is_some() {
+        if active.contains_key(&p) {
             return Err("cyclic declaration term graph".into());
         }
         *count += 1;
         if *count > MAX_NODES {
             return Err("declaration term node limit exceeded".into());
         }
-        add(n, std::mem::size_of::<Term>() + 64)?;
-        let payload = match &**t {
+        add(n, std::mem::size_of::<TermNode>() + 64, limit)?;
+        let payload = match t.as_ref() {
             Term::Global(s, l) => {
                 s.capacity()
                     + l.capacity() * std::mem::size_of::<Level>()
@@ -875,15 +974,21 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
             Term::QuotInduct { level, .. } => level.storage_memory_weight(),
             _ => 0,
         };
-        add(n, payload)?;
-        for c in kids(t) {
-            walk(&c, depth + 1, seen, active, n, count, heights)?
+        add(n, payload, limit)?;
+        // Decline oversized retained graphs before reserving temporary state.
+        // Cover the maps and child handles before their allocations occur.
+        meter(256usize.saturating_add(child_count(t.as_ref()).saturating_mul(32)))?;
+        active.insert(p, ());
+        let children = kids(t.as_ref());
+        debug_assert_eq!(children.len(), child_count(t.as_ref()));
+        for c in &children {
+            walk(c, depth + 1, seen, active, n, count, heights, limit, meter)?
         }
         active.remove(&p);
         seen.insert(p, ());
         heights.insert(
             p,
-            1 + kids(t)
+            1 + children
                 .iter()
                 .map(|c| heights[&(Arc::as_ptr(c) as usize)])
                 .max()
@@ -902,6 +1007,8 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
         &mut n,
         &mut count,
         &mut heights,
+        limit,
+        meter,
     )?;
     if let Some(t) = &d.value {
         walk(
@@ -912,12 +1019,15 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
             &mut n,
             &mut count,
             &mut heights,
+            limit,
+            meter,
         )?
     }
     add(
         &mut n,
         d.universes.capacity() * std::mem::size_of::<String>()
             + d.universes.iter().map(String::capacity).sum::<usize>(),
+        limit,
     )?;
     if let Some(f) = &d.family {
         add(
@@ -928,6 +1038,7 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
                 + f.constructors.capacity() * std::mem::size_of::<Constructor>()
                 + f.parameters.capacity() * std::mem::size_of::<T>()
                 + f.indices.capacity() * std::mem::size_of::<T>(),
+            limit,
         )?;
         for t in f.parameters.iter().chain(&f.indices) {
             walk(
@@ -938,6 +1049,8 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
                 &mut n,
                 &mut count,
                 &mut heights,
+                limit,
+                meter,
             )?
         }
         for c in &f.constructors {
@@ -951,6 +1064,7 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
                         .sum::<usize>()
                     + c.fields.capacity() * std::mem::size_of::<T>()
                     + c.result_indices.capacity() * std::mem::size_of::<T>(),
+                limit,
             )?;
             for t in c.fields.iter().chain(&c.result_indices) {
                 walk(
@@ -961,11 +1075,13 @@ pub(super) fn weight(d: &Declaration) -> Result<usize> {
                     &mut n,
                     &mut count,
                     &mut heights,
+                    limit,
+                    meter,
                 )?
             }
         }
     }
-    Ok(n)
+    Ok((n, heights[&(Arc::as_ptr(&d.ty) as usize)]))
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<Declaration> {
@@ -1158,8 +1274,8 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Declaration> {
             return Err("invalid declaration node payload".into());
         }
         let node = term(t);
-        r.charge(decoded_term_weight(&node))?;
-        let depth = kids(&node)
+        r.charge(decoded_term_weight(node.as_ref()))?;
+        let depth = kids(node.as_ref())
             .iter()
             .filter_map(|child| depths.get(&(Arc::as_ptr(child) as usize)).map(|d| d + 1))
             .max()

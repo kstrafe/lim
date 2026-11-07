@@ -1,0 +1,253 @@
+; Explicit ring identities for removing and restoring a prime cube.
+; The actual product-power identity and associativity/commutativity laws
+; retain the unit and root expressions. No ring tactic or factor oracle.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-cube-product = ./eisenstein-cubic-factorization.lim::eisenstein-cube-product)
+(#theorem eisenstein-unit-cube-factor-rearrange
+  (#universes)
+  (#parameters
+    (#parameter factor (#pt-use eisenstein ()))
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter root (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          unit
+          (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+          (#pt-numeral 3)))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          unit
+          (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+      (#pt-app
+        (#pt-use eisenstein-multiply-congruent ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+          (#pt-numeral 3))
+        unit
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+        (#pt-app (#pt-use eisenstein-reflexive ()) unit)
+        (#pt-app (#pt-use eisenstein-cube-product ()) factor root))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          unit
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+          (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use eisenstein-multiply-associative ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+              unit)
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use eisenstein-multiply-congruent ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+              unit)
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply-commutative ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-reflexive ())
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use eisenstein-multiply-associative ())
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))))))
+(#theorem eisenstein-cube-associate-rebuild
+  (#universes)
+  (#parameters
+    (#parameter factor (#pt-use eisenstein ()))
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter root (#pt-use eisenstein ()))
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter factor-equation (#pt-app (#pt-use eisenstein-equal ()) number (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)) quotient)))
+    (#parameter quotient-equation (#pt-app (#pt-use eisenstein-equal ()) quotient (#pt-app (#pt-use eisenstein-multiply ()) unit (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      number
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+          (#pt-numeral 3)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      number
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+        quotient)
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        unit
+        (#pt-app
+          (#pt-use eisenstein-power ())
+          (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+          (#pt-numeral 3)))
+      factor-equation
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          quotient)
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          unit
+          (#pt-app
+            (#pt-use eisenstein-power ())
+            (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+            (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use eisenstein-multiply-congruent ())
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          quotient
+          (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3)))
+          quotient-equation)
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app
+              (#pt-use eisenstein-power ())
+              (#pt-app (#pt-use eisenstein-multiply ()) factor root)
+              (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-power ()) factor (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))
+          (#pt-app (#pt-use eisenstein-unit-cube-factor-rearrange ()) factor unit root))))))

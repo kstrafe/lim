@@ -239,7 +239,7 @@ fn inactive_output(body: &Body, value: NodeId, path: &[Segment]) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn word_return_guarantees(
     flow: &FlowGraph,
     body: &Body,
@@ -420,7 +420,7 @@ pub(in crate::typed_flow) fn word_and_scalar_return_guarantees(
     (result, scalar_returns)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

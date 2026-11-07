@@ -46,21 +46,27 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
         .clone();
     let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
     let child = if pinned {
-        Expr::List(vec![Expr::Symbol("#pin-ref-mut".into()), names[0].clone()])
+        Expr::List(vec![Expr::Symbol("#pin-ref-mut".into()), names[0].clone()].into())
     } else {
         names[0].clone()
     };
-    Ok(Expr::List(vec![
-        Expr::Symbol("#syntax".into()),
-        protocol,
-        Expr::List(vec![
-            result,
-            child,
-            names[2].clone(),
-            names[3].clone(),
-            names[4].clone(),
-        ]),
-    ]))
+    Ok(Expr::List(
+        vec![
+            Expr::Symbol("#syntax".into()),
+            protocol,
+            Expr::List(
+                vec![
+                    result,
+                    child,
+                    names[2].clone(),
+                    names[3].clone(),
+                    names[4].clone(),
+                ]
+                .into(),
+            ),
+        ]
+        .into(),
+    ))
 }
 
 /// The poll enum's declared fields are available before frame layout/emission.
@@ -115,7 +121,7 @@ pub(crate) fn poll_pattern_declaration(invocation: &Expr) -> Result<Item, String
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod protocol_tests {
     use super::*;
 
@@ -601,7 +607,8 @@ impl Registry {
                 "async interface requires a #fn declaration with a body".into(),
             ));
         }
-        let Expr::List(header) = crate::normalize_keywords(Expr::List(source[..4].to_vec())) else {
+        let Expr::List(header) = crate::normalize_keywords(Expr::List(source[..4].to_vec().into()))
+        else {
             unreachable!()
         };
         let original = crate::parse_function_parts(&header, false, false).map_err(fail)?;

@@ -1,0 +1,1227 @@
+; Constructive signed Bezout certificate operations.
+; Existential coefficients are eliminated only into further propositions.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-bezout-equation = ./integer-bezout-defs.lim::integer-bezout-equation)
+(#alias integer-has-bezout = ./integer-bezout-defs.lim::integer-has-bezout)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-add-zero = ./integer-addition.lim::integer-add-zero)
+(#alias
+  integer-multiply-congruent-second
+  =
+  ./integer-multiplication.lim::integer-multiply-congruent-second)
+(#alias integer-multiply-two-negatives = ./integer-divisibility.lim::integer-multiply-two-negatives)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-one-multiply = ./integer-bezout-algebra.lim::integer-one-multiply)
+(#alias integer-zero-multiply = ./integer-bezout-algebra.lim::integer-zero-multiply)
+(#alias
+  integer-bezout-euclidean-update
+  =
+  ./integer-bezout-algebra.lim::integer-bezout-euclidean-update)
+(#alias integer-divides-multiple = ./integer-divisibility.lim::integer-divides-multiple)
+(#alias integer-divides-transitive = ./integer-divisibility.lim::integer-divides-transitive)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias integer-divides-add = ./integer-divisibility-addition.lim::integer-divides-add)
+(#theorem integer-bezout-reflexive-left
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ())))
+  (#statement (#pt-app (#pt-use integer-has-bezout ()) first second first))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                first
+                candidate-left
+                candidate-right)))))
+      introduce
+      (
+        (#pt-use integer-one ())
+        (#pt-construct
+          exists
+          (0)
+          (
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                first
+                (#pt-use integer-one ())
+                candidate-right)))
+          introduce
+          (
+            (#pt-use integer-zero ())
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+                (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-zero ()) second))
+              first
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+                  (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-zero ()) second))
+                (#pt-app (#pt-use integer-add ()) first (#pt-use integer-zero ()))
+                first
+                (#pt-app
+                  (#pt-use integer-add-congruent ())
+                  (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+                  (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-zero ()) second)
+                  first
+                  (#pt-use integer-zero ())
+                  (#pt-app (#pt-use integer-one-multiply ()) first)
+                  (#pt-app (#pt-use integer-zero-multiply ()) second))
+                (#pt-app (#pt-use integer-add-zero ()) first)))))))))
+(#theorem integer-bezout-target-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter other-value (#pt-use integer ()))
+    (#parameter target-equivalence (#pt-app (#pt-use integer-equal ()) value other-value))
+    (#parameter bezout-proof (#pt-app (#pt-use integer-has-bezout ()) first second value)))
+  (#statement (#pt-app (#pt-use integer-has-bezout ()) first second other-value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app (#pt-use integer-has-bezout ()) first second other-value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    first
+                    second
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  first
+                  second
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        first
+                        second
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app (#pt-use integer-has-bezout ()) first second other-value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-left (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            second
+                            other-value
+                            candidate-left
+                            candidate-right)))))
+                  introduce
+                  (left-coefficient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            second
+                            other-value
+                            left-coefficient
+                            candidate-right)))
+                      introduce
+                      (right-coefficient
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          other-value
+                          value
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use integer-symmetric ())
+                            value
+                            other-value
+                            target-equivalence)
+                          coefficient-equation)))))))
+            right-certificate)))
+      bezout-proof)))
+(#theorem integer-bezout-arguments-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter other-first (#pt-use integer ()))
+    (#parameter other-second (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter first-equivalence (#pt-app (#pt-use integer-equal ()) first other-first))
+    (#parameter second-equivalence (#pt-app (#pt-use integer-equal ()) second other-second))
+    (#parameter bezout-proof (#pt-app (#pt-use integer-has-bezout ()) first second value)))
+  (#statement (#pt-app (#pt-use integer-has-bezout ()) other-first other-second value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app (#pt-use integer-has-bezout ()) other-first other-second value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    first
+                    second
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  first
+                  second
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        first
+                        second
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app (#pt-use integer-has-bezout ()) other-first other-second value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-left (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            other-first
+                            other-second
+                            value
+                            candidate-left
+                            candidate-right)))))
+                  introduce
+                  (left-coefficient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            other-first
+                            other-second
+                            value
+                            left-coefficient
+                            candidate-right)))
+                      introduce
+                      (right-coefficient
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          value
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient other-first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient other-second))
+                          coefficient-equation
+                          (#pt-app
+                            (#pt-use integer-add-congruent ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient other-first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient other-second)
+                            (#pt-app
+                              (#pt-use integer-multiply-congruent-second ())
+                              left-coefficient
+                              first
+                              other-first
+                              first-equivalence)
+                            (#pt-app
+                              (#pt-use integer-multiply-congruent-second ())
+                              right-coefficient
+                              second
+                              other-second
+                              second-equivalence)))))))))
+            right-certificate)))
+      bezout-proof)))
+(#theorem integer-bezout-negative-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter bezout-proof (#pt-app (#pt-use integer-has-bezout ()) first second value)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-has-bezout ())
+      (#pt-app (#pt-use integer-negate ()) first)
+      second
+      value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app
+          (#pt-use integer-has-bezout ())
+          (#pt-app (#pt-use integer-negate ()) first)
+          second
+          value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    first
+                    second
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  first
+                  second
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        first
+                        second
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app
+                (#pt-use integer-has-bezout ())
+                (#pt-app (#pt-use integer-negate ()) first)
+                second
+                value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-left (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            (#pt-app (#pt-use integer-negate ()) first)
+                            second
+                            value
+                            candidate-left
+                            candidate-right)))))
+                  introduce
+                  (
+                    (#pt-app (#pt-use integer-negate ()) left-coefficient)
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            (#pt-app (#pt-use integer-negate ()) first)
+                            second
+                            value
+                            (#pt-app (#pt-use integer-negate ()) left-coefficient)
+                            candidate-right)))
+                      introduce
+                      (right-coefficient
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          value
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app (#pt-use integer-negate ()) left-coefficient)
+                              (#pt-app (#pt-use integer-negate ()) first))
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                          coefficient-equation
+                          (#pt-app
+                            (#pt-use integer-symmetric ())
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-negate ()) left-coefficient)
+                                (#pt-app (#pt-use integer-negate ()) first))
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                            (#pt-app
+                              (#pt-use integer-add-congruent ())
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-negate ()) left-coefficient)
+                                (#pt-app (#pt-use integer-negate ()) first))
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                              (#pt-app
+                                (#pt-use integer-multiply-two-negatives ())
+                                left-coefficient
+                                first)
+                              (#pt-app
+                                (#pt-use integer-reflexive ())
+                                (#pt-app (#pt-use integer-multiply ()) right-coefficient second)))))))))))
+            right-certificate)))
+      bezout-proof)))
+(#theorem integer-bezout-negative-second
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter bezout-proof (#pt-app (#pt-use integer-has-bezout ()) first second value)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-has-bezout ())
+      first
+      (#pt-app (#pt-use integer-negate ()) second)
+      value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app
+          (#pt-use integer-has-bezout ())
+          first
+          (#pt-app (#pt-use integer-negate ()) second)
+          value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    first
+                    second
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  first
+                  second
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        first
+                        second
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app
+                (#pt-use integer-has-bezout ())
+                first
+                (#pt-app (#pt-use integer-negate ()) second)
+                value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-left (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            (#pt-app (#pt-use integer-negate ()) second)
+                            value
+                            candidate-left
+                            candidate-right)))))
+                  introduce
+                  (left-coefficient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            (#pt-app (#pt-use integer-negate ()) second)
+                            value
+                            left-coefficient
+                            candidate-right)))
+                      introduce
+                      (
+                        (#pt-app (#pt-use integer-negate ()) right-coefficient)
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          value
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app (#pt-use integer-negate ()) right-coefficient)
+                              (#pt-app (#pt-use integer-negate ()) second)))
+                          coefficient-equation
+                          (#pt-app
+                            (#pt-use integer-symmetric ())
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-negate ()) right-coefficient)
+                                (#pt-app (#pt-use integer-negate ()) second)))
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                            (#pt-app
+                              (#pt-use integer-add-congruent ())
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app (#pt-use integer-negate ()) right-coefficient)
+                                (#pt-app (#pt-use integer-negate ()) second))
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                              (#pt-app
+                                (#pt-use integer-reflexive ())
+                                (#pt-app (#pt-use integer-multiply ()) left-coefficient first))
+                              (#pt-app
+                                (#pt-use integer-multiply-two-negatives ())
+                                right-coefficient
+                                second))))))))))
+            right-certificate)))
+      bezout-proof)))
+(#theorem integer-bezout-euclidean-step
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter quotient (#pt-use integer ()))
+    (#parameter remainder (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter division-equivalence (#pt-app (#pt-use integer-equal ()) first (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-multiply ()) quotient second) remainder)))
+    (#parameter remainder-bezout-proof (#pt-app (#pt-use integer-has-bezout ()) second remainder value)))
+  (#statement (#pt-app (#pt-use integer-has-bezout ()) first second value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                second
+                remainder
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      second
+                      remainder
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app (#pt-use integer-has-bezout ()) first second value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    second
+                    remainder
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  second
+                  remainder
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        second
+                        remainder
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app (#pt-use integer-has-bezout ()) first second value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      second
+                      remainder
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-left (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            second
+                            value
+                            candidate-left
+                            candidate-right)))))
+                  introduce
+                  (right-coefficient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use integer ())
+                        (#pt-lambda
+                          ((candidate-right (#pt-use integer ())))
+                          (#pt-app
+                            (#pt-use integer-bezout-equation ())
+                            first
+                            second
+                            value
+                            right-coefficient
+                            candidate-right)))
+                      introduce
+                      (
+                        (#pt-app
+                          (#pt-use integer-add ())
+                          left-coefficient
+                          (#pt-app
+                            (#pt-use integer-negate ())
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient quotient)))
+                        (#pt-app
+                          (#pt-use integer-transitive ())
+                          value
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) left-coefficient second)
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient remainder))
+                          (#pt-app
+                            (#pt-use integer-add ())
+                            (#pt-app (#pt-use integer-multiply ()) right-coefficient first)
+                            (#pt-app
+                              (#pt-use integer-multiply ())
+                              (#pt-app
+                                (#pt-use integer-add ())
+                                left-coefficient
+                                (#pt-app
+                                  (#pt-use integer-negate ())
+                                  (#pt-app (#pt-use integer-multiply ()) right-coefficient quotient)))
+                              second))
+                          coefficient-equation
+                          (#pt-app
+                            (#pt-use integer-symmetric ())
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient first)
+                              (#pt-app
+                                (#pt-use integer-multiply ())
+                                (#pt-app
+                                  (#pt-use integer-add ())
+                                  left-coefficient
+                                  (#pt-app
+                                    (#pt-use integer-negate ())
+                                    (#pt-app
+                                      (#pt-use integer-multiply ())
+                                      right-coefficient
+                                      quotient)))
+                                second))
+                            (#pt-app
+                              (#pt-use integer-add ())
+                              (#pt-app (#pt-use integer-multiply ()) left-coefficient second)
+                              (#pt-app (#pt-use integer-multiply ()) right-coefficient remainder))
+                            (#pt-app
+                              (#pt-use integer-bezout-euclidean-update ())
+                              first
+                              second
+                              remainder
+                              quotient
+                              left-coefficient
+                              right-coefficient
+                              division-equivalence)))))))))
+            right-certificate)))
+      remainder-bezout-proof)))
+(#theorem integer-bezout-common-divisor
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter value (#pt-use integer ()))
+    (#parameter common-divisor (#pt-use integer ()))
+    (#parameter bezout-proof (#pt-app (#pt-use integer-has-bezout ()) first second value))
+    (#parameter first-divides (#pt-app (#pt-use integer-divides ()) common-divisor first))
+    (#parameter second-divides (#pt-app (#pt-use integer-divides ()) common-divisor second)))
+  (#statement (#pt-app (#pt-use integer-divides ()) common-divisor value))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-left (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-right (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-bezout-equation ())
+                first
+                second
+                value
+                candidate-left
+                candidate-right)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-left (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use integer ())
+                  (#pt-lambda
+                    ((candidate-right (#pt-use integer ())))
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      candidate-left
+                      candidate-right)))))))
+        (#pt-app (#pt-use integer-divides ()) common-divisor value))
+      (
+        (#pt-lambda
+          (
+            (left-coefficient (#pt-use integer ()))
+            (right-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-right (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use integer-bezout-equation ())
+                    first
+                    second
+                    value
+                    left-coefficient
+                    candidate-right)))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-right (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-bezout-equation ())
+                  first
+                  second
+                  value
+                  left-coefficient
+                  candidate-right)))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-right (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-bezout-equation ())
+                        first
+                        second
+                        value
+                        left-coefficient
+                        candidate-right)))))
+              (#pt-app (#pt-use integer-divides ()) common-divisor value))
+            (
+              (#pt-lambda
+                (
+                  (right-coefficient (#pt-use integer ()))
+                  (coefficient-equation
+                    (#pt-app
+                      (#pt-use integer-bezout-equation ())
+                      first
+                      second
+                      value
+                      left-coefficient
+                      right-coefficient)))
+                (#pt-app
+                  (#pt-use integer-divides-congruent-target ())
+                  common-divisor
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                    (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                  value
+                  (#pt-app
+                    (#pt-use integer-symmetric ())
+                    value
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use integer-multiply ()) right-coefficient second))
+                    coefficient-equation)
+                  (#pt-app
+                    (#pt-use integer-divides-add ())
+                    common-divisor
+                    (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                    (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                    (#pt-app
+                      (#pt-use integer-divides-congruent-target ())
+                      common-divisor
+                      (#pt-app (#pt-use integer-multiply ()) first left-coefficient)
+                      (#pt-app (#pt-use integer-multiply ()) left-coefficient first)
+                      (#pt-app (#pt-use integer-multiply-commutative ()) first left-coefficient)
+                      (#pt-app
+                        (#pt-use integer-divides-transitive ())
+                        common-divisor
+                        first
+                        (#pt-app (#pt-use integer-multiply ()) first left-coefficient)
+                        first-divides
+                        (#pt-app (#pt-use integer-divides-multiple ()) first left-coefficient)))
+                    (#pt-app
+                      (#pt-use integer-divides-congruent-target ())
+                      common-divisor
+                      (#pt-app (#pt-use integer-multiply ()) second right-coefficient)
+                      (#pt-app (#pt-use integer-multiply ()) right-coefficient second)
+                      (#pt-app (#pt-use integer-multiply-commutative ()) second right-coefficient)
+                      (#pt-app
+                        (#pt-use integer-divides-transitive ())
+                        common-divisor
+                        second
+                        (#pt-app (#pt-use integer-multiply ()) second right-coefficient)
+                        second-divides
+                        (#pt-app (#pt-use integer-divides-multiple ()) second right-coefficient)))))))
+            right-certificate)))
+      bezout-proof)))

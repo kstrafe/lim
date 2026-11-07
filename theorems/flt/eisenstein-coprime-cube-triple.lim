@@ -1,0 +1,259 @@
+; Pairwise coprimality extends to a product by actual divisor and
+; Euclid witnesses. The proved binary cube extraction then constructs
+; roots and unit factors for all three pairwise-coprime factors,
+; matching the three associated cubes in FLT/Three.lean:567-578.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias
+  eisenstein-coprime-divides-product
+  =
+  ./eisenstein-coprime-factors.lim::eisenstein-coprime-divides-product)
+(#alias eisenstein-associated-cube = ./eisenstein-associated-cube.lim::eisenstein-associated-cube)
+(#alias
+  eisenstein-coprime-common-divisor-unit
+  =
+  ./eisenstein-coprime-factors.lim::eisenstein-coprime-common-divisor-unit)
+(#alias
+  eisenstein-coprime-of-common-divisors-unit
+  =
+  ./eisenstein-coprime-factors.lim::eisenstein-coprime-of-common-divisors-unit)
+(#alias
+  eisenstein-coprime-symmetric
+  =
+  ./eisenstein-coprime-factors.lim::eisenstein-coprime-symmetric)
+(#alias
+  eisenstein-coprime-divisor-left
+  =
+  ./eisenstein-prime-cube-laws.lim::eisenstein-coprime-divisor-left)
+(#alias
+  eisenstein-coprime-product-associated-cube
+  =
+  ./eisenstein-coprime-cube.lim::eisenstein-coprime-product-associated-cube)
+(#theorem eisenstein-coprime-product-right
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter first-second-coprime (#pt-app (#pt-use eisenstein-coprime ()) first second))
+    (#parameter first-third-coprime (#pt-app (#pt-use eisenstein-coprime ()) first third)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-coprime ())
+      first
+      (#pt-app (#pt-use eisenstein-multiply ()) second third)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-coprime-of-common-divisors-unit ())
+      first
+      (#pt-app (#pt-use eisenstein-multiply ()) second third)
+      (#pt-lambda
+        (
+          (common-divisor (#pt-use eisenstein ()))
+          (divides-first (#pt-app (#pt-use eisenstein-divides ()) common-divisor first))
+          (divides-product
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              common-divisor
+              (#pt-app (#pt-use eisenstein-multiply ()) second third))))
+        (#pt-app
+          (#pt-use eisenstein-coprime-common-divisor-unit ())
+          first
+          third
+          common-divisor
+          first-third-coprime
+          divides-first
+          (#pt-app
+            (#pt-use eisenstein-coprime-divides-product ())
+            common-divisor
+            second
+            third
+            (#pt-app
+              (#pt-use eisenstein-coprime-divisor-left ())
+              first
+              second
+              common-divisor
+              first-second-coprime
+              divides-first)
+            divides-product))))))
+(#theorem eisenstein-coprime-triple-associated-cubes
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter root (#pt-use eisenstein ()))
+    (#parameter first-second-coprime (#pt-app (#pt-use eisenstein-coprime ()) first second))
+    (#parameter first-third-coprime (#pt-app (#pt-use eisenstein-coprime ()) first third))
+    (#parameter second-third-coprime (#pt-app (#pt-use eisenstein-coprime ()) second third))
+    (#parameter unit-certificate (#pt-app (#pt-use eisenstein-unit ()) unit))
+    (#parameter product-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-multiply ()) first second) third) (#pt-app (#pt-use eisenstein-multiply ()) unit (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3))))))
+  (#statement
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app (#pt-use eisenstein-associated-cube ()) first)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use eisenstein-associated-cube ()) second)
+        (#pt-app (#pt-use eisenstein-associated-cube ()) third))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use eisenstein-associated-cube ()) first)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use eisenstein-associated-cube ()) second)
+        (#pt-app (#pt-use eisenstein-associated-cube ()) third))
+      (#pt-app
+        (#pt-use eisenstein-coprime-product-associated-cube ())
+        first
+        (#pt-app (#pt-use eisenstein-multiply ()) second third)
+        unit
+        root
+        (#pt-app
+          (#pt-use eisenstein-coprime-product-right ())
+          first
+          second
+          third
+          first-second-coprime
+          first-third-coprime)
+        unit-certificate
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) second third))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first second)
+            third)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first second)
+              third)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) second third))
+            (#pt-app (#pt-use eisenstein-multiply-associative ()) first second third))
+          product-equation))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use eisenstein-associated-cube ()) second)
+        (#pt-app (#pt-use eisenstein-associated-cube ()) third)
+        (#pt-app
+          (#pt-use eisenstein-coprime-product-associated-cube ())
+          second
+          (#pt-app (#pt-use eisenstein-multiply ()) first third)
+          unit
+          root
+          (#pt-app
+            (#pt-use eisenstein-coprime-product-right ())
+            second
+            first
+            third
+            (#pt-app (#pt-use eisenstein-coprime-symmetric ()) first second first-second-coprime)
+            second-third-coprime)
+          unit-certificate
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              second
+              (#pt-app (#pt-use eisenstein-multiply ()) first third))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) second first)
+              third)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-symmetric ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) second first)
+                third)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                second
+                (#pt-app (#pt-use eisenstein-multiply ()) first third))
+              (#pt-app (#pt-use eisenstein-multiply-associative ()) second first third))
+            (#pt-app
+              (#pt-use eisenstein-transitive ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) second first)
+                third)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                third)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                unit
+                (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+              (#pt-app
+                (#pt-use eisenstein-multiply-congruent ())
+                (#pt-app (#pt-use eisenstein-multiply ()) second first)
+                third
+                (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                third
+                (#pt-app (#pt-use eisenstein-multiply-commutative ()) second first)
+                (#pt-app (#pt-use eisenstein-reflexive ()) third))
+              product-equation)))
+        (#pt-app
+          (#pt-use eisenstein-coprime-product-associated-cube ())
+          third
+          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+          unit
+          root
+          (#pt-app
+            (#pt-use eisenstein-coprime-product-right ())
+            third
+            first
+            second
+            (#pt-app (#pt-use eisenstein-coprime-symmetric ()) first third first-third-coprime)
+            (#pt-app (#pt-use eisenstein-coprime-symmetric ()) second third second-third-coprime))
+          unit-certificate
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              third
+              (#pt-app (#pt-use eisenstein-multiply ()) first second))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first second)
+              third)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) root (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-multiply-commutative ())
+              third
+              (#pt-app (#pt-use eisenstein-multiply ()) first second))
+            product-equation))))))

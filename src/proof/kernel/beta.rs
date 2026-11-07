@@ -43,10 +43,18 @@ impl Kernel {
             cursor = function;
         }
         arguments.reverse();
-        let mut body = if delta {
-            self.natural_head(head, depth + count)?
-        } else {
-            head.clone()
+        // Specialize retained callee syntax during beta substitution. The
+        // consumed lambda annotations disappear; caller arguments must never
+        // pass through this callee's universe map, even if names coincide.
+        let (mut body, universes) = match head.as_ref() {
+            Term::Global(name, levels) if delta => {
+                let (declaration, universes) = self.specialization(name, levels, depth + count)?;
+                let Some(body) = declaration.value else {
+                    return Ok(None);
+                };
+                (body, universes)
+            }
+            _ => (head.clone(), HashMap::new()),
         };
         let mut consumed = 0;
         while consumed < count {
@@ -59,18 +67,22 @@ impl Kernel {
         if consumed < 2 {
             return Ok(None);
         }
-        // Preserve the deepest body position of the first ordinary beta
-        // substitution. Argument walks use the maximum original shift depth.
-        let result = self.instantiate_many(
+        // The combined walk visits the contracted body, underneath only the
+        // applications left over. Consumed application/lambda frames are not
+        // traversed. Each caller argument keeps the shift-depth check for its
+        // own original position in the input spine.
+        let result = self.instantiate_many_specialized(
             &body,
             &arguments[..consumed],
-            depth + count + consumed - 1,
-            depth + count + 1,
+            &universes,
+            depth + count - consumed,
+            |argument| depth + count + 1 - argument,
         )?;
-        self.charge_transformation((count - consumed) * 128)?;
+        self.charge_transformation((count - consumed) * TERM_NODE_BYTES)?;
         Ok(Some(apps(result, &arguments[consumed..])))
     }
 
+    #[cfg(test)]
     fn instantiate_many(
         &mut self,
         body: &T,
@@ -78,13 +90,35 @@ impl Kernel {
         depth: usize,
         argument_depth: usize,
     ) -> Result<T> {
+        self.instantiate_many_specialized(body, arguments, &HashMap::new(), depth, |_| {
+            argument_depth
+        })
+    }
+
+    fn instantiate_many_specialized(
+        &mut self,
+        body: &T,
+        arguments: &[T],
+        universes: &HashMap<String, Level>,
+        depth: usize,
+        argument_depth: impl Fn(usize) -> usize,
+    ) -> Result<T> {
         let mut shifted = HashMap::<(usize, usize), T>::new();
         self.charge_transformation(128 + arguments.len())?;
         let mut invariant = vec![false; arguments.len()];
-        self.transform(
+        self.transform_nodes_cached(
             body,
             0,
             depth,
+            &mut |_, value, binders, _| {
+                let range = value.loose_range();
+                let bound = range == 0 || range != usize::MAX && range <= binders;
+                if bound && (universes.is_empty() || !value.has_universe_params()) {
+                    Ok(ControlFlow::Break(value.clone()))
+                } else {
+                    Ok(ControlFlow::Continue(value.clone()))
+                }
+            },
             &mut |kernel, index, binders| {
                 if index >= binders && index - binders < arguments.len() {
                     let argument = arguments.len() - 1 - (index - binders);
@@ -98,7 +132,7 @@ impl Kernel {
                     let (value, unchanged) = kernel.beta_shift_argument(
                         &arguments[argument],
                         binders,
-                        argument_depth,
+                        argument_depth(argument),
                     )?;
                     kernel.charge_transformation(256)?;
                     if unchanged {
@@ -115,7 +149,14 @@ impl Kernel {
                     })))
                 }
             },
-            &mut |level| Ok(level.clone()),
+            &mut |level| {
+                if universes.is_empty() {
+                    Ok(level.clone())
+                } else {
+                    level.substitute(universes)
+                }
+            },
+            &mut Some(TransformMemo::default()),
         )
     }
 
@@ -126,19 +167,30 @@ impl Kernel {
     fn beta_shift_argument(&mut self, value: &T, amount: usize, depth: usize) -> Result<(T, bool)> {
         if amount == 0 {
             self.tick(depth)?;
-            // An identity shift proves nothing about free variables in a
-            // compound argument. Only these leaves are known invariant.
-            let invariant = matches!(
-                value.as_ref(),
-                Term::Sort(_) | Term::Global(..) | Term::NatLiteral { .. }
-            );
+            // Cached syntax establishes absence of free term variables even
+            // when the identity shift performs no traversal.
+            let invariant = value.loose_range() == 0;
             return Ok((value.clone(), invariant));
         }
+        if value.loose_range() == 0 {
+            self.tick(depth)?;
+            return Ok((value.clone(), true));
+        }
         let mut invariant = true;
-        let shifted = self.transform(
+        // The invariant flag only changes from true to false. Reusing a node
+        // already visited at the same binder depth cannot hide a free variable.
+        let shifted = self.transform_nodes_cached(
             value,
             0,
             depth,
+            &mut |_, value, binders, _| {
+                let range = value.loose_range();
+                if range == 0 || range != usize::MAX && range <= binders {
+                    Ok(ControlFlow::Break(value.clone()))
+                } else {
+                    Ok(ControlFlow::Continue(value.clone()))
+                }
+            },
             &mut |_, index, binders| {
                 let index = if index >= binders {
                     invariant = false;
@@ -149,6 +201,7 @@ impl Kernel {
                 Ok(term(Term::Var(index)))
             },
             &mut |level| Ok(level.clone()),
+            &mut Some(TransformMemo::default()),
         )?;
         Ok((if invariant { value.clone() } else { shifted }, invariant))
     }
@@ -283,7 +336,7 @@ mod tests {
     fn discovering_invariance_keeps_depth_overflow_and_universe_payloads() {
         let mut kernel = Kernel::new();
         assert!(kernel
-            .beta_shift_argument(&lam(nat(), var(0)), 1, DEPTH)
+            .beta_shift_argument(&lam(var(0), var(0)), 1, DEPTH)
             .unwrap_err()
             .contains("resource limit"));
         kernel.reset_budget();
@@ -385,7 +438,7 @@ mod tests {
                 .definition(&name, vec![], nat(), value, false)
                 .unwrap_err();
             assert!(!why.contains("resource limit"), "{why}");
-            assert!(!kernel.contains(&name));
+            assert!(!kernel.contains(&name).unwrap());
         }
     }
 
@@ -453,3 +506,7 @@ mod tests {
 #[cfg(test)]
 #[path = "identity_shift_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "beta_universe_tests.rs"]
+mod universe_tests;

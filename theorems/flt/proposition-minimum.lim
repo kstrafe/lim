@@ -1,0 +1,453 @@
+; Least witnesses from actual pointwise proposition cases and a witness.
+; Finite prefixes are searched by Nat induction, retaining proof/refutation
+; evidence entirely in Prop. No Prop-to-Type decision extraction,
+; excluded-middle oracle, classical choice or search cutoff is assumed.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias any-up-to = ./bounded-existence.lim::any-up-to)
+(#alias any-up-to-grow = ./bounded-existence.lim::any-up-to-grow)
+(#alias any-up-to-here = ./bounded-existence.lim::any-up-to-here)
+(#alias minimum = ./least-witness.lim::minimum)
+(#alias has-minimum = ./least-witness.lim::has-minimum)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-zero = ./natural-order.lim::not-less-than-zero)
+(#alias any-up-to-from-less-successor = ./decidable-order.lim::any-up-to-from-less-successor)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#theorem proposition-prefix-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter pointwise-cases (#pt-pi ((candidate #pt-nat)) (#pt-app (#pt-use disjunction ()) (#pt-app property candidate) (#pt-pi ((denied-proof (#pt-app property candidate))) #pt-false))))
+    (#parameter bound #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use any-up-to ()) property bound)
+      (#pt-pi ((denied-proof (#pt-app (#pt-use any-up-to ()) property bound))) #pt-false)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use any-up-to ()) property index)
+          (#pt-pi ((denied-proof (#pt-app (#pt-use any-up-to ()) property index))) #pt-false)))
+      (#pt-app pointwise-cases #pt-zero)
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-cases
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app (#pt-use any-up-to ()) property previous)
+              (#pt-pi ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous))) #pt-false))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use any-up-to ()) property previous)
+          (#pt-pi ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous))) #pt-false)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+              #pt-false))
+          (#pt-lambda
+            ((prefix-found (#pt-app (#pt-use any-up-to ()) property previous)))
+            (#pt-app
+              (#pt-use disjunction-left ())
+              (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))
+              (#pt-pi
+                ((denied-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+                #pt-false)
+              (#pt-app (#pt-use any-up-to-grow ()) property previous prefix-found)))
+          (#pt-lambda
+            (
+              (prefix-missing
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                  #pt-false)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app property (#pt-succ previous))
+              (#pt-pi ((denied-proof (#pt-app property (#pt-succ previous)))) #pt-false)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+                  #pt-false))
+              (#pt-lambda
+                ((last-found (#pt-app property (#pt-succ previous))))
+                (#pt-app
+                  (#pt-use disjunction-left ())
+                  (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+                    #pt-false)
+                  (#pt-app (#pt-use any-up-to-here ()) property (#pt-succ previous) last-found)))
+              (#pt-lambda
+                (
+                  (last-missing
+                    (#pt-pi ((denied-proof (#pt-app property (#pt-succ previous)))) #pt-false)))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+                    #pt-false)
+                  (#pt-lambda
+                    (
+                      (prefix-evidence
+                        (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+                    (#pt-app
+                      (#pt-use disjunction-eliminate ())
+                      (#pt-app (#pt-use any-up-to ()) property previous)
+                      (#pt-app property (#pt-succ previous))
+                      #pt-false
+                      (#pt-lambda
+                        ((earlier-evidence (#pt-app (#pt-use any-up-to ()) property previous)))
+                        (#pt-app prefix-missing earlier-evidence))
+                      (#pt-lambda
+                        ((last-evidence (#pt-app property (#pt-succ previous))))
+                        (#pt-app last-missing last-evidence))
+                      prefix-evidence))))
+              (#pt-app pointwise-cases (#pt-succ previous))))
+          previous-cases))
+      bound)))
+(#theorem proposition-bounded-minimum
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter pointwise-cases (#pt-pi ((candidate #pt-nat)) (#pt-app (#pt-use disjunction ()) (#pt-app property candidate) (#pt-pi ((denied-proof (#pt-app property candidate))) #pt-false))))
+    (#parameter bound #pt-nat)
+    (#parameter given-prefix (#pt-app (#pt-use any-up-to ()) property bound)))
+  (#statement (#pt-app (#pt-use has-minimum ()) property))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((prefix-proof (#pt-app (#pt-use any-up-to ()) property index)))
+            (#pt-app (#pt-use has-minimum ()) property)))
+        (#pt-lambda
+          ((at-zero (#pt-app property #pt-zero)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-minimum #pt-nat))
+                (#pt-app (#pt-use minimum ()) property candidate-minimum)))
+            introduce
+            (#pt-zero
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-app property #pt-zero)
+                (#pt-pi
+                  (
+                    (smaller #pt-nat)
+                    (smaller-position (#pt-app (#pt-use less-than ()) smaller #pt-zero))
+                    (smaller-property (#pt-app property smaller)))
+                  #pt-false)
+                at-zero
+                (#pt-lambda
+                  (
+                    (smaller #pt-nat)
+                    (smaller-position (#pt-app (#pt-use less-than ()) smaller #pt-zero))
+                    (smaller-property (#pt-app property smaller)))
+                  (#pt-app (#pt-app (#pt-use not-less-than-zero ()) smaller) smaller-position))))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-minimum
+              (#pt-pi
+                ((prefix-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                (#pt-app (#pt-use has-minimum ()) property)))
+            (current-prefix (#pt-app (#pt-use any-up-to ()) property (#pt-succ previous))))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app (#pt-use any-up-to ()) property previous)
+            (#pt-app property (#pt-succ previous))
+            (#pt-app (#pt-use has-minimum ()) property)
+            (#pt-lambda
+              ((prefix-found (#pt-app (#pt-use any-up-to ()) property previous)))
+              (#pt-app previous-minimum prefix-found))
+            (#pt-lambda
+              ((at-last (#pt-app property (#pt-succ previous))))
+              (#pt-app
+                (#pt-use disjunction-eliminate ())
+                (#pt-app (#pt-use any-up-to ()) property previous)
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                  #pt-false)
+                (#pt-app (#pt-use has-minimum ()) property)
+                (#pt-lambda
+                  ((prefix-found (#pt-app (#pt-use any-up-to ()) property previous)))
+                  (#pt-app previous-minimum prefix-found))
+                (#pt-lambda
+                  (
+                    (prefix-missing
+                      (#pt-pi
+                        ((denied-proof (#pt-app (#pt-use any-up-to ()) property previous)))
+                        #pt-false)))
+                  (#pt-construct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((candidate-minimum #pt-nat))
+                        (#pt-app (#pt-use minimum ()) property candidate-minimum)))
+                    introduce
+                    (
+                      (#pt-succ previous)
+                      (#pt-app
+                        (#pt-use conjunction-introduce ())
+                        (#pt-app property (#pt-succ previous))
+                        (#pt-pi
+                          (
+                            (smaller #pt-nat)
+                            (smaller-position
+                              (#pt-app (#pt-use less-than ()) smaller (#pt-succ previous)))
+                            (smaller-property (#pt-app property smaller)))
+                          #pt-false)
+                        at-last
+                        (#pt-lambda
+                          (
+                            (smaller #pt-nat)
+                            (smaller-position
+                              (#pt-app (#pt-use less-than ()) smaller (#pt-succ previous)))
+                            (smaller-property (#pt-app property smaller)))
+                          (#pt-app
+                            prefix-missing
+                            (#pt-app
+                              (#pt-use any-up-to-from-less-successor ())
+                              property
+                              smaller
+                              previous
+                              smaller-position
+                              smaller-property)))))))
+                (#pt-app (#pt-use proposition-prefix-cases ()) property pointwise-cases previous)))
+            current-prefix))
+        bound)
+      given-prefix)))
+(#theorem minimum-exists-from-proposition-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter pointwise-cases (#pt-pi ((candidate #pt-nat)) (#pt-app (#pt-use disjunction ()) (#pt-app property candidate) (#pt-pi ((denied-proof (#pt-app property candidate))) #pt-false))))
+    (#parameter witness-existence (#pt-app (#pt-use exists (0)) #pt-nat (#pt-lambda ((candidate-witness #pt-nat)) (#pt-app property candidate-witness)))))
+  (#statement (#pt-app (#pt-use has-minimum ()) property))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat (#pt-lambda ((candidate-witness #pt-nat)) (#pt-app property candidate-witness)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda ((candidate-witness #pt-nat)) (#pt-app property candidate-witness)))))
+        (#pt-app (#pt-use has-minimum ()) property))
+      (
+        (#pt-lambda
+          ((witness #pt-nat) (witness-proof (#pt-app property witness)))
+          (#pt-app
+            (#pt-use proposition-bounded-minimum ())
+            property
+            pointwise-cases
+            witness
+            (#pt-app (#pt-use any-up-to-here ()) property witness witness-proof))))
+      witness-existence)))
+(#theorem proposition-conjunction-cases
+  (#universes)
+  (#parameters
+    (#parameter left-proposition #pt-prop)
+    (#parameter right-proposition #pt-prop)
+    (#parameter left-cases (#pt-app (#pt-use disjunction ()) left-proposition (#pt-pi ((denied-proof left-proposition)) #pt-false)))
+    (#parameter right-cases (#pt-app (#pt-use disjunction ()) right-proposition (#pt-pi ((denied-proof right-proposition)) #pt-false))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+      (#pt-pi
+        ((denied-proof (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      left-proposition
+      (#pt-pi ((denied-proof left-proposition)) #pt-false)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+        (#pt-pi
+          ((denied-proof (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+          #pt-false))
+      (#pt-lambda
+        ((left-evidence left-proposition))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          right-proposition
+          (#pt-pi ((denied-proof right-proposition)) #pt-false)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+              #pt-false))
+          (#pt-lambda
+            ((right-evidence right-proposition))
+            (#pt-app
+              (#pt-use disjunction-left ())
+              (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                left-proposition
+                right-proposition
+                left-evidence
+                right-evidence)))
+          (#pt-lambda
+            ((right-refutation (#pt-pi ((denied-proof right-proposition)) #pt-false)))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+                #pt-false)
+              (#pt-lambda
+                (
+                  (conjunction-evidence
+                    (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+                (#pt-app
+                  right-refutation
+                  (#pt-app
+                    (#pt-use conjunction-right ())
+                    left-proposition
+                    right-proposition
+                    conjunction-evidence)))))
+          right-cases))
+      (#pt-lambda
+        ((left-refutation (#pt-pi ((denied-proof left-proposition)) #pt-false)))
+        (#pt-app
+          (#pt-use disjunction-right ())
+          (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)
+          (#pt-pi
+            ((denied-proof (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+            #pt-false)
+          (#pt-lambda
+            (
+              (conjunction-evidence
+                (#pt-app (#pt-use conjunction ()) left-proposition right-proposition)))
+            (#pt-app
+              left-refutation
+              (#pt-app
+                (#pt-use conjunction-left ())
+                left-proposition
+                right-proposition
+                conjunction-evidence)))))
+      left-cases)))
+(#theorem proposition-disjunction-cases
+  (#universes)
+  (#parameters
+    (#parameter left-proposition #pt-prop)
+    (#parameter right-proposition #pt-prop)
+    (#parameter left-cases (#pt-app (#pt-use disjunction ()) left-proposition (#pt-pi ((denied-proof left-proposition)) #pt-false)))
+    (#parameter right-cases (#pt-app (#pt-use disjunction ()) right-proposition (#pt-pi ((denied-proof right-proposition)) #pt-false))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+      (#pt-pi
+        ((denied-proof (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      left-proposition
+      (#pt-pi ((denied-proof left-proposition)) #pt-false)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+        (#pt-pi
+          ((denied-proof (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+          #pt-false))
+      (#pt-lambda
+        ((left-evidence left-proposition))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+          (#pt-pi
+            ((denied-proof (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+            #pt-false)
+          (#pt-app (#pt-use disjunction-left ()) left-proposition right-proposition left-evidence)))
+      (#pt-lambda
+        ((left-refutation (#pt-pi ((denied-proof left-proposition)) #pt-false)))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          right-proposition
+          (#pt-pi ((denied-proof right-proposition)) #pt-false)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+              #pt-false))
+          (#pt-lambda
+            ((right-evidence right-proposition))
+            (#pt-app
+              (#pt-use disjunction-left ())
+              (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+                #pt-false)
+              (#pt-app
+                (#pt-use disjunction-right ())
+                left-proposition
+                right-proposition
+                right-evidence)))
+          (#pt-lambda
+            ((right-refutation (#pt-pi ((denied-proof right-proposition)) #pt-false)))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+                #pt-false)
+              (#pt-lambda
+                (
+                  (disjunction-evidence
+                    (#pt-app (#pt-use disjunction ()) left-proposition right-proposition)))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  left-proposition
+                  right-proposition
+                  #pt-false
+                  (#pt-lambda
+                    ((left-evidence left-proposition))
+                    (#pt-app left-refutation left-evidence))
+                  (#pt-lambda
+                    ((right-evidence right-proposition))
+                    (#pt-app right-refutation right-evidence))
+                  disjunction-evidence))))
+          right-cases))
+      left-cases)))

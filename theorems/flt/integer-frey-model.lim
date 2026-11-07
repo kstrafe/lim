@@ -1,0 +1,591 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Construct the actual integral Frey model from the witnessed exact
+; quotients by4 and16, and prove its rational coefficient map.
+; Every valid model is unique under integer coefficient equivalence.
+; Existential elimination has a Prop-valued result; there is no choice
+; operation selecting data from a proposition or assumed cast law.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-zero = ./rational-defs.lim::rational-zero)
+(#alias rational-one = ./rational-defs.lim::rational-one)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-multiply-one = ./integer-multiplication.lim::integer-multiply-one)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias rational-reflexive = ./rational-equality.lim::rational-reflexive)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-map-rational
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-map-rational)
+(#alias
+  rational-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-equivalent)
+(#alias
+  integer-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::integer-weierstrass-equivalent)
+(#alias
+  rational-weierstrass-symmetric
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-symmetric)
+(#alias
+  rational-weierstrass-transitive
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-transitive)
+(#alias
+  integer-weierstrass-map-injective
+  =
+  ./weierstrass-model-equivalence.lim::integer-weierstrass-map-injective)
+(#alias frey-rational-curve = ./frey-rational-curve.lim::frey-rational-curve)
+(#theorem rational-exact-integer-quotient
+  (#universes)
+  (#parameters
+    (#parameter numerator (#pt-use integer ()))
+    (#parameter quotient (#pt-use integer ()))
+    (#parameter denominator #pt-nat)
+    (#parameter denominator-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat denominator #pt-zero))) #pt-false))
+    (#parameter quotient-equation (#pt-app (#pt-use integer-equal ()) numerator (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) denominator) quotient))))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app (#pt-use rational-of-integer ()) quotient)
+      (#pt-construct rational () () fraction (numerator denominator denominator-nonzero))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        quotient
+        (#pt-app (#pt-use integer-of-natural ()) denominator))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-of-natural ()) denominator)
+        quotient)
+      (#pt-app (#pt-use integer-multiply ()) numerator (#pt-use integer-one ()))
+      (#pt-app
+        (#pt-use integer-multiply-commutative ())
+        quotient
+        (#pt-app (#pt-use integer-of-natural ()) denominator))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) denominator)
+          quotient)
+        numerator
+        (#pt-app (#pt-use integer-multiply ()) numerator (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          numerator
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) denominator)
+            quotient)
+          quotient-equation)
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app (#pt-use integer-multiply ()) numerator (#pt-use integer-one ()))
+          numerator
+          (#pt-app (#pt-use integer-multiply-one ()) numerator))))))
+(#math-definition integer-frey-model ()
+  (#pt-pi
+    ((second-coefficient (#pt-use integer ())) (fourth-coefficient (#pt-use integer ())))
+    (#pt-use integer-weierstrass-curve ()))
+  (#pt-lambda
+    ((second-coefficient (#pt-use integer ())) (fourth-coefficient (#pt-use integer ())))
+    (#pt-construct
+      integer-weierstrass-curve
+      ()
+      ()
+      coefficients
+      (
+        (#pt-use integer-one ())
+        second-coefficient
+        (#pt-use integer-zero ())
+        fourth-coefficient
+        (#pt-use integer-zero ())))))
+(#math-definition integer-frey-model-certificate ()
+  (#pt-pi
+    (
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (exponent #pt-nat)
+      (integral-model (#pt-use integer-weierstrass-curve ())))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (first (#pt-use integer ()))
+      (second (#pt-use integer ()))
+      (exponent #pt-nat)
+      (integral-model (#pt-use integer-weierstrass-curve ())))
+    (#pt-app
+      (#pt-use rational-weierstrass-equivalent ())
+      (#pt-app (#pt-use integer-weierstrass-map-rational ()) integral-model)
+      (#pt-app (#pt-use frey-rational-curve ()) first second exponent))))
+(#theorem integer-frey-quotients-map
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter second-coefficient (#pt-use integer ()))
+    (#parameter fourth-coefficient (#pt-use integer ()))
+    (#parameter second-quotient-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) second exponent) (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))) (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)) second-coefficient)))
+    (#parameter fourth-quotient-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent)) (#pt-app (#pt-use integer-power ()) second exponent)) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16)) fourth-coefficient))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-frey-model-certificate ())
+      first
+      second
+      exponent
+      (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project
+          rational-weierstrass-curve
+          0
+          (#pt-app
+            (#pt-use integer-weierstrass-map-rational ())
+            (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+        (#pt-project
+          rational-weierstrass-curve
+          0
+          (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app
+              (#pt-use integer-weierstrass-map-rational ())
+              (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use integer-weierstrass-map-rational ())
+                (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent))))))
+      (#pt-app (#pt-use rational-reflexive ()) (#pt-use rational-one ()))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app
+              (#pt-use integer-weierstrass-map-rational ())
+              (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use integer-weierstrass-map-rational ())
+                (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))))
+        (#pt-app
+          (#pt-use rational-exact-integer-quotient ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) second exponent)
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) first exponent)))
+          second-coefficient
+          (#pt-numeral 4)
+          (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 3))
+          second-quotient-equation)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app
+                (#pt-use integer-weierstrass-map-rational ())
+                (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent))))
+          (#pt-app (#pt-use rational-reflexive ()) (#pt-use rational-zero ()))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app
+                  (#pt-use integer-weierstrass-map-rational ())
+                  (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use frey-rational-curve ()) first second exponent)))
+            (#pt-app
+              (#pt-use rational-exact-integer-quotient ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-negate ())
+                  (#pt-app (#pt-use integer-power ()) first exponent))
+                (#pt-app (#pt-use integer-power ()) second exponent))
+              fourth-coefficient
+              (#pt-numeral 16)
+              (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 15))
+              fourth-quotient-equation)
+            (#pt-app (#pt-use rational-reflexive ()) (#pt-use rational-zero ()))))))))
+(#theorem integer-frey-model-exists
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter second-divisor (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-add ()) (#pt-app (#pt-use integer-power ()) second exponent) (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))) (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent)))))
+    (#parameter fourth-divisor (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16)) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent)) (#pt-app (#pt-use integer-power ()) second exponent)))))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer-weierstrass-curve ())
+      (#pt-lambda
+        ((candidate-model (#pt-use integer-weierstrass-curve ())))
+        (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent candidate-model))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use integer ())))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) second exponent)
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-power ()) first exponent)))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+              candidate-factor))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app (#pt-use integer-power ()) second exponent)
+                      (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-power ()) first exponent)))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                    candidate-factor))))))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use integer-weierstrass-curve ())
+          (#pt-lambda
+            ((candidate-model (#pt-use integer-weierstrass-curve ())))
+            (#pt-app
+              (#pt-use integer-frey-model-certificate ())
+              first
+              second
+              exponent
+              candidate-model))))
+      (
+        (#pt-lambda
+          (
+            (second-coefficient (#pt-use integer ()))
+            (second-quotient-equation
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app (#pt-use integer-power ()) second exponent)
+                    (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+                  (#pt-app
+                    (#pt-use integer-negate ())
+                    (#pt-app (#pt-use integer-power ()) first exponent)))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                  second-coefficient))))
+          (#pt-induct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app
+                      (#pt-use integer-negate ())
+                      (#pt-app (#pt-use integer-power ()) first exponent))
+                    (#pt-app (#pt-use integer-power ()) second exponent))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+                    candidate-factor))))
+            (#pt-lambda
+              (
+                (integer-certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-factor (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use integer-equal ())
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          (#pt-app
+                            (#pt-use integer-negate ())
+                            (#pt-app (#pt-use integer-power ()) first exponent))
+                          (#pt-app (#pt-use integer-power ()) second exponent))
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+                          candidate-factor))))))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use integer-weierstrass-curve ())
+                (#pt-lambda
+                  ((candidate-model (#pt-use integer-weierstrass-curve ())))
+                  (#pt-app
+                    (#pt-use integer-frey-model-certificate ())
+                    first
+                    second
+                    exponent
+                    candidate-model))))
+            (
+              (#pt-lambda
+                (
+                  (fourth-coefficient (#pt-use integer ()))
+                  (fourth-quotient-equation
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app
+                          (#pt-use integer-negate ())
+                          (#pt-app (#pt-use integer-power ()) first exponent))
+                        (#pt-app (#pt-use integer-power ()) second exponent))
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+                        fourth-coefficient))))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer-weierstrass-curve ())
+                    (#pt-lambda
+                      ((candidate-model (#pt-use integer-weierstrass-curve ())))
+                      (#pt-app
+                        (#pt-use integer-frey-model-certificate ())
+                        first
+                        second
+                        exponent
+                        candidate-model)))
+                  introduce
+                  (
+                    (#pt-app (#pt-use integer-frey-model ()) second-coefficient fourth-coefficient)
+                    (#pt-app
+                      (#pt-use integer-frey-quotients-map ())
+                      first
+                      second
+                      exponent
+                      second-coefficient
+                      fourth-coefficient
+                      second-quotient-equation
+                      fourth-quotient-equation)))))
+            fourth-divisor)))
+      second-divisor)))
+(#theorem integer-frey-model-unique
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter first-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter second-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent other-model)))
+  (#statement (#pt-app (#pt-use integer-weierstrass-equivalent ()) integral-model other-model))
+  (#proof
+    (#pt-app
+      (#pt-use integer-weierstrass-map-injective ())
+      integral-model
+      other-model
+      (#pt-app
+        (#pt-use rational-weierstrass-transitive ())
+        (#pt-app (#pt-use integer-weierstrass-map-rational ()) integral-model)
+        (#pt-app (#pt-use frey-rational-curve ()) first second exponent)
+        (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)
+        first-certificate
+        (#pt-app
+          (#pt-use rational-weierstrass-symmetric ())
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)
+          (#pt-app (#pt-use frey-rational-curve ()) first second exponent)
+          second-certificate)))))

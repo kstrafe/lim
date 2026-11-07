@@ -583,7 +583,7 @@ record_codec!(
     output_clears
 );
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 
@@ -834,7 +834,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn proof_budgets_are_part_of_the_semantic_validation_context() {
     let source = "(#fn main () #u64 (#return 0u64))";

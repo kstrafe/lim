@@ -1,0 +1,469 @@
+; Strict square order and square injectivity for mathematical naturals.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias not-less-than-addition = ./natural-discrete-order.lim::not-less-than-addition)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias zero-less-successor = ./natural-discrete-order.lim::zero-less-successor)
+(#alias less-than-upper-nonzero = ./natural-small-cases.lim::less-than-upper-nonzero)
+(#alias multiply-less-right-nonzero = ./natural-square-arithmetic.lim::multiply-less-right-nonzero)
+(#alias multiply-nonzero = ./natural-nonzero.lim::multiply-nonzero)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias add-zero-right = ./natural-addition.lim::add-zero-right)
+(#alias add-cancel-left = ./natural-cancellation.lim::add-cancel-left)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#theorem zero-less-nonzero
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter nonzero-proof (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false)))
+  (#statement (#pt-app (#pt-use less-than ()) #pt-zero number))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((nonzero-evidence (#pt-pi ((denied-proof (#pt-eq #pt-nat index #pt-zero))) #pt-false)))
+            (#pt-app (#pt-use less-than ()) #pt-zero index)))
+        (#pt-lambda
+          (
+            (nonzero-evidence
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app (#pt-use less-than ()) #pt-zero #pt-zero)
+            (#pt-app nonzero-evidence (#pt-refl #pt-nat #pt-zero))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (nonzero-evidence
+                    (#pt-pi ((denied-proof (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-app (#pt-use less-than ()) #pt-zero previous)))
+            (nonzero-evidence
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-app (#pt-use zero-less-successor ()) previous))
+        number)
+      nonzero-proof)))
+(#theorem square-strict-monotone
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      (#pt-app (#pt-use multiply ()) lower lower)
+      (#pt-app (#pt-use multiply ()) upper upper)))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((less-evidence (#pt-app (#pt-use less-than ()) index upper)))
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-app (#pt-use multiply ()) index index)
+              (#pt-app (#pt-use multiply ()) upper upper))))
+        (#pt-lambda
+          ((less-evidence (#pt-app (#pt-use less-than ()) #pt-zero upper)))
+          (#pt-app
+            (#pt-use zero-less-nonzero ())
+            (#pt-app (#pt-use multiply ()) upper upper)
+            (#pt-app
+              (#pt-use multiply-nonzero ())
+              upper
+              upper
+              (#pt-app (#pt-use less-than-upper-nonzero ()) #pt-zero upper less-evidence)
+              (#pt-app (#pt-use less-than-upper-nonzero ()) #pt-zero upper less-evidence))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                ((less-evidence (#pt-app (#pt-use less-than ()) previous upper)))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-app (#pt-use multiply ()) previous previous)
+                  (#pt-app (#pt-use multiply ()) upper upper))))
+            (less-evidence (#pt-app (#pt-use less-than ()) (#pt-succ previous) upper)))
+          (#pt-app
+            (#pt-use less-than-transitive ())
+            (#pt-app (#pt-use multiply ()) (#pt-succ previous) (#pt-succ previous))
+            (#pt-app (#pt-use multiply ()) (#pt-succ previous) upper)
+            (#pt-app (#pt-use multiply ()) upper upper)
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-app (#pt-use multiply ()) (#pt-succ previous) (#pt-succ previous))
+                  endpoint))
+              (#pt-app (#pt-use multiply ()) upper (#pt-succ previous))
+              (#pt-app (#pt-use multiply ()) (#pt-succ previous) upper)
+              (#pt-app (#pt-use multiply-commutative ()) upper (#pt-succ previous))
+              (#pt-app
+                (#pt-use multiply-less-right-nonzero ())
+                (#pt-succ previous)
+                (#pt-succ previous)
+                upper
+                (#pt-app (#pt-use successor-not-zero ()) previous)
+                less-evidence))
+            (#pt-app
+              (#pt-use multiply-less-right-nonzero ())
+              upper
+              (#pt-succ previous)
+              upper
+              (#pt-app (#pt-use less-than-upper-nonzero ()) (#pt-succ previous) upper less-evidence)
+              less-evidence)))
+        lower)
+      less-proof)))
+(#theorem square-injective
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter square-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) first first) (#pt-app (#pt-use multiply ()) second second))))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) first second)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat first second)
+        (#pt-app (#pt-use less-than ()) second first))
+      (#pt-eq #pt-nat first second)
+      (#pt-lambda
+        ((first-less (#pt-app (#pt-use less-than ()) first second)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat first second)
+          (#pt-app
+            (#pt-app (#pt-use not-less-than-self ()) (#pt-app (#pt-use multiply ()) first first))
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-app (#pt-use multiply ()) first first)
+                  endpoint))
+              (#pt-app (#pt-use multiply ()) second second)
+              (#pt-app (#pt-use multiply ()) first first)
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) first first)
+                (#pt-app (#pt-use multiply ()) second second)
+                square-equation)
+              (#pt-app (#pt-use square-strict-monotone ()) first second first-less)))))
+      (#pt-lambda
+        (
+          (remaining-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat first second)
+              (#pt-app (#pt-use less-than ()) second first))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat first second)
+          (#pt-app (#pt-use less-than ()) second first)
+          (#pt-eq #pt-nat first second)
+          (#pt-lambda ((equal-proof (#pt-eq #pt-nat first second))) equal-proof)
+          (#pt-lambda
+            ((second-less (#pt-app (#pt-use less-than ()) second first)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-eq #pt-nat first second)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) second second))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      (#pt-app (#pt-use multiply ()) second second)
+                      endpoint))
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second)
+                  square-equation
+                  (#pt-app (#pt-use square-strict-monotone ()) second first second-less)))))
+          remaining-case))
+      (#pt-app (#pt-use natural-trichotomy ()) first second))))
+(#theorem square-order-reflect
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter squares-less (#pt-app (#pt-use less-than ()) (#pt-app (#pt-use multiply ()) first first) (#pt-app (#pt-use multiply ()) second second))))
+  (#statement (#pt-app (#pt-use less-than ()) first second))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) first second)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat first second)
+        (#pt-app (#pt-use less-than ()) second first))
+      (#pt-app (#pt-use less-than ()) first second)
+      (#pt-lambda ((first-less (#pt-app (#pt-use less-than ()) first second))) first-less)
+      (#pt-lambda
+        (
+          (remaining-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat first second)
+              (#pt-app (#pt-use less-than ()) second first))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat first second)
+          (#pt-app (#pt-use less-than ()) second first)
+          (#pt-app (#pt-use less-than ()) first second)
+          (#pt-lambda
+            ((equal-proof (#pt-eq #pt-nat first second)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) first second)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) second second))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      endpoint
+                      (#pt-app (#pt-use multiply ()) second second)))
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second)
+                  (#pt-app
+                    (#pt-use congruence (0 0))
+                    #pt-nat
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app (#pt-use multiply ()) endpoint endpoint))
+                    first
+                    second
+                    equal-proof)
+                  squares-less))))
+          (#pt-lambda
+            ((second-less (#pt-app (#pt-use less-than ()) second first)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) first second)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-self ())
+                  (#pt-app (#pt-use multiply ()) first first))
+                (#pt-app
+                  (#pt-use less-than-transitive ())
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second)
+                  (#pt-app (#pt-use multiply ()) first first)
+                  squares-less
+                  (#pt-app (#pt-use square-strict-monotone ()) second first second-less)))))
+          remaining-case))
+      (#pt-app (#pt-use natural-trichotomy ()) first second))))
+(#theorem pythagorean-leg-below-hypotenuse
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter second-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+    (#parameter square-equation (#pt-eq #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first first) (#pt-app (#pt-use multiply ()) second second)) (#pt-app (#pt-use multiply ()) hypotenuse hypotenuse))))
+  (#statement (#pt-app (#pt-use less-than ()) first hypotenuse))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) first hypotenuse)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat first hypotenuse)
+        (#pt-app (#pt-use less-than ()) hypotenuse first))
+      (#pt-app (#pt-use less-than ()) first hypotenuse)
+      (#pt-lambda ((first-less (#pt-app (#pt-use less-than ()) first hypotenuse))) first-less)
+      (#pt-lambda
+        (
+          (remaining-case
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat first hypotenuse)
+              (#pt-app (#pt-use less-than ()) hypotenuse first))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat first hypotenuse)
+          (#pt-app (#pt-use less-than ()) hypotenuse first)
+          (#pt-app (#pt-use less-than ()) first hypotenuse)
+          (#pt-lambda
+            ((equal-proof (#pt-eq #pt-nat first hypotenuse)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) first hypotenuse)
+              (#pt-app
+                (#pt-app (#pt-use multiply-nonzero ()) second second second-nonzero second-nonzero)
+                (#pt-app
+                  (#pt-use add-cancel-left ())
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second)
+                  #pt-zero
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) first first)
+                      (#pt-app (#pt-use multiply ()) second second))
+                    (#pt-app (#pt-use multiply ()) hypotenuse hypotenuse)
+                    (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first first) #pt-zero)
+                    square-equation
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      (#pt-app (#pt-use multiply ()) hypotenuse hypotenuse)
+                      (#pt-app (#pt-use multiply ()) first first)
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) first first)
+                        #pt-zero)
+                      (#pt-app
+                        (#pt-use congruence (0 0))
+                        #pt-nat
+                        #pt-nat
+                        (#pt-lambda
+                          ((endpoint #pt-nat))
+                          (#pt-app (#pt-use multiply ()) endpoint endpoint))
+                        hypotenuse
+                        first
+                        (#pt-app (#pt-use symmetry (0)) #pt-nat first hypotenuse equal-proof))
+                      (#pt-app
+                        (#pt-use symmetry (0))
+                        #pt-nat
+                        (#pt-app
+                          (#pt-use add ())
+                          (#pt-app (#pt-use multiply ()) first first)
+                          #pt-zero)
+                        (#pt-app (#pt-use multiply ()) first first)
+                        (#pt-app
+                          (#pt-use add-zero-right ())
+                          (#pt-app (#pt-use multiply ()) first first)))))))))
+          (#pt-lambda
+            ((hypotenuse-less (#pt-app (#pt-use less-than ()) hypotenuse first)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use less-than ()) first hypotenuse)
+              (#pt-app
+                (#pt-app
+                  (#pt-use not-less-than-addition ())
+                  (#pt-app (#pt-use multiply ()) first first)
+                  (#pt-app (#pt-use multiply ()) second second))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      endpoint
+                      (#pt-app (#pt-use multiply ()) first first)))
+                  (#pt-app (#pt-use multiply ()) hypotenuse hypotenuse)
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app (#pt-use multiply ()) first first)
+                    (#pt-app (#pt-use multiply ()) second second))
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app (#pt-use multiply ()) first first)
+                      (#pt-app (#pt-use multiply ()) second second))
+                    (#pt-app (#pt-use multiply ()) hypotenuse hypotenuse)
+                    square-equation)
+                  (#pt-app (#pt-use square-strict-monotone ()) hypotenuse first hypotenuse-less)))))
+          remaining-case))
+      (#pt-app (#pt-use natural-trichotomy ()) first hypotenuse))))
+(#theorem positive-summand-above
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter first-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat first #pt-zero))) #pt-false)))
+  (#statement (#pt-app (#pt-use less-than ()) second (#pt-app (#pt-use add ()) first second)))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((nonzero-evidence (#pt-pi ((denied-proof (#pt-eq #pt-nat index #pt-zero))) #pt-false)))
+            (#pt-app (#pt-use less-than ()) second (#pt-app (#pt-use add ()) index second))))
+        (#pt-lambda
+          (
+            (nonzero-evidence
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app (#pt-use less-than ()) second second)
+            (#pt-app nonzero-evidence (#pt-refl #pt-nat #pt-zero))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (nonzero-evidence
+                    (#pt-pi ((denied-proof (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-app (#pt-use less-than ()) second (#pt-app (#pt-use add ()) previous second))))
+            (nonzero-evidence
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use add ()) (#pt-succ previous) second)
+                  (#pt-app (#pt-use add ()) (#pt-succ second) candidate-gap))))
+            introduce
+            (previous
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda ((endpoint #pt-nat)) (#pt-succ endpoint))
+                (#pt-app (#pt-use add ()) previous second)
+                (#pt-app (#pt-use add ()) second previous)
+                (#pt-app (#pt-use add-commutative ()) previous second)))))
+        first)
+      first-nonzero)))

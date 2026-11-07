@@ -1,0 +1,724 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Native mathematical source adaptation under Apache-2.0; see provenance.json.
+; The four cube-sign cases and Kummer reduction in FLT/Three.lean:668-688.
+; Actual lambda-free roots supply their fourth-power cube residues.
+; A witnessed square divisor of the normalized right side yields an
+; actual integer congruence for the coefficient, so its proved unit
+; certificate forces one or negative one. No sign oracle is assumed.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias
+  eisenstein-weighted-residue-sum
+  =
+  ./eisenstein-weighted-residue-algebra.lim::eisenstein-weighted-residue-sum)
+(#alias
+  eisenstein-positive-signed-residue
+  =
+  ./eisenstein-weighted-residue-algebra.lim::eisenstein-positive-signed-residue)
+(#alias
+  eisenstein-negative-signed-residue
+  =
+  ./eisenstein-weighted-residue-algebra.lim::eisenstein-negative-signed-residue)
+(#alias
+  eisenstein-power-divides-add
+  =
+  ./eisenstein-power-divisibility.lim::eisenstein-power-divides-add)
+(#alias
+  eisenstein-lambda-four-cube-congruence
+  =
+  ./eisenstein-cube-congruences.lim::eisenstein-lambda-four-cube-congruence)
+(#alias
+  eisenstein-unit-integer-congruence-one-or-negative-one
+  =
+  ./eisenstein-unit-kummer.lim::eisenstein-unit-integer-congruence-one-or-negative-one)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#theorem eisenstein-normalized-coefficient-integer-congruence
+  (#universes)
+  (#parameters
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter second-root (#pt-use eisenstein ()))
+    (#parameter coefficient (#pt-use eisenstein ()))
+    (#parameter right-value (#pt-use eisenstein ()))
+    (#parameter first-lambda-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first-root))) #pt-false))
+    (#parameter second-lambda-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root))) #pt-false))
+    (#parameter normalized-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)) (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3)))) right-value))
+    (#parameter right-square-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) right-value)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer ())
+      (#pt-lambda
+        ((candidate-integer (#pt-use integer ())))
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            coefficient
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer)))))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use eisenstein-divides ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+      (#pt-app
+        (#pt-use eisenstein-divides ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+          (#pt-use eisenstein-one ())))
+      (#pt-app
+        (#pt-use exists (0))
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-integer (#pt-use integer ())))
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              coefficient
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+      (#pt-lambda
+        (
+          (first-fourth-residue
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-integer (#pt-use integer ())))
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  coefficient
+                  (#pt-app
+                    (#pt-use eisenstein-negate ())
+                    (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+          (#pt-lambda
+            (
+              (second-fourth-residue
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-integer (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      coefficient
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ #pt-zero))
+                (#pt-app
+                  (#pt-use eisenstein-positive-signed-residue ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  coefficient
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-weighted-residue-sum ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    coefficient
+                    (#pt-use eisenstein-one ())
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      first-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      second-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-congruent-target ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      right-value
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          coefficient
+                          (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            coefficient
+                            (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                        right-value
+                        normalized-equation)
+                      right-square-divides))))))
+          (#pt-lambda
+            (
+              (second-fourth-residue
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    (#pt-use eisenstein-one ())))))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-integer (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      coefficient
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+                (#pt-app
+                  (#pt-use eisenstein-negative-signed-residue ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  coefficient
+                  (#pt-use eisenstein-one ())
+                  (#pt-app
+                    (#pt-use eisenstein-weighted-residue-sum ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    coefficient
+                    (#pt-use eisenstein-one ())
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      first-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                        (#pt-use eisenstein-one ()))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      second-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-congruent-target ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      right-value
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          coefficient
+                          (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            coefficient
+                            (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                        right-value
+                        normalized-equation)
+                      right-square-divides))))))
+          (#pt-app
+            (#pt-use eisenstein-lambda-four-cube-congruence ())
+            second-root
+            second-lambda-free)))
+      (#pt-lambda
+        (
+          (first-fourth-residue
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                (#pt-use eisenstein-one ())))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+              (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use exists (0))
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-integer (#pt-use integer ())))
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  coefficient
+                  (#pt-app
+                    (#pt-use eisenstein-negate ())
+                    (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+          (#pt-lambda
+            (
+              (second-fourth-residue
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))))))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-integer (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      coefficient
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+                (#pt-app
+                  (#pt-use eisenstein-positive-signed-residue ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  coefficient
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-weighted-residue-sum ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    coefficient
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                    (#pt-use eisenstein-one ())
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-use eisenstein-one ()))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      first-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      second-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-congruent-target ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      right-value
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          coefficient
+                          (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            coefficient
+                            (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                        right-value
+                        normalized-equation)
+                      right-square-divides))))))
+          (#pt-lambda
+            (
+              (second-fourth-residue
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-add ())
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    (#pt-use eisenstein-one ())))))
+            (#pt-construct
+              exists
+              (0)
+              (
+                (#pt-use integer ())
+                (#pt-lambda
+                  ((candidate-integer (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app
+                      (#pt-use eisenstein-add ())
+                      coefficient
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app (#pt-use eisenstein-of-integer ()) candidate-integer))))))
+              introduce
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ #pt-zero))
+                (#pt-app
+                  (#pt-use eisenstein-negative-signed-residue ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  coefficient
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-weighted-residue-sum ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                    (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                    coefficient
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-use eisenstein-one ()))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      first-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-transitive ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))
+                        (#pt-use eisenstein-one ()))
+                      (#pt-app
+                        (#pt-use eisenstein-power-divides-add ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2)
+                        (#pt-numeral 2))
+                      second-fourth-residue)
+                    (#pt-app
+                      (#pt-use eisenstein-divides-congruent-target ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      right-value
+                      (#pt-app
+                        (#pt-use eisenstein-add ())
+                        (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          coefficient
+                          (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3))
+                          (#pt-app
+                            (#pt-use eisenstein-multiply ())
+                            coefficient
+                            (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3))))
+                        right-value
+                        normalized-equation)
+                      right-square-divides))))))
+          (#pt-app
+            (#pt-use eisenstein-lambda-four-cube-congruence ())
+            second-root
+            second-lambda-free)))
+      (#pt-app (#pt-use eisenstein-lambda-four-cube-congruence ()) first-root first-lambda-free))))
+(#theorem eisenstein-normalized-cubic-coefficient-sign
+  (#universes)
+  (#parameters
+    (#parameter first-root (#pt-use eisenstein ()))
+    (#parameter second-root (#pt-use eisenstein ()))
+    (#parameter coefficient (#pt-use eisenstein ()))
+    (#parameter right-value (#pt-use eisenstein ()))
+    (#parameter first-lambda-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first-root))) #pt-false))
+    (#parameter second-lambda-free (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second-root))) #pt-false))
+    (#parameter normalized-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-power ()) first-root (#pt-numeral 3)) (#pt-app (#pt-use eisenstein-multiply ()) coefficient (#pt-app (#pt-use eisenstein-power ()) second-root (#pt-numeral 3)))) right-value))
+    (#parameter right-square-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) right-value))
+    (#parameter coefficient-unit (#pt-app (#pt-use eisenstein-unit ()) coefficient)))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-equal ()) coefficient (#pt-use eisenstein-one ()))
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        coefficient
+        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-unit-integer-congruence-one-or-negative-one ())
+      coefficient
+      coefficient-unit
+      (#pt-app
+        (#pt-use eisenstein-normalized-coefficient-integer-congruence ())
+        first-root
+        second-root
+        coefficient
+        right-value
+        first-lambda-free
+        second-lambda-free
+        normalized-equation
+        right-square-divides))))

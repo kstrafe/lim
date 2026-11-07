@@ -42,7 +42,7 @@ impl From<SourceExpression> for SpannedExpr {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::SourceExpression;
     use crate::{Expr, SourceChildren, Span, SpannedExpr};
@@ -70,10 +70,7 @@ mod tests {
     fn retains_root_and_child_spans_and_provenance() {
         let child = node(Expr::Symbol("child".into()), span(4, 9, 7), vec![]);
         let source = SourceExpression::from(node(
-            Expr::List(vec![
-                Expr::Symbol("root".into()),
-                Expr::Symbol("child".into()),
-            ]),
+            Expr::List(vec![Expr::Symbol("root".into()), Expr::Symbol("child".into())].into()),
             span(0, 10, 7),
             vec![child],
         ));
@@ -89,7 +86,7 @@ mod tests {
     #[test]
     fn clones_share_until_nested_mutation_then_isolate() {
         let expression = node(
-            Expr::List(vec![Expr::Symbol("root".into())]),
+            Expr::List(vec![Expr::Symbol("root".into())].into()),
             span(0, 5, 2),
             vec![node(Expr::Symbol("before".into()), span(1, 4, 2), vec![])],
         );

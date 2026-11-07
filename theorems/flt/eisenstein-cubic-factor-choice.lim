@@ -1,0 +1,1363 @@
+; Direct constructive source adaptation of FLT/Three.lean:314-335.
+; Three factors of lambda order at most1cannot have a product divisible
+; by lambda^4. Actual square-divisibility decisions choose a factor.
+; The proved solution congruence and sum-of-cubes factorization supply
+; the product divisor; no factorization or valuation statement is assumed.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-lambda-order = ./eisenstein-lambda-order.lim::eisenstein-lambda-order)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-omega = ./eisenstein-defs.lim::eisenstein-omega)
+(#alias add = ./../fermat_statement.lim::add)
+(#alias substitution = ./equality.lim::substitution)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias
+  eisenstein-divides-congruent-target
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-congruent-target)
+(#alias
+  eisenstein-divides-transitive
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-transitive)
+(#alias eisenstein-divides-zero = ./eisenstein-divisibility.lim::eisenstein-divides-zero)
+(#alias
+  eisenstein-divides-product-right
+  =
+  ./eisenstein-divisibility.lim::eisenstein-divides-product-right)
+(#alias
+  eisenstein-power-divides-add
+  =
+  ./eisenstein-power-divisibility.lim::eisenstein-power-divides-add)
+(#alias
+  eisenstein-lambda-order-exists
+  =
+  ./eisenstein-lambda-order.lim::eisenstein-lambda-order-exists)
+(#alias
+  eisenstein-lambda-order-excludes-higher
+  =
+  ./eisenstein-lambda-order.lim::eisenstein-lambda-order-excludes-higher)
+(#alias
+  eisenstein-lambda-order-multiply
+  =
+  ./eisenstein-lambda-order-arithmetic.lim::eisenstein-lambda-order-multiply)
+(#alias
+  eisenstein-lambda-power-divisibility-decided
+  =
+  ./eisenstein-lambda-power-decision.lim::eisenstein-lambda-power-divisibility-decided)
+(#alias
+  eisenstein-cubic-solution-fourth-power-divides
+  =
+  ./eisenstein-cubic-solution-congruences.lim::eisenstein-cubic-solution-fourth-power-divides)
+(#alias
+  eisenstein-sum-cubes-factor
+  =
+  ./eisenstein-cubic-factorization.lim::eisenstein-sum-cubes-factor)
+(#theorem eisenstein-lambda-square-divides-of-large-order
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter order-exponent #pt-nat)
+    (#parameter order-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) number order-exponent))
+    (#parameter large-order (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) order-exponent)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+      number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            order-exponent
+            (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  order-exponent
+                  (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))))
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          number))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (position
+              (#pt-eq
+                #pt-nat
+                order-exponent
+                (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) gap))))
+          (#pt-app
+            (#pt-use eisenstein-divides-transitive ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) order-exponent)
+            number
+            (#pt-app
+              (#pt-use substitution (0))
+              #pt-nat
+              (#pt-lambda
+                ((endpoint #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) endpoint)))
+              (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) gap)
+              order-exponent
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                order-exponent
+                (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) gap)
+                position)
+              (#pt-app
+                (#pt-use eisenstein-power-divides-add ())
+                (#pt-use eisenstein-lambda ())
+                (#pt-numeral 2)
+                gap))
+            (#pt-project eisenstein-lambda-order 0 order-certificate))))
+      large-order)))
+(#theorem eisenstein-lambda-small-order-of-not-square
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter square-not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) number))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+      (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-order #pt-nat))
+          (#pt-app (#pt-use eisenstein-lambda-order ()) number candidate-order)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-order #pt-nat))
+                (#pt-app (#pt-use eisenstein-lambda-order ()) number candidate-order)))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+          (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero))))
+      (
+        (#pt-lambda
+          (
+            (order-value #pt-nat)
+            (order-certificate (#pt-app (#pt-use eisenstein-lambda-order ()) number order-value)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-eq #pt-nat order-value #pt-zero)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat order-value (#pt-succ #pt-zero))
+              (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) order-value))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+              (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero)))
+            (#pt-lambda
+              ((zero-order (#pt-eq #pt-nat order-value #pt-zero)))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+                (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero))
+                (#pt-app
+                  (#pt-use substitution (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) number endpoint))
+                  order-value
+                  #pt-zero
+                  zero-order
+                  order-certificate)))
+            (#pt-lambda
+              (
+                (one-or-large
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat order-value (#pt-succ #pt-zero))
+                    (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) order-value))))
+              (#pt-app
+                (#pt-use disjunction-eliminate ())
+                (#pt-eq #pt-nat order-value (#pt-succ #pt-zero))
+                (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) order-value)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+                  (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero)))
+                (#pt-lambda
+                  ((one-order (#pt-eq #pt-nat order-value (#pt-succ #pt-zero))))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero))
+                    (#pt-app
+                      (#pt-use substitution (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((endpoint #pt-nat))
+                        (#pt-app (#pt-use eisenstein-lambda-order ()) number endpoint))
+                      order-value
+                      (#pt-succ #pt-zero)
+                      one-order
+                      order-certificate)))
+                (#pt-lambda
+                  ((large-order (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) order-value)))
+                  (#pt-app
+                    (#pt-use false-elimination ())
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-lambda-order ()) number #pt-zero)
+                      (#pt-app (#pt-use eisenstein-lambda-order ()) number (#pt-succ #pt-zero)))
+                    (#pt-app
+                      square-not-divides
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-square-divides-of-large-order ())
+                        number
+                        order-value
+                        order-certificate
+                        large-order))))
+                one-or-large))
+            (#pt-app (#pt-use zero-one-or-large ()) order-value))))
+      (#pt-app
+        (#pt-use eisenstein-lambda-order-exists ())
+        number
+        (#pt-lambda
+          (
+            (zero-equivalence
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ()))))
+          (#pt-app
+            square-not-divides
+            (#pt-app
+              (#pt-use eisenstein-divides-congruent-target ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              (#pt-use eisenstein-zero ())
+              number
+              (#pt-app
+                (#pt-use eisenstein-symmetric ())
+                number
+                (#pt-use eisenstein-zero ())
+                zero-equivalence)
+              (#pt-app
+                (#pt-use eisenstein-divides-zero ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))))))))))
+(#theorem eisenstein-lambda-four-not-divides-three-small-factors
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter first-not-square (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) first))) #pt-false))
+    (#parameter second-not-square (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) second))) #pt-false))
+    (#parameter third-not-square (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2)) third))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) first second)
+              third))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use eisenstein-lambda-order ()) first #pt-zero)
+      (#pt-app (#pt-use eisenstein-lambda-order ()) first (#pt-succ #pt-zero))
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                third))))
+        #pt-false)
+      (#pt-lambda
+        ((first-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) first #pt-zero)))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use eisenstein-lambda-order ()) second #pt-zero)
+          (#pt-app (#pt-use eisenstein-lambda-order ()) second (#pt-succ #pt-zero))
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                    third))))
+            #pt-false)
+          (#pt-lambda
+            ((second-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) second #pt-zero)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third))))
+                #pt-false)
+              (#pt-lambda
+                ((third-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 0)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 0) (#pt-numeral 0))
+                        (#pt-numeral 0)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 0)
+                          (#pt-numeral 0)
+                          first-order-zero
+                          second-order-zero)
+                        third-order-zero)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 0)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 3) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-lambda
+                (
+                  (third-order-one
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 1)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 0) (#pt-numeral 0))
+                        (#pt-numeral 1)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 0)
+                          (#pt-numeral 0)
+                          first-order-zero
+                          second-order-zero)
+                        third-order-one)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 1)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 2) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-app
+                (#pt-use eisenstein-lambda-small-order-of-not-square ())
+                third
+                third-not-square)))
+          (#pt-lambda
+            (
+              (second-order-one
+                (#pt-app (#pt-use eisenstein-lambda-order ()) second (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third))))
+                #pt-false)
+              (#pt-lambda
+                ((third-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 1)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 0) (#pt-numeral 1))
+                        (#pt-numeral 0)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 0)
+                          (#pt-numeral 1)
+                          first-order-zero
+                          second-order-one)
+                        third-order-zero)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 1)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 2) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-lambda
+                (
+                  (third-order-one
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 2)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 0) (#pt-numeral 1))
+                        (#pt-numeral 1)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 0)
+                          (#pt-numeral 1)
+                          first-order-zero
+                          second-order-one)
+                        third-order-one)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 2)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 1) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-app
+                (#pt-use eisenstein-lambda-small-order-of-not-square ())
+                third
+                third-not-square)))
+          (#pt-app
+            (#pt-use eisenstein-lambda-small-order-of-not-square ())
+            second
+            second-not-square)))
+      (#pt-lambda
+        ((first-order-one (#pt-app (#pt-use eisenstein-lambda-order ()) first (#pt-succ #pt-zero))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use eisenstein-lambda-order ()) second #pt-zero)
+          (#pt-app (#pt-use eisenstein-lambda-order ()) second (#pt-succ #pt-zero))
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 4))
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                    third))))
+            #pt-false)
+          (#pt-lambda
+            ((second-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) second #pt-zero)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third))))
+                #pt-false)
+              (#pt-lambda
+                ((third-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 1)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 1) (#pt-numeral 0))
+                        (#pt-numeral 0)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 1)
+                          (#pt-numeral 0)
+                          first-order-one
+                          second-order-zero)
+                        third-order-zero)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 1)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 2) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-lambda
+                (
+                  (third-order-one
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 2)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 1) (#pt-numeral 0))
+                        (#pt-numeral 1)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 1)
+                          (#pt-numeral 0)
+                          first-order-one
+                          second-order-zero)
+                        third-order-one)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 2)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 1) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-app
+                (#pt-use eisenstein-lambda-small-order-of-not-square ())
+                third
+                third-not-square)))
+          (#pt-lambda
+            (
+              (second-order-one
+                (#pt-app (#pt-use eisenstein-lambda-order ()) second (#pt-succ #pt-zero))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)
+              (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 4))
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third))))
+                #pt-false)
+              (#pt-lambda
+                ((third-order-zero (#pt-app (#pt-use eisenstein-lambda-order ()) third #pt-zero)))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 2)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 1) (#pt-numeral 1))
+                        (#pt-numeral 0)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 1)
+                          (#pt-numeral 1)
+                          first-order-one
+                          second-order-one)
+                        third-order-zero)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 2)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 1) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-lambda
+                (
+                  (third-order-one
+                    (#pt-app (#pt-use eisenstein-lambda-order ()) third (#pt-succ #pt-zero))))
+                (#pt-lambda
+                  (
+                    (fourth-power-divides
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 4))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                          third))))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-order-excludes-higher ())
+                      (#pt-app
+                        (#pt-use eisenstein-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third)
+                      (#pt-numeral 3)
+                      (#pt-numeral 4)
+                      (#pt-app
+                        (#pt-use eisenstein-lambda-order-multiply ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+                        third
+                        (#pt-app (#pt-use add ()) (#pt-numeral 1) (#pt-numeral 1))
+                        (#pt-numeral 1)
+                        (#pt-app
+                          (#pt-use eisenstein-lambda-order-multiply ())
+                          first
+                          second
+                          (#pt-numeral 1)
+                          (#pt-numeral 1)
+                          first-order-one
+                          second-order-one)
+                        third-order-one)
+                      (#pt-construct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-gap #pt-nat))
+                            (#pt-eq
+                              #pt-nat
+                              (#pt-numeral 4)
+                              (#pt-app (#pt-use add ()) (#pt-succ (#pt-numeral 3)) candidate-gap))))
+                        introduce
+                        ((#pt-numeral 0) (#pt-refl #pt-nat (#pt-numeral 4)))))
+                    fourth-power-divides)))
+              (#pt-app
+                (#pt-use eisenstein-lambda-small-order-of-not-square ())
+                third
+                third-not-square)))
+          (#pt-app
+            (#pt-use eisenstein-lambda-small-order-of-not-square ())
+            second
+            second-not-square)))
+      (#pt-app (#pt-use eisenstein-lambda-small-order-of-not-square ()) first first-not-square))))
+(#theorem eisenstein-lambda-square-divides-one-of-three-factors
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter fourth-power-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-multiply ()) first second) third))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use eisenstein-divides ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+        first)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          second)
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          third))))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use eisenstein-divides ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+        first)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              first)))
+        #pt-false)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          first)
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            second)
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            third)))
+      (#pt-lambda
+        (
+          (first-square-divides
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              first)))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            first)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              second)
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              third))
+          first-square-divides))
+      (#pt-lambda
+        (
+          (first-square-not-divides
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    first)))
+              #pt-false)))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+            second)
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  second)))
+            #pt-false)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-divides ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+              first)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                second)
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                third)))
+          (#pt-lambda
+            (
+              (second-square-divides
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  second)))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                first)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  second)
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  third))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  second)
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  third)
+                second-square-divides)))
+          (#pt-lambda
+            (
+              (second-square-not-divides
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 2))
+                        second)))
+                  #pt-false)))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-numeral 2))
+                third)
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      third)))
+                #pt-false)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-divides ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-numeral 2))
+                  first)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    second)
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    third)))
+              (#pt-lambda
+                (
+                  (third-square-divides
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      third)))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-numeral 2))
+                    first)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      second)
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      third))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      second)
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      third)
+                    third-square-divides)))
+              (#pt-lambda
+                (
+                  (third-square-not-divides
+                    (#pt-pi
+                      (
+                        (denied-proof
+                          (#pt-app
+                            (#pt-use eisenstein-divides ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-lambda ())
+                              (#pt-numeral 2))
+                            third)))
+                      #pt-false)))
+                (#pt-app
+                  (#pt-use false-elimination ())
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-divides ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        (#pt-numeral 2))
+                      first)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 2))
+                        second)
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          (#pt-numeral 2))
+                        third)))
+                  (#pt-app
+                    (#pt-app
+                      (#pt-use eisenstein-lambda-four-not-divides-three-small-factors ())
+                      first
+                      second
+                      third
+                      first-square-not-divides
+                      second-square-not-divides
+                      third-square-not-divides)
+                    fourth-power-divides)))
+              (#pt-app
+                (#pt-use eisenstein-lambda-power-divisibility-decided ())
+                (#pt-numeral 2)
+                third)))
+          (#pt-app (#pt-use eisenstein-lambda-power-divisibility-decided ()) (#pt-numeral 2) second)))
+      (#pt-app (#pt-use eisenstein-lambda-power-divisibility-decided ()) (#pt-numeral 2) first))))
+(#theorem eisenstein-cubic-solution-square-divides-a-factor
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ()))
+    (#parameter unit (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) unit))
+    (#parameter first-not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first))) #pt-false))
+    (#parameter second-not-divides (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second))) #pt-false))
+    (#parameter third-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third))
+    (#parameter solution-equation (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3)) (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3))) (#pt-app (#pt-use eisenstein-multiply ()) unit (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use eisenstein-divides ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+        (#pt-app (#pt-use eisenstein-add ()) first second))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 2))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              second))))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-lambda-square-divides-one-of-three-factors ())
+      (#pt-app (#pt-use eisenstein-add ()) first second)
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        first
+        (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        first
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+          second))
+      (#pt-app
+        (#pt-use eisenstein-divides-congruent-target ())
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-add ()) first second)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              first
+              (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            first
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+              second)))
+        (#pt-app (#pt-use eisenstein-sum-cubes-factor ()) first second)
+        (#pt-app
+          (#pt-use eisenstein-divides-congruent-target ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+            (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3)))
+            solution-equation)
+          (#pt-app
+            (#pt-use eisenstein-divides-product-right ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-numeral 4))
+            unit
+            (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))
+            (#pt-app
+              (#pt-use eisenstein-cubic-solution-fourth-power-divides ())
+              first
+              second
+              third
+              unit
+              unit-proof
+              first-not-divides
+              second-not-divides
+              third-divides
+              solution-equation)))))))

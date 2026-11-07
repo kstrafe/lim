@@ -8,9 +8,10 @@ linearity, borrow, and unsafe checks before returning a `CheckedProgram`.
 
 `SpannedExpr.children` uses `SourceChildren` copy-on-write storage. Empty
 storage is allocation-free. Cloning shares immutable child storage; mutation
-detaches shared storage before changing it. Each `SpannedExpr.expr` payload
-remains owned and is cloned normally. Spans, source IDs, and provenance retain
-their existing values and meaning.
+detaches shared storage before changing it. `Expr::List` uses `ExprList` to
+share immutable list vectors as well, so source nodes and their raw parents
+reuse nested list payloads. Editing either snapshot still isolates its value.
+Spans, source IDs, and provenance retain their existing values and meaning.
 
 The public API supports conversions to and from `Vec<SpannedExpr>` and
 iteration by value, shared reference, or mutable reference in child order.
@@ -24,6 +25,17 @@ programs. Mutable access detaches the root before editing it. Lowering keeps
 the two inventories synchronized explicitly; source-ID remapping cannot edit
 the original program through a shared handle. This wrapper stores source
 metadata and carries no checked judgment or declaration authority.
+
+Executable occurrences need distinct identities even when their list payloads
+are shared. Before address lookup maps are built, the checker detects aliases
+and materializes the selected executable trees in a temporary program copy.
+It regenerates expression and statement identities in the same traversal
+order, retaining that copy through diagnostics and typed-body lowering. The
+retained IR owns numeric IDs and values; emission builds new address mappings
+against reconstructed syntax. An incomplete identity map is never used.
+Mathematical declarations and source metadata keep their shared storage.
+This compiler storage change does not alter source-language linearity or
+explicit cloning requirements.
 
 Formatting retains only the current top-level source tree. It uses the same
 parser as ordinary source loading, keeping input-relative spans and comment

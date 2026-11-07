@@ -1,0 +1,806 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Native mathematical source adaptation under Apache-2.0; see provenance.json.
+; Close the generalized Eisenstein cubic theorem by constructive
+; strong induction on the actual exact lambda order. Every alleged
+; solution supplies a strictly smaller fully certified solution.
+; The induction hypothesis refutes that solution. No minimal element,
+; descent, classical choice or generalized cubic axiom is assumed.
+; Native adaptation of the final argument in FLT/Three.lean:751-771.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  eisenstein-cubic-ordered-solution
+  =
+  ./eisenstein-cubic-descent-defs.lim::eisenstein-cubic-ordered-solution)
+(#alias
+  eisenstein-cubic-solution-has-exact-order
+  =
+  ./eisenstein-cubic-descent-defs.lim::eisenstein-cubic-solution-has-exact-order)
+(#alias
+  eisenstein-cubic-ordered-solution-has-smaller-solution
+  =
+  ./eisenstein-cubic-solution-descent.lim::eisenstein-cubic-ordered-solution-has-smaller-solution)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias
+  eisenstein-fermat-three-general
+  =
+  ./eisenstein-cubic-bridge.lim::eisenstein-fermat-three-general)
+(#math-definition eisenstein-no-cubic-solution-at-order ()
+  (#pt-pi ((third-order #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((third-order #pt-nat))
+    (#pt-pi
+      (
+        (input-first (#pt-use eisenstein ()))
+        (input-second (#pt-use eisenstein ()))
+        (input-third (#pt-use eisenstein ()))
+        (input-unit (#pt-use eisenstein ()))
+        (input-ordered-solution
+          (#pt-app
+            (#pt-use eisenstein-cubic-ordered-solution ())
+            input-first
+            input-second
+            input-third
+            input-unit
+            third-order)))
+      #pt-false)))
+(#theorem eisenstein-cubic-descent-induction-step
+  (#universes)
+  (#parameters
+    (#parameter third-order #pt-nat)
+    (#parameter given-history (#pt-pi ((earlier-order #pt-nat) (earlier-position (#pt-app (#pt-use less-than ()) earlier-order third-order))) (#pt-app (#pt-use eisenstein-no-cubic-solution-at-order ()) earlier-order))))
+  (#statement (#pt-app (#pt-use eisenstein-no-cubic-solution-at-order ()) third-order))
+  (#proof
+    (#pt-lambda
+      (
+        (input-first (#pt-use eisenstein ()))
+        (input-second (#pt-use eisenstein ()))
+        (input-third (#pt-use eisenstein ()))
+        (input-unit (#pt-use eisenstein ()))
+        (input-ordered-solution
+          (#pt-app
+            (#pt-use eisenstein-cubic-ordered-solution ())
+            input-first
+            input-second
+            input-third
+            input-unit
+            third-order)))
+      (#pt-induct
+        exists
+        (0)
+        (
+          (#pt-use eisenstein ())
+          (#pt-lambda
+            ((candidate-first (#pt-use eisenstein ())))
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-second (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-third (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-unit (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-order #pt-nat))
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                              (#pt-app
+                                (#pt-use eisenstein-cubic-ordered-solution ())
+                                candidate-first
+                                candidate-second
+                                candidate-third
+                                candidate-unit
+                                candidate-order))))))))))))
+        (#pt-lambda
+          (
+            (eisenstein-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-first (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-second (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-unit (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-order #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                    (#pt-app
+                                      (#pt-use eisenstein-cubic-ordered-solution ())
+                                      candidate-first
+                                      candidate-second
+                                      candidate-third
+                                      candidate-unit
+                                      candidate-order))))))))))))))
+          #pt-false)
+        (
+          (#pt-lambda
+            (
+              (smaller-first (#pt-use eisenstein ()))
+              (smaller-second-exists
+                (#pt-app
+                  (#pt-use exists (0))
+                  (#pt-use eisenstein ())
+                  (#pt-lambda
+                    ((candidate-second (#pt-use eisenstein ())))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use eisenstein ())
+                          (#pt-lambda
+                            ((candidate-unit (#pt-use eisenstein ())))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-order #pt-nat))
+                                (#pt-app
+                                  (#pt-use conjunction ())
+                                  (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                  (#pt-app
+                                    (#pt-use eisenstein-cubic-ordered-solution ())
+                                    smaller-first
+                                    candidate-second
+                                    candidate-third
+                                    candidate-unit
+                                    candidate-order))))))))))))
+            (#pt-induct
+              exists
+              (0)
+              (
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-second (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    (#pt-use eisenstein ())
+                    (#pt-lambda
+                      ((candidate-third (#pt-use eisenstein ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-unit (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-order #pt-nat))
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                (#pt-app
+                                  (#pt-use eisenstein-cubic-ordered-solution ())
+                                  smaller-first
+                                  candidate-second
+                                  candidate-third
+                                  candidate-unit
+                                  candidate-order))))))))))
+              (#pt-lambda
+                (
+                  (eisenstein-certificate
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-second (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use eisenstein ())
+                          (#pt-lambda
+                            ((candidate-third (#pt-use eisenstein ())))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              (#pt-use eisenstein ())
+                              (#pt-lambda
+                                ((candidate-unit (#pt-use eisenstein ())))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-order #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                      (#pt-app
+                                        (#pt-use eisenstein-cubic-ordered-solution ())
+                                        smaller-first
+                                        candidate-second
+                                        candidate-third
+                                        candidate-unit
+                                        candidate-order))))))))))))
+                #pt-false)
+              (
+                (#pt-lambda
+                  (
+                    (smaller-second (#pt-use eisenstein ()))
+                    (smaller-third-exists
+                      (#pt-app
+                        (#pt-use exists (0))
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-third (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-unit (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-order #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                    (#pt-app
+                                      (#pt-use eisenstein-cubic-ordered-solution ())
+                                      smaller-first
+                                      smaller-second
+                                      candidate-third
+                                      candidate-unit
+                                      candidate-order))))))))))
+                  (#pt-induct
+                    exists
+                    (0)
+                    (
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-third (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use eisenstein ())
+                          (#pt-lambda
+                            ((candidate-unit (#pt-use eisenstein ())))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-order #pt-nat))
+                                (#pt-app
+                                  (#pt-use conjunction ())
+                                  (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                  (#pt-app
+                                    (#pt-use eisenstein-cubic-ordered-solution ())
+                                    smaller-first
+                                    smaller-second
+                                    candidate-third
+                                    candidate-unit
+                                    candidate-order))))))))
+                    (#pt-lambda
+                      (
+                        (eisenstein-certificate
+                          (#pt-app
+                            (#pt-use exists (0))
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-third (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                (#pt-use eisenstein ())
+                                (#pt-lambda
+                                  ((candidate-unit (#pt-use eisenstein ())))
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-order #pt-nat))
+                                      (#pt-app
+                                        (#pt-use conjunction ())
+                                        (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                        (#pt-app
+                                          (#pt-use eisenstein-cubic-ordered-solution ())
+                                          smaller-first
+                                          smaller-second
+                                          candidate-third
+                                          candidate-unit
+                                          candidate-order))))))))))
+                      #pt-false)
+                    (
+                      (#pt-lambda
+                        (
+                          (smaller-third (#pt-use eisenstein ()))
+                          (smaller-unit-exists
+                            (#pt-app
+                              (#pt-use exists (0))
+                              (#pt-use eisenstein ())
+                              (#pt-lambda
+                                ((candidate-unit (#pt-use eisenstein ())))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-order #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                      (#pt-app
+                                        (#pt-use eisenstein-cubic-ordered-solution ())
+                                        smaller-first
+                                        smaller-second
+                                        smaller-third
+                                        candidate-unit
+                                        candidate-order))))))))
+                        (#pt-induct
+                          exists
+                          (0)
+                          (
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-unit (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-order #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                    (#pt-app
+                                      (#pt-use eisenstein-cubic-ordered-solution ())
+                                      smaller-first
+                                      smaller-second
+                                      smaller-third
+                                      candidate-unit
+                                      candidate-order))))))
+                          (#pt-lambda
+                            (
+                              (eisenstein-certificate
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  (#pt-use eisenstein ())
+                                  (#pt-lambda
+                                    ((candidate-unit (#pt-use eisenstein ())))
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-order #pt-nat))
+                                        (#pt-app
+                                          (#pt-use conjunction ())
+                                          (#pt-app
+                                            (#pt-use less-than ())
+                                            candidate-order
+                                            third-order)
+                                          (#pt-app
+                                            (#pt-use eisenstein-cubic-ordered-solution ())
+                                            smaller-first
+                                            smaller-second
+                                            smaller-third
+                                            candidate-unit
+                                            candidate-order))))))))
+                            #pt-false)
+                          (
+                            (#pt-lambda
+                              (
+                                (smaller-unit (#pt-use eisenstein ()))
+                                (smaller-order-exists
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-order #pt-nat))
+                                      (#pt-app
+                                        (#pt-use conjunction ())
+                                        (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                        (#pt-app
+                                          (#pt-use eisenstein-cubic-ordered-solution ())
+                                          smaller-first
+                                          smaller-second
+                                          smaller-third
+                                          smaller-unit
+                                          candidate-order))))))
+                              (#pt-induct
+                                exists
+                                (0)
+                                (#pt-nat
+                                  (#pt-lambda
+                                    ((candidate-order #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app (#pt-use less-than ()) candidate-order third-order)
+                                      (#pt-app
+                                        (#pt-use eisenstein-cubic-ordered-solution ())
+                                        smaller-first
+                                        smaller-second
+                                        smaller-third
+                                        smaller-unit
+                                        candidate-order))))
+                                (#pt-lambda
+                                  (
+                                    (certificate
+                                      (#pt-app
+                                        (#pt-use exists (0))
+                                        #pt-nat
+                                        (#pt-lambda
+                                          ((candidate-order #pt-nat))
+                                          (#pt-app
+                                            (#pt-use conjunction ())
+                                            (#pt-app
+                                              (#pt-use less-than ())
+                                              candidate-order
+                                              third-order)
+                                            (#pt-app
+                                              (#pt-use eisenstein-cubic-ordered-solution ())
+                                              smaller-first
+                                              smaller-second
+                                              smaller-third
+                                              smaller-unit
+                                              candidate-order))))))
+                                  #pt-false)
+                                (
+                                  (#pt-lambda
+                                    (
+                                      (smaller-order #pt-nat)
+                                      (smaller-certificate
+                                        (#pt-app
+                                          (#pt-use conjunction ())
+                                          (#pt-app (#pt-use less-than ()) smaller-order third-order)
+                                          (#pt-app
+                                            (#pt-use eisenstein-cubic-ordered-solution ())
+                                            smaller-first
+                                            smaller-second
+                                            smaller-third
+                                            smaller-unit
+                                            smaller-order))))
+                                    (#pt-app
+                                      given-history
+                                      smaller-order
+                                      (#pt-project conjunction 0 smaller-certificate)
+                                      smaller-first
+                                      smaller-second
+                                      smaller-third
+                                      smaller-unit
+                                      (#pt-project conjunction 1 smaller-certificate))))
+                                smaller-order-exists)))
+                          smaller-unit-exists)))
+                    smaller-third-exists)))
+              smaller-second-exists)))
+        (#pt-app
+          (#pt-use eisenstein-cubic-ordered-solution-has-smaller-solution ())
+          input-first
+          input-second
+          input-third
+          input-unit
+          third-order
+          input-ordered-solution)))))
+(#theorem eisenstein-cubic-no-solution-at-order
+  (#universes)
+  (#parameters
+    (#parameter third-order #pt-nat))
+  (#statement (#pt-app (#pt-use eisenstein-no-cubic-solution-at-order ()) third-order))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use strong-induction ())
+        (#pt-lambda
+          ((order-index #pt-nat))
+          (#pt-app (#pt-use eisenstein-no-cubic-solution-at-order ()) order-index))
+        (#pt-lambda
+          (
+            (stage #pt-nat)
+            (stage-history
+              (#pt-pi
+                (
+                  (earlier-order #pt-nat)
+                  (earlier-position (#pt-app (#pt-use less-than ()) earlier-order stage)))
+                (#pt-app (#pt-use eisenstein-no-cubic-solution-at-order ()) earlier-order))))
+          (#pt-app (#pt-use eisenstein-cubic-descent-induction-step ()) stage stage-history)))
+      third-order)))
+(#theorem eisenstein-fermat-three-general-proved
+  (#universes)
+  (#parameters)
+  (#statement (#pt-use eisenstein-fermat-three-general ()))
+  (#proof
+    (#pt-lambda
+      (
+        (first (#pt-use eisenstein ()))
+        (second (#pt-use eisenstein ()))
+        (third (#pt-use eisenstein ()))
+        (unit (#pt-use eisenstein ()))
+        (unit-proof (#pt-app (#pt-use eisenstein-unit ()) unit))
+        (third-nonzero
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+            #pt-false))
+        (first-nondivisible
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)))
+            #pt-false))
+        (second-nondivisible
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) second)))
+            #pt-false))
+        (third-divisible
+          (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third))
+        (pair-coprime (#pt-app (#pt-use eisenstein-coprime ()) first second))
+        (solution-equation
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+              (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              unit
+              (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))))
+      (#pt-induct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-order #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-cubic-ordered-solution ())
+              first
+              second
+              third
+              unit
+              candidate-order)))
+        (#pt-lambda
+          (
+            (certificate
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-order #pt-nat))
+                  (#pt-app
+                    (#pt-use eisenstein-cubic-ordered-solution ())
+                    first
+                    second
+                    third
+                    unit
+                    candidate-order)))))
+          #pt-false)
+        (
+          (#pt-lambda
+            (
+              (third-order #pt-nat)
+              (ordered-certificate
+                (#pt-app
+                  (#pt-use eisenstein-cubic-ordered-solution ())
+                  first
+                  second
+                  third
+                  unit
+                  third-order)))
+            (#pt-app
+              (#pt-app (#pt-use eisenstein-cubic-no-solution-at-order ()) third-order)
+              first
+              second
+              third
+              unit
+              ordered-certificate)))
+        (#pt-app
+          (#pt-use eisenstein-cubic-solution-has-exact-order ())
+          first
+          second
+          third
+          unit
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app (#pt-use eisenstein-unit ()) unit)
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-use eisenstein-lambda ())
+                        second)))
+                  #pt-false)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+                    #pt-false)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second)
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3)))))))))
+            unit-proof
+            (#pt-app
+              (#pt-use conjunction-introduce ())
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) first)))
+                #pt-false)
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-use eisenstein-lambda ())
+                        second)))
+                  #pt-false)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+                    #pt-false)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second)
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))))))
+              first-nondivisible
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-use eisenstein-lambda ())
+                        second)))
+                  #pt-false)
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+                    #pt-false)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second)
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3)))))))
+                second-nondivisible
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app (#pt-use eisenstein-equal ()) third (#pt-use eisenstein-zero ()))))
+                    #pt-false)
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second)
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))))
+                  third-nonzero
+                  (#pt-app
+                    (#pt-use conjunction-introduce ())
+                    (#pt-app (#pt-use eisenstein-coprime ()) first second)
+                    (#pt-app
+                      (#pt-use conjunction ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3)))))
+                    pair-coprime
+                    (#pt-app
+                      (#pt-use conjunction-introduce ())
+                      (#pt-app (#pt-use eisenstein-divides ()) (#pt-use eisenstein-lambda ()) third)
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        (#pt-app
+                          (#pt-use eisenstein-add ())
+                          (#pt-app (#pt-use eisenstein-power ()) first (#pt-numeral 3))
+                          (#pt-app (#pt-use eisenstein-power ()) second (#pt-numeral 3)))
+                        (#pt-app
+                          (#pt-use eisenstein-multiply ())
+                          unit
+                          (#pt-app (#pt-use eisenstein-power ()) third (#pt-numeral 3))))
+                      third-divisible
+                      solution-equation)))))))))))

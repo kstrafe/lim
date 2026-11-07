@@ -1,0 +1,229 @@
+; Concrete adaptation of Mathlib NumberTheory/FLT/Three.lean:213-215.
+; Every nonzero x has a bound k with lambda^k not dividing x.
+; N(lambda^k)=3^k divides N(x); N(x)<3^N(x) supplies the bound.
+; No Noetherian/PID assumption, fixed bound or data extraction is used.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-injective
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias
+  eisenstein-natural-norm-divides
+  =
+  ./eisenstein-norm-divisibility.lim::eisenstein-natural-norm-divides)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias
+  eisenstein-natural-norm-lambda
+  =
+  ./eisenstein-natural-norm-properties.lim::eisenstein-natural-norm-lambda)
+(#alias
+  eisenstein-natural-norm-power
+  =
+  ./eisenstein-natural-norm-properties.lim::eisenstein-natural-norm-power)
+(#alias
+  eisenstein-natural-norm-nonzero
+  =
+  ./eisenstein-natural-norm-properties.lim::eisenstein-natural-norm-nonzero)
+(#alias divisor-not-above = ./natural-divisibility-bounds.lim::divisor-not-above)
+(#alias exponent-below-three-power = ./natural-power-growth.lim::exponent-below-three-power)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#theorem eisenstein-lambda-power-norm-divides
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm))
+    (#parameter power-divides (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent) number)))
+  (#statement
+    (#pt-app
+      (#pt-use divides ())
+      (#pt-app (#pt-use power ()) (#pt-numeral 3) exponent)
+      natural-norm))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-natural-norm-divides ())
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+      number
+      (#pt-app (#pt-use power ()) (#pt-numeral 3) exponent)
+      natural-norm
+      (#pt-app
+        (#pt-use eisenstein-natural-norm-power ())
+        (#pt-use eisenstein-lambda ())
+        (#pt-numeral 3)
+        exponent
+        (#pt-use eisenstein-natural-norm-lambda ()))
+      norm-certificate
+      power-divides)))
+(#theorem eisenstein-lambda-power-norm-bound
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) natural-norm)
+            number)))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (power-divides
+          (#pt-app
+            (#pt-use eisenstein-divides ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) natural-norm)
+            number)))
+      (#pt-app
+        (#pt-app
+          (#pt-use divisor-not-above ())
+          (#pt-app (#pt-use power ()) (#pt-numeral 3) natural-norm)
+          natural-norm
+          (#pt-app
+            (#pt-use eisenstein-natural-norm-nonzero ())
+            number
+            natural-norm
+            norm-certificate
+            number-nonzero)
+          (#pt-app
+            (#pt-use eisenstein-lambda-power-norm-divides ())
+            number
+            natural-norm
+            natural-norm
+            norm-certificate
+            power-divides))
+        (#pt-app (#pt-use exponent-below-three-power ()) natural-norm)))))
+(#theorem eisenstein-lambda-finite-multiplicity
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-bound #pt-nat))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use eisenstein-divides ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  candidate-bound)
+                number)))
+          #pt-false))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-norm #pt-nat))
+          (#pt-app (#pt-use eisenstein-natural-norm ()) number candidate-norm)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-norm #pt-nat))
+                (#pt-app (#pt-use eisenstein-natural-norm ()) number candidate-norm)))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-bound #pt-nat))
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-divides ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      candidate-bound)
+                    number)))
+              #pt-false))))
+      (
+        (#pt-lambda
+          (
+            (natural-norm #pt-nat)
+            (norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-bound #pt-nat))
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use eisenstein-divides ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-lambda ())
+                          candidate-bound)
+                        number)))
+                  #pt-false)))
+            introduce
+            (natural-norm
+              (#pt-app
+                (#pt-use eisenstein-lambda-power-norm-bound ())
+                number
+                natural-norm
+                norm-certificate
+                number-nonzero)))))
+      (#pt-app (#pt-use eisenstein-natural-norm-exists ()) number))))

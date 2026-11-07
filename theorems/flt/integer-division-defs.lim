@@ -1,0 +1,645 @@
+; Signed Euclidean division by a positive natural divisor.
+; Certificates retain an actual signed quotient, nonnegative natural
+; remainder, exact formal-difference equation and strict remainder bound.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-of-natural = ./integer-multiplication.lim::integer-multiply-of-natural)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#alias integer-multiply-negative = ./integer-multiplication.lim::integer-multiply-negative)
+(#alias integer-add-zero = ./integer-addition.lim::integer-add-zero)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias
+  natural-negative-division-balance
+  =
+  ./natural-remainder-complement.lim::natural-negative-division-balance)
+(#alias add-zero-right = ./natural-addition.lim::add-zero-right)
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias congruence = ./equality.lim::congruence)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#math-definition integer-division-spec ()
+  (#pt-pi
+    (
+      (dividend (#pt-use integer ()))
+      (divisor #pt-nat)
+      (quotient (#pt-use integer ()))
+      (remainder #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (dividend (#pt-use integer ()))
+      (divisor #pt-nat)
+      (quotient (#pt-use integer ()))
+      (remainder #pt-nat))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        dividend
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            quotient
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder)))
+      (#pt-app (#pt-use less-than ()) remainder divisor))))
+(#math-definition integer-has-division ()
+  (#pt-pi ((dividend (#pt-use integer ())) (divisor #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((dividend (#pt-use integer ())) (divisor #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use integer ())
+      (#pt-lambda
+        ((candidate-quotient (#pt-use integer ())))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-remainder #pt-nat))
+            (#pt-app
+              (#pt-use integer-division-spec ())
+              dividend
+              divisor
+              candidate-quotient
+              candidate-remainder)))))))
+(#theorem integer-division-congruent-dividend
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use integer ()))
+    (#parameter other-dividend (#pt-use integer ()))
+    (#parameter divisor #pt-nat)
+    (#parameter quotient (#pt-use integer ()))
+    (#parameter remainder #pt-nat)
+    (#parameter equivalent-dividends (#pt-app (#pt-use integer-equal ()) dividend other-dividend))
+    (#parameter division-certificate (#pt-app (#pt-use integer-division-spec ()) dividend divisor quotient remainder)))
+  (#statement
+    (#pt-app (#pt-use integer-division-spec ()) other-dividend divisor quotient remainder))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        other-dividend
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            quotient
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder)))
+      (#pt-app (#pt-use less-than ()) remainder divisor)
+      (#pt-app
+        (#pt-use integer-transitive ())
+        other-dividend
+        dividend
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            quotient
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder))
+        (#pt-app (#pt-use integer-symmetric ()) dividend other-dividend equivalent-dividends)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            dividend
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) remainder)))
+          (#pt-app (#pt-use less-than ()) remainder divisor)
+          division-certificate))
+      (#pt-app
+        (#pt-use conjunction-right ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          dividend
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              quotient
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder)))
+        (#pt-app (#pt-use less-than ()) remainder divisor)
+        division-certificate))))
+(#theorem integer-has-division-congruent-dividend
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use integer ()))
+    (#parameter other-dividend (#pt-use integer ()))
+    (#parameter divisor #pt-nat)
+    (#parameter equivalent-dividends (#pt-app (#pt-use integer-equal ()) dividend other-dividend))
+    (#parameter division-existence (#pt-app (#pt-use integer-has-division ()) dividend divisor)))
+  (#statement (#pt-app (#pt-use integer-has-division ()) other-dividend divisor))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-quotient (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-remainder #pt-nat))
+              (#pt-app
+                (#pt-use integer-division-spec ())
+                dividend
+                divisor
+                candidate-quotient
+                candidate-remainder)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-quotient (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use integer-division-spec ())
+                      dividend
+                      divisor
+                      candidate-quotient
+                      candidate-remainder)))))))
+        (#pt-app (#pt-use integer-has-division ()) other-dividend divisor))
+      (
+        (#pt-lambda
+          (
+            (quotient (#pt-use integer ()))
+            (remainder-existence
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-remainder #pt-nat))
+                  (#pt-app
+                    (#pt-use integer-division-spec ())
+                    dividend
+                    divisor
+                    quotient
+                    candidate-remainder)))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-remainder #pt-nat))
+                (#pt-app
+                  (#pt-use integer-division-spec ())
+                  dividend
+                  divisor
+                  quotient
+                  candidate-remainder)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-division-spec ())
+                        dividend
+                        divisor
+                        quotient
+                        candidate-remainder)))))
+              (#pt-app (#pt-use integer-has-division ()) other-dividend divisor))
+            (
+              (#pt-lambda
+                (
+                  (remainder #pt-nat)
+                  (division-certificate
+                    (#pt-app (#pt-use integer-division-spec ()) dividend divisor quotient remainder)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-quotient (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use integer-division-spec ())
+                            other-dividend
+                            divisor
+                            candidate-quotient
+                            candidate-remainder)))))
+                  introduce
+                  (quotient
+                    (#pt-construct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use integer-division-spec ())
+                            other-dividend
+                            divisor
+                            quotient
+                            candidate-remainder)))
+                      introduce
+                      (remainder
+                        (#pt-app
+                          (#pt-use integer-division-congruent-dividend ())
+                          dividend
+                          other-dividend
+                          divisor
+                          quotient
+                          remainder
+                          equivalent-dividends
+                          division-certificate)))))))
+            remainder-existence)))
+      division-existence)))
+(#theorem integer-natural-division-equation
+  (#universes)
+  (#parameters
+    (#parameter magnitude #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter natural-quotient #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter division-equation (#pt-eq #pt-nat magnitude (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) natural-quotient divisor) remainder))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-of-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) remainder))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-of-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-of-natural ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+          remainder))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) remainder))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint #pt-zero))
+        magnitude
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+          remainder)
+        division-equation)
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) remainder))
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+            remainder))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+              remainder))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder)
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+            (#pt-app (#pt-use integer-of-natural ()) remainder)
+            (#pt-app (#pt-use integer-multiply-of-natural ()) natural-quotient divisor)
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) remainder)))
+          (#pt-app
+            (#pt-use integer-add-of-natural ())
+            (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+            remainder))))))
+(#theorem integer-negative-exact-division-equation
+  (#universes)
+  (#parameters
+    (#parameter magnitude #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter natural-quotient #pt-nat)
+    (#parameter exact-division-equation (#pt-eq #pt-nat magnitude (#pt-app (#pt-use multiply ()) natural-quotient divisor))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) #pt-zero))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-negative-natural ())
+        (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) #pt-zero))
+      (#pt-app
+        (#pt-use integer-negate-congruent ())
+        (#pt-app (#pt-use integer-of-natural ()) magnitude)
+        (#pt-app
+          (#pt-use integer-of-natural ())
+          (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint #pt-zero))
+          magnitude
+          (#pt-app (#pt-use multiply ()) natural-quotient divisor)
+          exact-division-equation))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) #pt-zero))
+        (#pt-app
+          (#pt-use integer-negative-natural ())
+          (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) #pt-zero))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app
+            (#pt-use integer-negative-natural ())
+            (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+          (#pt-app
+            (#pt-use integer-add-zero ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor)))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+                (#pt-app (#pt-use integer-of-natural ()) divisor)))
+            (#pt-app
+              (#pt-use integer-negative-natural ())
+              (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+            (#pt-app
+              (#pt-use integer-multiply-negative ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app
+              (#pt-use integer-negate-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-quotient)
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use multiply ()) natural-quotient divisor))
+              (#pt-app (#pt-use integer-multiply-of-natural ()) natural-quotient divisor))))))))
+(#theorem integer-negative-complement-division-equation
+  (#universes)
+  (#parameters
+    (#parameter magnitude #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter natural-quotient #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter complement #pt-nat)
+    (#parameter division-equation (#pt-eq #pt-nat magnitude (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) natural-quotient divisor) remainder)))
+    (#parameter complement-equation (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder complement))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ natural-quotient))
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) complement))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-negative-natural ()) magnitude)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-negative-natural ())
+          (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) complement))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ natural-quotient))
+          (#pt-app (#pt-use integer-of-natural ()) divisor))
+        (#pt-app (#pt-use integer-of-natural ()) complement))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor)
+          #pt-zero)
+        (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor)
+        (#pt-app (#pt-use add ()) complement magnitude)
+        (#pt-app
+          (#pt-use add-zero-right ())
+          (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+        (#pt-app
+          (#pt-use natural-negative-division-balance ())
+          magnitude
+          divisor
+          natural-quotient
+          remainder
+          complement
+          division-equation
+          complement-equation))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ natural-quotient))
+            (#pt-app (#pt-use integer-of-natural ()) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) complement))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-negative-natural ())
+            (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+          (#pt-app (#pt-use integer-of-natural ()) complement))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ natural-quotient))
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) complement))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ natural-quotient))
+                (#pt-app (#pt-use integer-of-natural ()) divisor)))
+            (#pt-app (#pt-use integer-of-natural ()) complement))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-negative-natural ())
+              (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) complement))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-negative-natural ()) (#pt-succ natural-quotient))
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) complement)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ natural-quotient))
+                (#pt-app (#pt-use integer-of-natural ()) divisor)))
+            (#pt-app (#pt-use integer-of-natural ()) complement)
+            (#pt-app
+              (#pt-use integer-multiply-negative ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-succ natural-quotient))
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) complement)))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ natural-quotient))
+                (#pt-app (#pt-use integer-of-natural ()) divisor)))
+            (#pt-app (#pt-use integer-of-natural ()) complement)
+            (#pt-app
+              (#pt-use integer-negative-natural ())
+              (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) complement)
+            (#pt-app
+              (#pt-use integer-negate-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ natural-quotient))
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app
+                (#pt-use integer-of-natural ())
+                (#pt-app (#pt-use multiply ()) (#pt-succ natural-quotient) divisor))
+              (#pt-app (#pt-use integer-multiply-of-natural ()) (#pt-succ natural-quotient) divisor))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) complement))))))))

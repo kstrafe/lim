@@ -11,25 +11,40 @@ use std::{
 
 const PAGE: usize = 64 * 1024;
 const CACHE_PAGES: usize = 4;
-const MAX_BYTES: u64 = 128 * 1024 * 1024;
+pub(in crate::proof::kernel) const DEFAULT_BYTES: u64 = 128 * 1024 * 1024;
+pub(in crate::proof::kernel) const MAX_SELECTED_BYTES: u64 = isize::MAX as u64;
 static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+
+#[path = "scratch_digests.rs"]
+mod digests;
+use digests::Digests;
 
 struct CachedPage {
     index: usize,
     bytes: Vec<u8>,
 }
 
-pub(super) struct Spool {
+pub(in crate::proof::kernel) struct Spool {
     file: File,
     pending: Vec<u8>,
-    digests: Vec<[u8; 32]>,
+    digests: Digests,
     cache: VecDeque<CachedPage>,
     len: u64,
+    limit: u64,
     poisoned: bool,
 }
 
 impl Spool {
-    pub(super) fn new() -> Result<Self> {
+    pub(in crate::proof::kernel) fn new() -> Result<Self> {
+        Self::with_limit(DEFAULT_BYTES)
+    }
+
+    pub(in crate::proof::kernel) fn with_limit(limit: u64) -> Result<Self> {
+        let pages = limit / PAGE as u64 + u64::from(limit % PAGE as u64 != 0);
+        if limit == 0 || limit > MAX_SELECTED_BYTES || usize::try_from(pages).is_err() {
+            return Err("replay scratch byte limit is invalid".into());
+        }
+        let digests = Digests::with_data_limit(limit)?;
         let mut options = OpenOptions::new();
         options.read(true).write(true).create_new(true);
         #[cfg(unix)]
@@ -49,9 +64,10 @@ impl Spool {
                     return Ok(Self {
                         file,
                         pending: Vec::with_capacity(PAGE),
-                        digests: Vec::new(),
+                        digests,
                         cache: VecDeque::new(),
                         len: 0,
+                        limit,
                         poisoned: false,
                     });
                 }
@@ -62,16 +78,66 @@ impl Spool {
         Err("replay scratch file creation collision limit exceeded".into())
     }
 
-    pub(super) fn len(&self) -> u64 {
+    pub(in crate::proof::kernel) fn len(&self) -> u64 {
         self.len
     }
 
-    pub(super) fn append(&mut self, mut bytes: &[u8]) -> Result<u64> {
+    #[cfg(test)]
+    pub(in crate::proof::kernel) fn resident_bytes(&self) -> usize {
+        self.pending.capacity()
+            + self.digests.resident_bytes()
+            + self.cache.capacity() * std::mem::size_of::<CachedPage>()
+            + self
+                .cache
+                .iter()
+                .map(|page| page.bytes.capacity())
+                .sum::<usize>()
+    }
+
+    #[cfg(test)]
+    pub(in crate::proof::kernel) fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
+
+    #[cfg(test)]
+    fn digests_spilled(&self) -> bool {
+        self.digests.is_spilled()
+    }
+
+    #[cfg(test)]
+    fn corrupt_digests(&mut self) -> Result<()> {
+        self.digests.corrupt_flushed()
+    }
+
+    #[cfg(test)]
+    fn exhaust_digest_backing(&mut self) -> Result<()> {
+        self.digests.exhaust_backing()
+    }
+
+    #[cfg(test)]
+    pub(in crate::proof::kernel) fn overwrite_flushed(
+        &mut self,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<()> {
+        if offset
+            .checked_add(bytes.len() as u64)
+            .is_none_or(|end| end > self.digests.len() as u64 * PAGE as u64)
+        {
+            return Err("test write must stay inside flushed scratch pages".into());
+        }
+        self.file.seek(SeekFrom::Start(offset)).map_err(io_error)?;
+        self.file.write_all(bytes).map_err(io_error)?;
+        self.clear_cache();
+        Ok(())
+    }
+
+    pub(in crate::proof::kernel) fn append(&mut self, mut bytes: &[u8]) -> Result<u64> {
         self.healthy()?;
         let end = self
             .len
-            .checked_add(bytes.len() as u64)
-            .filter(|end| *end <= MAX_BYTES)
+            .checked_add(u64::try_from(bytes.len()).map_err(|_| "replay scratch length overflow")?)
+            .filter(|end| *end <= self.limit)
             .ok_or("replay scratch byte limit exceeded")?;
         let start = self.len;
         while !bytes.is_empty() {
@@ -89,7 +155,12 @@ impl Spool {
                     return Err(io_error(error));
                 }
                 let index = self.digests.len();
-                self.digests.push(digest(&self.pending));
+                if let Err(error) = self.digests.push(digest(&self.pending)) {
+                    // Data may already be written, but its authenticated index
+                    // was not published. No later cache hit may hide the error.
+                    self.poisoned = true;
+                    return Err(error);
+                }
                 let bytes = std::mem::replace(&mut self.pending, Vec::with_capacity(PAGE));
                 if self.cache.len() == CACHE_PAGES {
                     self.cache.pop_front();
@@ -107,7 +178,11 @@ impl Spool {
         self.read_into(offset, &mut bytes)?;
         Ok(bytes)
     }
-    pub(super) fn read_into(&mut self, offset: u64, result: &mut [u8]) -> Result<()> {
+    pub(in crate::proof::kernel) fn read_into(
+        &mut self,
+        offset: u64,
+        result: &mut [u8],
+    ) -> Result<()> {
         self.healthy()?;
         let len = result.len();
         if len > PAGE
@@ -147,10 +222,13 @@ impl Spool {
             self.cache.push_back(page);
             return Ok(());
         }
-        let expected = self
-            .digests
-            .get(index)
-            .ok_or("invalid replay scratch page index")?;
+        let expected = match self.digests.get(index) {
+            Ok(expected) => expected,
+            Err(error) => {
+                self.poisoned = true;
+                return Err(error);
+            }
+        };
         let mut bytes = vec![0; PAGE];
         let result = (|| {
             self.file
@@ -161,7 +239,7 @@ impl Spool {
             self.poisoned = true;
             return Err(io_error(error));
         }
-        if &digest(&bytes) != expected {
+        if digest(&bytes) != expected {
             self.poisoned = true;
             return Err("replay scratch page checksum mismatch".into());
         }
@@ -176,7 +254,7 @@ impl Spool {
         if self.poisoned {
             Err("replay scratch storage is invalid after an I/O or checksum error".into())
         } else {
-            Ok(())
+            self.digests.healthy()
         }
     }
 }
@@ -242,10 +320,18 @@ mod tests {
     #[test]
     fn byte_limit_refuses_before_any_append() {
         let mut spool = Spool::new().unwrap();
-        spool.len = MAX_BYTES;
+        spool.len = DEFAULT_BYTES;
         assert!(spool.append(&[0]).unwrap_err().contains("byte limit"));
-        assert_eq!(spool.len, MAX_BYTES);
+        assert_eq!(spool.len, DEFAULT_BYTES);
         assert!(spool.pending.is_empty());
-        assert!(spool.digests.is_empty());
+        assert_eq!(spool.digests.len(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "scratch_digest_tests.rs"]
+mod digest_tests;
+
+#[cfg(test)]
+#[path = "scratch_limit_tests.rs"]
+mod limit_tests;

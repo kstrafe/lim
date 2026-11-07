@@ -53,6 +53,7 @@ fn spilled_report(
     target: &str,
     policy: LeanFoundationPolicy,
     budget: crate::ProofBudget,
+    expected_source: &str,
 ) -> LeanExportReport {
     let mut replay = Replay::with_retention(budget, false);
     replay.foundation_policy = policy;
@@ -60,29 +61,50 @@ fn spilled_report(
     replay.levels = levels::Levels::with_limit(0);
     replay.expressions = expressions::Expressions::with_limit(false, 0);
     replay.reports = inventory::Inventory::with_limit(0);
+    replay.checked = checked::Index::with_limit(0);
     replay.kernel.declarations.set_limit(0);
+    replay.kernel.nested.set_limit(0);
     let (replay, report, _) = replay_reader(input, target, replay).unwrap();
+    assert!(replay.kernel.declarations.directories_spilled());
+    if !replay.kernel.nested.is_empty() {
+        assert!(replay.kernel.nested.is_spilled());
+    }
     assert!(replay.names.is_spilled());
+    assert!(replay.names.candidates_spilled());
     assert!(replay.levels.is_spilled());
     assert!(replay.expressions.is_spilled());
+    assert!(replay.checked.is_spilled());
     assert!(report.declarations.is_spilled());
     let report = report.into_report().unwrap();
 
     let mut replay = Replay::with_retention(budget, true);
+    replay.initializers = initializers::Initializers::with_limit(true, 0);
     replay.foundation_policy = policy;
     replay.names = names::Names::with_limit(0);
     replay.levels = levels::Levels::with_limit(0);
     replay.expressions = expressions::Expressions::with_limit(false, 0);
     replay.reports = inventory::Inventory::with_limit(0);
+    replay.checked = checked::Index::with_limit(0);
     replay.kernel.declarations.set_limit(0);
+    replay.kernel.nested.set_limit(0);
     let (mut replay, receipt, identity) = replay_reader(input, target, replay).unwrap();
+    assert!(replay.kernel.declarations.directories_spilled());
+    if !replay.kernel.nested.is_empty() {
+        assert!(replay.kernel.nested.is_spilled());
+    }
     assert!(replay.names.is_spilled());
+    assert!(replay.names.candidates_spilled());
     assert!(replay.levels.is_spilled());
     assert!(replay.expressions.is_spilled());
+    assert!(replay.checked.is_spilled());
     assert!(receipt.declarations.is_spilled());
     assert_eq!(replay.initializers.len(), receipt.declaration_count());
-    let native = source::render(&mut replay, receipt.into_report().unwrap(), &identity).unwrap();
-    assert_eq!(native.report.render_json(), report.render_json());
+    assert!(replay.initializers.is_spilled());
+    let native = source::render(&mut replay, receipt, &identity).unwrap();
+    let mut json = Vec::new();
+    native.receipt.write_json(&mut json).unwrap();
+    assert_eq!(json, report.render_json().as_bytes());
+    assert_eq!(native.source, expected_source);
     report
 }
 
@@ -135,6 +157,7 @@ fn native_proof_artifacts_reproduce_the_checked_genuine_exports() {
             field(entry, "original_target").string().unwrap(),
             LeanFoundationPolicy::Constructive,
             crate::ProofBudget::default(),
+            &translated.source,
         );
         assert_eq!(spilled.render_json(), translated.report.render_json());
         assert_eq!(native, translated.source.as_bytes());
@@ -431,6 +454,23 @@ fn genuine_gcd_calculation_retains_explicit_budget_mapping_hashes_and_attributio
 }
 
 #[test]
+fn genuine_direct_gcd_rfl_retains_axiom_free_mapping_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_gcd_closed/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_gcd_closed/gcd-closed.ndjson"),
+        include_str!("../../../theorems/lean_replay/gcd-closed.lim"),
+        "GcdProbe.closed",
+        "lim-lean-gcd-closed-fixture-v1",
+        &[],
+        (
+            1,
+            &[],
+            crate::ProofBudget::new(20_000_000, 1 << 30, 2 << 30).unwrap(),
+        ),
+    );
+}
+
+#[test]
 fn genuine_strings_retain_budgeted_mapping_hashes_and_attribution() {
     assert_primitive_fixture_with_budget(
         include_str!("../../../tests/fixtures/lean_export_strings/provenance.json"),
@@ -464,6 +504,95 @@ fn assert_primitive_fixture(
         schema,
         foundations,
         (expected.0, expected.1, crate::ProofBudget::default()),
+    );
+}
+
+#[test]
+fn genuine_bitwise_retains_checked_mapping_basis_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_bitwise/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_bitwise/bitwise.ndjson"),
+        include_str!("../../../theorems/lean_replay/bitwise.lim"),
+        "BitwiseProbe.xor_small",
+        "lim-lean-bitwise-fixture-v1",
+        &[],
+        (
+            3,
+            &["propext"],
+            crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap(),
+        ),
+    );
+}
+
+#[test]
+fn genuine_left_shift_retains_checked_mapping_bases_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_left_shift/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_left_shift/shift-left.ndjson"),
+        include_str!("../../../theorems/lean_replay/shift-left.lim"),
+        "ShiftLeftProbe.general",
+        "lim-lean-left-shift-fixture-v1",
+        &[],
+        (
+            4,
+            &["propext"],
+            crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap(),
+        ),
+    );
+}
+
+#[test]
+fn genuine_right_shift_retains_checked_mapping_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_right_shift/provenance.json"),
+        include_bytes!("../../../tests/fixtures/lean_export_right_shift/shift-right.ndjson"),
+        include_str!("../../../theorems/lean_replay/shift-right.lim"),
+        "ShiftRightProbe.boundary",
+        "lim-lean-right-shift-fixture-v1",
+        &[],
+        (
+            4,
+            &[],
+            crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap(),
+        ),
+    );
+}
+
+#[test]
+fn genuine_unbounded_shift_composition_retains_mapping_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_shift_composition/provenance.json"),
+        include_bytes!(
+            "../../../tests/fixtures/lean_export_shift_composition/shift-composition.ndjson"
+        ),
+        include_str!("../../../theorems/lean_replay/shift-composition.lim"),
+        "ShiftCompositionProbe.general",
+        "lim-lean-shift-composition-fixture-v1",
+        &[],
+        (
+            1,
+            &["propext"],
+            crate::ProofBudget::new(20_000_000, 1 << 30, 4 << 30).unwrap(),
+        ),
+    );
+}
+
+#[test]
+fn genuine_unbounded_right_shift_division_retains_mapping_and_spilled_replay() {
+    assert_primitive_fixture_with_budget(
+        include_str!("../../../tests/fixtures/lean_export_right_shift_general/provenance.json"),
+        include_bytes!(
+            "../../../tests/fixtures/lean_export_right_shift_general/shift-right-general.ndjson"
+        ),
+        include_str!("../../../theorems/lean_replay/shift-right-general.lim"),
+        "ShiftRightProbe.general",
+        "lim-lean-right-shift-general-fixture-v1",
+        &[],
+        (
+            4,
+            &["propext"],
+            crate::ProofBudget::new(20_000_000, 1 << 30, 4 << 30).unwrap(),
+        ),
     );
 }
 
@@ -520,7 +649,7 @@ fn assert_primitive_fixture_with_budget(
         LeanFoundationPolicy::Lean4
     };
     let report = check_lean_export_with_budget(input, target, policy, budget).unwrap();
-    let spilled = spilled_report(input, target, policy, budget);
+    let spilled = spilled_report(input, target, policy, budget, native);
     assert_eq!(spilled.render_json(), report.render_json());
     assert_eq!(report.axioms, expected_axioms);
     assert_eq!(report.budget, budget);

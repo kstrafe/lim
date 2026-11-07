@@ -497,6 +497,23 @@ beta/zeta/iota while leaving unrelated global heads neutral, so a common worker
 can be compared without expanding its implementation twice. Every candidate
 uses at most 16,384 extra work units,
 2 MiB of transformed payload and 48 extra depth within the enclosing limits.
+Speculative argument congruence for closed function calls uses these same bounds
+so it cannot consume the entire phase before head reduction. Matched checked
+datatype heads whose remaining parameters and indices all have the same explicit
+natural-number type instead use ordinary argument comparison after bounded
+spine inspection. Both the datatype and its natural-number parameter must
+already be resident, and the latter must pass the existing zero/successor
+structural recognizer. Their applications have no delta body to expose;
+declining a valid scalar argument comparison would only repeat it through
+fallback. The scheduling hint borrows existing shared metadata without cloning
+its payload or paging in a declaration. Structured types, missing or nonresident
+heads, transparent functions and opaque functions keep bounded speculation.
+Using ordinary comparison for every datatype application was insufficiently
+selective: it reintroduced resource refusal on the changed ASCII proof. An
+opaque proof-valued function can also need proof irrelevance after its arguments
+differ. The scalar scheduling hint establishes no equality or injectivity: a
+failed comparison still uses the ordinary converter. Comparisons under local
+binders retain their existing reduction path and accounting.
 Nested probes inherit tighter limits, spent charges remain spent, and only
 explicit internal declines fall back. Unknown names and invalid universes still
 fail. The existing converter handles nonmatching heads, unequal arguments of a
@@ -518,6 +535,15 @@ attempt publishes no partial result, while earlier completed reductions remain
 usable. All spent work and payload charges remain charged. The original source
 still requires full typing, even when normalization erases a bad annotation.
 No operation name authorizes conversion. Full source inference remains required.
+
+For aligned canonical constructors of a completed Type-0 record, a failed
+field comparison is already a mismatch. The shortcut requires an unindexed,
+nonrecursive single-constructor family, matching levels/constructor/parameters,
+and checked arities. Its specialized sort must equal 1 exactly; Prop and
+symbolic-sort cases retain ordinary conversion and proof irrelevance. Field
+conversion still uses the existing rules. This avoids re-inferring the whole
+record and repeating its field comparisons through eta after a data mismatch.
+All source arguments and sibling proof fields still undergo initial checking.
 
 This reduction strategy checks the genuine general `Nat.mod_lt` theorem and
 its `Nat.modCoreGo_lt` dependency within the original budgets. The theorem
@@ -554,10 +580,13 @@ checks `Nat.gcd 84 30 = 6` by applying already checked successor/zero-left
 lemmas and computing the intermediate remainders. All 278 original and native
 declarations check with the same explicit resource profile, exactly
 `Quot.sound`, and the quotient primitive package. No GCD name authorizes an
-equation. This is an explicit mathematical calculation, not direct unfolding
-of the entire worker. The separate `rfl` probe now passes its former depth
-failure but still exceeds per-phase transformation traffic while reducing
-its base. General GCD development and the full FLT proof remain open.
+equation. This is an explicit mathematical calculation. A separate
+[direct GCD fixture](../tests/fixtures/lean_export_gcd_closed/README.md) now
+checks `Nat.gcd 84 30 = 6 := rfl` by evaluating the original exported worker.
+All 251 declarations check without axioms or primitive foundations, and its
+emitted native theorem checks independently. Both forms also pass the
+unchanged default proof budget. This does not complete general GCD development
+or the full FLT proof.
 
 A term shift by zero shares its immutable argument root after the ordinary
 work/depth check. It needs no payload transformation. For a compound argument,
@@ -565,6 +594,275 @@ identity alone does not prove absence of free variables: later nonzero shifts
 still inspect every annotation and binder scope before reusing an invariant
 result. Declaration scope, universe and type checking remain independent and
 still traverse all source terms, including ignored arguments and erased lets.
+
+Nonzero shifts, beta substitutions and universe substitutions preserve shared
+subtrees within one transformation. Their scratch memo keys the immutable
+input node by pointer, binder count and absolute traversal depth. The input
+root stays alive for the operation, and results never pass into another
+substitution or declaration. Each cache hit still checks current depth/work;
+its descendants previously completed the same transformation at the same
+depth. Variable mappings and universe maps are fixed for that operation.
+Occurrence-sensitive node rewrites keep the uncached path, and source
+inference still checks the resulting terms independently.
+
+The memo activates after 64 visits and keeps at most 4,096 entries, charging
+256 bytes before each insertion. Small transformations allocate no table;
+exhausting memo capacity resumes ordinary traversal. This preserves DAG
+sharing without introducing a new reduction rule, proof judgment cache or
+larger resource profile.
+
+The regression compares a depth-16 shared DAG with the existing uncached
+transformer and checks complete resulting syntax, over 100-fold fewer work
+units and over 100-fold less transformation allocation accounting. A separate
+depth-48 case stays within the ordinary budget. These are syntax stress
+measurements, not additional mathematical proofs. All 384 kernel tests and
+147 relevant integration tests pass; all 23 committed genuine translations
+retain their complete source hashes and receipt bytes against the saved
+compiler. All-target checking remains warning-free.
+
+Five alternating debug0 samples on the accepted corpus measure the following
+median wall times in milliseconds. Inputs, proof budgets and the separate
+2-GiB/two-core host guard match. The change bounds repeated DAG work; it does
+not make these small examples faster.
+
+| Corpus | Raw before → after | Native before → after |
+| --- | --- | --- |
+| GCD equations | 382.793 → 408.564 | 816.661 → 831.861 |
+| GCD self | 578.942 → 617.595 | 1,265.231 → 1,278.618 |
+| GCD calculation | 489.399 → 525.763 | 936.395 → 954.916 |
+| Division composition | 330.029 → 356.093 | 492.659 → 506.700 |
+| Remainder | 345.739 → 371.217 | 555.021 → 573.295 |
+
+Reproduce the paired measurements with
+`python3 scripts/benchmark-proof-transforms.py --before OLD --after NEW --iterations 5`
+inside the resource guard. The driver copies immutable inputs, checks exact
+complete success output, and records input/compiler hashes before using fresh
+timing workers. At that stage, direct GCD `rfl` refused the
+20M-work/1-GiB-phase/2-GiB-total profile at export line 8342. The subsequent
+complete-call evaluator described below resolves that reproduction. The
+complete FLT export and proof replay remain open.
+
+Checked global bodies also have a phase-local universe-substitution cache in
+`src/proof/kernel/specialization.rs`. Each caller still retrieves the checked
+declaration and validates universe arity before reuse. The key uses the original
+immutable root and the complete substitution map. A weak root handle prevents
+address reuse without independently retaining the original body. Cached results
+carry their full term height; each use checks the current depth allowance.
+Source-scoping walks remain uncached, and opaque declarations remain opaque.
+
+The cache retains at most 64 entries and an estimated 2 MiB including result
+graphs, keys and tables. Keys larger than 64 KiB use ordinary substitution.
+A source-address index selects candidate slots; full map equality decides a
+hit. Eviction updates the index when moving a slot. All lookup, metadata-walk
+and eviction work is charged, and table/key allocations are charged before
+reservation. The completed substitution bounds a metadata preflight; when
+insufficient work or bytes remain, retention is skipped. Resetting the phase
+releases both results and metadata. Optional reduction probes use ordinary
+substitution because their depth allowance is narrower.
+
+Freshly decoded bodies without another strong owner also use ordinary
+substitution: their pointer identity cannot survive the call for later reuse.
+This matters when declarations are forced out of memory. Attempting to cache
+those bodies initially regressed three genuine arithmetic fixtures; the final
+policy preserves all of their original budgets. Fifteen focused tests cover
+reuse, map/source separation, eviction, byte caps, depth, reset, exhausted
+budgets, source ownership, validation and metadata error propagation. All 399
+kernel tests and 147 relevant integration tests pass; all 23 genuine proof
+artifacts and complete receipts match the saved compiler byte for byte.
+
+Five alternating debug0 before/after pairs compare compiler executable
+SHA-256 prefixes `d4fe2335` and `f44f2587` on the accepted proof replay corpus.
+All ten controls were accepted; proof inputs and budgets match, with a
+2-GiB memory cap and `CPUQuota=200%` (two cores). The table reports median wall time in
+milliseconds from 100 successful JSON rows. Wall-time changes range from
+0.05% to 4.89%; the smallest shifts are near measurement noise. Median peak
+RSS changes range from -0.9% to +3.4%, roughly unchanged. These are proof
+replay benchmarks, not ordinary program compilation latency.
+
+| Corpus | Raw before → after | Native before → after |
+| --- | --- | --- |
+| GCD equations | 407.657 → 402.648 | 827.081 → 824.633 |
+| GCD self | 615.981 → 606.358 | 1,282.003 → 1,281.312 |
+| GCD calculation | 531.265 → 505.295 | 954.866 → 936.400 |
+| Division composition | 359.930 → 348.048 | 510.534 → 502.620 |
+| Remainder | 369.357 → 362.512 | 573.654 → 560.520 |
+
+The specialization-cache change alone still refused direct GCD `rfl` at
+export line 8342 under the 20M-work/1-GiB-phase/2-GiB-total limits. Complete-call
+evaluation below resolves that allocation failure. The full FLT export is
+absent, and its proof remains unchecked.
+
+Head exposure retains completed beta/delta/zeta reductions beneath a stuck
+application, record projection or Sigma projection. Previously, an unsuccessful
+fusion returned the original enclosing expression, so ordinary reduction repeated
+the same substitutions. The exposed function or subject now stays in the result;
+repeating exposure of that result is stable. New wrapper allocations still charge
+the transformation budget. A bare local dividend declines closed Euclidean
+observation before inspecting its recurrence, since it cannot be a closed
+numeral. Source inference still checks the entire original expression, including
+proof arguments and annotations that arithmetic recognition does not inspect.
+
+Seven regressions cover typed open functions, record/Sigma projections,
+stable repeated exposure, opacity, invalid sources and resource refusals.
+All 406 kernel and 147 relevant integration tests pass without Rust warnings;
+all 23 pinned native proof sources and complete receipts match the saved
+compiler. Five alternating debug0 pairs compare executable SHA-256 prefixes
+`f44f2587` and `dc6f6de8` under identical proof profiles and the 2-GiB/two-core
+host guard. All ten raw/native controls accept. Median wall times decrease
+1.48–6.29%, with median peak RSS decreasing 1.67–4.04%:
+
+| Corpus | Raw before → after (ms) | Native before → after (ms) |
+| --- | --- | --- |
+| GCD equations | 397.741 → 382.978 | 827.538 → 805.175 |
+| GCD self | 600.772 → 570.733 | 1,276.277 → 1,242.378 |
+| GCD calculation | 498.170 → 478.778 | 931.142 → 917.386 |
+| Division composition | 345.406 → 323.668 | 502.226 → 480.300 |
+| Remainder | 360.940 → 339.827 | 568.533 → 545.893 |
+
+These are accepted proof replay measurements. Retaining partial heads alone
+still exceeded the direct GCD `rfl` phase budget. Inspecting the actual export
+identifies `WellFounded.Nat.fix.go`, a
+natural-number fuel recursor. The pinned
+[Lean definition](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Init/WF.lean#L454-L459)
+confirms this path, distinct from the noncomputable accessibility recursor.
+The remaining allocation samples include repeated beta substitution and
+argument shifting; no need to unfold opaque accessibility proofs was established.
+
+A subsequent closed-shift fact-cache experiment was removed. It recorded
+closedness and full height during a required nonzero, cutoff-zero shift,
+retained only weak source identities in a 256-entry table, and kept all
+ordinary source and resource checks. Its nine regressions and all 562 relevant
+candidate tests passed, with exact agreement for the 23 proof artifacts.
+However, five alternating pairs on ten accepted raw/native cases ranged from
+1.55% faster to 1.10% slower, with no clear overall improvement. The failing
+GCD phase performed 91,915 lookups but only 496 matches (0.54%) and still
+exhausted the same 1-GiB phase budget. Reusing closed-root facts did not solve
+that workload. The source was restored exactly to the preceding validated
+state; no closed-shift cache or profiling instrumentation remains in the
+compiler.
+
+An operation-local closure evaluator now delays substitution for exposed,
+fully applied higher-order recursors and record projections in closed
+conversion. It keeps immutable source terms, captured environments and
+continuations in indexed arenas, including recursive hypotheses that return
+functions. No recursive closure ownership chain is built or dropped. Shared
+thunks memoize their weak heads, while original recursor templates remain
+immutable. Scalar affine and power folds keep their existing fast path;
+partial recursor applications that can only return another function skip this
+probe.
+
+Completed results are restricted to closed numerals and fieldless data
+constructors. Ordinary beta/delta/zeta, projection and supported iota rules
+justify each step; nominal checked family descriptors, rather than declaration
+spellings, authorize compact natural recursion. Stuck proof projections and
+applications can reach an enclosing equality or singleton eliminator, but
+their internal neutral markers cannot become output syntax or equality
+endpoints. Indexed singleton K reduction retains the ordinary Prop and
+convertible-index restrictions. Unsupported recursive datatypes, mutual or
+nested induction, open captures and other non-scalar results fall back to
+ordinary reduction. Every original declaration and erased argument still
+passes ordinary scope and type checking.
+
+The evaluator has a 65,536-work-unit and 8-MiB transformation probe allowance,
+clamped to every enclosing probe and the proof's existing hard budgets.
+Arena growth, copied universe maps and a maximum of 64 operation-local
+specialized bodies are charged before allocation. Declaration descriptors use
+their existing shared owners instead of copying family metadata on each
+step. Every body-cache lookup still validates its declaration and exact
+universe arguments. Probe refusal does not refund work or allocations, and
+genuine errors propagate. The operation guard and enclosing limits are
+restored on both success and failure.
+
+Validation covers 427 distinct kernel tests (the full 425-test run plus two
+additional universe-cache regressions), 147 integration tests, warning-free
+all-target checking and exact agreement for all 23 pinned proof artifacts and
+receipts. The added cache tests exercise repeated Prop specialization and
+reject reusing that body for a Type-level indexed singleton. Five alternating
+debug0 benchmark pairs improve the accepted GCD calculation replay from
+486.276 to 436.532 ms raw (10.2%) and from 929.477 to 878.392 ms native
+(5.5%). Other accepted cases range from 1.07% faster to 0.92% slower, while
+median RSS increases by 0.13–3.55%. These figures compare identical accepted
+inputs and unchanged proof budgets under the same 2-GiB/two-core host guard.
+
+An identity-base function fold also admits tail-composition fusion:
+`F(0,x)=x; F(n+1,x)=F(n,U(x))` becomes scalar iteration of `U` starting at
+`x` for a computationally known count. Unknown counts retain ordinary
+conversion; the propositionally equal iterators do not become a new open
+judgmental equality. Both function types must be this exact nominal natural family. The
+complete retained update, including annotations and let values, must not use
+the predecessor or old function; binder-aware substitution replaces the
+argument with the scalar accumulator and shifts outer locals. Nonidentity
+bases and extra recursive-function occurrences retain ordinary reduction.
+All source inference and existing work/depth/allocation checks remain required.
+The resulting scalar fold uses existing affine arithmetic rather than a new
+shift evaluator. The [pinned left-shift corpus](../tests/fixtures/lean_export_left_shift/README.md)
+checks a shift beyond `u128`, the arbitrary-input zero identity, and the actual
+unbounded standard-library `Nat.shiftLeft_eq` proof. General right-shift lemmas and large
+bitwise evaluation remain separate gaps.
+
+Complete calls that build a nonrecursive record and pass it to another
+function now receive a separate early observation attempt when their result
+is a checked natural family. The filter inspects checked syntax and constructor
+wrappers without substitution. It follows at most eight transparent forwarding
+declarations, carrying unapplied caller arguments across aliases and partial
+applications. Record-tail workers may themselves capture explicit arguments.
+The original root's result type must still be a completed natural family;
+opaque intermediates, partial results and longer chains decline. Its constructor template is only scheduling
+metadata; evaluation always receives the original application and validates
+actual universe arguments. The attempt runs after common-head congruence and
+before conversion expands wrappers, as well as before ordinary head exposure.
+No function spelling establishes an arithmetic operation or a proof.
+
+This handles the checked `Nat.land`/`lor`/`xor` forwarding chain through
+`Nat.bitwise` and its worker with a captured Boolean function. The genuine
+385-declaration [bitwise fixture](../tests/fixtures/lean_export_bitwise/README.md)
+preserves each original reflexivity proof and native correspondence, with
+explicit `propext` foundations. This is coverage of the forwarding/evaluation
+path, not complete large-operand bitwise or shift acceleration. The fixture's
+separate stress source retains the larger cases still needing work.
+
+Each phase permits at most 256 bounded classification checks and four wider
+observations, each capped at 262,144 work units and 32 MiB of transformation
+traffic. These remain inside the existing hard proof budgets. The observation
+also reserves a quarter of remaining work and half of remaining phase bytes
+for ordinary reduction. A million-step scalar fold regression confirms that
+declining linear evaluation leaves enough budget for the existing affine
+recognizer. Up to four weak input handles suppress repeated failed attempts
+without caching mathematical judgments or retaining expression graphs. Phase
+reset clears these hints. Ordinary delayed observations keep their smaller
+allowance, and wider observations are skipped inside an existing probe.
+
+Closed projections of natural fields from completed, monomorphic,
+nonrecursive Type-0 records also use the existing closure evaluator before
+ordinary head exposure. This matters when a Nat recursor returns division
+data: substituting the earlier record through each field can repeatedly
+recompute the same remainder. The scheduling filter checks the actual
+family and scalar field type, and the evaluator must compute the result
+from the checked source. It does not authorize a proof or a new equality
+rule. Polymorphic fields decline without implicit universe instantiation.
+Four projection attempts per phase have a separate counter from wrapper
+observations; both retain the existing enclosing work/byte/depth limits
+and fallback reserves. Phase reset clears the projection counter.
+Tests compare ordinary reduction, check a longer record fold and a false
+result, and cover the attempt cap, reset and polymorphic fallback.
+
+This now checks the original 450,075-byte `GcdProbe.closed` export and its
+independently checked native translation. The fresh pinned producer recreates
+the exact original export hash, all 251 declaration origins, six upstream
+source pins, preserved licenses, native mapping and an empty logical basis.
+Tests reject changed results, corrupted worker/proof bodies and small budgets;
+renaming GCD and fuel-worker name components preserves the proof. Forced
+spilling preserves the complete report and native source. Both representations
+pass the unchanged default 200,000-work/64-MiB-phase/256-MiB-total budget, as
+well as the original explicit 20M-work/1-GiB-phase/2-GiB-total profile.
+All 438 kernel tests and 158 relevant integration tests pass with warning-free
+all-target checking; the older 23 proof sources and complete receipts remain
+byte-identical. Five fresh default-budget samples give median 285.200 ms and
+25,912 KiB RSS for raw replay, and 512.948 ms and 33,944 KiB RSS for native
+checking. The older compiler refuses this input, so these are measurements of
+new coverage. Five alternating pairs on ten previously accepted cases range
+from 0.17% faster to 3.49% slower, with median RSS -1.37% to +1.58%.
+General fixpoint completeness and full FLT support remain separate work.
 
 Shifts and universe walks share immutable numeral and monomorphic-global leaves
 instead of copying their owned payloads. The node callback and depth/work checks
@@ -989,8 +1287,44 @@ cannot establish a theorem, and later unused invalid declarations still fail
 the whole check. Work and cumulative transformation accounting are unchanged.
 Completed native declarations use the same bounded protected storage as raw
 replay, with eviction only after a complete checked group. The source program
-AST and dependency graph still reside in memory; this is a prerequisite for
-larger source checking, not a complete streaming source frontend.
+AST and dependency graph still reside in memory for general programs. Closed
+mathematical-only `--check-theorem` files instead use a protected frozen text
+snapshot and a names/roles/span directory, reparsing one ready group through
+the same checker. The file adapter bounds source storage to 128 MiB, each
+form to 8 MiB and its directory estimate to 32 MiB. The closed adapter's
+4,096-declaration default and configured proof budgets still apply. Unsupported forms
+and source syntax errors use the general frontend on the frozen bytes. Every
+declaration remains mandatory before target selection, and the foundation
+audit rereads the same snapshot. These adapters are prerequisites for larger
+source checking, not a complete streaming source frontend or a full FLT
+replay profile.
+
+An ordinary source graph uses its actual, already inventoried declaration
+count for scheduling. It does not stop at the closed artifact adapter's
+default batch size. Every loaded declaration remains mandatory, including
+unused bodies after that boundary; explicit artifact profiles keep their
+selected limits. Per-declaration work, transformation and depth checks are
+unchanged. Tests check a valid imported graph above 4,096 declarations and
+reject an unused false theorem beyond that boundary with a type mismatch.
+
+Kernel proof declarations also bypass runtime match normalization. Their
+terms and constructor names belong to the mathematical grammar; walking
+them mutably both misinterpreted a constructor named `case` and detached
+shared syntax trees. The theorem entry point releases prepared syntax
+after expansion has produced its owned program and source locations.
+
+Derived nested-family views also use protected invocation-local storage.
+Their exact signatures and source-container metadata have separate bounded
+stores, with the same 8-MiB resident estimate and 4-MiB eviction target as
+ordinary declarations. The internal metadata envelope never becomes a global
+declaration or mathematical evidence. A view keeps its scoped identity across
+eviction; global-name and constructor inference still reject auxiliary names.
+Updates during an inductive group remain resident until every member's final
+signature and group membership are installed. Both stores must succeed, and
+observed corruption or a partial paired operation invalidates later judgments.
+Budget resets do not clear storage failure. Native emission and correspondence
+preserve ordered root membership through fallible lookups. These are bounded
+storage prerequisites, not a complete large-environment replay profile.
 
 Definitional conversion supports beta reduction of lambda applications, delta
 unfolding of transparent definitions, and iota computation of eliminators on
@@ -1022,17 +1356,54 @@ Consecutive lambda binders can reduce together: the checker substitutes all
 their supplied arguments in one body walk rather than repeatedly copying the
 remaining curried body. Argument order, free-variable shifts and any binders
 remaining in the body retain ordinary beta semantics. Initial source checking
-still validates every domain annotation, argument and erased value. This uses
-the same body-depth bound as the first ordinary substitution and conservatively
-bounds argument walks; temporary argument storage and reuse entries are charged
-before allocation. It adds no mathematical rule or privileged constant name.
+still validates every domain annotation, argument and erased value. Universe
+specialization and term substitution share that walk: retained callee syntax
+receives the callee's universe map, while inserted caller arguments retain
+their own universes, including identically named parameters.
 
-The first argument shift also records whether every term variable is bound
-within that argument, including its annotations. Such an immutable argument
-needs no further shifts at other binder depths in the same batch; its initial
-walk still enforces the argument-depth limit. Universe payloads remain
-unchanged by term shifting, and source universe validation is retained. No
-cross-declaration cache or pointer-key lifetime is introduced.
+Depth accounting follows the contracted body beneath any remaining
+applications. Each argument keeps the depth check for its own original
+position in the input application spine. Consumed lambda/application frames
+are no longer counted as traversed body frames. This changes which reductions
+fit the existing depth limit of 96; it does not raise that limit or weaken
+the separate traversal that validates original source syntax.
+
+Each immutable term node derives a conservative loose-variable range and a
+universe-dependence bit from all its children, including annotations, let
+values and eliminator metadata. Substitution shares a subtree only when these
+summaries prove that the operation leaves it unchanged. Overflow remains
+conservative. The summaries cannot be supplied by proof input or serialized
+cache metadata: construction and scratch decoding recompute them. Source
+scope validation still traverses the original syntax in full.
+
+Operation-local argument and traversal reuse tables remain metered and
+bounded. The separate phase-local universe-specialization cache retains weak
+source identities, exact universe maps and complete result heights. Its
+optional sizing scan has its own allowance: if a large shared subtree makes
+sizing too expensive, substitution returns its completed result without
+caching it. Spent work and allocations remain charged. An identity result
+needs no cache entry. None of these changes adds a mathematical equality rule,
+unfolds opaque bodies, or authorizes a declaration by name.
+
+Five alternating fresh-process pairs across seventeen accepted raw/native
+controls show median replay times 6.70–33.65% lower and peak RSS 0.96–9.34%
+lower than the preceding delayed-Euclidean build. Successful output matches
+exactly. Two altered-evidence controls still finish with type mismatches in
+every sample, giving 190 measured processes in total. These debug0 measurements
+use identical proof profiles, a serial 2-GiB/two-core host guard, and ordinary
+runtime allocator settings:
+
+| Accepted replay | Median milliseconds before → after |
+| --- | --- |
+| Raw division composition | 341.039 → 226.272 |
+| Native bitwise | 2,287.707 → 1,571.827 |
+| Raw right shift | 221.383 → 178.990 |
+
+This improves accepted replay and removes the general right-shift helper's
+previous depth refusal. That general proof still exceeds the unchanged
+1M-work profile at `Nat.shiftRight_add._f`; full bitwise stress and FLT replay
+remain unfinished. Passing a larger diagnostic profile is not acceptance at
+the required profile.
 
 Typed function eta and primitive dependent Sigma pair eta are supported:
 
@@ -1325,6 +1696,25 @@ lim --check-theorem proof.lim theorem-name --proof-work 1000000 \
   --proof-phase-bytes 134217728 --proof-total-bytes 1073741824
 ```
 
+For compiler development, the `proof-kernel-tests` Cargo feature keeps every
+proof test enabled while compiling frontend modules with their production
+test-hook configuration. This avoids building the unrelated frontend unit
+tests into the same large executable. It changes no mathematical rule,
+runtime compiler behavior, or default test selection. Under the host guard:
+
+```sh
+bash scripts/limited-run.sh nix develop -c env \
+  CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  MALLOC_CONF=narenas:1,dirty_decay_ms:0,muzzy_decay_ms:0,tcache:false \
+  MALLOC_ARENA_MAX=1 cargo test --features proof-kernel-tests --lib
+```
+
+Also run ordinary `cargo check --all-targets` under the guard, without this
+feature, to type-check the complete default frontend test configuration.
+Ordinary `cargo test` retains the full test suite. The isolated proof harness
+has checked all 537 kernel tests plus 24 other proof tests within the 2-GiB cap;
+two manual storage benchmarks remain ignored.
+
 A native program accumulates mathematical transformation traffic across its
 checked declarations and complete mutual groups. A raw export accumulates it
 across replay phases. Cumulative accounting is audited at phase boundaries.
@@ -1360,7 +1750,7 @@ mathematical meaning of a type:
 | Inductive parameters | At most 64. |
 | Constructors | At most 64 per datatype. |
 | Constructor fields | At most 64 per constructor. |
-| Mathematical declarations | At most 4,096. |
+| Native mathematical declarations | Closed artifacts default to 4,096 with explicit `NativeProofLimits` profiles. Ordinary source schedules its complete, finite loaded graph. |
 | `#pt-numeral` abbreviation | Source integers from 0 through 128. |
 | `#pt-nat-literal` decimal length | At most 4,096 canonical unsigned decimal digits. |
 
@@ -1476,3 +1866,82 @@ inventory. Quotient soundness is available only through the explicit opaque
 `#pt-foundation-quot-sound` logical foundation; no representative computation
 or definitional equality follows from it. See the
 [native quotient example](../examples/proof_quotient.lim).
+
+Closed applied history projections can now observe their checked Euclidean
+recurrence inside the delayed machine. The unchanged source validator certifies
+the nominal natural family, first-field function type, guard, state decrement,
+recursive field, terminal and result increment. Recognition happens before
+operand forcing, using a private positive-count view only to inspect the
+successor template; the original subject stays in its thunk. Unrelated history
+folds retain their lazy payloads. Input and fuel stay in their own environments
+and are forced through continuations. Success requires actual
+fuel strictly greater than the quotient; a proof argument never supplies that
+bound. The uninterrupted projection/input/proof frame suffix prevents crossing
+an update that memoizes a function or record. Only the complete application is
+replaced with a fresh literal.
+
+Models are local to one machine. Reuse requires the same record and nominal
+natural family and exact immutable motive/step code with equal free captured
+sources. The binder-aware dependency collector includes annotations and let
+values. It retains source ownership, never uses a neutral head as a term, and
+conservatively misses on unsupported distinct recursive thunks. The arbitrary
+base and actual fuel are excluded from the model key because sufficient fuel
+prevents reaching the base; the fuel test repeats for every invocation.
+Monomorphic code templates share the same metered VM cache as universe
+specializations, preserving source identity under declaration paging.
+Already available natural inputs up to 32 retain ordinary reduction: a bounded
+peek follows existing memo entries and captured variable aliases without forcing
+an operand. This avoids model setup for small computations, particularly with
+cold declaration tables.
+
+The original complete call is scheduled before eager wrapper exposure, including
+higher-order wrappers whose intermediate result is an applied motive rather
+than a literal Pi telescope. Eligibility still requires the original root's
+checked scalar result and scalar parameter types; no template or function name
+establishes a result. Newly eligible forwarded scalar folds get a bounded
+compact-arithmetic attempt first. Existing packed-record wrappers retain their
+original observation schedule. Remaining scalar folds use
+the existing wider observation policy after affine/subtraction decline, with
+fallback reserves and enclosing hard/probe limits intact. The [right-shift corpus](../tests/fixtures/lean_export_right_shift/README.md)
+records the accepted runtime proofs. The separate
+[general division corpus](../tests/fixtures/lean_export_right_shift_general/README.md)
+checks the original unbounded `Nat.shiftRight_eq_div_pow` proof over 489
+declarations in raw and native form, with exactly `propext`, at the explicit
+20M-work/1-GiB-phase/4-GiB-total profile. Its 1M-work replay remains an
+optimization gap. Raw input `LeanExportLimits` are separate from these kernel
+budgets: selecting larger cumulative input totals never grants mathematical
+authority or increases resident cache sizes. Native source and scratch format
+bounds remain independently enforced.
+
+
+Closed mathematical artifacts can select cumulative native output, declaration,
+source-directory and original/native correspondence limits through
+`NativeProofLimits`. This is separate from `ProofBudget` and `LeanExportLimits`.
+The original limits remain defaults, and per-form/depth bounds remain fixed.
+`--check-proof-artifact` freezes and checks the complete emitted source in a
+fresh kernel without imports, generators, general-source fallback or cached
+judgments. Every unreachable or later declaration remains an obligation.
+Nondefault profiles are audit data in generated source comments and receipts.
+See the [native profile reference](lean-export.md#resource-limits-and-unsupported-features).
+
+
+Raw replay and fresh native proof checking select kernel scratch capacity
+explicitly and independently. `LeanExportLimits.max_scratch_bytes` and
+`NativeProofLimits.max_scratch_bytes` default to 128 MiB per backing file.
+The selected capacity reaches original and cold declaration directories,
+encoded declaration blobs, and both nested-family stores, while their
+resident thresholds and per-record bounds remain fixed. This selects storage
+capacity only: checked objects still round-trip before release, cold bytes
+remain authenticated within the same invocation, and no source or receipt
+can insert a cached judgment. Kernel work and source-snapshot bounds remain
+independent.
+
+The native declaration scheduler resolves dependency names incrementally
+against the immutable source-name directory. It retains numeric compressed
+group and reverse-edge lists, preserving source priority and explicit mutual
+member order without retaining all dependency strings. Its metadata remains
+planning data: every ready declaration is reparsed and checked, all explicit
+mutual groups are revalidated, and unreachable or later bodies are never
+omitted. The graph is still resident and scales with actual declarations and
+distinct group edges; the synthetic scheduler benchmark does not establish
+full-proof checking or a real full-environment memory bound.

@@ -1,0 +1,8 @@
+; Constructive elimination of False; no mathematical axiom is declared.
+(#theorem false-elimination
+  (#universes)
+  (#parameters
+    (#parameter conclusion #pt-prop)
+    (#parameter impossible #pt-false))
+  (#statement conclusion)
+  (#proof (#pt-induct #pt-false () () (#pt-lambda ((absurd #pt-false)) conclusion) () impossible)))

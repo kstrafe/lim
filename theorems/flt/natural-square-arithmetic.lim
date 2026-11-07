@@ -1,0 +1,275 @@
+; Product-square algebra and nonzero-factor order/cancellation for square descent.
+; All identities are composed from previously checked associativity/commutativity.
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias multiply-commutative = ./natural-multiplication-commutative.lim::multiply-commutative)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-one-left = ./natural-multiplication.lim::multiply-one-left)
+(#alias
+  multiply-less-right-successor
+  =
+  ./natural-multiplication-order.lim::multiply-less-right-successor)
+(#alias
+  multiply-cancel-left-successor
+  =
+  ./natural-multiplication-order.lim::multiply-cancel-left-successor)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem multiply-left-commutative
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second third))
+      (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first third))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second third))
+      (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) first second) third)
+      (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first third))
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) first second) third)
+        (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second third))
+        (#pt-app (#pt-use multiply-associative ()) first second third))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) first second) third)
+        (#pt-app (#pt-use multiply ()) (#pt-app (#pt-use multiply ()) second first) third)
+        (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first third))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((factor #pt-nat)) (#pt-app (#pt-use multiply ()) factor third))
+          (#pt-app (#pt-use multiply ()) first second)
+          (#pt-app (#pt-use multiply ()) second first)
+          (#pt-app (#pt-use multiply-commutative ()) first second))
+        (#pt-app (#pt-use multiply-associative ()) second first third)))))
+(#theorem square-product
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) first second))
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first first)
+        (#pt-app (#pt-use multiply ()) second second))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use multiply ()) first second))
+      (#pt-app
+        (#pt-use multiply ())
+        first
+        (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first second)))
+      (#pt-app
+        (#pt-use multiply ())
+        (#pt-app (#pt-use multiply ()) first first)
+        (#pt-app (#pt-use multiply ()) second second))
+      (#pt-app
+        (#pt-use multiply-associative ())
+        first
+        second
+        (#pt-app (#pt-use multiply ()) first second))
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use multiply ())
+          first
+          (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first second)))
+        (#pt-app
+          (#pt-use multiply ())
+          first
+          (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second second)))
+        (#pt-app
+          (#pt-use multiply ())
+          (#pt-app (#pt-use multiply ()) first first)
+          (#pt-app (#pt-use multiply ()) second second))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((factor #pt-nat)) (#pt-app (#pt-use multiply ()) first factor))
+          (#pt-app (#pt-use multiply ()) second (#pt-app (#pt-use multiply ()) first second))
+          (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second second))
+          (#pt-app (#pt-use multiply-left-commutative ()) second first second))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use multiply ()) first first)
+            (#pt-app (#pt-use multiply ()) second second))
+          (#pt-app
+            (#pt-use multiply ())
+            first
+            (#pt-app (#pt-use multiply ()) first (#pt-app (#pt-use multiply ()) second second)))
+          (#pt-app
+            (#pt-use multiply-associative ())
+            first
+            first
+            (#pt-app (#pt-use multiply ()) second second)))))))
+(#theorem multiply-less-right-nonzero
+  (#universes)
+  (#parameters
+    (#parameter factor #pt-nat)
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      (#pt-app (#pt-use multiply ()) lower factor)
+      (#pt-app (#pt-use multiply ()) upper factor)))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((nonzero-factor (#pt-pi ((denied-proof (#pt-eq #pt-nat index #pt-zero))) #pt-false)))
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-app (#pt-use multiply ()) lower index)
+              (#pt-app (#pt-use multiply ()) upper index))))
+        (#pt-lambda
+          ((nonzero-factor (#pt-pi ((denied-proof (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-app (#pt-use multiply ()) lower #pt-zero)
+              (#pt-app (#pt-use multiply ()) upper #pt-zero))
+            (#pt-app nonzero-factor (#pt-refl #pt-nat #pt-zero))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (nonzero-factor
+                    (#pt-pi ((denied-proof (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-app (#pt-use multiply ()) lower previous)
+                  (#pt-app (#pt-use multiply ()) upper previous))))
+            (nonzero-factor
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-app (#pt-use multiply-less-right-successor ()) previous lower upper less-proof))
+        factor)
+      factor-nonzero)))
+(#theorem multiply-cancel-left-nonzero
+  (#universes)
+  (#parameters
+    (#parameter factor #pt-nat)
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter factor-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat factor #pt-zero))) #pt-false))
+    (#parameter product-equation (#pt-eq #pt-nat (#pt-app (#pt-use multiply ()) factor first) (#pt-app (#pt-use multiply ()) factor second))))
+  (#statement (#pt-eq #pt-nat first second))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            (
+              (nonzero-factor (#pt-pi ((denied-proof (#pt-eq #pt-nat index #pt-zero))) #pt-false))
+              (factor-equation
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) index first)
+                  (#pt-app (#pt-use multiply ()) index second))))
+            (#pt-eq #pt-nat first second)))
+        (#pt-lambda
+          (
+            (nonzero-factor (#pt-pi ((denied-proof (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false))
+            (factor-equation
+              (#pt-eq
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) #pt-zero first)
+                (#pt-app (#pt-use multiply ()) #pt-zero second))))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-eq #pt-nat first second)
+            (#pt-app nonzero-factor (#pt-refl #pt-nat #pt-zero))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (unused-previous
+              (#pt-pi
+                (
+                  (nonzero-factor
+                    (#pt-pi ((denied-proof (#pt-eq #pt-nat previous #pt-zero))) #pt-false))
+                  (factor-equation
+                    (#pt-eq
+                      #pt-nat
+                      (#pt-app (#pt-use multiply ()) previous first)
+                      (#pt-app (#pt-use multiply ()) previous second))))
+                (#pt-eq #pt-nat first second)))
+            (nonzero-factor
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false))
+            (factor-equation
+              (#pt-eq
+                #pt-nat
+                (#pt-app (#pt-use multiply ()) (#pt-succ previous) first)
+                (#pt-app (#pt-use multiply ()) (#pt-succ previous) second))))
+          (#pt-app
+            (#pt-use multiply-cancel-left-successor ())
+            previous
+            first
+            second
+            factor-equation))
+        factor)
+      factor-nonzero
+      product-equation)))
+(#theorem nonunit-multiple-above
+  (#universes)
+  (#parameters
+    (#parameter value #pt-nat)
+    (#parameter factor #pt-nat)
+    (#parameter value-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat value #pt-zero))) #pt-false))
+    (#parameter factor-larger-than-one (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) factor)))
+  (#statement (#pt-app (#pt-use less-than ()) value (#pt-app (#pt-use multiply ()) factor value)))
+  (#proof
+    (#pt-app
+      (#pt-use substitution (0))
+      #pt-nat
+      (#pt-lambda
+        ((endpoint #pt-nat))
+        (#pt-app (#pt-use less-than ()) endpoint (#pt-app (#pt-use multiply ()) factor value)))
+      (#pt-app (#pt-use multiply ()) (#pt-succ #pt-zero) value)
+      value
+      (#pt-app (#pt-use multiply-one-left ()) value)
+      (#pt-app
+        (#pt-use multiply-less-right-nonzero ())
+        value
+        (#pt-succ #pt-zero)
+        factor
+        value-nonzero
+        factor-larger-than-one))))

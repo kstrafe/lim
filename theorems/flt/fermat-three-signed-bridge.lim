@@ -1,0 +1,431 @@
+; Close the positive/signed primitive normalization for the cubic theorem.
+; A natural primitive solution produces the signed equation a^3+b^3+(-c)^3=0
+; with actual universal triple-gcd-one and nonzero certificates.
+; The final exponent-three theorem here is conditional on the generalized
+; Eisenstein descent statement. That statement is not installed as an axiom.
+; Adapted from Mathlib/NumberTheory/FLT/Three.lean:126-180.
+; Copyright (c) 2024 Riccardo Brasca and contributors. Apache-2.0 adaptation.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-cube = ./integer-defs.lim::integer-cube)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias integer-gcd-three-spec = ./integer-gcd-three.lim::integer-gcd-three-spec)
+(#alias
+  integer-gcd-three-negative-third
+  =
+  ./integer-gcd-three.lim::integer-gcd-three-negative-third)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-gcd-one-common-divisor = ./integer-gcd.lim::integer-gcd-one-common-divisor)
+(#alias integer-gcd-of-naturals = ./integer-gcd.lim::integer-gcd-of-naturals)
+(#alias integer-cube-positive = ./integer-multiplication.lim::integer-cube-positive)
+(#alias integer-cube-negative = ./integer-multiplication.lim::integer-cube-negative)
+(#alias integer-add-of-natural = ./integer-multiplication.lim::integer-add-of-natural)
+(#alias integer-one-multiply = ./integer-bezout-algebra.lim::integer-one-multiply)
+(#alias integer-of-natural-congruent = ./integer-bezout-algebra.lim::integer-of-natural-congruent)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias integer-add-inverse = ./integer-addition.lim::integer-add-inverse)
+(#alias integer-negative-nonzero = ./integer-divisibility-decision.lim::integer-negative-nonzero)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias coprime-gcd-one = ./natural-euclid.lim::coprime-gcd-one)
+(#alias cube = ./natural-ninth-residues.lim::cube)
+(#alias natural-cubic-solution = ./fermat-three-defs.lim::natural-cubic-solution)
+(#alias integer-fermat-three-residual = ./fermat-three-residual.lim::integer-fermat-three-residual)
+(#alias
+  integer-residual-of-eisenstein-general
+  =
+  ./fermat-three-residual.lim::integer-residual-of-eisenstein-general)
+(#alias
+  integer-primitive-cubic-refuted-by-residual
+  =
+  ./fermat-three-primitive-orientation.lim::integer-primitive-cubic-refuted-by-residual)
+(#alias
+  fermat-for-three-from-primitive
+  =
+  ./fermat-three-primitive.lim::fermat-for-three-from-primitive)
+(#alias fermat-for = ./fermat-for.lim::fermat-for)
+(#alias
+  eisenstein-fermat-three-general
+  =
+  ./eisenstein-cubic-bridge.lim::eisenstein-fermat-three-general)
+(#alias add = ../fermat_statement.lim::add)
+(#theorem integer-one-divides
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ())))
+  (#statement (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) number))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use integer ())))
+          (#pt-app
+            (#pt-use integer-equal ())
+            number
+            (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) candidate-factor))))
+      introduce
+      (number
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) number)
+          number
+          (#pt-app (#pt-use integer-one-multiply ()) number))))))
+(#theorem integer-gcd-three-one-of-pair
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter pair-gcd-one-proof (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero))))
+  (#statement (#pt-app (#pt-use integer-gcd-three-spec ()) first second third (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) first)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) second)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) third)
+          (#pt-pi
+            (
+              (candidate-integer (#pt-use integer ()))
+              (candidate-first (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+              (candidate-second (#pt-app (#pt-use integer-divides ()) candidate-integer second))
+              (candidate-third (#pt-app (#pt-use integer-divides ()) candidate-integer third)))
+            (#pt-app (#pt-use integer-divides ()) candidate-integer (#pt-use integer-one ())))))
+      (#pt-app (#pt-use integer-one-divides ()) first)
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) second)
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) third)
+          (#pt-pi
+            (
+              (candidate-integer (#pt-use integer ()))
+              (candidate-first (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+              (candidate-second (#pt-app (#pt-use integer-divides ()) candidate-integer second))
+              (candidate-third (#pt-app (#pt-use integer-divides ()) candidate-integer third)))
+            (#pt-app (#pt-use integer-divides ()) candidate-integer (#pt-use integer-one ()))))
+        (#pt-app (#pt-use integer-one-divides ()) second)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) third)
+          (#pt-pi
+            (
+              (candidate-integer (#pt-use integer ()))
+              (candidate-first (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+              (candidate-second (#pt-app (#pt-use integer-divides ()) candidate-integer second))
+              (candidate-third (#pt-app (#pt-use integer-divides ()) candidate-integer third)))
+            (#pt-app (#pt-use integer-divides ()) candidate-integer (#pt-use integer-one ())))
+          (#pt-app (#pt-use integer-one-divides ()) third)
+          (#pt-lambda
+            (
+              (common-divisor (#pt-use integer ()))
+              (common-first (#pt-app (#pt-use integer-divides ()) common-divisor first))
+              (common-second (#pt-app (#pt-use integer-divides ()) common-divisor second))
+              (common-third (#pt-app (#pt-use integer-divides ()) common-divisor third)))
+            (#pt-app
+              (#pt-use integer-gcd-one-common-divisor ())
+              first
+              second
+              common-divisor
+              pair-gcd-one-proof
+              common-first
+              common-second)))))))
+(#theorem integer-natural-nonzero
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-of-natural ()) number)
+            (#pt-use integer-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (zero-equivalence
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-app (#pt-use integer-of-natural ()) number)
+            (#pt-use integer-zero ()))))
+      (#pt-app
+        number-nonzero
+        (#pt-app (#pt-use integer-of-natural-injective ()) number #pt-zero zero-equivalence)))))
+(#theorem natural-cubic-signed-sum
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter solution (#pt-app (#pt-use natural-cubic-solution ()) first second third)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) first))
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) second)))
+        (#pt-app
+          (#pt-use integer-cube ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) third))))
+      (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) first))
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) second)))
+        (#pt-app
+          (#pt-use integer-cube ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) third))))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) first))
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) second)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))
+      (#pt-use integer-zero ())
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) first))
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) second)))
+        (#pt-app
+          (#pt-use integer-cube ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) third)))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) first))
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) second)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) first))
+          (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) second))
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) first))
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) second))
+          (#pt-app (#pt-use integer-cube-positive ()) first)
+          (#pt-app (#pt-use integer-cube-positive ()) second))
+        (#pt-app (#pt-use integer-cube-negative ()) third))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) first))
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) second)))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use cube ()) first)
+              (#pt-app (#pt-use cube ()) second)))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))
+        (#pt-use integer-zero ())
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) first))
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) second)))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use cube ()) first)
+              (#pt-app (#pt-use cube ()) second)))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))
+          (#pt-app
+            (#pt-use integer-add-of-natural ())
+            (#pt-app (#pt-use cube ()) first)
+            (#pt-app (#pt-use cube ()) second))
+          (#pt-app
+            (#pt-use integer-reflexive ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use cube ()) second)))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app
+              (#pt-use integer-of-natural ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use cube ()) second)))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))
+            (#pt-app
+              (#pt-use integer-of-natural-congruent ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use cube ()) first)
+                (#pt-app (#pt-use cube ()) second))
+              (#pt-app (#pt-use cube ()) third)
+              (#pt-project natural-cubic-solution 3 solution))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third)))))
+          (#pt-app
+            (#pt-use integer-add-inverse ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) third))))))))
+(#theorem natural-primitive-cubic-refuted-by-residual
+  (#universes)
+  (#parameters
+    (#parameter residual-case (#pt-use integer-fermat-three-residual ()))
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat)
+    (#parameter solution (#pt-app (#pt-use natural-cubic-solution ()) first second third))
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-use integer-primitive-cubic-refuted-by-residual ())
+      residual-case
+      (#pt-app (#pt-use integer-of-natural ()) first)
+      (#pt-app (#pt-use integer-of-natural ()) second)
+      (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-of-natural ()) third))
+      (#pt-app
+        (#pt-use integer-gcd-three-negative-third ())
+        (#pt-app (#pt-use integer-of-natural ()) first)
+        (#pt-app (#pt-use integer-of-natural ()) second)
+        (#pt-app (#pt-use integer-of-natural ()) third)
+        (#pt-succ #pt-zero)
+        (#pt-app
+          (#pt-use integer-gcd-three-one-of-pair ())
+          (#pt-app (#pt-use integer-of-natural ()) first)
+          (#pt-app (#pt-use integer-of-natural ()) second)
+          (#pt-app (#pt-use integer-of-natural ()) third)
+          (#pt-app
+            (#pt-use integer-gcd-of-naturals ())
+            first
+            second
+            (#pt-succ #pt-zero)
+            (#pt-app (#pt-use coprime-gcd-one ()) first second coprime-proof))))
+      (#pt-app (#pt-use natural-cubic-signed-sum ()) first second third solution)
+      (#pt-app
+        (#pt-use integer-natural-nonzero ())
+        first
+        (#pt-project natural-cubic-solution 0 solution))
+      (#pt-app
+        (#pt-use integer-natural-nonzero ())
+        second
+        (#pt-project natural-cubic-solution 1 solution))
+      (#pt-app
+        (#pt-use integer-negative-nonzero ())
+        (#pt-app (#pt-use integer-of-natural ()) third)
+        (#pt-app
+          (#pt-use integer-natural-nonzero ())
+          third
+          (#pt-project natural-cubic-solution 2 solution))))))
+(#theorem fermat-for-three-from-residual
+  (#universes)
+  (#parameters
+    (#parameter residual-case (#pt-use integer-fermat-three-residual ())))
+  (#statement (#pt-app (#pt-use fermat-for ()) (#pt-numeral 3)))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-for-three-from-primitive ())
+      (#pt-lambda
+        (
+          (first #pt-nat)
+          (second #pt-nat)
+          (third #pt-nat)
+          (solution (#pt-app (#pt-use natural-cubic-solution ()) first second third))
+          (coprime-proof (#pt-app (#pt-use coprime ()) first second)))
+        (#pt-app
+          (#pt-use natural-primitive-cubic-refuted-by-residual ())
+          residual-case
+          first
+          second
+          third
+          solution
+          coprime-proof)))))
+(#theorem fermat-for-three-from-eisenstein
+  (#universes)
+  (#parameters
+    (#parameter general-case (#pt-use eisenstein-fermat-three-general ())))
+  (#statement (#pt-app (#pt-use fermat-for ()) (#pt-numeral 3)))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-for-three-from-residual ())
+      (#pt-app (#pt-use integer-residual-of-eisenstein-general ()) general-case))))

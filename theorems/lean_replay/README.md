@@ -99,8 +99,7 @@ and zero-right. The first two report exactly `Quot.sound`; zero-right also
 reports `propext`. Raw replay requires `--lean-foundations`. The pinned
 `Init.Data.Nat.Gcd` source, private ownership, exact native mapping and
 assumption inventories are retained in the corpus provenance. The generic
-self theorem is covered separately below; direct closed worker computation
-remains open.
+self theorem and direct closed worker computation are covered separately below.
 
 The twenty-first file, [`gcd-self.lim`](gcd-self.lim), translates the
 [GCD self corpus](../../tests/fixtures/lean_export_gcd_self/README.md). All 335
@@ -109,7 +108,8 @@ records the explicit 1,000,000-work/128-MiB-phase/1-GiB-total profile; comments
 do not configure the checker, so standalone checking must supply these flags.
 The exact basis is `Quot.sound, propext` with quotient computation. Canonical
 ownership, mappings, source hashes and attribution include `Init.Data.Nat.Div.Basic`.
-Direct closed GCD worker evaluation and the complete FLT proof remain unfinished.
+The separate closed worker corpus below checks direct evaluation; complete FLT
+replay remains unfinished.
 
 Each corpus records its pinned producer, exact input SHA-256, native theorem
 names, and every original declaration's identity, export line and prefix hash.
@@ -158,9 +158,9 @@ an explicit [closed GCD calculation](../../tests/fixtures/lean_export_gcd_calcul
 Its 278 original and independently checked native declarations prove
 `Nat.gcd 84 30 = 6` through checked recurrence lemmas and remainder conversion.
 It records exactly `Quot.sound`, the quotient primitive package and the explicit
-1,000,000-work/128-MiB-phase/1-GiB-total profile. Direct `rfl` worker evaluation
-still exceeds its resource bounds; this adds a mathematical calculation rather
-than claiming that evaluation path is supported. The full FLT proof is open.
+1,000,000-work/128-MiB-phase/1-GiB-total profile. This is a lemma-based
+calculation; the direct `rfl` worker proof has its own constructive corpus below.
+The full FLT proof is open.
 
 The twenty-third file, [`strings.lim`](strings.lim), translates the
 [string-literal corpus](../../tests/fixtures/lean_export_strings/README.md).
@@ -171,3 +171,52 @@ sequences. The explicit profile is 1,000,000-work/128-MiB-phase/1-GiB-total;
 unchanged defaults refuse an earlier `Char.ofNat` proof. No primitive string
 rule or proof admission is introduced. Its manifest records private source
 ownership and exact raw/native correspondence; full FLT replay remains open.
+
+The twenty-fourth file, [`gcd-closed.lim`](gcd-closed.lim), translates the
+[direct GCD worker corpus](../../tests/fixtures/lean_export_gcd_closed/README.md).
+Its 251 declarations preserve the original reflexivity proof of
+`Nat.gcd 84 30 = 6`, with empty axiom and foundation inventories. Both raw and
+native checking succeed under the default proof budgets. The producer also
+records the original explicit profile for reproduction.
+
+The twenty-fifth file, [`bitwise.lim`](bitwise.lim), translates the
+[bitwise forwarding corpus](../../tests/fixtures/lean_export_bitwise/README.md).
+Its 385 declarations retain original reflexivity proofs for AND, OR and XOR
+of 13 and 11. Each target reports `propext`; raw replay requires explicit
+Lean foundations. Raw and native checks use the explicit
+1,000,000-work/128-MiB-phase/1-GiB-total profile. The fixture's separate stress
+source records larger operands and shifts that still need evaluator work.
+
+The twenty-sixth file, [`shift-left.lim`](shift-left.lim), translates the
+[left-shift corpus](../../tests/fixtures/lean_export_left_shift/README.md).
+Its 138 declarations check small and above-`u128` shifts, the arbitrary-input
+zero identity, and the original unbounded `Nat.shiftLeft_eq` proof. The first
+three targets have empty bases; the general theorem uses `propext`. The explicit
+profile remains 1,000,000-work/128-MiB-phase/1-GiB-total. General right-shift
+replay at the smaller profile and large bitwise evaluation remain open, as
+does full FLT replay.
+
+The twenty-seventh file, [`shift-right.lim`](shift-right.lim), translates the
+[right-shift runtime corpus](../../tests/fixtures/lean_export_right_shift/README.md).
+Its 194 declarations retain four original reflexivity proofs, including a
+64-bit shift beyond `u128`, the arbitrary-input zero identity and the bit-width
+boundary. Global and selected-target assumption inventories are empty. Raw and
+native replay use the explicit
+1,000,000-work/128-MiB-phase/1-GiB-total profile. The original general shift
+`Nat.shiftRight_eq_div_pow` stress export has separately checked in raw and
+native form over 489 declarations at 20M-work/1-GiB-phase/4-GiB-total, with
+`propext`. It still exceeds the 1M-work budget. The additional
+[`shift-right-general.lim`](shift-right-general.lim) now preserves this
+complete [unbounded division proof](../../tests/fixtures/lean_export_right_shift_general/README.md),
+including raw/native checks for all four original targets, exact private
+source ownership and strict changed-proof rejection.
+Full FLT replay remains open.
+
+The additional [`shift-composition.lim`](shift-composition.lim) retains the
+[original unbounded composition proof](../../tests/fixtures/lean_export_shift_composition/README.md)
+over 218 declarations. For every natural `m`, `n`, and `k`, shifting by `n + k`
+equals shifting by `n` and then by `k`. Its explicit profile is
+20,000,000-work/1-GiB-phase/4-GiB-total, with exactly `propext`. This is separate
+from the unchanged 1M-work runtime corpus and the open 1M-work optimization
+target. It preserves the complete original evidence and does not complete the
+general division equation or full FLT replay.

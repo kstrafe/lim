@@ -1,0 +1,385 @@
+; Evaluate the actual integer discriminant through four explicit
+; invariant equations. Each premise and the final polynomial have
+; checked certificates, permitting bounded staged computations without
+; any evaluation oracle or change to the native kernel work limits.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-power-congruent = ./integer-power-laws.lim::integer-power-congruent)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias integer-weierstrass-b2 = ./integer-weierstrass-defs.lim::integer-weierstrass-b2)
+(#alias integer-weierstrass-b4 = ./integer-weierstrass-defs.lim::integer-weierstrass-b4)
+(#alias integer-weierstrass-b6 = ./integer-weierstrass-defs.lim::integer-weierstrass-b6)
+(#alias integer-weierstrass-b8 = ./integer-weierstrass-defs.lim::integer-weierstrass-b8)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#math-definition integer-weierstrass-discriminant-value ()
+  (#pt-pi
+    (
+      (second-invariant (#pt-use integer ()))
+      (fourth-invariant (#pt-use integer ()))
+      (sixth-invariant (#pt-use integer ()))
+      (eighth-invariant (#pt-use integer ())))
+    (#pt-use integer ()))
+  (#pt-lambda
+    (
+      (second-invariant (#pt-use integer ()))
+      (fourth-invariant (#pt-use integer ()))
+      (sixth-invariant (#pt-use integer ()))
+      (eighth-invariant (#pt-use integer ())))
+    (#pt-app
+      (#pt-use integer-add ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2)))
+            eighth-invariant)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app (#pt-use integer-power ()) sixth-invariant (#pt-numeral 2)))))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            second-invariant)
+          fourth-invariant)
+        sixth-invariant))))
+(#theorem integer-weierstrass-discriminant-evaluate
+  (#universes)
+  (#parameters
+    (#parameter curve (#pt-use integer-weierstrass-curve ()))
+    (#parameter second-invariant (#pt-use integer ()))
+    (#parameter fourth-invariant (#pt-use integer ()))
+    (#parameter sixth-invariant (#pt-use integer ()))
+    (#parameter eighth-invariant (#pt-use integer ()))
+    (#parameter b2-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-weierstrass-b2 ()) curve) second-invariant))
+    (#parameter b4-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-weierstrass-b4 ()) curve) fourth-invariant))
+    (#parameter b6-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-weierstrass-b6 ()) curve) sixth-invariant))
+    (#parameter b8-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-weierstrass-b8 ()) curve) eighth-invariant)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) curve)
+      (#pt-app
+        (#pt-use integer-weierstrass-discriminant-value ())
+        second-invariant
+        fourth-invariant
+        sixth-invariant
+        eighth-invariant)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-add-congruent ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                (#pt-numeral 2)))
+            (#pt-app (#pt-use integer-weierstrass-b8 ()) curve))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+              (#pt-numeral 2)))))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            (#pt-app (#pt-use integer-weierstrass-b2 ()) curve))
+          (#pt-app (#pt-use integer-weierstrass-b4 ()) curve))
+        (#pt-app (#pt-use integer-weierstrass-b6 ()) curve))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2)))
+            eighth-invariant)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app (#pt-use integer-power ()) sixth-invariant (#pt-numeral 2)))))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            second-invariant)
+          fourth-invariant)
+        sixth-invariant)
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                (#pt-numeral 2)))
+            (#pt-app (#pt-use integer-weierstrass-b8 ()) curve))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+              (#pt-numeral 2))))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2)))
+            eighth-invariant)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3)))))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app (#pt-use integer-power ()) sixth-invariant (#pt-numeral 2))))
+        (#pt-app
+          (#pt-use integer-add-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                (#pt-numeral 2)))
+            (#pt-app (#pt-use integer-weierstrass-b8 ()) curve))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2)))
+            eighth-invariant)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3))))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                (#pt-numeral 2)))
+            (#pt-app (#pt-use integer-weierstrass-b8 ()) curve)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2)))
+            eighth-invariant
+            (#pt-app
+              (#pt-use integer-negate-congruent ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                (#pt-numeral 2))
+              (#pt-app (#pt-use integer-power ()) second-invariant (#pt-numeral 2))
+              (#pt-app
+                (#pt-use integer-power-congruent ())
+                (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+                second-invariant
+                (#pt-numeral 2)
+                b2-equation))
+            b8-equation)
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3)))
+            (#pt-app
+              (#pt-use integer-multiply-congruent ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                (#pt-numeral 3))
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8))
+              (#pt-app (#pt-use integer-power ()) fourth-invariant (#pt-numeral 3))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 8)))
+              (#pt-app
+                (#pt-use integer-power-congruent ())
+                (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+                fourth-invariant
+                (#pt-numeral 3)
+                b4-equation))))
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+              (#pt-numeral 2)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app (#pt-use integer-power ()) sixth-invariant (#pt-numeral 2)))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+              (#pt-numeral 2))
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27))
+            (#pt-app (#pt-use integer-power ()) sixth-invariant (#pt-numeral 2))
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 27)))
+            (#pt-app
+              (#pt-use integer-power-congruent ())
+              (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+              sixth-invariant
+              (#pt-numeral 2)
+              b6-equation))))
+      (#pt-app
+        (#pt-use integer-multiply-congruent ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            (#pt-app (#pt-use integer-weierstrass-b2 ()) curve))
+          (#pt-app (#pt-use integer-weierstrass-b4 ()) curve))
+        (#pt-app (#pt-use integer-weierstrass-b6 ()) curve)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            second-invariant)
+          fourth-invariant)
+        sixth-invariant
+        (#pt-app
+          (#pt-use integer-multiply-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            (#pt-app (#pt-use integer-weierstrass-b2 ()) curve))
+          (#pt-app (#pt-use integer-weierstrass-b4 ()) curve)
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            second-invariant)
+          fourth-invariant
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            (#pt-app (#pt-use integer-weierstrass-b2 ()) curve)
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9))
+            second-invariant
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 9)))
+            b2-equation)
+          b4-equation)
+        b6-equation))))

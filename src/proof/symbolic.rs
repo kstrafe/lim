@@ -1434,27 +1434,36 @@ impl Engine<'_, '_> {
                 Ok(output)
             }
             Statement::ArrayAssign { name, index, value } => {
-                let target = Expr::List(vec![
-                    Expr::Symbol("index".into()),
-                    Expr::Symbol(name.clone()),
-                    index.clone(),
-                ]);
+                let target = Expr::List(
+                    vec![
+                        Expr::Symbol("index".into()),
+                        Expr::Symbol(name.clone()),
+                        index.clone(),
+                    ]
+                    .into(),
+                );
                 self.assign_place(state, &target, value)
             }
             Statement::FieldAssign { name, field, value } => {
-                let target = Expr::List(vec![
-                    Expr::Symbol("get".into()),
-                    Expr::Symbol(name.clone()),
-                    Expr::Symbol(field.clone()),
-                ]);
+                let target = Expr::List(
+                    vec![
+                        Expr::Symbol("get".into()),
+                        Expr::Symbol(name.clone()),
+                        Expr::Symbol(field.clone()),
+                    ]
+                    .into(),
+                );
                 self.assign_place(state, &target, value)
             }
             Statement::TupleAssign { name, index, value } => {
-                let target = Expr::List(vec![
-                    Expr::Symbol("get".into()),
-                    Expr::Symbol(name.clone()),
-                    Expr::Integer(*index as i128),
-                ]);
+                let target = Expr::List(
+                    vec![
+                        Expr::Symbol("get".into()),
+                        Expr::Symbol(name.clone()),
+                        Expr::Integer(*index as i128),
+                    ]
+                    .into(),
+                );
                 self.assign_place(state, &target, value)
             }
             Statement::While { condition, body } => self

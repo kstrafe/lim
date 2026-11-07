@@ -38,8 +38,8 @@ fn zero_shift_shares_root_and_only_charges_one_work_unit() {
     let result = kernel.beta_shift_argument(&payload, 0, 9).unwrap();
     assert!(Arc::ptr_eq(&payload, &result.0));
     assert!(
-        !result.1,
-        "identity does not establish that a compound argument is closed"
+        result.1,
+        "cached syntax proves the compound argument has no free term variables"
     );
     assert_eq!(kernel.transformation_bytes(), 0);
     assert_eq!(kernel.work, 1);
@@ -104,7 +104,7 @@ fn identity_shift_keeps_depth_and_nonzero_shift_keeps_overflow_checks() {
         .contains("variable index overflow"));
     kernel.reset_budget();
     assert!(kernel
-        .beta_shift_argument(&lam(nat(), var(0)), 1, DEPTH)
+        .beta_shift_argument(&lam(var(0), var(0)), 1, DEPTH)
         .unwrap_err()
         .contains("resource limit"));
 }
@@ -120,13 +120,13 @@ fn identity_reuse_does_not_bypass_declaration_scope_or_type_checks() {
         error.contains("unknown") || error.contains("declaration"),
         "{error}"
     );
-    assert!(!kernel.contains("bad-global"));
+    assert!(!kernel.contains("bad-global").unwrap());
 
     let error = kernel
         .definition("bad-variable", vec![], nat(), var(0), false)
         .unwrap_err();
     assert!(error.contains("unbound"), "{error}");
-    assert!(!kernel.contains("bad-variable"));
+    assert!(!kernel.contains("bad-variable").unwrap());
 
     let bad_let = term(Term::Let(
         nat(),
@@ -137,5 +137,5 @@ fn identity_reuse_does_not_bypass_declaration_scope_or_type_checks() {
         .definition("bad-discarded-let", vec![], nat(), bad_let, false)
         .unwrap_err();
     assert!(!error.contains("resource limit"), "{error}");
-    assert!(!kernel.contains("bad-discarded-let"));
+    assert!(!kernel.contains("bad-discarded-let").unwrap());
 }

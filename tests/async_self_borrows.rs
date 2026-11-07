@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use lim::{Diagnostic, DiagnosticCode};
@@ -524,7 +526,8 @@ fn assert_independent_generated_source(source: &str) {
     }
     for entry in std::fs::read_dir(output).unwrap() {
         standalone.push('\n');
-        standalone.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+        let artifact = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        standalone.push_str(&generated_source::ordinary_source(&artifact));
     }
     let program = lim::parse_program(&standalone).unwrap();
     lim::check_types(&program).unwrap_or_else(|error| panic!("{error}\n{standalone}"));

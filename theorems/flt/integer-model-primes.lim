@@ -1,0 +1,516 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Preserve the source arithmetic model/prime predicates under actual
+; coefficient equivalence, using proved invariant maps and faithful
+; rational embedding. Coefficient equivalence is not a general
+; rational variable change or a geometric reduction theorem.
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-symmetric = ./rational-equality.lim::rational-symmetric)
+(#alias rational-transitive = ./rational-equality.lim::rational-transitive)
+(#alias rational-of-integer-congruent = ./rational-congruence.lim::rational-of-integer-congruent)
+(#alias rational-weierstrass-curve = ./rational-weierstrass-defs.lim::rational-weierstrass-curve)
+(#alias rational-weierstrass-c4 = ./rational-weierstrass-defs.lim::rational-weierstrass-c4)
+(#alias
+  rational-weierstrass-discriminant
+  =
+  ./rational-weierstrass-defs.lim::rational-weierstrass-discriminant)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias
+  integer-weierstrass-map-rational
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-map-rational)
+(#alias integer-weierstrass-c4 = ./integer-weierstrass-defs.lim::integer-weierstrass-c4)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#alias
+  rational-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::rational-weierstrass-equivalent)
+(#alias
+  integer-weierstrass-equivalent
+  =
+  ./weierstrass-model-equivalence.lim::integer-weierstrass-equivalent)
+(#alias integer-weierstrass-c4-map = ./integer-weierstrass-map.lim::integer-weierstrass-c4-map)
+(#alias
+  integer-weierstrass-discriminant-map
+  =
+  ./integer-weierstrass-map.lim::integer-weierstrass-discriminant-map)
+(#alias
+  rational-weierstrass-c4-congruent
+  =
+  ./weierstrass-invariant-congruence.lim::rational-weierstrass-c4-congruent)
+(#alias
+  rational-weierstrass-discriminant-congruent
+  =
+  ./weierstrass-invariant-congruence.lim::rational-weierstrass-discriminant-congruent)
+(#alias
+  rational-integer-embedding-injective
+  =
+  ./rational-fractions.lim::rational-integer-embedding-injective)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias
+  integer-prime-not-divides-one
+  =
+  ./integer-prime-coprimality.lim::integer-prime-not-divides-one)
+(#alias integer-is-semistable-model = ./integer-model-prime-defs.lim::integer-is-semistable-model)
+(#alias integer-is-good-prime-for = ./integer-model-prime-defs.lim::integer-is-good-prime-for)
+(#theorem integer-model-equivalence-maps-rational
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter coefficient-equivalence (#pt-app (#pt-use integer-weierstrass-equivalent ()) model other-model)))
+  (#statement
+    (#pt-app
+      (#pt-use rational-weierstrass-equivalent ())
+      (#pt-app (#pt-use integer-weierstrass-map-rational ()) model)
+      (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use rational-equal ())
+        (#pt-project
+          rational-weierstrass-curve
+          0
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+        (#pt-project
+          rational-weierstrass-curve
+          0
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model))))))
+      (#pt-app
+        (#pt-use rational-of-integer-congruent ())
+        (#pt-project integer-weierstrass-curve 0 model)
+        (#pt-project integer-weierstrass-curve 0 other-model)
+        (#pt-project conjunction 0 coefficient-equivalence))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use rational-equal ())
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-project
+            rational-weierstrass-curve
+            1
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))))
+        (#pt-app
+          (#pt-use rational-of-integer-congruent ())
+          (#pt-project integer-weierstrass-curve 1 model)
+          (#pt-project integer-weierstrass-curve 1 other-model)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 coefficient-equivalence)))
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use rational-equal ())
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+            (#pt-project
+              rational-weierstrass-curve
+              2
+              (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model))))
+          (#pt-app
+            (#pt-use rational-of-integer-congruent ())
+            (#pt-project integer-weierstrass-curve 2 model)
+            (#pt-project integer-weierstrass-curve 2 other-model)
+            (#pt-project
+              conjunction
+              0
+              (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-equivalence))))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                3
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+            (#pt-app
+              (#pt-use rational-equal ())
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+              (#pt-project
+                rational-weierstrass-curve
+                4
+                (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)))
+            (#pt-app
+              (#pt-use rational-of-integer-congruent ())
+              (#pt-project integer-weierstrass-curve 3 model)
+              (#pt-project integer-weierstrass-curve 3 other-model)
+              (#pt-project
+                conjunction
+                0
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-equivalence)))))
+            (#pt-app
+              (#pt-use rational-of-integer-congruent ())
+              (#pt-project integer-weierstrass-curve 4 model)
+              (#pt-project integer-weierstrass-curve 4 other-model)
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  1
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 coefficient-equivalence)))))))))))
+(#theorem integer-model-c4-equivalent
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter coefficient-equivalence (#pt-app (#pt-use integer-weierstrass-equivalent ()) model other-model)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-weierstrass-c4 ()) model)
+      (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model)))
+  (#proof
+    (#pt-app
+      (#pt-use rational-integer-embedding-injective ())
+      (#pt-app (#pt-use integer-weierstrass-c4 ()) model)
+      (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model)
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) model))
+        (#pt-app
+          (#pt-use rational-weierstrass-c4 ())
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model))
+        (#pt-app
+          (#pt-use rational-symmetric ())
+          (#pt-app
+            (#pt-use rational-weierstrass-c4 ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) model))
+          (#pt-app (#pt-use integer-weierstrass-c4-map ()) model))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-weierstrass-c4 ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-app
+            (#pt-use rational-weierstrass-c4 ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model))
+          (#pt-app
+            (#pt-use rational-weierstrass-c4-congruent ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model)
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)
+            (#pt-app
+              (#pt-use integer-model-equivalence-maps-rational ())
+              model
+              other-model
+              coefficient-equivalence))
+          (#pt-app (#pt-use integer-weierstrass-c4-map ()) other-model))))))
+(#theorem integer-model-discriminant-equivalent
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter coefficient-equivalence (#pt-app (#pt-use integer-weierstrass-equivalent ()) model other-model)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)))
+  (#proof
+    (#pt-app
+      (#pt-use rational-integer-embedding-injective ())
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+      (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)
+      (#pt-app
+        (#pt-use rational-transitive ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) model))
+        (#pt-app
+          (#pt-use rational-weierstrass-discriminant ())
+          (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model))
+        (#pt-app
+          (#pt-use rational-symmetric ())
+          (#pt-app
+            (#pt-use rational-weierstrass-discriminant ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) model))
+          (#pt-app (#pt-use integer-weierstrass-discriminant-map ()) model))
+        (#pt-app
+          (#pt-use rational-transitive ())
+          (#pt-app
+            (#pt-use rational-weierstrass-discriminant ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model))
+          (#pt-app
+            (#pt-use rational-weierstrass-discriminant ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model))
+          (#pt-app
+            (#pt-use rational-of-integer ())
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model))
+          (#pt-app
+            (#pt-use rational-weierstrass-discriminant-congruent ())
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) model)
+            (#pt-app (#pt-use integer-weierstrass-map-rational ()) other-model)
+            (#pt-app
+              (#pt-use integer-model-equivalence-maps-rational ())
+              model
+              other-model
+              coefficient-equivalence))
+          (#pt-app (#pt-use integer-weierstrass-discriminant-map ()) other-model))))))
+(#theorem integer-semistable-model-equivalent
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter coefficient-equivalence (#pt-app (#pt-use integer-weierstrass-equivalent ()) model other-model))
+    (#parameter semistable-certificate (#pt-app (#pt-use integer-is-semistable-model ()) model)))
+  (#statement (#pt-app (#pt-use integer-is-semistable-model ()) other-model))
+  (#proof
+    (#pt-lambda
+      (
+        (prime-number #pt-nat)
+        (prime-proof (#pt-app (#pt-use prime ()) prime-number))
+        (discriminant-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)))
+        (c4-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model))))
+      (#pt-app
+        semistable-certificate
+        prime-number
+        prime-proof
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)
+            (#pt-app
+              (#pt-use integer-model-discriminant-equivalent ())
+              model
+              other-model
+              coefficient-equivalence))
+          discriminant-divides)
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model)
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) model)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) model)
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) other-model)
+            (#pt-app
+              (#pt-use integer-model-c4-equivalent ())
+              model
+              other-model
+              coefficient-equivalence))
+          c4-divides)))))
+(#theorem integer-good-prime-equivalent
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter other-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter prime-number #pt-nat)
+    (#parameter coefficient-equivalence (#pt-app (#pt-use integer-weierstrass-equivalent ()) model other-model))
+    (#parameter good-certificate (#pt-app (#pt-use integer-is-good-prime-for ()) model prime-number)))
+  (#statement (#pt-app (#pt-use integer-is-good-prime-for ()) other-model prime-number))
+  (#proof
+    (#pt-lambda
+      (
+        (discriminant-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model))))
+      (#pt-app
+        good-certificate
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)
+          (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) other-model)
+            (#pt-app
+              (#pt-use integer-model-discriminant-equivalent ())
+              model
+              other-model
+              coefficient-equivalence))
+          discriminant-divides)))))
+(#theorem integer-c4-one-is-semistable-model
+  (#universes)
+  (#parameters
+    (#parameter model (#pt-use integer-weierstrass-curve ()))
+    (#parameter c4-equation (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use integer-weierstrass-c4 ()) model) (#pt-use integer-one ()))))
+  (#statement (#pt-app (#pt-use integer-is-semistable-model ()) model))
+  (#proof
+    (#pt-lambda
+      (
+        (prime-number #pt-nat)
+        (prime-proof (#pt-app (#pt-use prime ()) prime-number))
+        (discriminant-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-discriminant ()) model)))
+        (c4-divides
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) model))))
+      (#pt-app
+        (#pt-app (#pt-use integer-prime-not-divides-one ()) prime-number prime-proof)
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          (#pt-app (#pt-use integer-weierstrass-c4 ()) model)
+          (#pt-use integer-one ())
+          c4-equation
+          c4-divides)))))

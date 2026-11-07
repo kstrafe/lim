@@ -38,7 +38,14 @@ impl LeanExportReport {
             }
             declaration(output, index)?;
         }
-        output.write_all(b"],\"exporter_revision\":")?;
+        output.write_all(b"]")?;
+        // Preserve existing default receipts byte-for-byte. A selected input
+        // profile is audit data, separate from proof authority and work.
+        if self.limits != LeanExportLimits::default() {
+            let limits = self.limits;
+            write!(output, ",\"export_limits\":{{\"max_bytes\":{},\"max_declarations\":{},\"max_dependencies\":{},\"max_dependency_bytes\":{},\"max_expressions\":{},\"max_levels\":{},\"max_name_bytes\":{},\"max_names\":{},\"max_payload_bytes\":{},\"max_scratch_bytes\":{}}}", limits.max_bytes, limits.max_declarations, limits.max_dependencies, limits.max_dependency_bytes, limits.max_expressions, limits.max_levels, limits.max_name_bytes, limits.max_names, limits.max_payload_bytes, limits.max_scratch_bytes)?;
+        }
+        output.write_all(b",\"exporter_revision\":")?;
         write_string(output, EXPORTER_REVISION)?;
         output.write_all(b",\"format_version\":")?;
         write_string(output, LEAN_EXPORT_FORMAT)?;
@@ -50,6 +57,12 @@ impl LeanExportReport {
         write_string(output, LEAN_EXPORT_GITHASH)?;
         output.write_all(b",\"lean_version\":")?;
         write_string(output, LEAN_EXPORT_VERSION)?;
+        if let Some(limits) = self
+            .native_limits
+            .filter(|limits| *limits != crate::NativeProofLimits::default())
+        {
+            write!(output, ",\"native_proof_limits\":{{\"max_bytes\":{},\"max_correspondence_bytes\":{},\"max_correspondence_nodes\":{},\"max_declarations\":{},\"max_directory_bytes\":{},\"max_render_nodes\":{},\"max_scratch_bytes\":{}}}", limits.max_bytes, limits.max_correspondence_bytes, limits.max_correspondence_nodes, limits.max_declarations, limits.max_directory_bytes, limits.max_render_nodes, limits.max_scratch_bytes)?;
+        }
         write!(output, ",\"proof_budget\":{{\"transformation_bytes_per_phase\":{},\"transformation_bytes_total\":{},\"work_per_phase\":{}}},\"records\":{},\"schema\":\"lim-lean-replay-v1\",\"target\":", self.budget.phase_bytes(), self.budget.total_bytes(), self.budget.work(), self.records)?;
         write_string(output, &self.target)?;
         output.write_all(b",\"target_axioms\":")?;

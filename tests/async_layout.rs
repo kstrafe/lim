@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -60,7 +62,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
     }
     standalone.push_str(&source[cursor..]);
     for artifact in generated {
-        standalone.push_str(&artifact);
+        standalone.push_str(&generated_source::ordinary_source(&artifact));
     }
     let program = lim::parse_program(&standalone).unwrap();
     let fields = program

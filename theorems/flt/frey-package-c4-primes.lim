@@ -1,0 +1,304 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; The actual package supplies exponent positivity, gcd one and its
+; retained coordinate equation. For every actual integral model,
+; derive the source c4 prime-nondivisibility and discriminant-prime
+; implication; retain the alternate rational c4 identity.
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-weierstrass-c4 = ./rational-weierstrass-defs.lim::rational-weierstrass-c4)
+(#alias integer-weierstrass-curve = ./integer-weierstrass-defs.lim::integer-weierstrass-curve)
+(#alias integer-weierstrass-c4 = ./integer-weierstrass-defs.lim::integer-weierstrass-c4)
+(#alias
+  integer-weierstrass-discriminant
+  =
+  ./integer-weierstrass-defs.lim::integer-weierstrass-discriminant)
+(#alias integer-frey-model-certificate = ./integer-frey-model.lim::integer-frey-model-certificate)
+(#alias frey-rational-curve = ./frey-rational-curve.lim::frey-rational-curve)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias
+  frey-rational-curve-c4-alternate
+  =
+  ./frey-c4-alternate.lim::frey-rational-curve-c4-alternate)
+(#alias
+  integer-frey-c4-prime-nondivisibility
+  =
+  ./integer-frey-c4-primes.lim::integer-frey-c4-prime-nondivisibility)
+(#alias
+  integer-frey-discriminant-prime-divisor
+  =
+  ./integer-frey-c4-primes.lim::integer-frey-discriminant-prime-divisor)
+(#alias
+  integer-frey-discriminant-c4-prime-disjoint
+  =
+  ./integer-frey-c4-primes.lim::integer-frey-discriminant-c4-prime-disjoint)
+(#alias frey-package-certificate = ./frey-package.lim::frey-package-certificate)
+(#alias large-prime-positive-and-odd = ./frey-package.lim::large-prime-positive-and-odd)
+(#theorem frey-package-rational-c4-alternate
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third)))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-weierstrass-c4 ())
+        (#pt-app (#pt-use frey-rational-curve ()) first second exponent))
+      (#pt-app
+        (#pt-use rational-of-integer ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-power ())
+            third
+            (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-multiply ()) first second)
+              exponent))))))
+  (#proof
+    (#pt-app
+      (#pt-use frey-rational-curve-c4-alternate ())
+      first
+      second
+      third
+      exponent
+      (#pt-project
+        conjunction
+        1
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  0
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 package)))))))))))
+(#theorem frey-package-integral-c4-prime-nondivisibility
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter product-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-multiply ()) first second) third))))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) integral-model))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use integer-frey-c4-prime-nondivisibility ())
+      prime-number
+      first
+      second
+      third
+      exponent
+      prime-proof
+      (#pt-project
+        conjunction
+        0
+        (#pt-app
+          (#pt-use large-prime-positive-and-odd ())
+          exponent
+          (#pt-project conjunction 0 package)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 package))))
+      (#pt-project
+        conjunction
+        0
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                0
+                (#pt-project conjunction 1 (#pt-project conjunction 1 package)))))))
+      (#pt-project
+        conjunction
+        1
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  0
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 package))))))))
+      integral-model
+      model-certificate
+      product-divides)))
+(#theorem frey-package-integral-discriminant-prime-divisor
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter discriminant-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-multiply ()) first second)
+        third)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-frey-discriminant-prime-divisor ())
+      prime-number
+      first
+      second
+      third
+      exponent
+      integral-model
+      model-certificate
+      prime-proof
+      (#pt-project
+        conjunction
+        1
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  0
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 package))))))))
+      discriminant-divides)))
+(#theorem frey-package-prime-disjoint-invariants
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter package (#pt-app (#pt-use frey-package-certificate ()) exponent first second third))
+    (#parameter integral-model (#pt-use integer-weierstrass-curve ()))
+    (#parameter model-certificate (#pt-app (#pt-use integer-frey-model-certificate ()) first second exponent integral-model))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter discriminant-divides (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) (#pt-app (#pt-use integer-weierstrass-discriminant ()) integral-model))))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use integer-divides ())
+            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+            (#pt-app (#pt-use integer-weierstrass-c4 ()) integral-model))))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-use integer-frey-discriminant-c4-prime-disjoint ())
+      prime-number
+      first
+      second
+      third
+      exponent
+      prime-proof
+      (#pt-project
+        conjunction
+        0
+        (#pt-app
+          (#pt-use large-prime-positive-and-odd ())
+          exponent
+          (#pt-project conjunction 0 package)
+          (#pt-project conjunction 0 (#pt-project conjunction 1 package))))
+      (#pt-project
+        conjunction
+        0
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                0
+                (#pt-project conjunction 1 (#pt-project conjunction 1 package)))))))
+      (#pt-project
+        conjunction
+        1
+        (#pt-project
+          conjunction
+          1
+          (#pt-project
+            conjunction
+            1
+            (#pt-project
+              conjunction
+              1
+              (#pt-project
+                conjunction
+                1
+                (#pt-project
+                  conjunction
+                  0
+                  (#pt-project conjunction 1 (#pt-project conjunction 1 package))))))))
+      integral-model
+      model-certificate
+      discriminant-divides)))

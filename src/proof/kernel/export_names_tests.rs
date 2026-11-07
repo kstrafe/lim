@@ -10,7 +10,7 @@ fn name(index: usize) -> Name {
 
 #[test]
 fn paged_names_preserve_fields_ids_and_backward_reads_across_page_boundaries() {
-    let mut eager = Names::with_limit(usize::MAX);
+    let mut eager = Names::with_limits(usize::MAX, usize::MAX);
     let mut paged = Names::with_limit(1024);
     for id in 0..900 {
         let value = name(id);
@@ -36,34 +36,52 @@ fn paged_names_preserve_fields_ids_and_backward_reads_across_page_boundaries() {
 }
 
 #[test]
-fn zero_limit_migrates_the_anonymous_root_and_duplicate_keys_still_reject() {
-    for limit in [0, usize::MAX] {
-        let mut names = Names::with_limit(limit);
-        names.push(name(1)).unwrap();
-        assert_eq!(names.len(), 2);
-        assert_eq!(names.get(0).unwrap().key, "$lean:");
-        assert!(names.get(0).unwrap().display.is_empty());
-        let mut duplicate = name(1);
-        // Display spelling and depth cannot make a canonical key distinct.
-        duplicate.display = "another display".into();
-        duplicate.depth = 3;
-        assert!(names
-            .push(duplicate)
-            .unwrap_err()
-            .contains("duplicate interned"));
-        assert_eq!(names.len(), 2);
-        assert!(names
-            .push(Name {
-                key: "$lean:".into(),
-                display: "root".into(),
-                depth: 1
-            })
-            .is_err());
+fn value_and_candidate_limits_migrate_independently() {
+    let mut value_only = Names::with_limits(0, usize::MAX);
+    for id in 0..32 {
+        value_only.push(name(id)).unwrap();
+    }
+    assert!(value_only.is_spilled());
+    assert!(!value_only.candidates_spilled());
+
+    let mut candidates_only = Names::with_limits(usize::MAX, 0);
+    for id in 0..32 {
+        candidates_only.push(name(id)).unwrap();
+    }
+    assert!(!candidates_only.is_spilled());
+    assert!(candidates_only.candidates_spilled());
+    for id in 0..32 {
+        let value = name(id);
+        assert_eq!(
+            candidates_only
+                .by_key(&value.key)
+                .unwrap()
+                .unwrap()
+                .as_ref(),
+            &value
+        );
     }
 }
 
 #[test]
-fn hash_collisions_use_exact_keys_and_do_not_merge_symbols() {
+fn duplicate_keys_are_rejected_after_candidate_spilling() {
+    let mut names = Names::with_limits(usize::MAX, 0);
+    for id in 0..24 {
+        names.push(name(id)).unwrap();
+    }
+    assert!(names.candidates_spilled());
+    let mut duplicate = name(9);
+    duplicate.display = "different display".into();
+    duplicate.depth = 3;
+    assert!(names
+        .push(duplicate)
+        .unwrap_err()
+        .contains("duplicate interned"));
+    assert_eq!(names.len(), 25);
+}
+
+#[test]
+fn hash_collisions_use_exact_keys_and_preserve_reverse_candidate_order() {
     let mut names = Names::with_limit(0);
     let hash = 7;
     names.push_with_hash(name(1), hash).unwrap();
@@ -73,6 +91,22 @@ fn hash_collisions_use_exact_keys_and_do_not_merge_symbols() {
     for id in 1..4 {
         assert_eq!(names.get(id).unwrap().as_ref(), &name(id));
     }
+    assert_eq!(
+        names
+            .by_key_with_hash(&name(1).key, hash)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        &name(1)
+    );
+    assert_eq!(
+        names
+            .by_key_with_hash(&name(2).key, hash)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        &name(2)
+    );
     assert!(names
         .push_with_hash(name(2), hash)
         .unwrap_err()
@@ -81,21 +115,85 @@ fn hash_collisions_use_exact_keys_and_do_not_merge_symbols() {
 }
 
 #[test]
-fn key_lookup_checks_each_collision_candidate_before_returning_a_name() {
-    let mut names = Names::with_limit(0);
-    names.push(name(1)).unwrap();
-    names.push(name(2)).unwrap();
-    // Model a hash collision without searching for a hasher preimage.
-    let hash = names.fingerprint(&name(1).key);
-    names.keys.insert(hash, Ids::Many(vec![2, 1]));
-    assert_eq!(
-        names.by_key(&name(1).key).unwrap().unwrap().as_ref(),
-        &name(1)
-    );
+fn names_enforce_the_contiguous_id_cap_including_the_anonymous_root() {
+    let mut names = Names::with_limit(usize::MAX);
+    for id in 1..MAX_NAMES {
+        names
+            .push(Name {
+                key: format!("n{id}"),
+                display: String::new(),
+                depth: 1,
+            })
+            .unwrap();
+    }
+    assert_eq!(names.len(), MAX_NAMES);
     assert!(names
         .push(name(1))
         .unwrap_err()
-        .contains("duplicate interned"));
+        .contains("name count limit"));
+    assert_eq!(names.len(), MAX_NAMES);
+    assert_eq!(
+        names.get(MAX_NAMES - 1).unwrap().key,
+        format!("n{}", MAX_NAMES - 1)
+    );
+}
+
+#[test]
+fn candidate_checksum_failure_poison_names_lookups_and_pushes() {
+    let mut names = Names::with_limits(usize::MAX, 0);
+    for id in 0..4097 {
+        names.push(name(id)).unwrap();
+    }
+    assert!(names.candidates_spilled());
+    let hash = names.keys.corrupt_first_flushed_record().unwrap();
+    let key = "no-name-is-needed-to-traverse-the-corrupted-bucket";
+    assert!(names
+        .by_key_with_hash(&key, hash)
+        .unwrap_err()
+        .contains("checksum"));
+    assert!(names.get(1).is_err());
+    assert!(names.by_key(&key).is_err());
+    assert!(names.push(name(5000)).is_err());
+}
+
+#[test]
+fn invalid_value_index_read_poison_fails_closed() {
+    let mut names = Names::with_limit(0);
+    for id in 0..4097 {
+        names.push(name(id)).unwrap();
+    }
+    let Storage::Spilled(storage) = &mut names.storage else {
+        unreachable!()
+    };
+    storage
+        .index
+        .get_mut()
+        .overwrite_flushed(0, &u64::MAX.to_le_bytes())
+        .unwrap();
+    assert!(names.get(0).unwrap_err().contains("checksum"));
+    assert!(names.get(1).unwrap_err().contains("invalid after"));
+    assert!(names.by_key("missing").is_err());
+    assert!(names.push(name(5000)).is_err());
+}
+
+#[test]
+fn long_unicode_and_deep_names_round_trip_after_spilling() {
+    let mut names = Names::with_limits(0, 0);
+    for id in 0..16 {
+        names.push(name(id)).unwrap();
+    }
+    let boundary = Name {
+        key: format!("$lean:{}", "命題.λ𝄞".repeat(1000)),
+        display: format!("深い.名前.{}", "é".repeat(5000)),
+        depth: MAX_DEPTH,
+    };
+    names.push(boundary.clone()).unwrap();
+    assert!(names.is_spilled());
+    assert!(names.candidates_spilled());
+    assert_eq!(
+        names.by_key(&boundary.key).unwrap().unwrap().as_ref(),
+        &boundary
+    );
 }
 
 #[test]
@@ -168,4 +266,39 @@ fn invalid_scratch_index_ranges_lengths_and_reserved_bytes_fail_closed() {
             .unwrap_err()
             .contains("invalid name scratch index"));
     }
+}
+
+#[test]
+fn zero_limit_migrates_the_anonymous_root_and_duplicate_keys_still_reject() {
+    for limit in [0, usize::MAX] {
+        let mut names = Names::with_limit(limit);
+        names.push(name(1)).unwrap();
+        assert_eq!(names.len(), 2);
+        assert_eq!(names.get(0).unwrap().key, "$lean:");
+        assert!(names.get(0).unwrap().display.is_empty());
+        let mut duplicate = name(1);
+        // Display spelling and depth cannot make a canonical key distinct.
+        duplicate.display = "another display".into();
+        duplicate.depth = 3;
+        assert!(names
+            .push(duplicate)
+            .unwrap_err()
+            .contains("duplicate interned"));
+        assert_eq!(names.len(), 2);
+        assert!(names
+            .push(Name {
+                key: "$lean:".into(),
+                display: "root".into(),
+                depth: 1
+            })
+            .is_err());
+    }
+}
+
+#[test]
+fn selected_count_limit_includes_the_anonymous_root() {
+    let mut names = Names::with_count_limit(1);
+    assert_eq!(names.len(), 1);
+    assert!(names.push(name(1)).unwrap_err().contains("count limit"));
+    assert_eq!(names.len(), 1);
 }

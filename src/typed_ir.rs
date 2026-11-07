@@ -53,27 +53,44 @@ pub(crate) struct ExpressionId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct StatementId(pub usize);
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, ExpressionId> {
     expression_ids_selected(program, None)
+        .expect("test syntax contains aliased executable occurrences")
 }
 
+/// Address lookup is only valid when every executable occurrence is distinct.
+/// Return no map on aliasing; callers must materialize those occurrences first.
 pub(crate) fn expression_ids_selected(
     program: &crate::Program,
     selected: Option<&HashSet<String>>,
-) -> HashMap<usize, ExpressionId> {
-    fn expression(value: &crate::Expr, ids: &mut HashMap<usize, ExpressionId>, next: &mut usize) {
-        ids.insert(std::ptr::from_ref(value) as usize, ExpressionId(*next));
+) -> Option<HashMap<usize, ExpressionId>> {
+    fn expression(
+        value: &crate::Expr,
+        ids: &mut HashMap<usize, ExpressionId>,
+        next: &mut usize,
+        shared: &mut bool,
+    ) {
+        if *shared {
+            return;
+        }
+        if ids
+            .insert(std::ptr::from_ref(value) as usize, ExpressionId(*next))
+            .is_some()
+        {
+            *shared = true;
+            return;
+        }
         *next += 1;
         match value {
             crate::Expr::List(items) => {
                 for item in items {
-                    expression(item, ids, next);
+                    expression(item, ids, next, shared);
                 }
             }
             crate::Expr::Block(statements) | crate::Expr::Loop(statements) => {
                 for statement_value in statements {
-                    statement(statement_value, ids, next);
+                    statement(statement_value, ids, next, shared);
                 }
             }
             crate::Expr::Labeled {
@@ -82,7 +99,7 @@ pub(crate) fn expression_ids_selected(
             | crate::Expr::Quote(inner)
             | crate::Expr::QuasiQuote(inner)
             | crate::Expr::Unquote(inner)
-            | crate::Expr::UnquoteSplicing(inner) => expression(inner, ids, next),
+            | crate::Expr::UnquoteSplicing(inner) => expression(inner, ids, next, shared),
             crate::Expr::Function(_)
             | crate::Expr::Symbol(_)
             | crate::Expr::Integer(_)
@@ -98,7 +115,11 @@ pub(crate) fn expression_ids_selected(
         value: &crate::Statement,
         ids: &mut HashMap<usize, ExpressionId>,
         next: &mut usize,
+        shared: &mut bool,
     ) {
+        if *shared {
+            return;
+        }
         use crate::Statement as S;
         match value {
             S::Let { value, .. }
@@ -108,10 +129,10 @@ pub(crate) fn expression_ids_selected(
             | S::EnumPayloadAssign { value, .. }
             | S::BreakValue(value)
             | S::Return(Some(value))
-            | S::Expr(value) => expression(value, ids, next),
+            | S::Expr(value) => expression(value, ids, next, shared),
             S::Destructure { pattern, value, .. } => {
-                expression(pattern, ids, next);
-                expression(value, ids, next);
+                expression(pattern, ids, next, shared);
+                expression(value, ids, next, shared);
             }
             S::LetElse {
                 pattern,
@@ -120,28 +141,28 @@ pub(crate) fn expression_ids_selected(
                 else_body,
                 ..
             } => {
-                expression(pattern, ids, next);
-                expression(value, ids, next);
+                expression(pattern, ids, next, shared);
+                expression(value, ids, next, shared);
                 if let Some(pattern) = failure_pattern {
-                    expression(pattern, ids, next);
+                    expression(pattern, ids, next, shared);
                 }
                 for statement_value in else_body {
-                    statement(statement_value, ids, next);
+                    statement(statement_value, ids, next, shared);
                 }
             }
             S::ArrayAssign { index, value, .. } => {
-                expression(index, ids, next);
-                expression(value, ids, next);
+                expression(index, ids, next, shared);
+                expression(value, ids, next, shared);
             }
             S::While { condition, body } => {
-                expression(condition, ids, next);
+                expression(condition, ids, next, shared);
                 for statement_value in body {
-                    statement(statement_value, ids, next);
+                    statement(statement_value, ids, next, shared);
                 }
             }
             S::Loop { body } => {
                 for statement_value in body {
-                    statement(statement_value, ids, next);
+                    statement(statement_value, ids, next, shared);
                 }
             }
             S::For {
@@ -150,44 +171,48 @@ pub(crate) fn expression_ids_selected(
                 step,
                 body,
             } => {
-                statement(init, ids, next);
-                expression(condition, ids, next);
-                statement(step, ids, next);
+                statement(init, ids, next, shared);
+                expression(condition, ids, next, shared);
+                statement(step, ids, next, shared);
                 for statement_value in body {
-                    statement(statement_value, ids, next);
+                    statement(statement_value, ids, next, shared);
                 }
             }
             S::Labeled {
                 statement: inner, ..
-            } => statement(inner, ids, next),
-            S::BreakToValue { value, .. } => expression(value, ids, next),
+            } => statement(inner, ids, next, shared),
+            S::BreakToValue { value, .. } => expression(value, ids, next, shared),
             S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) | S::Return(None) => {}
         }
     }
 
     let mut ids = HashMap::new();
     let mut next = 0;
+    let mut shared = false;
     for item in &program.items {
+        if shared {
+            break;
+        }
         match item {
             crate::Item::Function(function)
                 if selected.is_none_or(|names| names.contains(&function.name)) =>
             {
                 for statement_value in &function.body {
-                    statement(statement_value, &mut ids, &mut next);
+                    statement(statement_value, &mut ids, &mut next, &mut shared);
                 }
             }
             crate::Item::Let { value, .. } | crate::Item::Static { value, .. }
                 if selected.is_none() =>
             {
-                expression(value, &mut ids, &mut next);
+                expression(value, &mut ids, &mut next, &mut shared);
             }
             _ => {}
         }
     }
-    ids
+    (!shared).then_some(ids)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn statement_ids(program: &crate::Program) -> HashMap<usize, StatementId> {
     statement_ids_selected(program, None)
 }
@@ -1013,7 +1038,7 @@ impl Declarations {
 
     /// Staged ownership summaries over the complete acyclic body call graph.
     /// Opaque checked-reference-bearing external bodies remain unresolved.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_referent_function_effects(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1022,7 +1047,7 @@ impl Declarations {
             .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_validate_referent_replacements(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1031,7 +1056,7 @@ impl Declarations {
             .map(|_| ())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_validate_referent_uses_and_replacements(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1042,7 +1067,7 @@ impl Declarations {
 
     /// Infer initializer entry requirements bottom-up. This staging API does
     /// not establish owned exits or initialized escaping-reference contracts.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_referent_entry_contracts(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1068,7 +1093,7 @@ impl Declarations {
         self.staged_referent_analysis(types, false, false, true, None)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_contents_referent_entry_contracts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
@@ -1082,7 +1107,7 @@ impl Declarations {
     /// callers must still enforce the ordinary ownership and borrowing gates.
     /// Collect only requested bodies, avoiding a new per-body storage solve
     /// for unrelated imports or compilation without capture queries.
-    #[cfg_attr(not(test), allow(dead_code))] // General frame emission will consume these facts.
+    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))] // General frame emission will consume these facts.
     pub fn suspension_storage_facts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
@@ -1568,7 +1593,7 @@ impl Declarations {
 
     /// Test entry point for recomputing actual parameter-content summaries
     /// independently of the production initialization/restoration gate.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_parameter_contents_summaries(&mut self) {
         self.summarize_parameter_loans_with_contents(true);
     }
@@ -2435,7 +2460,7 @@ impl Declarations {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
     pub fn staged_captured_thread_worker_contract(
         &self,
         task: &str,
@@ -2870,7 +2895,7 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
     resolve(ty, aliases, &mut HashSet::new())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

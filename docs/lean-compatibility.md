@@ -8,6 +8,20 @@ in Lim. The [kernel guide](kernel.md) describes the supported rules and bounds;
 the [language reference](language.md#constructive-mathematical-proofs) lists the
 public syntax.
 
+## Direct source-port objective
+
+The FLT goal is to port the mathematical proofs from the pinned Lean source
+into explicit Lim definitions and proof terms. It does not require a Lean
+export or a local build of the complete Lean project. The export importer
+and its fixtures are optional compatibility tests, developed along a
+different route; their missing large input is not a blocker for this source
+port. Follow the actual source dependencies, prove each required lemma in
+Lim, and check the final unbounded statement with Lim's own kernel.
+
+The [source-port map](flt-source-port.md) records the initial dependency chain
+and checked native foundations. A wrapper around an assumed FLT lemma, or a
+definition of the statement alone, does not complete the port.
+
 ## Pinned upstream reference
 
 The reference development is
@@ -33,7 +47,7 @@ that planning scale has not been independently counted in this task. A full
 port includes the transitive mathematical dependency closure, not only the
 short final theorem declaration.
 
-## Availability of elaborated proof input
+## Optional elaborated proof input
 
 An input audit on 2026-11-02 found 62,651 tracked files and 60,478 Lean source
 files in the pinned revision, with no tracked `.olean`, `.export`, `.ndjson`
@@ -42,7 +56,7 @@ or archive artifacts. The repository's release endpoint listed no assets;
 published repository and releases, not proof that no copy exists elsewhere.
 The [pinned upstream export procedure](https://github.com/anthropics/fermats-last-theorem/blob/6e837e75355538c7f80bab5b956861e86c4eacc2/verification/nanoda/run.sh)
 reports roughly 90 GB resident memory. It has
-not been run under this task's unchanged 2-GiB guard. Full replay needs an
+not been run under this task's unchanged 2-GiB guard. Full export replay needs an
 available elaborated export or compiled products in addition to the remaining
 kernel and storage work; source metadata and another checker's success cannot
 substitute for Lim checking the terms. The pinned source checkout used for
@@ -54,8 +68,12 @@ and comparator challenge are different inputs: `Challenge.lean` deliberately
 uses `sorry`. The [input acquisition guide](flt-input.md) records the actual
 module/target names, exact producer commands, required provenance, and a bounded
 target/axiom source inventory. That inventory cannot replace kernel checking.
-The full source export has not been acquired, and the current 64-MiB input and
-4,096-declaration limits still prevent a full replay.
+The full source export has not been acquired. Raw replay defaults to 64 MiB
+and 4,096 declarations; explicit cumulative input profiles now permit larger
+totals without changing logical checks. Native output and correspondence have independently selectable profiles and
+a fresh closed-artifact checker. Raw and native kernel stores also accept separate explicit scratch capacities,
+with unchanged defaults and resident thresholds. Full-environment residency
+and semantic coverage still require actual upstream input and verification.
 
 ## License and provenance
 
@@ -68,12 +86,260 @@ record material derived from the Imperial College London FLT project,
 flt-regular, and Mathlib. The license and axiom inventory are also recorded in
 [formalization.yaml](https://github.com/anthropics/fermats-last-theorem/blob/6e837e75355538c7f80bab5b956861e86c4eacc2/formalization.yaml).
 
-The local FLT artifact expresses a mathematical statement and copies no
-upstream FLT proof text or source code. Small genuine Lean export fixtures now
+The local `fermat_statement.lim` artifact expresses only the mathematical
+statement. The separate native mathematical source port under `theorems/flt`
+now includes checked arithmetic, prime-factor existence, the divisor
+dichotomy, Euclidean gcd specifications, coprime natural square extraction,
+positive primitive-triple classification and closed unbounded natural
+exponent-three and exponent-four proofs. The modulo-nine first case also
+covers formal-difference integers with checked sign/divisibility transport.
+Signed magnitudes, binary/triple universal gcd certificates and
+the pairwise gcd-one consequences of a primitive cubic equation also check.
+Constructive signed Bezout witnesses, their coprimality cast to concrete
+Eisenstein pairs, and the equivalence of integer three-divisibility and
+lambda-divisibility now check. The generalized cubic statement transfers to
+the signed residual case as a proved implication with an explicit hypothesis;
+its descent proof is now supplied by the native cubic-descent module.
+Primitive normalization constructs a coprime natural counterexample with
+proved factor removal and strict decrease,
+then supplies its signed equation, gcd-one certificate and residual orientation.
+The full original exponent-three statement follows from the now-proved
+generalized Eisenstein cubic statement. The concrete Eisenstein commutative
+ring laws and constructive lambda primality now check, including the
+coordinate-sum divisibility criterion and prime-power consequence.
+Conjugation, multiplicative and
+nondegenerate nonnegative norms, the concrete domain/cancellation laws,
+natural norm product/power certificates and norm-one characterization of
+units now check too. A finite lambda-power bound for every nonzero value is
+also proved directly from natural norms. Exact maximal lambda orders now
+have constructive existence, uniqueness, representation congruence and a
+successor law from strict quotient-norm descent. These larger checks use an
+explicit 512 MiB cumulative transformation budget with unchanged per-phase
+limits and no added foundations. Euclidean factorization and the solution
+descent remain. The full six-unit classification now checks too. Multiplicity product,
+power, unit and divisibility laws now check. For nonzero `c`, the checked
+fourth-power-divides-cube premise implies lambda squared divides `c`;
+that premise is now derived from the actual generalized solution equation,
+nondivisibility and a witnessed unit inverse. The cube congruences check:
+for every x not divisible by lambda, lambda to the fourth power divides
+x cubed minus one or x cubed plus one. Signed three-residue arithmetic,
+explicit shifted factors and negation provide the constructive proof.
+Equal cube signs would force lambda to divide two; ruling them out proves
+`lambda^4|c^3` and then `lambda^2|c` from the solution hypotheses.
+These larger checks use an explicit 1 GiB cumulative transformation limit,
+with the same per-phase limits and memory/CPU guard.
+The concrete sum-of-two-cubes factorization and generalized-solution
+orientation at `FLT/Three.lean:300-374` also check. Actual square-divisibility
+decisions and exact orders select one of three factors. Explicit cubic-root
+unit inverses preserve nondivisibility and the actual Bezout equation,
+constructing an oriented pair while leaving the third coordinate unchanged.
+The rotated factors now have actual order-one certificates. The actual
+cubic equation constructs a primary order `m` with `m+1+1=3*k`, where `k`
+is the order of `c`. Four lambda-free residual factors and their actual
+factor equations are constructed; equal-power cancellation proves
+`x*y*z=u*w^3`. Staged witness elimination keeps the recursion bound at 96.
+Pairwise residual coprimality now checks with actual Bezout coefficients
+transported through explicit linear coordinate changes. The primary order's
+positivity is derived from its exact-order certificate and square divisor.
+Both signed unit coordinates are now constructively bounded using norm one
+and the four-square identities. Nine coordinate cases exhaust the six
+standard units, each with an actual norm-one inverse witness. The Kummer
+unit congruence also checks: `lambda^2=3*(-omega)` forces three to divide
+the unit's omega coordinate, excluding the four nonreal roots. Seven new
+mandatory matrices audit all 22 declarations, and eight regression tests
+check actual instances and reject invalid unit/congruence certificates.
+Signed division by any positive natural divisor now has actual quotient
+and nonnegative remainder witnesses, including the negative-input
+complement adjustment and noncanonical representations. The two coordinate
+certificates give exact Eisenstein reconstruction with natural remainders
+below the divisor. Actual norm certificates and constructive coordinate
+ordering prove their norm is below the divisor squared. Six more matrices
+audit all 21 declarations, with eleven regression tests. General division
+by every nonzero Eisenstein divisor now checks too: signed coordinate
+division of the conjugate product constructs the quotient; checked ring
+identities prove reconstruction; actual norm products and strict order
+reflection prove a smaller remainder norm. Five further matrices cover
+all 16 declarations, and eight regressions include a non-scalar division
+certificate and rejection of malformed divisor, norm and coordinate
+evidence. Actual gcd and two Bezout coefficients now exist for every
+Eisenstein pair by strong induction on the certified second-input norm.
+The Euclidean coefficient update preserves both input divisibilities;
+the universal common-divisor gcd property follows from the actual linear
+combination. Six more mandatory matrices cover all 13 declarations, with
+eight regression tests including rejection of induction at the current
+or a larger norm. Actual inverses and gcd/Bezout now prove the
+common-divisor unit characterization of coprimality and Euclid product
+cancellation. Actual Euclidean packets give constructive divisibility
+cases; the explicit zero branch extends these to unit/nonunit cases.
+Irreducible elements are prime and primes irreducible, with a closed
+lambda-irreducibility proof derived from its existing prime theorem.
+Four further matrices cover all 22 declarations and eight regression
+tests. General prime-divisor existence now checks too. Actual norm
+certificates bound both signed coordinate magnitudes, proving finite
+coverage even for noncanonical representatives. Equivalence-preserving
+properties have checked search/witness correspondence; proposition-valued
+minimum search constructs an actual least-norm nonunit divisor. Strict
+factor norms make it irreducible, hence prime. Ten further matrices cover
+all 32 declarations and eight regression tests. Coprime cube extraction
+and strict cubic descent remain open; no excluded-middle, prime-existence
+or factorization oracle is assumed.
+The next prime-removal step also checks: actual prime evidence proves
+generic prime-power divisibility, actual coefficients preserve coprimality
+under divisors, and an equation `x*y=u*z³` with a unit `u` forces any prime
+divisor of `x` into `z`. A mandatory matrix checks all seven declarations;
+three certificate regressions include genuine mismatch controls. Those
+preparatory laws supply the following complete extraction construction.
+Complete coprime cube extraction now checks by strong induction on actual
+natural norms. Witness-preserving power cancellation removes a prime cube,
+retaining both quotient equations and coprimality, and the strict quotient
+norm bound permits reconstruction of an actual cube root and unit inverse.
+Zero, units and equivalent representatives have explicit branches. Product
+coprimality extends the theorem to triples; the actual constructed cubic
+residual packet now supplies all three root/unit witnesses required at
+`FLT/Three.lean:567-578`. Nine matrices audit all 20 declarations and nine
+regressions exercise actual instances and reject false certificates.
+No UFD, PID, cube-extraction or choice axiom is assumed. The following
+step supplies the normalized cubic equation from these witnesses.
+Root divisibility, nondivisibility, nonzero and coprimality now follow
+from the actual cube equations. Products, negation, powers and witnessed
+inverses have actual unit certificates. Explicit omega algebra and the
+factor/cube equations derive the weighted zero sum; nonzero lambda
+cancellation and the witnessed inverse derive the normalized cubic
+equation. Actual order balance constructs its predecessor order, with no
+assumed normalization formula. Eight more mandatory matrices check all
+31 declarations; nine regressions exercise the instances and reject false
+certificates. All earlier sources and the production compiler are unchanged.
+The Kummer sign reduction now forces the normalized coefficient to one or
+negative one. Absorbing it into the second root constructs a fully certified
+solution with a strictly smaller exact lambda order. Actual orientation,
+factor, root and inverse witnesses connect this descent to the original
+solution; strong induction closes the generalized theorem. The primitive
+and signed bridges then close `fermat-for 3` without theorem parameters
+or global foundations. Eleven matrices audit all 32 new declarations and
+nine regressions cover all sign branches and reject forged certificates.
+The odd-prime reduction uses the proved four-case. The small-prime
+enumeration now excludes two and four and supplies the closed three-case,
+leaving proofs for all primes at least five as an explicit theorem parameter.
+One more matrix checks both reduction declarations and three regressions
+reject omitted or insufficient large-prime evidence and check prime three.
+The native Frey normalization now constructs actual packages from every
+alleged original natural counterexample at a prime at least five. It proves
+arbitrary-exponent primitive reduction, odd signed powers, pairwise
+coprimality, all three parity orientations and signed modulo-four
+normalization, retaining the actual quotient and all package certificates.
+The final original FLT statement follows conditionally from explicitly
+refuting those packages. Eleven further matrices audit all 43 declarations;
+sixteen regressions check genuine lower-exponent identities and reject
+forged factors, parity, quotients, bounds and missing refutation evidence.
+The generic all-signed-input normalization API is not claimed. Exact native
+rationals now carry nonzero denominator proofs and use checked cross
+equivalence, with operation congruence, ring laws, faithful integer embedding,
+nonzero powers and actual factor cancellation. The exact pinned rational
+Frey coefficients and Weierstrass invariant polynomials are defined; b2,
+b4, b6 and fourth-coefficient nonvanishing are proved. Nine further matrices
+audit all 47 declarations and nineteen regressions exercise actual fractions
+and reject forged certificates by proof mismatches. Cross equivalence is
+not raw record identity; no quotient or field axiom is introduced. The full
+rational inverse API and integral model remain open. A following native
+port now proves the primary c4 identity `A^2+A*B+B^2` by actual b2/b4
+substitution, rational embedding, denominator cancellation and explicit
+signed/Nat polynomial certificates. Four matrices check all seven further
+declarations; seven regressions cover signed inputs and reject a false c4
+value by a genuine mismatch. Work and memory limits remain unchanged.
+The exact discriminant `(a*b*c)^(2*p)/2^8` now follows from actual package
+equations, explicit signed/Nat polynomial certificates and witnessed
+fraction/power laws. All three nonzero coordinates give nonvanishing.
+Actual numerator magnitudes construct two-sided reciprocal witnesses for
+every nonzero rational, with proposition-valued elimination and no choice
+or field axiom. This supplies the actual unit discriminant and the rational
+Frey ellipticity certificate. Fifteen matrices audit all 44 added
+declarations; twenty-one regressions include signed/noncanonical values
+and genuine mismatch controls for forged equations, zero coordinates,
+discriminant values, incomplete inverse witnesses and ellipticity evidence.
+The actual integral model now follows from constructed coefficient
+divisibility by four/sixteen and witnessed exact quotients. All seven
+integer invariant polynomials commute with rational embedding and respect
+coefficient equivalence. Every package constructs a model, unique under
+integer coefficient equivalence; a general canonical integer division
+function is not implemented and no data choice from a proposition is used.
+Primary c4 and the discriminant multiplied by `2^8` reflect into integer
+equalities, and actual coordinate nonzero witnesses give integral
+discriminant nonvanishing. Thirteen matrices audit all 48 further
+declarations; twenty-two concrete regressions include genuine mismatch
+controls for forged arithmetic and confusing coefficient equivalence
+with raw record identity. Both alternative c4 forms now follow from the
+actual coordinate equation and checked signed/Nat power laws. A prime
+divisor of the coordinate product cannot divide integral c4; every prime
+divisor of the integral discriminant divides that product. The proofs
+retain gcd one, exponent positivity and the actual equation, and derive
+the other coordinate-pair prime-coprimality facts. The prime domain is
+all unbounded natural primes embedded into integers, matching the source
+public theorem; a generic signed-Int prime API is not claimed. Seven
+matrices audit all 23 added declarations, and sixteen regressions require
+actual mismatches for forged evidence. Concrete invariant certificates
+are separately checked under unchanged work limits. The port now has
+3,646 native theorem declarations across 427 modules, with empty global
+foundations. The next source denominator subproof now rules out every
+power of two at any other natural prime. Actual model discriminants have
+exactly the coordinate product's prime divisors away from two, with the
+coordinate equation and positive exponent retained. Two more matrices
+audit all six added declarations, and ten regressions include the real
+prime-two counterexample, signed/zero coordinates and exponent zero.
+Finite local valuation witnesses and their laws are now proved in native
+Lim. Actual nondivisible cofactors and strict quotient descent construct
+the natural witnesses; checked magnitudes lift them to signed integers
+with unique indices, representation invariance and actual signed
+cofactors. Product and power laws prove both exact discriminant formulas:
+away from two, `v_q(Delta)=2*p*v_q(a*b*c)`; at two,
+`v_2(Delta)+8=2*p*v_2(a*b*c)`. Each package constructs both witnesses
+from actual nonzero coordinates/model. Eleven further matrices audit all
+33 declarations and seventeen regressions include the concrete `225` and
+`-240` valuations and genuine mismatches for false evidence. This is a
+nonzero-domain certificate API; the default-zero data-valued Mathlib
+function is not implemented or assumed. The next two source consequences
+now supply an actual exponent divisor away from two and refute that
+divisibility at two using the retained prime and `4<p` certificates.
+The exact source `IsSemistableModel` definition is itself arithmetic
+invariant prime-disjointness. It and `IsGoodPrimeFor` are now ported,
+preserved under actual coefficient equivalence, and the Frey model is
+constructed together with the source predicate. This predicate alone
+does not assert ellipticity or geometric reduction. Four further matrices
+audit eighteen declarations; fourteen regressions cover the distinctions
+and forged evidence. The combined model-construction check allows 2 GiB
+of cumulative allocation while retaining the hard 2 GiB RAM/two-core
+limits and per-declaration limits. Admissible rational variable changes
+now have the actual five coefficient formulas and explicit two-sided
+unit evidence. The identity action, b2 and b4 transformations, and c4
+scaling law are proved directly in Lim. The source `IsIntegralModelOf`
+relation is defined using actual coordinate changes, and exact maps
+(including certified Frey models) construct witnesses. Nine further
+matrices audit 671 checked declarations, including 638 algebra helper
+theorems; eleven regressions retain actual reciprocal witnesses and reject
+forged unit, invariant and model evidence. A concrete fixture checks all
+five coefficients for translation and rational scaling through 122 small
+native arithmetic proofs. The b6/c6 and discriminant transformations now
+follow from the actual five coefficients, the checked b/c invariant
+relations and an explicit rational inverse for 1728. Both arbitrary-model
+cross-invariant comparison and semistable-model bad-prime transfer are
+proved. Every coordinate prime, including two, is bad on every integral
+model of an actual Frey package. Thirty-three more matrices audit all
+1,571 added declarations, including 1,531 algebra helpers; fourteen
+regressions require actual mismatches for invalid certificates. The
+complete source comparison theorem checks under the hard 2 GiB RAM and
+two-core limits. Proof syntax retains sharing during runtime match
+normalization, and ordinary source scheduling checks its complete loaded
+graph rather than stopping at the closed artifact adapter's default
+4,096-declaration batch size. Artifact profiles retain their own limits.
+The remaining irreducibility, modularity,
+level-lowering and vanishing
+argument is still open. The pinned source mapping,
+copyright notices and license texts are recorded in
+[the provenance manifest](../theorems/flt/provenance.json); the full FLT proof
+remains unfinished. Small genuine Lean export fixtures also
 include foundational declarations from Lean's `Init.Prelude`, with exact source
 hashes, module mappings, the original notice and preserved license texts in
 [their provenance manifest](../tests/fixtures/lean_export/real-provenance.json).
-A future FLT source or term import must keep a
+Further FLT source ports or term imports must keep a
 provenance manifest with exact revisions, source declarations, licenses, and
 applicable notices and attribution; generated translations must be identified
 as translations rather than original upstream files.
@@ -290,7 +556,11 @@ certifies only the corresponding obligation after its existing checker passes;
 it does not certify an upstream Lean environment, compiler correctness, or an
 unprovided mathematical proof term.
 
-## Resource-aware port plan
+## Importer validation history
+
+These experiments describe the optional export-import route. Their producer
+requirements do not apply to the direct source port, which reads and ports
+individual source lemmas under the existing resource guard.
 
 This task's execution budget is 2 GiB of memory and 200% CPU. The upstream
 resource requirements exceed that budget. No full FLT checkout, Mathlib
@@ -319,7 +589,7 @@ a genuine fixture covering lifts, overapplication and propositional induction.
 Its source, original modules, hashes and licenses are recorded in a separate
 [provenance manifest](../tests/fixtures/lean_export_quotient/provenance.json).
 The bounded native translator emits and rechecks ordinary Lim declarations
-for this accepted subset, with twenty-two committed genuine
+for this accepted subset, with twenty-seven checked genuine
 [proof-source translations](../theorems/lean_replay/README.md). Full upstream FLT
 provenance, required foundations and full-environment replay remain unfinished.
 
@@ -333,10 +603,49 @@ their bodies still undergo complete ordinary replay. Input literals are bounded
 to 4,096 UTF-8 bytes, and expanded storage is accounted before materialization.
 The explicit 1M-work/128-MiB-phase/1-GiB-total profile checks these proofs;
 defaults still refuse an earlier `Char.ofNat` proof. A changed-literal negative
-control exhausts conversion work, which is bounded refusal rather than an
-inequality decision. This supplies neither full Lean parity nor the FLT port.
+control now reaches a completed type-mismatch diagnosis within that profile.
+Separate local Lim theorems observe character scalars and UTF-8 byte counts
+through the checked imported definitions, without changing the pinned export.
+This supplies neither full Lean parity nor the FLT port.
 
-Natural literals now stay compact as canonical decimal values rather than
+The [genuine bitwise corpus](../tests/fixtures/lean_export_bitwise/README.md)
+adds three checked raw/native reflexivity proofs over a 385-declaration
+closure, with explicit `propext` foundations. Bounded forwarding inspection
+handles transparent aliases and partially applied packed-state workers; the
+existing VM computes the original call. This fixes an evaluation-entry gap,
+not the remaining large-operand and shift scaling issues. The accompanying
+stress source preserves those failures for continued work.
+
+The [left-shift corpus](../tests/fixtures/lean_export_left_shift/README.md)
+checks four proofs across 138 declarations. Its general theorem covers
+`Nat.shiftLeft a b = a * 2^b` for all natural inputs with exactly `propext`;
+small, zero and above-`u128` reflexivity targets have empty target bases.
+The identity-base tail-composition rule reduces the function-valued fold to
+scalar iteration without depending on operation names. Smaller-profile
+general right-shift replay and large bitwise evaluation still require work.
+
+The [right-shift runtime corpus](../tests/fixtures/lean_export_right_shift/README.md)
+checks four original reflexivity proofs across 194 declarations, including a
+64-bit shift beyond `u128`, the arbitrary-input zero identity, and a bit-width
+boundary. Its global and selected-target assumption inventories are empty.
+Delayed Euclidean models validate the actual recurrence and strict fuel bound;
+model reuse requires identical code and captured dependencies. The original
+stress export's unbounded `Nat.shiftRight_eq_div_pow` proof has now checked
+in raw and native form over 489 declarations with `propext`, using the explicit
+20M-work/1-GiB-phase/4-GiB-total profile. Its 1M-work replay still exceeds the
+work budget. The [general right-shift corpus](../tests/fixtures/lean_export_right_shift_general/README.md)
+now preserves the complete larger-profile proof with exact original source,
+module/license mapping, altered-evidence rejection and paged replay.
+
+The [unbounded shift-composition proof](../tests/fixtures/lean_export_shift_composition/README.md)
+is checked separately over 218 original declarations with the explicit
+20M-work/1-GiB-phase/4-GiB-total profile and the `propext` basis. Its original
+statement quantifies over every natural `m`, `n`, and `k`. Raw/native mapping,
+strict altered-evidence rejection, worker renaming and forced paging preserve
+the original proof. This does not establish the general division equation or
+1M-work acceptance, and does not complete FLT replay.
+
+Natural literals stay compact as canonical decimal values rather than
 magnitude-sized unary constructor graphs. They have the exact nominal
 zero/successor semantics of the independently checked natural-number family;
 one constructor is exposed when elimination or conversion requires it. The
@@ -475,8 +784,13 @@ for temporary backing storage. A bounded working set retains their types,
 transparent bodies and inductive metadata; opaque proofs stay opaque. Exact
 structural round trips precede eviction, and current-process SHA-256 digests
 protect subsequent reads. This is not a persistent checked-result cache. Native
-emission, nested-family views, report tables and name candidate IDs
-still retain their existing representations. Expanded name keys and displays
+emission still retains its existing output representation. Derived nested
+signatures and source-container metadata now use independent protected stores,
+each bounded to an 8-MiB resident estimate and 128-MiB scratch. Eviction waits
+until a complete group; storage failures invalidate subsequent judgments.
+These scoped views remain unavailable as global constants or constructors.
+Report tables and name candidate IDs also have protected backing storage.
+Expanded name keys and displays
 now spill above a 1-MiB estimate through protected data/index pages. A compact
 randomized hash index finds candidates, and exact key comparison preserves
 nominal identity even on collisions. The input and declaration-count limits

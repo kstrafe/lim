@@ -161,7 +161,7 @@ impl<'a> RenderContext<'a> {
         match compute {
             Compute::Checked(operation) => self.render_operation(operation, values),
             Compute::Identity(value) => self.replacement(*value, values, None),
-            Compute::Unit => Ok(Expr::List(Vec::new())),
+            Compute::Unit => Ok(Expr::List(Vec::new().into())),
             Compute::Bool(value) => Ok(symbol(if *value { "true" } else { "false" })),
             Compute::Atom { source, kind } => {
                 let node = self.node(*source)?;
@@ -264,11 +264,9 @@ impl<'a> RenderContext<'a> {
                     "numeric literal has a nonnumeric checked type",
                 ));
             }
-            Ok(Expr::List(vec![
-                symbol("#literal"),
-                type_expr(ty)?,
-                value.clone(),
-            ]))
+            Ok(Expr::List(
+                vec![symbol("#literal"), type_expr(ty)?, value.clone()].into(),
+            ))
         } else if matches!(value, Expr::Char(_) | Expr::String(_)) {
             Ok(value.clone())
         } else {
@@ -337,22 +335,25 @@ impl<'a> RenderContext<'a> {
                         "call operand is not a direct declaration-order argument",
                     )
                 })?;
-                arguments.push(Expr::List(vec![symbol(name), value.clone()]));
+                arguments.push(Expr::List(vec![symbol(name), value.clone()].into()));
             }
-            return Ok(Expr::List(vec![
-                symbol(
-                    if self
-                        .unsafe_functions
-                        .contains(&self.declarations.function(callee).name)
-                    {
-                        "#unsafe-call"
-                    } else {
-                        "#call"
-                    },
-                ),
-                symbol(&self.declarations.function(callee).name),
-                Expr::List(arguments),
-            ]));
+            return Ok(Expr::List(
+                vec![
+                    symbol(
+                        if self
+                            .unsafe_functions
+                            .contains(&self.declarations.function(callee).name)
+                        {
+                            "#unsafe-call"
+                        } else {
+                            "#call"
+                        },
+                    ),
+                    symbol(&self.declarations.function(callee).name),
+                    Expr::List(arguments.into()),
+                ]
+                .into(),
+            ));
         }
         let head = *children
             .first()
@@ -379,13 +380,16 @@ impl<'a> RenderContext<'a> {
                         "struct field is not an evaluated direct operand",
                     )
                 })?;
-                entries.push(Expr::List(vec![symbol(field), value.clone()]));
+                entries.push(Expr::List(vec![symbol(field), value.clone()].into()));
             }
-            return Ok(Expr::List(vec![
-                symbol("#struct-literal"),
-                symbol(name),
-                Expr::List(entries),
-            ]));
+            return Ok(Expr::List(
+                vec![
+                    symbol("#struct-literal"),
+                    symbol(name),
+                    Expr::List(entries.into()),
+                ]
+                .into(),
+            ));
         }
         if operation.head == "literal" {
             // The ordinary checker accepts contextual expressions here. Those
@@ -472,7 +476,7 @@ impl<'a> RenderContext<'a> {
                 "unused runtime replacement in operation reconstruction",
             ));
         }
-        Ok(Expr::List(items))
+        Ok(Expr::List(items.into()))
     }
 
     /// Recurse only through static data. Runtime nodes must be intercepted at
@@ -535,7 +539,7 @@ impl<'a> RenderContext<'a> {
                     }
                     items.push(value);
                 }
-                Ok(Expr::List(items))
+                Ok(Expr::List(items.into()))
             }
             _ => Err(error(
                 Some(source),
@@ -631,7 +635,7 @@ impl<'a> RenderContext<'a> {
                     }
                     items.push(value);
                 }
-                Ok(Expr::List(items))
+                Ok(Expr::List(items.into()))
             }
             _ => Err(error(
                 Some(source),
@@ -677,7 +681,7 @@ fn type_expr(ty: &Type) -> Result<Expr, NodeError> {
     Ok(parsed.remove(0).expr)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

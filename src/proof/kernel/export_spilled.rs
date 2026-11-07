@@ -1,7 +1,7 @@
 //! Bounded source-node storage. The scratch index and data pages are checked
 //! against digests held by this invocation; neither contains checked judgments.
-use super::super::spool::Spool;
 use super::super::strings::MAX_STRING_BYTES;
+use super::super::{scratch, spool::Spool};
 use super::*;
 use std::borrow::Cow;
 
@@ -14,6 +14,7 @@ pub(super) enum Entries {
         values: Vec<Entry>,
         bytes: usize,
         limit: usize,
+        scratch_limit: u64,
     },
     Spilled(Spilled),
 }
@@ -36,10 +37,21 @@ impl Entries {
         Self::with_limit(MEMORY_BYTES)
     }
     pub(super) fn with_limit(limit: usize) -> Self {
+        Self::with_config(limit, scratch::DEFAULT_BYTES)
+    }
+    pub(super) fn with_scratch_limit(scratch_limit: u64) -> Self {
+        Self::with_config(MEMORY_BYTES, scratch_limit)
+    }
+    #[cfg(test)]
+    pub(super) fn with_storage_limits(limit: usize, scratch_limit: u64) -> Self {
+        Self::with_config(limit, scratch_limit)
+    }
+    fn with_config(limit: usize, scratch_limit: u64) -> Self {
         Self::Memory {
             values: Vec::new(),
             bytes: 0,
             limit,
+            scratch_limit,
         }
     }
     pub(super) fn len(&self) -> usize {
@@ -100,6 +112,8 @@ impl Entries {
             values,
             bytes,
             limit,
+            scratch_limit,
+            ..
         } = self
         {
             let owned = match &entry.expression {
@@ -125,8 +139,16 @@ impl Entries {
                 return Ok(());
             }
             let mut spilled = Spilled {
-                index: RefCell::new(Spool::new()?),
-                data: RefCell::new(Spool::new()?),
+                index: RefCell::new(if *scratch_limit == scratch::DEFAULT_BYTES {
+                    Spool::new()?
+                } else {
+                    Spool::with_limit(*scratch_limit)?
+                }),
+                data: RefCell::new(if *scratch_limit == scratch::DEFAULT_BYTES {
+                    Spool::new()?
+                } else {
+                    Spool::with_limit(*scratch_limit)?
+                }),
                 count: 0,
             };
             for value in values.iter() {

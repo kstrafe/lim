@@ -1,0 +1,264 @@
+; Actual positive finite valuation implies divisibility, using its
+; checked signed cofactor. A nondividing exponent forces a positive
+; index because every natural divides zero. No valuation axiom.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias divides-zero = ./natural-divisibility.lim::divides-zero)
+(#alias integer-prime-order = ./integer-prime-order-defs.lim::integer-prime-order)
+(#alias
+  integer-prime-order-cofactor
+  =
+  ./integer-prime-order-cofactors.lim::integer-prime-order-cofactor)
+(#theorem integer-prime-order-successor-divides
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter valuation #pt-nat)
+    (#parameter order-certificate (#pt-app (#pt-use integer-prime-order ()) prime-number (#pt-succ valuation) number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+      number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-cofactor (#pt-use integer ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              number
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                  (#pt-succ valuation))
+                candidate-cofactor))
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use integer-divides ())
+                    (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                    candidate-cofactor)))
+              #pt-false))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-cofactor (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use integer-equal ())
+                    number
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app
+                        (#pt-use integer-power ())
+                        (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                        (#pt-succ valuation))
+                      candidate-cofactor))
+                  (#pt-pi
+                    (
+                      (denied-proof
+                        (#pt-app
+                          (#pt-use integer-divides ())
+                          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                          candidate-cofactor)))
+                    #pt-false))))))
+        (#pt-app
+          (#pt-use integer-divides ())
+          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+          number))
+      (
+        (#pt-lambda
+          (
+            (cofactor (#pt-use integer ()))
+            (cofactor-certificate
+              (#pt-app
+                (#pt-lambda
+                  ((candidate-cofactor (#pt-use integer ())))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app
+                      (#pt-use integer-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app
+                          (#pt-use integer-power ())
+                          (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                          (#pt-succ valuation))
+                        candidate-cofactor))
+                    (#pt-pi
+                      (
+                        (denied-proof
+                          (#pt-app
+                            (#pt-use integer-divides ())
+                            (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                            candidate-cofactor)))
+                      #pt-false)))
+                cofactor)))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                    candidate-factor))))
+            introduce
+            (
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app
+                  (#pt-use integer-power ())
+                  (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                  valuation)
+                cofactor)
+              (#pt-app
+                (#pt-use integer-transitive ())
+                number
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                    (#pt-succ valuation))
+                  cofactor)
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app
+                      (#pt-use integer-power ())
+                      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                      valuation)
+                    cofactor))
+                (#pt-project conjunction 0 cofactor-certificate)
+                (#pt-app
+                  (#pt-use integer-multiply-associative ())
+                  (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                  (#pt-app
+                    (#pt-use integer-power ())
+                    (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                    valuation)
+                  cofactor))))))
+      (#pt-app
+        (#pt-use integer-prime-order-cofactor ())
+        prime-number
+        number
+        (#pt-succ valuation)
+        order-certificate))))
+(#theorem integer-prime-order-exponent-nondivisor-divides
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter valuation #pt-nat)
+    (#parameter exponent #pt-nat)
+    (#parameter order-certificate (#pt-app (#pt-use integer-prime-order ()) prime-number valuation number))
+    (#parameter nondivisor-certificate (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) exponent valuation))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) prime-number)
+      number))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((induction-index #pt-nat))
+          (#pt-pi
+            (
+              (induction-order
+                (#pt-app (#pt-use integer-prime-order ()) prime-number induction-index number))
+              (induction-nondivisor
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use divides ()) exponent induction-index)))
+                  #pt-false)))
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              number)))
+        (#pt-lambda
+          (
+            (base-order (#pt-app (#pt-use integer-prime-order ()) prime-number #pt-zero number))
+            (base-nondivisor
+              (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) exponent #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app
+              (#pt-use integer-divides ())
+              (#pt-app (#pt-use integer-of-natural ()) prime-number)
+              number)
+            (#pt-app base-nondivisor (#pt-app (#pt-use divides-zero ()) exponent))))
+        (#pt-lambda
+          (
+            (previous-valuation #pt-nat)
+            (previous-result
+              (#pt-pi
+                (
+                  (induction-order
+                    (#pt-app
+                      (#pt-use integer-prime-order ())
+                      prime-number
+                      previous-valuation
+                      number))
+                  (induction-nondivisor
+                    (#pt-pi
+                      ((denied-proof (#pt-app (#pt-use divides ()) exponent previous-valuation)))
+                      #pt-false)))
+                (#pt-app
+                  (#pt-use integer-divides ())
+                  (#pt-app (#pt-use integer-of-natural ()) prime-number)
+                  number)))
+            (step-order
+              (#pt-app
+                (#pt-use integer-prime-order ())
+                prime-number
+                (#pt-succ previous-valuation)
+                number))
+            (step-nondivisor
+              (#pt-pi
+                (
+                  (denied-proof
+                    (#pt-app (#pt-use divides ()) exponent (#pt-succ previous-valuation))))
+                #pt-false)))
+          (#pt-app
+            (#pt-use integer-prime-order-successor-divides ())
+            prime-number
+            number
+            previous-valuation
+            step-order))
+        valuation)
+      order-certificate
+      nondivisor-certificate)))

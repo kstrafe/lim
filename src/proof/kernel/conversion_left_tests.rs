@@ -192,7 +192,7 @@ fn left_hint_cannot_bypass_explicit_universe_arity_or_source_checking() {
         .definition("left-bad-universe-source", vec![], nat(), body, false)
         .unwrap_err();
     assert!(error.contains("universe"), "{error}");
-    assert!(!k.contains("left-bad-universe-source"));
+    assert!(!k.contains("left-bad-universe-source").unwrap());
 }
 
 #[test]

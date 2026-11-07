@@ -1,0 +1,205 @@
+; Direct concrete proof of the three coprimality conclusions at
+; FLT/Three.lean:535-547. Actual Bezout coefficients are transported
+; through the checked coordinate changes and actual unit inverses.
+; No common-prime/PID or pairwise-coprimality hypothesis is postulated.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-one-multiply = ./eisenstein-cubic-bridge.lim::eisenstein-one-multiply)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-omega = ./eisenstein-defs.lim::eisenstein-omega)
+(#alias eisenstein-coprime = ./eisenstein-defs.lim::eisenstein-coprime)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-one-unit = ./eisenstein-cubic-bridge.lim::eisenstein-one-unit)
+(#alias eisenstein-omega-unit = ./eisenstein-constants.lim::eisenstein-omega-unit)
+(#alias
+  eisenstein-unit-coprime-right
+  =
+  ./eisenstein-cubic-unit-rotation.lim::eisenstein-unit-coprime-right)
+(#alias
+  eisenstein-omega-plus-one-unit
+  =
+  ./eisenstein-cubic-shifts.lim::eisenstein-omega-plus-one-unit)
+(#alias
+  eisenstein-omega-lambda-unit-shift
+  =
+  ./eisenstein-cubic-shifts.lim::eisenstein-omega-lambda-unit-shift)
+(#alias
+  eisenstein-omega-square-lambda-unit-shift
+  =
+  ./eisenstein-cubic-shifts.lim::eisenstein-omega-square-lambda-unit-shift)
+(#alias
+  eisenstein-cubic-primary-rotated-residual-shift
+  =
+  ./eisenstein-cubic-bezout-shifts.lim::eisenstein-cubic-primary-rotated-residual-shift)
+(#alias
+  eisenstein-cubic-rotated-pair-residual-shift
+  =
+  ./eisenstein-cubic-bezout-shifts.lim::eisenstein-cubic-rotated-pair-residual-shift)
+(#alias
+  eisenstein-coprime-from-sum-and-unit-shift
+  =
+  ./eisenstein-bezout-linear-change.lim::eisenstein-coprime-from-sum-and-unit-shift)
+(#theorem eisenstein-cubic-primary-omega-residuals-coprime
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter predecessor #pt-nat)
+    (#parameter primary-residual (#pt-use eisenstein ()))
+    (#parameter rotated-residual (#pt-use eisenstein ()))
+    (#parameter primary-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first second) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ predecessor)) primary-residual)))
+    (#parameter rotated-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) rotated-residual)))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) primary-residual rotated-residual))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-coprime-from-sum-and-unit-shift ())
+      first
+      second
+      primary-residual
+      rotated-residual
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ predecessor))
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+      (#pt-use eisenstein-one ())
+      (#pt-use eisenstein-one-unit ())
+      primary-equivalence
+      (#pt-app
+        (#pt-use eisenstein-cubic-primary-rotated-residual-shift ())
+        first
+        second
+        predecessor
+        primary-residual
+        rotated-residual
+        (#pt-use eisenstein-omega ())
+        (#pt-use eisenstein-one ())
+        primary-equivalence
+        rotated-equivalence
+        (#pt-use eisenstein-omega-lambda-unit-shift ()))
+      coprime-proof)))
+(#theorem eisenstein-cubic-primary-square-residuals-coprime
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter predecessor #pt-nat)
+    (#parameter primary-residual (#pt-use eisenstein ()))
+    (#parameter rotated-residual (#pt-use eisenstein ()))
+    (#parameter primary-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first second) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ predecessor)) primary-residual)))
+    (#parameter rotated-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)) second)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) rotated-residual)))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) primary-residual rotated-residual))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-coprime-from-sum-and-unit-shift ())
+      first
+      second
+      primary-residual
+      rotated-residual
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ predecessor))
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) predecessor)
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-use eisenstein-omega ())
+        (#pt-use eisenstein-one ()))
+      (#pt-use eisenstein-omega-plus-one-unit ())
+      primary-equivalence
+      (#pt-app
+        (#pt-use eisenstein-cubic-primary-rotated-residual-shift ())
+        first
+        second
+        predecessor
+        primary-residual
+        rotated-residual
+        (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-use eisenstein-omega ())
+          (#pt-use eisenstein-one ()))
+        primary-equivalence
+        rotated-equivalence
+        (#pt-use eisenstein-omega-square-lambda-unit-shift ()))
+      coprime-proof)))
+(#theorem eisenstein-cubic-rotated-residuals-coprime
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter omega-residual (#pt-use eisenstein ()))
+    (#parameter square-residual (#pt-use eisenstein ()))
+    (#parameter omega-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) omega-residual)))
+    (#parameter square-equivalence (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-add ()) first (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-omega ()) (#pt-numeral 2)) second)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) square-residual)))
+    (#parameter coprime-proof (#pt-app (#pt-use eisenstein-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use eisenstein-coprime ()) omega-residual square-residual))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-coprime-from-sum-and-unit-shift ())
+      first
+      (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)
+      omega-residual
+      square-residual
+      (#pt-use eisenstein-lambda ())
+      (#pt-use eisenstein-one ())
+      (#pt-use eisenstein-one ())
+      (#pt-use eisenstein-one-unit ())
+      omega-equivalence
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        square-residual
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          omega-residual
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) omega-residual)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-use eisenstein-one ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+        (#pt-app
+          (#pt-use eisenstein-cubic-rotated-pair-residual-shift ())
+          first
+          second
+          omega-residual
+          square-residual
+          omega-equivalence
+          square-equivalence)
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) omega-residual)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-one ())
+              (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            omega-residual
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second))
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-one ()) omega-residual)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-use eisenstein-one ())
+              (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second))
+            omega-residual
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)
+            (#pt-app (#pt-use eisenstein-one-multiply ()) omega-residual)
+            (#pt-app
+              (#pt-use eisenstein-one-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-omega ()) second)))))
+      (#pt-app
+        (#pt-use eisenstein-unit-coprime-right ())
+        first
+        second
+        (#pt-use eisenstein-omega ())
+        (#pt-use eisenstein-omega-unit ())
+        coprime-proof))))

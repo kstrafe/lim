@@ -1,0 +1,13 @@
+Mathlib ring-definition attribution
+
+Pinned source: Mathlib/Algebra/Ring/Defs.lean
+Revision: db584cd6d46c92f209a44c0f1c829460d327499d
+SHA-256: 1855822f484b47ad4c31fbdd545f02041e80d19621f52645ef485ac3ac131d26
+
+Copyright (c) 2014 Jeremy Avigad. All rights reserved.
+Authors: Jeremy Avigad; Leonardo de Moura; Floris van Doorn;
+Yury Kudryashov; Neil Strickland.
+
+License: Apache-2.0, reproduced in LICENSE.MATHLIB.
+The native explicit setoid-ring records adapt the algebraic requirements;
+they do not reproduce Mathlib's full typeclass hierarchy.

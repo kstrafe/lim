@@ -13,7 +13,7 @@ mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 mod borrow_case;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod borrowcheck;
 mod cache_report;
 mod call_graph;
@@ -48,24 +48,29 @@ mod pin_ownership;
 mod proof;
 mod proof_budget;
 pub use proof_budget::ProofBudget;
+mod executable_syntax;
+mod expr_list;
 mod reachability;
 mod semantic_cache;
+pub use expr_list::ExprList;
 mod source_children;
 pub use source_children::SourceChildren;
 mod source_expression;
 pub(crate) use source_expression::SourceExpression;
 mod source_error;
+mod source_forms;
+mod source_reader;
 mod stack_usage;
 mod standard_library;
 mod syntax_bundle;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[path = "../tests/support/process.rs"]
 mod test_process;
 mod theorem;
 mod theorem_surface;
 pub use theorem::{
-    check_theorem_details_from_path_with_config, check_theorem_from_path_with_config,
-    CheckedTheorem,
+    check_theorem_details_from_file_with_config, check_theorem_details_from_path_with_config,
+    check_theorem_from_path_with_config, CheckedTheorem, TheoremFileError,
 };
 mod thread_contract;
 mod timing;
@@ -90,10 +95,17 @@ pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
 pub use proof::{
-    check_lean_export, check_lean_export_receipt_with_budget, check_lean_export_with_budget,
-    check_lean_export_with_policy, translate_lean_export, translate_lean_export_with_budget,
-    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReceipt,
-    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy,
+    check_lean_export, check_lean_export_receipt_with_budget,
+    check_lean_export_receipt_with_limits, check_lean_export_with_budget,
+    check_lean_export_with_limits, check_lean_export_with_policy, check_proof_artifact_from_path,
+    translate_lean_export, translate_lean_export_artifact_with_budget,
+    translate_lean_export_artifact_with_limits, translate_lean_export_artifact_with_profiles,
+    translate_lean_export_receipt_with_budget, translate_lean_export_receipt_with_limits,
+    translate_lean_export_receipt_with_profiles, translate_lean_export_with_budget,
+    translate_lean_export_with_limits, translate_lean_export_with_policy,
+    translate_lean_export_with_profiles, LeanDeclarationReport, LeanExportArtifactTranslation,
+    LeanExportError, LeanExportLimits, LeanExportReceipt, LeanExportReceiptTranslation,
+    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy, NativeProofLimits,
 };
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
@@ -431,9 +443,19 @@ fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> 
         .lines()
         .nth(span.line.saturating_sub(1))
         .unwrap_or("");
+    let selected = source.get(span.start..span.end).unwrap_or("");
+    render_source_hunk_line(line_text, selected, filename, span, label)
+}
+
+fn render_source_hunk_line(
+    line_text: &str,
+    selected: &str,
+    filename: &str,
+    span: Span,
+    label: &str,
+) -> String {
     let prefix = line_text.chars().take(span.column.saturating_sub(1));
     let start_display = prefix.fold(0, |column, ch| advance_display_column(column, ch));
-    let selected = source.get(span.start..span.end).unwrap_or("");
     let selected_width = selected
         .chars()
         .take(80)
@@ -661,7 +683,17 @@ impl<'a> Lexer<'a> {
 
     fn run(mut self) -> Result<Vec<Token>, LexError> {
         let mut tokens = Vec::new();
-        while let Some(byte) = self.peek() {
+        while let Some(token) = self.next_token()? {
+            tokens.push(token);
+        }
+        Ok(tokens)
+    }
+
+    fn next_token(&mut self) -> Result<Option<Token>, LexError> {
+        loop {
+            let Some(byte) = self.peek() else {
+                return Ok(None);
+            };
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' => {
                     self.advance();
@@ -670,7 +702,7 @@ impl<'a> Lexer<'a> {
                     self.skip_comment();
                 }
                 b'#' if self.source.get(self.offset + 1) == Some(&b'\\') => {
-                    tokens.push(self.char_token()?)
+                    return self.char_token().map(Some)
                 }
                 b'#' if self.source.get(self.offset + 1).is_some_and(|next| {
                     next.is_ascii_alphabetic()
@@ -679,27 +711,26 @@ impl<'a> Lexer<'a> {
                         || matches!(next, b'&' | b'|' | b'^' | b'<' | b'>' | b'=')
                 }) =>
                 {
-                    tokens.push(self.atom()?)
+                    return self.atom().map(Some)
                 }
                 b'#' => {
                     self.skip_comment();
                 }
-                b'(' => tokens.push(self.one(TokenKind::LParen)),
-                b')' => tokens.push(self.one(TokenKind::RParen)),
-                b'\'' => tokens.push(self.one(TokenKind::Quote)),
-                b'`' => tokens.push(self.one(TokenKind::QuasiQuote)),
+                b'(' => return Ok(Some(self.one(TokenKind::LParen))),
+                b')' => return Ok(Some(self.one(TokenKind::RParen))),
+                b'\'' => return Ok(Some(self.one(TokenKind::Quote))),
+                b'`' => return Ok(Some(self.one(TokenKind::QuasiQuote))),
                 b',' if self.source.get(self.offset + 1) == Some(&b'@') => {
                     let mut token = self.one(TokenKind::UnquoteSplicing);
                     self.advance();
                     token.span.end = self.offset;
-                    tokens.push(token);
+                    return Ok(Some(token));
                 }
-                b',' => tokens.push(self.one(TokenKind::Unquote)),
-                b'"' => tokens.push(self.string_token()?),
-                _ => tokens.push(self.atom()?),
+                b',' => return Ok(Some(self.one(TokenKind::Unquote))),
+                b'"' => return self.string_token().map(Some),
+                _ => return self.atom().map(Some),
             }
         }
-        Ok(tokens)
     }
 
     fn peek(&self) -> Option<u8> {
@@ -996,7 +1027,7 @@ fn parse_typed_float_atom(text: &str) -> Option<(Expr, &'static str)> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
-    List(Vec<Expr>),
+    List(ExprList),
     Block(Vec<Statement>),
     Symbol(String),
     /// An explicit, normalized user-call target, never reader syntax or a value.
@@ -1087,17 +1118,16 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
 
 /// Format canonical Lim source using the parsed S-expression structure.
 pub fn format_source(source: &str) -> Result<String, String> {
-    let tokens = lex(source).map_err(|error| error.to_string())?;
-    let mut parser = Parser::new(&tokens);
+    source_forms::validate_lexically(source)?;
+    let mut forms = source_forms::SourceForms::new(source);
     let comments = source_comments(source);
     let mut output = String::new();
     let mut comment_index = 0;
     let mut cursor = 0;
     let mut previous_declaration = None;
-    // Keep only one formatting tree live. Source offsets still refer to the
+    // Keep only one token/form tree live. Source offsets still refer to the
     // complete input, including comments between adjacent top-level forms.
-    while parser.index < tokens.len() {
-        let expression = parser.expression().map_err(|error| error.to_string())?;
+    while let Some(expression) = forms.next()? {
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.end > expression.span.start {
                 break;
@@ -1138,9 +1168,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
         {
             comment_index += 1;
         }
-        let next_start = tokens
-            .get(parser.index)
-            .map_or(source.len(), |next| next.span.start);
+        let next_start = forms.next_start()?.unwrap_or(source.len());
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.start < expression.span.end || comment.span.start >= next_start {
                 break;
@@ -2663,7 +2691,7 @@ pub fn locate_link_diagnostic(mut diagnostic: Diagnostic, source: &str) -> Diagn
     diagnostic
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod link_location_tests {
     use super::*;
 
@@ -3089,7 +3117,7 @@ fn normalize_function_calls(
 /// Find a value use, excluding declarations, types, field names, and argument
 /// labels. Async branch-scope diagnostics must underline the escaped use,
 /// not its earlier declaration or an unrelated same-spelled field.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
     if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
         return Some(expression.span);
@@ -3446,7 +3474,7 @@ fn normalize_call_expr(
                         format!("{keyword} to '{function}' is missing parameter '{parameter}'")
                     })?);
                 }
-                *expression = Expr::List(lowered);
+                *expression = Expr::List(lowered.into());
                 return Ok(());
             }
             if let Some(Expr::Symbol(name)) = items.first() {
@@ -3706,7 +3734,7 @@ fn normalize_literal_expr(
                 *expression = Expr::Symbol(variant);
             } else {
                 normalize_literal_expr(&mut items[2], literals)?;
-                *expression = Expr::List(vec![Expr::Symbol(variant), items[2].clone()]);
+                *expression = Expr::List(vec![Expr::Symbol(variant), items[2].clone()].into());
             }
             return Ok(());
         }
@@ -3769,7 +3797,7 @@ fn normalize_literal_expr(
                     .iter()
                     .map(|field| values.remove(&field.name).expect("checked struct field")),
             );
-            *expression = Expr::List(lowered);
+            *expression = Expr::List(lowered.into());
             return Ok(());
         }
         if let Some(Expr::Symbol(name)) = items.first() {
@@ -4125,7 +4153,7 @@ pub(crate) fn function_shadowing_span(
     sequence(source.children.get(4..)?, name, &mut bound)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn function_shadowing(
     expression: &Expr,
 ) -> Result<Option<(String, Option<usize>)>, String> {
@@ -4825,7 +4853,20 @@ fn validate_primitive_spelling(expression: &SpannedExpr) -> Result<(), (String, 
     Ok(())
 }
 
+fn is_proof_source_declaration(expression: &Expr) -> bool {
+    matches!(expression, Expr::List(items)
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.strip_prefix('#').unwrap_or(head),
+                "math-definition" | "math-opaque" | "math-inductive")
+                || head.strip_prefix('#').unwrap_or(head) == "theorem" && items.len() != 3))
+}
+
 fn normalize_match_cases_expr(expression: &mut Expr) {
+    // Proof terms have their own grammar. A mutable walk would also detach
+    // every shared list even though none contains a runtime match arm.
+    if is_proof_source_declaration(expression) {
+        return;
+    }
     let Expr::List(items) = expression else {
         match expression {
             Expr::Labeled { expression, .. }
@@ -4846,7 +4887,7 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
                     if crate::borrow_case::Mode::from_keyword(head).is_some())
                 {
                     if parts.len() >= 2 {
-                        parts[0] = Expr::List(vec![parts[0].clone(), parts[1].clone()]);
+                        parts[0] = Expr::List(vec![parts[0].clone(), parts[1].clone()].into());
                         parts.remove(1);
                     }
                 }
@@ -4860,7 +4901,7 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
                 if parts.len() > body_start + 1 {
                     let mut body = vec![Expr::Symbol("block".into())];
                     body.extend(parts.drain(body_start..));
-                    parts.push(Expr::List(body));
+                    parts.push(Expr::List(body.into()));
                 }
                 for part in parts {
                     normalize_match_cases_expr(part);
@@ -4878,6 +4919,9 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
 }
 
 fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (String, Span)> {
+    if is_proof_source_declaration(&expression.expr) {
+        return Ok(());
+    }
     let Expr::List(items) = &mut expression.expr else {
         for child in &mut expression.children {
             normalize_match_case_forms(child)?;
@@ -4982,7 +5026,7 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
                 let mut source_case_node =
                     source_case_node.expect("borrowed case marker has a source node");
                 source_case_node.expr = keyword.clone();
-                normalized_parts[0] = Expr::List(vec![keyword, pattern]);
+                normalized_parts[0] = Expr::List(vec![keyword, pattern].into());
                 arm.children[0] = SpannedExpr {
                     expr: normalized_parts[0].clone(),
                     span: Span {
@@ -6568,7 +6612,8 @@ fn specialize_expr(
                     }
                     specialize_expr(item, substitutions, templates, names, generated)
                 })
-                .collect::<Result<Vec<_>, String>>()?,
+                .collect::<Result<Vec<_>, String>>()?
+                .into(),
         )),
         Expr::Block(statements) => Ok(Expr::Block(
             statements
@@ -7446,10 +7491,9 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 mutable: false,
             }],
             return_type: optional_type.clone(),
-            body: vec![Statement::Return(Some(Expr::List(vec![
-                Expr::Symbol(some),
-                Expr::Symbol("value".into()),
-            ])))],
+            body: vec![Statement::Return(Some(Expr::List(
+                vec![Expr::Symbol(some), Expr::Symbol("value".into())].into(),
+            )))],
         }),
         Item::Function(Function {
             name: format!("{name}::is-some"),
@@ -7828,24 +7872,31 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Expr::Symbol("payload".into()),
         Expr::Symbol("fallback".into()),
     );
-    let unwrap_err_or = Expr::List(vec![
-        Expr::Symbol("match".into()),
-        Expr::Symbol("value".into()),
-        Expr::List(vec![
-            Expr::List(vec![
-                Expr::Symbol(ok_name.clone()),
-                Expr::Symbol("_".into()),
-            ]),
-            Expr::Symbol("fallback".into()),
-        ]),
-        Expr::List(vec![
-            Expr::List(vec![
-                Expr::Symbol(err_name.clone()),
-                Expr::Symbol("error".into()),
-            ]),
-            Expr::Symbol("error".into()),
-        ]),
-    ]);
+    let unwrap_err_or = Expr::List(
+        vec![
+            Expr::Symbol("match".into()),
+            Expr::Symbol("value".into()),
+            Expr::List(
+                vec![
+                    Expr::List(
+                        vec![Expr::Symbol(ok_name.clone()), Expr::Symbol("_".into())].into(),
+                    ),
+                    Expr::Symbol("fallback".into()),
+                ]
+                .into(),
+            ),
+            Expr::List(
+                vec![
+                    Expr::List(
+                        vec![Expr::Symbol(err_name.clone()), Expr::Symbol("error".into())].into(),
+                    ),
+                    Expr::Symbol("error".into()),
+                ]
+                .into(),
+            ),
+        ]
+        .into(),
+    );
     Ok(vec![
         generated,
         Item::Function(Function {
@@ -7860,10 +7911,9 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 mutable: false,
             }],
             return_type: result_type.clone(),
-            body: vec![Statement::Return(Some(Expr::List(vec![
-                Expr::Symbol(ok_name),
-                Expr::Symbol("value".into()),
-            ])))],
+            body: vec![Statement::Return(Some(Expr::List(
+                vec![Expr::Symbol(ok_name), Expr::Symbol("value".into())].into(),
+            )))],
         }),
         Item::Function(Function {
             name: format!("{name}::err"),
@@ -7877,10 +7927,9 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 mutable: false,
             }],
             return_type: result_type.clone(),
-            body: vec![Statement::Return(Some(Expr::List(vec![
-                Expr::Symbol(err_name),
-                Expr::Symbol("error".into()),
-            ])))],
+            body: vec![Statement::Return(Some(Expr::List(
+                vec![Expr::Symbol(err_name), Expr::Symbol("error".into())].into(),
+            )))],
         }),
         Item::Function(Function {
             name: format!("{name}::is-ok"),
@@ -7949,18 +7998,23 @@ fn optional_match(
     some_result: Expr,
     none_result: Expr,
 ) -> Expr {
-    Expr::List(vec![
-        Expr::Symbol("match".into()),
-        Expr::Symbol(value.into()),
-        Expr::List(vec![
-            Expr::List(vec![
-                Expr::Symbol(some.into()),
-                Expr::Symbol(some_binding.into()),
-            ]),
-            some_result,
-        ]),
-        Expr::List(vec![Expr::Symbol(none.into()), none_result]),
-    ])
+    Expr::List(
+        vec![
+            Expr::Symbol("match".into()),
+            Expr::Symbol(value.into()),
+            Expr::List(
+                vec![
+                    Expr::List(
+                        vec![Expr::Symbol(some.into()), Expr::Symbol(some_binding.into())].into(),
+                    ),
+                    some_result,
+                ]
+                .into(),
+            ),
+            Expr::List(vec![Expr::Symbol(none.into()), none_result].into()),
+        ]
+        .into(),
+    )
 }
 fn parse_aggregate_properties(value: Option<&Expr>) -> Result<(bool, Representation), String> {
     let Some(Expr::List(properties)) = value else {
@@ -8348,48 +8402,73 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             let start = lower_expr(&items[2])?;
             let end = lower_expr(&items[3])?;
             let bounds_type =
-                Expr::List(vec![Expr::Symbol("tuple".into()), ty.clone(), ty.clone()]);
+                Expr::List(vec![Expr::Symbol("tuple".into()), ty.clone(), ty.clone()].into());
             let mut lowered = vec![
                 Expr::Symbol("for".into()),
-                Expr::List(vec![
-                    Expr::Symbol("let-mut".into()),
-                    Expr::List(vec![
-                        Expr::Symbol("tuple".into()),
+                Expr::List(
+                    vec![
+                        Expr::Symbol("let-mut".into()),
+                        Expr::List(
+                            vec![
+                                Expr::Symbol("tuple".into()),
+                                Expr::Symbol(counter.clone()),
+                                Expr::Symbol(range_end.clone()),
+                            ]
+                            .into(),
+                        ),
+                        bounds_type.clone(),
+                        Expr::List(
+                            vec![Expr::Symbol("tuple".into()), bounds_type, start, end].into(),
+                        ),
+                    ]
+                    .into(),
+                ),
+                Expr::List(
+                    vec![
+                        Expr::Symbol("<".into()),
+                        Expr::List(
+                            vec![Expr::Symbol("clone".into()), Expr::Symbol(counter.clone())]
+                                .into(),
+                        ),
+                        Expr::List(
+                            vec![Expr::Symbol("clone".into()), Expr::Symbol(range_end)].into(),
+                        ),
+                    ]
+                    .into(),
+                ),
+                Expr::List(
+                    vec![
+                        Expr::Symbol("set".into()),
                         Expr::Symbol(counter.clone()),
-                        Expr::Symbol(range_end.clone()),
-                    ]),
-                    bounds_type.clone(),
-                    Expr::List(vec![Expr::Symbol("tuple".into()), bounds_type, start, end]),
-                ]),
-                Expr::List(vec![
-                    Expr::Symbol("<".into()),
-                    Expr::List(vec![
-                        Expr::Symbol("clone".into()),
-                        Expr::Symbol(counter.clone()),
-                    ]),
-                    Expr::List(vec![Expr::Symbol("clone".into()), Expr::Symbol(range_end)]),
-                ]),
-                Expr::List(vec![
-                    Expr::Symbol("set".into()),
-                    Expr::Symbol(counter.clone()),
-                    Expr::List(vec![
-                        Expr::Symbol("+".into()),
-                        Expr::List(vec![
-                            Expr::Symbol("clone".into()),
-                            Expr::Symbol(counter.clone()),
-                        ]),
-                        Expr::Integer(1),
-                    ]),
-                ]),
+                        Expr::List(
+                            vec![
+                                Expr::Symbol("+".into()),
+                                Expr::List(
+                                    vec![
+                                        Expr::Symbol("clone".into()),
+                                        Expr::Symbol(counter.clone()),
+                                    ]
+                                    .into(),
+                                ),
+                                Expr::Integer(1),
+                            ]
+                            .into(),
+                        ),
+                    ]
+                    .into(),
+                ),
             ];
-            lowered.push(Expr::List(vec![
-                Expr::Symbol("let".into()),
-                Expr::Symbol(name),
-                ty,
-                Expr::List(vec![Expr::Symbol("clone".into()), Expr::Symbol(counter)]),
-            ]));
+            lowered.push(Expr::List(
+                vec![
+                    Expr::Symbol("let".into()),
+                    Expr::Symbol(name),
+                    ty,
+                    Expr::List(vec![Expr::Symbol("clone".into()), Expr::Symbol(counter)].into()),
+                ]
+                .into(),
+            ));
             lowered.extend(items[4..].iter().cloned());
-            return lower_expr(&Expr::List(lowered));
+            return lower_expr(&Expr::List(lowered.into()));
         }
     }
     match expression {
@@ -8425,7 +8504,7 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             lowered.push(Expr::Symbol("while".into()));
             lowered.push(lower_expr(&items[1])?);
             lowered.extend(items[2..].iter().cloned());
-            Ok(Expr::List(lowered))
+            Ok(Expr::List(lowered.into()))
         }
         Expr::List(items) if is_form(expression, "for") => {
             if items.len() < 5 {
@@ -8437,7 +8516,7 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             lowered.push(lower_expr(&items[2])?);
             lowered.push(items[3].clone());
             lowered.extend(items[4..].iter().cloned());
-            Ok(Expr::List(lowered))
+            Ok(Expr::List(lowered.into()))
         }
         Expr::List(items) if is_form(expression, "while-let") => {
             if items.len() < 4 {
@@ -8448,25 +8527,38 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             // Evaluate the scrutinee once per iteration. A separate condition
             // match and binding match would repeat effects (and awaits), and
             // could bind a different value than the one whose pattern passed.
-            let repeated_value = Expr::List(vec![Expr::Symbol("clone".into()), items[2].clone()]);
+            let repeated_value =
+                Expr::List(vec![Expr::Symbol("clone".into()), items[2].clone()].into());
             let mut body = vec![Expr::Symbol("block".into())];
             body.extend(items[3..].iter().cloned());
-            let then_value = Expr::List(body);
-            lower_expr(&Expr::List(vec![
-                Expr::Symbol("loop".into()),
-                Expr::List(vec![
-                    Expr::Symbol("match".into()),
-                    repeated_value,
-                    Expr::List(vec![items[1].clone(), then_value]),
-                    Expr::List(vec![
-                        Expr::Symbol("_".into()),
-                        Expr::List(vec![
-                            Expr::Symbol("block".into()),
-                            Expr::List(vec![Expr::Symbol("break".into())]),
-                        ]),
-                    ]),
-                ]),
-            ]))
+            let then_value = Expr::List(body.into());
+            lower_expr(&Expr::List(
+                vec![
+                    Expr::Symbol("loop".into()),
+                    Expr::List(
+                        vec![
+                            Expr::Symbol("match".into()),
+                            repeated_value,
+                            Expr::List(vec![items[1].clone(), then_value].into()),
+                            Expr::List(
+                                vec![
+                                    Expr::Symbol("_".into()),
+                                    Expr::List(
+                                        vec![
+                                            Expr::Symbol("block".into()),
+                                            Expr::List(vec![Expr::Symbol("break".into())].into()),
+                                        ]
+                                        .into(),
+                                    ),
+                                ]
+                                .into(),
+                            ),
+                        ]
+                        .into(),
+                    ),
+                ]
+                .into(),
+            ))
         }
         Expr::List(items) if is_form(expression, "if-let") => {
             if items.len() != 4 && items.len() != 5 {
@@ -8480,14 +8572,17 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             let fallback = if items.len() == 5 {
                 lower_expr(&items[4])?
             } else {
-                Expr::List(Vec::new())
+                Expr::List(Vec::new().into())
             };
-            Ok(Expr::List(vec![
-                Expr::Symbol("match".into()),
-                value,
-                Expr::List(vec![pattern, then_value]),
-                Expr::List(vec![Expr::Symbol("_".into()), fallback]),
-            ]))
+            Ok(Expr::List(
+                vec![
+                    Expr::Symbol("match".into()),
+                    value,
+                    Expr::List(vec![pattern, then_value].into()),
+                    Expr::List(vec![Expr::Symbol("_".into()), fallback].into()),
+                ]
+                .into(),
+            ))
         }
         Expr::List(items) if is_form(expression, "block") => {
             let mut statements = Vec::with_capacity(items.len().saturating_sub(1));
@@ -8500,7 +8595,8 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             items
                 .iter()
                 .map(lower_expr)
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
         )),
         _ => Ok(expression.clone()),
     }
@@ -9100,22 +9196,28 @@ impl<'a> Parser<'a> {
                 self.index += 1;
                 if let Some((literal, ty)) = parse_typed_integer_atom(value) {
                     return Ok(SpannedExpr {
-                        expr: Expr::List(vec![
-                            Expr::Symbol("#literal".into()),
-                            Expr::Symbol(format!("#{ty}")),
-                            literal,
-                        ]),
+                        expr: Expr::List(
+                            vec![
+                                Expr::Symbol("#literal".into()),
+                                Expr::Symbol(format!("#{ty}")),
+                                literal,
+                            ]
+                            .into(),
+                        ),
                         span: token.span,
                         children: Vec::new().into(),
                     });
                 }
                 if let Some((literal, ty)) = parse_typed_float_atom(value) {
                     return Ok(SpannedExpr {
-                        expr: Expr::List(vec![
-                            Expr::Symbol("#literal".into()),
-                            Expr::Symbol(format!("#{ty}")),
-                            literal,
-                        ]),
+                        expr: Expr::List(
+                            vec![
+                                Expr::Symbol("#literal".into()),
+                                Expr::Symbol(format!("#{ty}")),
+                                literal,
+                            ]
+                            .into(),
+                        ),
                         span: token.span,
                         children: Vec::new().into(),
                     });
@@ -9192,7 +9294,7 @@ impl<'a> Parser<'a> {
                         self.expand_dollar_shorthand(&mut items, &mut children)?;
                     }
                     return Ok(SpannedExpr {
-                        expr: Expr::List(items),
+                        expr: Expr::List(items.into()),
                         span: Span::new(start.start, end, start.line, start.column),
                         children: children.into(),
                     });
@@ -9274,7 +9376,7 @@ impl<'a> Parser<'a> {
                     }
                     self.index += 1;
                     return Ok(SpannedExpr {
-                        expr: Expr::List(groups),
+                        expr: Expr::List(groups.into()),
                         span: Span::new(start.start, end, start.line, start.column),
                         children: children.into(),
                     });
@@ -9319,7 +9421,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 
@@ -11853,7 +11955,7 @@ mod tests {
             &shorthand[parsed[0].children[1].span.start..parsed[0].children[1].span.end],
             ": control #u32"
         );
-        assert_eq!(parse("(:)").unwrap()[0].expr, Expr::List(vec![]));
+        assert_eq!(parse("(:)").unwrap()[0].expr, Expr::List(vec![].into()));
         for invalid in ["(name : value)", "(: x : : y)", "(: x :)", ":"] {
             assert!(parse(invalid).is_err(), "{invalid}");
         }
@@ -11949,16 +12051,22 @@ mod tests {
         assert_eq!(items[1], Expr::String("line\n".into()));
         assert_eq!(items[2], Expr::Integer(-42));
         let minimum = parse("(-170141183460469231731687303715884105728)").unwrap();
-        assert_eq!(minimum[0].expr, Expr::List(vec![Expr::Integer(i128::MIN)]));
+        assert_eq!(
+            minimum[0].expr,
+            Expr::List(vec![Expr::Integer(i128::MIN)].into())
+        );
         let literals = parse("(0xff 0o10 0b1010 1_000)").unwrap();
         assert_eq!(
             literals[0].expr,
-            Expr::List(vec![
-                Expr::Integer(255),
-                Expr::Integer(8),
-                Expr::Integer(10),
-                Expr::Integer(1000),
-            ])
+            Expr::List(
+                vec![
+                    Expr::Integer(255),
+                    Expr::Integer(8),
+                    Expr::Integer(10),
+                    Expr::Integer(1000),
+                ]
+                .into()
+            )
         );
     }
 
@@ -11967,12 +12075,12 @@ mod tests {
         let expressions = parse("(#\\a #\\space #\\newline)").unwrap();
         assert_eq!(
             expressions[0].expr,
-            Expr::List(vec![Expr::Char('a'), Expr::Char(' '), Expr::Char('\n')])
+            Expr::List(vec![Expr::Char('a'), Expr::Char(' '), Expr::Char('\n')].into())
         );
         let unicode = parse("(#\\u{03bb} \"A\\u{1f600}\")").unwrap();
         assert_eq!(
             unicode[0].expr,
-            Expr::List(vec![Expr::Char('λ'), Expr::String("A😀".into())])
+            Expr::List(vec![Expr::Char('λ'), Expr::String("A😀".into())].into())
         );
         assert!(parse("#\\u{d800}").is_err());
         assert!(parse("\"bad\\u{110000}\"").is_err());

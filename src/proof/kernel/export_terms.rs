@@ -7,7 +7,7 @@ impl Replay {
         let Json::Object(data) = value else {
             unreachable!()
         };
-        if index(&data["in"])? != self.names.len() || self.names.len() >= MAX_NAMES {
+        if index(&data["in"])? != self.names.len() || self.names.len() >= self.limits.max_names {
             return Err("name IDs must be contiguous and within the name table limit".into());
         }
         let (pre, part, key) = if let Some(value) = data.get("str") {
@@ -63,7 +63,7 @@ impl Replay {
             .name_bytes
             .checked_add(name.key.len() + name.display.len())
             .ok_or("name byte count overflow")?;
-        if self.name_bytes > MAX_NAME_BYTES {
+        if self.name_bytes > self.limits.max_name_bytes {
             return Err("export name byte limit exceeded".into());
         }
         self.names.push(name)?;
@@ -73,7 +73,7 @@ impl Replay {
         let Json::Object(data) = value else {
             unreachable!()
         };
-        if index(&data["il"])? != self.levels.len() || self.levels.len() >= MAX_LEVELS {
+        if index(&data["il"])? != self.levels.len() || self.levels.len() >= self.limits.max_levels {
             return Err(
                 "universe IDs must be contiguous and within the universe table limit".into(),
             );
@@ -108,8 +108,11 @@ impl Replay {
         if weight > 64 * 1024 {
             return Err("export universe payload limit exceeded".into());
         }
-        self.payload_bytes = self.payload_bytes.saturating_add(weight);
-        if self.payload_bytes > 64 * 1024 * 1024 {
+        self.payload_bytes = self
+            .payload_bytes
+            .checked_add(weight)
+            .ok_or("primitive payload byte count overflow")?;
+        if self.payload_bytes > self.limits.max_payload_bytes {
             return Err("export primitive payload limit exceeded".into());
         }
         self.levels.push(level)?;
@@ -120,7 +123,7 @@ impl Replay {
             unreachable!()
         };
         if index(&data["ie"])? != self.expressions.len()
-            || self.expressions.len() >= MAX_EXPRESSIONS
+            || self.expressions.len() >= self.limits.max_expressions
         {
             return Err(
                 "expression IDs must be contiguous and within the expression table limit".into(),
@@ -240,9 +243,10 @@ impl Replay {
         };
         self.payload_bytes = self
             .payload_bytes
-            .saturating_add(128)
-            .saturating_add(payload);
-        if self.payload_bytes > 64 * 1024 * 1024 {
+            .checked_add(128)
+            .and_then(|bytes| bytes.checked_add(payload))
+            .ok_or("primitive payload byte count overflow")?;
+        if self.payload_bytes > self.limits.max_payload_bytes {
             return Err("export primitive payload limit exceeded".into());
         }
         self.expressions

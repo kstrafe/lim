@@ -725,7 +725,7 @@ pub(crate) fn dynamic_executable(
     Ok(image)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use crate::instruction_encoder::{EncodedInstructions, Instruction, Register, Width};

@@ -2,6 +2,7 @@
 //! This is independent of the text writer and does not trust source comments.
 use super::*;
 use crate::proof::kernel::{parse_declaration, Body};
+use std::borrow::Cow;
 
 /// Internal constant templates use the same bounded relocation as checked
 /// source correspondence. The source text and alias inventory are compiler-owned.
@@ -22,48 +23,121 @@ pub(in crate::proof::kernel::core::export) fn relocate_template(
     .term(value, 0)
 }
 
-pub(super) fn check(
-    replay: &mut Replay,
-    report: &LeanExportReport,
-    names: &HashMap<String, String>,
-    program: &crate::Program,
+pub(super) struct Context<'a> {
+    pub(super) kernel: &'a mut Kernel,
+    pub(super) initializers: &'a initializers::Initializers,
+    pub(super) expressions: &'a mut expressions::Expressions,
+    pub(super) names: &'a names::Names,
+    pub(super) levels: &'a levels::Levels,
+}
+
+pub(super) fn check_source(
+    context: Context<'_>,
+    names: &NativeNames<'_>,
+    source: &crate::proof::kernel::native_source::Source<'_>,
 ) -> Result<()> {
-    let reverse = names
-        .iter()
-        .map(|(old, new)| (new.clone(), old.clone()))
-        .collect::<HashMap<_, _>>();
-    let records = report
-        .declarations
-        .iter()
-        .enumerate()
-        .map(|(index, record)| (record.identity.as_str(), (index, record)))
-        .collect::<HashMap<_, _>>();
-    let mut remaining = SOURCE_NODES;
-    let mut remaining_bytes = 64 * 1024 * 1024usize;
-    let mut seen = HashSet::new();
-    if program.items.len() != report.declarations.len() {
+    check_source_profile(context, names, source, crate::NativeProofLimits::default())
+}
+
+pub(super) fn check_source_with_limits(
+    context: Context<'_>,
+    names: &NativeNames<'_>,
+    source: &crate::proof::kernel::native_source::Source<'_>,
+    limits: crate::NativeProofLimits,
+) -> Result<()> {
+    if limits == crate::NativeProofLimits::default() {
+        return check_source(context, names, source);
+    }
+    check_source_profile(context, names, source, limits)
+}
+
+fn check_source_profile(
+    context: Context<'_>,
+    names: &NativeNames<'_>,
+    source: &crate::proof::kernel::native_source::Source<'_>,
+    limits: crate::NativeProofLimits,
+) -> Result<()> {
+    use crate::proof::kernel::DeclarationSource;
+    check_items_with_limits(
+        context,
+        names.len(),
+        |name| names.record(name),
+        names,
+        source.len(),
+        (0..source.len()).map(|index| source.item(index)),
+        limits,
+    )
+}
+
+trait NameLookup {
+    fn mapped(&self, name: &str) -> Result<String>;
+}
+impl NameLookup for HashMap<String, String> {
+    fn mapped(&self, name: &str) -> Result<String> {
+        self.get(name)
+            .cloned()
+            .ok_or("unmapped native constant during correspondence checking".into())
+    }
+}
+impl NameLookup for NativeNames<'_> {
+    fn mapped(&self, name: &str) -> Result<String> {
+        self.original(name)
+    }
+}
+
+#[cfg(test)]
+fn check_items<'a, N: NameLookup>(
+    replay: Context<'_>,
+    count: usize,
+    record_for: impl FnMut(&str) -> Result<(usize, Cow<'a, LeanDeclarationReport>)>,
+    names: &N,
+    item_count: usize,
+    items: impl IntoIterator<Item = Result<crate::Item>>,
+) -> Result<()> {
+    check_items_with_limits(
+        replay,
+        count,
+        record_for,
+        names,
+        item_count,
+        items,
+        crate::NativeProofLimits::default(),
+    )
+}
+
+fn check_items_with_limits<'a, N: NameLookup>(
+    mut replay: Context<'_>,
+    count: usize,
+    mut record_for: impl FnMut(&str) -> Result<(usize, Cow<'a, LeanDeclarationReport>)>,
+    names: &N,
+    item_count: usize,
+    items: impl IntoIterator<Item = Result<crate::Item>>,
+    limits: crate::NativeProofLimits,
+) -> Result<()> {
+    let mut remaining = limits.max_correspondence_nodes;
+    let mut remaining_bytes = limits.max_correspondence_bytes;
+    let mut seen = vec![false; count];
+    if item_count != count {
         return Err("native declaration inventory differs from the checked export".into());
     }
-    for item in &program.items {
-        let crate::Item::Proof { name, proposition } = item else {
+    for item in items {
+        let item = item?;
+        let crate::Item::Proof { name, proposition } = &item else {
             return Err("nonmathematical declaration in a proof-source translation".into());
         };
-        let original = reverse
-            .get(name)
-            .ok_or("unknown native declaration in translation")?;
-        if !seen.insert(original.clone()) {
+        let (index, record) = record_for(name)?;
+        let original = &record.identity;
+        let seen = seen
+            .get_mut(index)
+            .ok_or("missing original declaration inventory")?;
+        if std::mem::replace(seen, true) {
             return Err("duplicate native declaration in translation".into());
         }
-        let (index, record) = records
-            .get(original.as_str())
-            .ok_or("missing original declaration inventory")?;
         let declaration = replay
             .kernel
             .declarations
             .get(original)?
-            .ok_or("missing original checked declaration")?
-            .as_ref()
-            .clone();
+            .ok_or("missing original checked declaration")?;
         let parsed = parse_declaration(name, proposition, &HashSet::new())?;
         if parsed.universes.len() != declaration.universes.len() {
             return Err("translated universe parameter count differs from its source".into());
@@ -75,7 +149,7 @@ pub(super) fn check(
             .zip(declaration.universes.iter().cloned().map(Level::variable))
             .collect::<HashMap<_, _>>();
         let mut relocate = Relocate {
-            names: &reverse,
+            names,
             levels: &levels,
             remaining: &mut remaining,
             remaining_bytes: &mut remaining_bytes,
@@ -107,7 +181,7 @@ pub(super) fn check(
                     replay.kernel.check(&[], &value, &declaration.ty, 0)?;
                     let retained = if declaration.value.is_none() {
                         replay.initializers.get(
-                            *index,
+                            index,
                             &replay.expressions,
                             &replay.names,
                             &replay.levels,
@@ -143,12 +217,7 @@ pub(super) fn check(
                     if record.kind != "inductive" {
                         return Err("translated datatype kind differs".into());
                     }
-                    let roots = family
-                        .group
-                        .iter()
-                        .filter(|name| !replay.kernel.nested.contains_key(*name))
-                        .cloned()
-                        .collect::<Vec<_>>();
+                    let roots = replay.kernel.nested.roots(&family.group)?;
                     if members
                         .iter()
                         .map(|name| relocate.name(name))
@@ -232,9 +301,9 @@ pub(super) fn check(
     Ok(())
 }
 
-fn telescope(
+fn telescope<N: NameLookup>(
     kernel: &mut Kernel,
-    relocate: &mut Relocate<'_>,
+    relocate: &mut Relocate<'_, N>,
     ctx: &mut Vec<T>,
     actual: &[T],
     expected: &[T],
@@ -269,22 +338,19 @@ fn equivalent(
     }
 }
 
-struct Relocate<'a> {
-    names: &'a HashMap<String, String>,
+struct Relocate<'a, N: NameLookup = HashMap<String, String>> {
+    names: &'a N,
     levels: &'a HashMap<String, Level>,
     remaining: &'a mut usize,
     remaining_bytes: &'a mut usize,
     memo: HashMap<usize, T>,
 }
-impl Relocate<'_> {
+impl<N: NameLookup> Relocate<'_, N> {
     fn name(&self, name: &str) -> Result<String> {
         if matches!(name, "#pt-nat" | "#pt-false") || foundation::label(name).is_some() {
             return Ok(name.into());
         }
-        self.names
-            .get(name)
-            .cloned()
-            .ok_or("unmapped native constant during correspondence checking".into())
+        self.names.mapped(name)
     }
     fn term(&mut self, value: &T, depth: usize) -> Result<T> {
         if depth > 256 {
@@ -552,11 +618,90 @@ impl Relocate<'_> {
 }
 
 #[cfg(test)]
+fn check_legacy(
+    replay: &mut Replay,
+    report: &LeanExportReport,
+    names: &HashMap<String, String>,
+    program: &crate::Program,
+) -> Result<()> {
+    let reverse = names
+        .iter()
+        .map(|(old, new)| (new.clone(), old.clone()))
+        .collect::<HashMap<_, _>>();
+    let context = Context {
+        kernel: &mut replay.kernel,
+        initializers: &replay.initializers,
+        expressions: &mut replay.expressions,
+        names: &replay.names,
+        levels: &replay.levels,
+    };
+    check_items(
+        context,
+        report.declarations.len(),
+        |native| {
+            let original = reverse
+                .get(native)
+                .ok_or("unknown native declaration in translation")?;
+            report
+                .declarations
+                .iter()
+                .enumerate()
+                .find(|(_, item)| &item.identity == original)
+                .map(|(id, item)| (id, Cow::Borrowed(item)))
+                .ok_or("missing original declaration inventory".into())
+        },
+        &reverse,
+        program.items.len(),
+        program.items.iter().cloned().map(Ok),
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paged_lookup_still_rejects_a_well_typed_changed_initializer() {
+        let mut replay = Replay::new();
+        replay
+            .kernel
+            .definition("original", vec![], nat(), zero(), false)
+            .unwrap();
+        let mut entry = report("original", "definition").declarations.pop().unwrap();
+        entry.sha256 = "ab".repeat(32);
+        entry.line = 1;
+        let mut inventory = inventory::Inventory::with_limit(0);
+        inventory.push(entry).unwrap();
+        replay.checked = checked::Index::with_limit(0);
+        replay.checked.insert("original", 0).unwrap();
+        let names = NativeNames::new(&inventory, &replay.checked);
+        let native = names.forward("original").unwrap();
+        for (value, accepted) in [("#pt-zero", true), ("(#pt-succ #pt-zero)", false)] {
+            let source = format!("(#math-definition {native} () #pt-nat {value})");
+            let program = crate::proof::kernel::native_source::Source::new(&source).unwrap();
+            program.check(crate::ProofBudget::default()).unwrap();
+            let result = check_source(
+                Context {
+                    kernel: &mut replay.kernel,
+                    initializers: &replay.initializers,
+                    expressions: &mut replay.expressions,
+                    names: &replay.names,
+                    levels: &replay.levels,
+                },
+                &names,
+                &program,
+            );
+            if accepted {
+                result.unwrap();
+            } else {
+                assert!(result.unwrap_err().contains("initializer differs"));
+            }
+        }
+    }
     fn report(name: &str, kind: &str) -> LeanExportReport {
         LeanExportReport {
             budget: crate::ProofBudget::default(),
+            limits: LeanExportLimits::default(),
+            native_limits: None,
             target: name.into(),
             input_sha256: String::new(),
             bytes: 0,
@@ -589,7 +734,7 @@ mod tests {
     fn verify(replay: &mut Replay, kind: &str, source: &str) -> Result<()> {
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
-        check(
+        check_legacy(
             replay,
             &report("original", kind),
             &HashMap::from([("original".into(), "native".into())]),
@@ -694,7 +839,7 @@ mod tests {
         ] {
             let program = crate::parse_program(source).unwrap();
             crate::check_types(&program).unwrap();
-            let result = check(
+            let result = check_legacy(
                 &mut replay,
                 &report("original", "inductive"),
                 &names,

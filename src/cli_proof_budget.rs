@@ -27,6 +27,23 @@ pub fn parse(arguments: &[String]) -> Result<(Vec<String>, ProofBudget), String>
                         | "-o"
                         | "--link-lib"
                         | "--link-object"
+                        | "--export-bytes"
+                        | "--export-names"
+                        | "--export-name-bytes"
+                        | "--export-levels"
+                        | "--export-expressions"
+                        | "--export-declarations"
+                        | "--export-dependencies"
+                        | "--export-dependency-bytes"
+                        | "--export-payload-bytes"
+                        | "--export-scratch-bytes"
+                        | "--native-proof-bytes"
+                        | "--native-proof-declarations"
+                        | "--native-proof-directory-bytes"
+                        | "--native-proof-render-nodes"
+                        | "--native-proof-correspondence-nodes"
+                        | "--native-proof-correspondence-bytes"
+                        | "--native-proof-scratch-bytes"
                 ) {
                     if let Some(value) = arguments.get(index + 1) {
                         rest.push(value.clone());
@@ -68,7 +85,7 @@ pub fn is_default(budget: ProofBudget) -> bool {
     budget == ProofBudget::default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

@@ -14,6 +14,19 @@ enum EuclideanObservation {
     Remainder,
 }
 
+/// Private validated data flow; callers cannot construct an arithmetic model.
+pub(in crate::proof::kernel) struct EuclideanModel {
+    family: String,
+    divisor: Natural,
+    observation: EuclideanObservation,
+}
+
+impl EuclideanModel {
+    pub(in crate::proof::kernel) fn family(&self) -> &str {
+        &self.family
+    }
+}
+
 struct EuclideanDivisor {
     value: Natural,
     expression: T,
@@ -45,68 +58,58 @@ impl Kernel {
         else {
             return Ok(None);
         };
-        self.tick(depth)?;
+        // The observation requires a closed numeral. A bare context variable
+        // cannot supply one; do not inspect its recurrence and discarded proof
+        // arguments before reaching that same refusal at euclidean_number.
+        if matches!(input.as_ref(), Term::Var(_)) {
+            return Ok(None);
+        }
         let observed = self.euclidean_induction_view(subject, depth + 1)?;
+        let Some((model, fuel)) = self.natural_euclidean_model(record, &observed, depth + 1)?
+        else {
+            return Ok(None);
+        };
+        let family = &model.family;
+        let Some(input) = self.euclidean_number(family, input, depth + 1)? else {
+            return Ok(None);
+        };
+        let (quotient, remainder) = self.euclidean_divide(&model, &input, depth + 1)?;
+        // There are q positive steps and one terminal step. Never assume a
+        // proof argument establishes sufficient fuel for definitional reduction.
+        if !self.euclidean_has_fuel(family, &fuel, &quotient, depth + 1)? {
+            return Ok(None);
+        }
+        let value = match model.observation {
+            EuclideanObservation::Quotient => quotient,
+            EuclideanObservation::Remainder => remainder,
+        };
+        self.charge_transformation(TERM_NODE_BYTES + family.len() + value.decimal().len())?;
+        Ok(Some(term(Term::NatLiteral {
+            family: family.clone(),
+            value,
+        })))
+    }
+
+    /// Recognize checked code without evaluating its input or expanding its
+    /// history. Only this routine constructs a model; names confer no authority.
+    pub(in crate::proof::kernel) fn natural_euclidean_model(
+        &mut self,
+        record: &str,
+        observed: &T,
+        depth: usize,
+    ) -> Result<Option<(EuclideanModel, T)>> {
+        let Some(desc) = self.natural_euclidean_header(record, observed, depth + 1)? else {
+            return Ok(None);
+        };
         let Term::Induct {
             family,
-            levels,
-            parameters,
-            indices,
-            motive,
             branches,
             subject: fuel,
+            ..
         } = observed.as_ref()
         else {
             return Ok(None);
         };
-        if !levels.is_empty()
-            || !parameters.is_empty()
-            || !indices.is_empty()
-            || branches.len() != 2
-            || self.provisional_family(record)
-            || self.nested.contains_key(record)
-            || self.natural_recursor_family(family, depth + 1)?.is_none()
-        {
-            return Ok(None);
-        }
-        // The base does not inspect the successor branch at all. Do not
-        // speculate into discarded arithmetic when the fuel is already zero.
-        let fuel_head = self.euclidean_induction_view(fuel, depth + 1)?;
-        if matches!(fuel_head.as_ref(), Term::NatLiteral { family: actual, value }
-            if actual == family && value.decimal() == "0")
-            || matches!(fuel_head.as_ref(), Term::Ctor { family: actual, constructor, fields, .. }
-                if actual == family && fields.is_empty()
-                    && constructor == &self.natural_family(family, depth + 1)?.constructors[0].name)
-        {
-            return Ok(None);
-        }
-
-        let motive = self.natural_head(motive, depth + 1)?;
-        let Term::Lam(domain, body) = motive.as_ref() else {
-            return Ok(None);
-        };
-        if !self.natural_type(domain, family, depth + 1)? {
-            return Ok(None);
-        }
-        let shape = self.natural_head(body, depth + 1)?;
-        let Some((actual, record_levels, arguments, desc)) = self.record_type(&shape, depth + 1)?
-        else {
-            return Ok(None);
-        };
-        if actual != *record
-            || arguments.is_empty()
-            || desc.constructors[0].fields.is_empty()
-            || !matches!(desc.constructors[0].fields[0].as_ref(), Term::Var(i) if *i == arguments.len()-1)
-        {
-            return Ok(None);
-        }
-        let (_, map) = self.family(record, &record_levels, depth + 1)?;
-        if !desc.sort.substitute(&map)?.equivalent(&Level::number(1)?)?
-            || !self.euclidean_function_type(&arguments[0], family, depth + 1)?
-        {
-            return Ok(None);
-        }
-
         let step = self.natural_head(&branches[1], depth + 1)?;
         let Term::Lam(domain, rest) = step.as_ref() else {
             return Ok(None);
@@ -153,30 +156,123 @@ impl Kernel {
         else {
             return Ok(None);
         };
-        let Some(input) = self.euclidean_number(family, input, depth + 1)? else {
+        self.charge_transformation(256 + family.len() + divisor.value.decimal().len())?;
+        Ok(Some((
+            EuclideanModel {
+                family: family.clone(),
+                divisor: divisor.value,
+                observation,
+            },
+            fuel.clone(),
+        )))
+    }
+
+    /// A cheap eligibility check, also used before a delayed VM forces fuel.
+    /// Only the complete model recognizer authorizes scalar observation.
+    pub(in crate::proof::kernel) fn natural_euclidean_header(
+        &mut self,
+        record: &str,
+        observed: &T,
+        depth: usize,
+    ) -> Result<Option<Family>> {
+        self.tick(depth)?;
+        let Term::Induct {
+            family,
+            levels,
+            parameters,
+            indices,
+            motive,
+            branches,
+            subject: fuel,
+        } = observed.as_ref()
+        else {
             return Ok(None);
         };
-        self.charge_transformation(
-            512 + 4 * (input.decimal().len() + divisor.value.decimal().len()),
-        )?;
-        let (quotient, remainder) = input.divide_remainder_metered(&divisor.value, |work| {
-            self.charge_work(work)?;
-            self.tick(depth + 1)
-        })?;
-        // There are q positive steps and one terminal step. Never assume a
-        // proof argument establishes sufficient fuel for definitional reduction.
-        if !self.euclidean_has_fuel(family, fuel, &quotient, depth + 1)? {
+        if !levels.is_empty()
+            || !parameters.is_empty()
+            || !indices.is_empty()
+            || branches.len() != 2
+            || self.provisional_family(record)
+            || self.nested.contains_key(record)?
+            || self.natural_recursor_family(family, depth + 1)?.is_none()
+        {
             return Ok(None);
         }
-        let value = match observation {
+        // The base does not inspect the successor branch at all. Do not
+        // speculate into discarded arithmetic when the fuel is already zero.
+        let fuel_head = self.euclidean_induction_view(fuel, depth + 1)?;
+        if matches!(fuel_head.as_ref(), Term::NatLiteral { family: actual, value }
+            if actual == family && value.decimal() == "0")
+            || matches!(fuel_head.as_ref(), Term::Ctor { family: actual, constructor, fields, .. }
+                if actual == family && fields.is_empty()
+                    && constructor == &self.natural_family(family, depth + 1)?.constructors[0].name)
+        {
+            return Ok(None);
+        }
+
+        let motive = self.natural_head(motive, depth + 1)?;
+        let Term::Lam(domain, body) = motive.as_ref() else {
+            return Ok(None);
+        };
+        if !self.natural_type(domain, family, depth + 1)? {
+            return Ok(None);
+        }
+        let shape = self.natural_head(body, depth + 1)?;
+        let Some((actual, record_levels, arguments, desc)) = self.record_type(&shape, depth + 1)?
+        else {
+            return Ok(None);
+        };
+        if actual != record
+            || arguments.is_empty()
+            || desc.constructors[0].fields.is_empty()
+            || !matches!(desc.constructors[0].fields[0].as_ref(), Term::Var(i) if *i == arguments.len()-1)
+        {
+            return Ok(None);
+        }
+        let (_, map) = self.family(record, &record_levels, depth + 1)?;
+        if !desc.sort.substitute(&map)?.equivalent(&Level::number(1)?)?
+            || !self.euclidean_function_type(&arguments[0], family, depth + 1)?
+        {
+            return Ok(None);
+        }
+
+        Ok(Some(desc))
+    }
+
+    fn euclidean_divide(
+        &mut self,
+        model: &EuclideanModel,
+        input: &Natural,
+        depth: usize,
+    ) -> Result<(Natural, Natural)> {
+        self.charge_transformation(
+            512 + 4 * (input.decimal().len() + model.divisor.decimal().len()),
+        )?;
+        input.divide_remainder_metered(&model.divisor, |work| {
+            self.charge_work(work)?;
+            self.tick(depth + 1)
+        })
+    }
+
+    /// A delayed observation may supply canonical scalar operands directly.
+    /// Its real fuel, including the terminal successor, is still mandatory.
+    pub(in crate::proof::kernel) fn natural_euclidean_scalars(
+        &mut self,
+        model: &EuclideanModel,
+        input: &Natural,
+        fuel: &Natural,
+        depth: usize,
+    ) -> Result<Option<Natural>> {
+        self.tick(depth)?;
+        let (quotient, remainder) = self.euclidean_divide(model, input, depth + 1)?;
+        self.charge_work(fuel.decimal().len().min(quotient.decimal().len()) + 1)?;
+        if decimal_order(fuel, &quotient) != std::cmp::Ordering::Greater {
+            return Ok(None);
+        }
+        Ok(Some(match model.observation {
             EuclideanObservation::Quotient => quotient,
             EuclideanObservation::Remainder => remainder,
-        };
-        self.charge_transformation(128 + family.len() + value.decimal().len())?;
-        Ok(Some(term(Term::NatLiteral {
-            family: family.clone(),
-            value,
-        })))
+        }))
     }
 
     /// Expose beta/delta/zeta only. Stop before natural iota so the entire
@@ -211,7 +307,7 @@ impl Kernel {
                     } else if Arc::ptr_eq(function, &reduced) {
                         return Ok(value);
                     } else {
-                        self.charge_transformation(128)?;
+                        self.charge_transformation(TERM_NODE_BYTES)?;
                         return Ok(term(Term::App(reduced, argument.clone())));
                     }
                 }
@@ -241,7 +337,7 @@ impl Kernel {
                     if Arc::ptr_eq(subject, &reduced) {
                         return Ok(value);
                     }
-                    self.charge_transformation(128 + family.len())?;
+                    self.charge_transformation(TERM_NODE_BYTES + family.len())?;
                     return Ok(term(Term::Project {
                         family: family.clone(),
                         index: *index,
@@ -309,8 +405,11 @@ impl Kernel {
         let Some(base) = self.euclidean_compact_number(family, &fields[0], depth + 1)? else {
             return Ok(None);
         };
-        if base.decimal().len() == MAX_DIGITS && base.decimal().bytes().all(|b| b == b'9') {
-            return Ok(None);
+        if base.decimal().len() == MAX_DIGITS {
+            self.charge_work(base.decimal().len())?;
+            if base.decimal().bytes().all(|b| b == b'9') {
+                return Ok(None);
+            }
         }
         self.charge_work(base.decimal().len() + 1)?;
         self.tick(depth + 1)?;
@@ -338,8 +437,11 @@ impl Kernel {
                 value,
             } = value.as_ref()
             {
-                return Ok(actual == family
-                    && decimal_order(value, &required) == std::cmp::Ordering::Greater);
+                if actual != family {
+                    return Ok(false);
+                }
+                self.charge_work(value.decimal().len().min(required.decimal().len()) + 1)?;
+                return Ok(decimal_order(value, &required) == std::cmp::Ordering::Greater);
             }
             let Term::Ctor {
                 family: actual,
@@ -349,11 +451,11 @@ impl Kernel {
                 fields,
             } = value.as_ref()
             else {
-                return Ok(self
-                    .natural_probe_number(family, &value, level + 1)?
-                    .is_some_and(|fuel| {
-                        decimal_order(&fuel, &required) == std::cmp::Ordering::Greater
-                    }));
+                let Some(fuel) = self.natural_probe_number(family, &value, level + 1)? else {
+                    return Ok(false);
+                };
+                self.charge_work(fuel.decimal().len().min(required.decimal().len()) + 1)?;
+                return Ok(decimal_order(&fuel, &required) == std::cmp::Ordering::Greater);
             };
             if actual != family
                 || !levels.is_empty()
@@ -404,7 +506,7 @@ impl Kernel {
         let Term::Global(name, levels) = head.as_ref() else {
             return Ok(false);
         };
-        if self.provisional_family(name) || self.nested.contains_key(name) {
+        if self.provisional_family(name) || self.nested.contains_key(name)? {
             return Ok(false);
         }
         let (decl, map) = self.specialization(name, levels, depth + 1)?;
@@ -424,7 +526,7 @@ impl Kernel {
 
     fn euclidean_tag_shape(&mut self, family: &str, depth: usize) -> Result<Option<TagShape>> {
         self.tick(depth)?;
-        if self.provisional_family(family) || self.nested.contains_key(family) {
+        if self.provisional_family(family) || self.nested.contains_key(family)? {
             return Ok(None);
         }
         let Some(decl) = self.declarations.get(family)? else {

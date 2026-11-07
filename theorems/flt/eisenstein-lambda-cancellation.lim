@@ -1,0 +1,903 @@
+; Direct cancellation by lambda via its witnessed divisibility of three.
+; Embedded natural scalar cancellation follows componentwise from integers.
+; These proofs avoid the full norm/domain dependency closure, keeping
+; combined lambda libraries within unchanged default kernel work budgets.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-divides = ./eisenstein-defs.lim::eisenstein-divides)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-multiply-zero = ./integer-multiplication.lim::integer-multiply-zero)
+(#alias integer-add-zero = ./integer-addition.lim::integer-add-zero)
+(#alias integer-multiply-cancel-first = ./integer-domain.lim::integer-multiply-cancel-first)
+(#alias integer-natural-embedding-nonzero = ./integer-domain.lim::integer-natural-embedding-nonzero)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-zero = ./eisenstein-ring.lim::eisenstein-multiply-zero)
+(#alias
+  eisenstein-lambda-divides-three
+  =
+  ./eisenstein-constants.lim::eisenstein-lambda-divides-three)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-one-nonzero = ./eisenstein-embedding.lim::eisenstein-one-nonzero)
+(#theorem eisenstein-scalar-multiply-real
+  (#universes)
+  (#parameters
+    (#parameter scalar (#pt-use integer ()))
+    (#parameter first (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-project
+        eisenstein
+        0
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-of-integer ()) scalar)
+          first))
+      (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-project
+        eisenstein
+        0
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-of-integer ()) scalar)
+          first))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))
+        (#pt-use integer-zero ()))
+      (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 1 first)))
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))
+        (#pt-use integer-zero ())
+        (#pt-app
+          (#pt-use integer-reflexive ())
+          (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first)))
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 1 first))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-project eisenstein 1 first)
+              (#pt-use integer-zero ()))
+            (#pt-use integer-zero ())
+            (#pt-app
+              (#pt-use integer-multiply-commutative ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 first))
+            (#pt-app (#pt-use integer-multiply-zero ()) (#pt-project eisenstein 1 first)))))
+      (#pt-app
+        (#pt-use integer-add-zero ())
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 0 first))))))
+(#theorem eisenstein-scalar-multiply-omega
+  (#universes)
+  (#parameters
+    (#parameter scalar (#pt-use integer ()))
+    (#parameter first (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-project
+        eisenstein
+        1
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-of-integer ()) scalar)
+          first))
+      (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-project
+        eisenstein
+        1
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-of-integer ()) scalar)
+          first))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+        (#pt-use integer-zero ()))
+      (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 0 first)))
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 1 first)))
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+        (#pt-use integer-zero ())
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 0 first)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+            (#pt-use integer-zero ()))
+          (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 0 first))
+            (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))
+            (#pt-use integer-zero ())
+            (#pt-app
+              (#pt-use integer-reflexive ())
+              (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first)))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-use integer-zero ())
+                (#pt-project eisenstein 0 first))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-project eisenstein 0 first)
+                (#pt-use integer-zero ()))
+              (#pt-use integer-zero ())
+              (#pt-app
+                (#pt-use integer-multiply-commutative ())
+                (#pt-use integer-zero ())
+                (#pt-project eisenstein 0 first))
+              (#pt-app (#pt-use integer-multiply-zero ()) (#pt-project eisenstein 0 first))))
+          (#pt-app
+            (#pt-use integer-add-zero ())
+            (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))))
+        (#pt-app
+          (#pt-use integer-negate-congruent ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-use integer-zero ())
+            (#pt-project eisenstein 1 first))
+          (#pt-use integer-zero ())
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-project eisenstein 1 first)
+              (#pt-use integer-zero ()))
+            (#pt-use integer-zero ())
+            (#pt-app
+              (#pt-use integer-multiply-commutative ())
+              (#pt-use integer-zero ())
+              (#pt-project eisenstein 1 first))
+            (#pt-app (#pt-use integer-multiply-zero ()) (#pt-project eisenstein 1 first)))))
+      (#pt-app
+        (#pt-use integer-add-zero ())
+        (#pt-app (#pt-use integer-multiply ()) scalar (#pt-project eisenstein 1 first))))))
+(#theorem eisenstein-natural-multiply-cancel
+  (#universes)
+  (#parameters
+    (#parameter natural-scalar #pt-nat)
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter scalar-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat natural-scalar #pt-zero))) #pt-false))
+    (#parameter products-equivalent (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use integer-of-natural ()) natural-scalar)) first) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use integer-of-natural ()) natural-scalar)) second))))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) first second))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second))
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second))
+      (#pt-app
+        (#pt-use integer-multiply-cancel-first ())
+        (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+        (#pt-project eisenstein 0 first)
+        (#pt-project eisenstein 0 second)
+        (#pt-app (#pt-use integer-natural-embedding-nonzero ()) natural-scalar scalar-nonzero)
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+            (#pt-project eisenstein 0 first))
+          (#pt-project
+            eisenstein
+            0
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+              first))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+            (#pt-project eisenstein 0 second))
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-project
+              eisenstein
+              0
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              (#pt-project eisenstein 0 first))
+            (#pt-app
+              (#pt-use eisenstein-scalar-multiply-real ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              first))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-project
+              eisenstein
+              0
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                first))
+            (#pt-project
+              eisenstein
+              0
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                second))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              (#pt-project eisenstein 0 second))
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    first))
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    second)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    first))
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    second)))
+              products-equivalent)
+            (#pt-app
+              (#pt-use eisenstein-scalar-multiply-real ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              second))))
+      (#pt-app
+        (#pt-use integer-multiply-cancel-first ())
+        (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+        (#pt-project eisenstein 1 first)
+        (#pt-project eisenstein 1 second)
+        (#pt-app (#pt-use integer-natural-embedding-nonzero ()) natural-scalar scalar-nonzero)
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+            (#pt-project eisenstein 1 first))
+          (#pt-project
+            eisenstein
+            1
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+              first))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+            (#pt-project eisenstein 1 second))
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-project
+              eisenstein
+              1
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                first))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              (#pt-project eisenstein 1 first))
+            (#pt-app
+              (#pt-use eisenstein-scalar-multiply-omega ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              first))
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-project
+              eisenstein
+              1
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                first))
+            (#pt-project
+              eisenstein
+              1
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                second))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              (#pt-project eisenstein 1 second))
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    first))
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    second)))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    first))
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    second)))
+              products-equivalent)
+            (#pt-app
+              (#pt-use eisenstein-scalar-multiply-omega ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar)
+              second)))))))
+(#theorem eisenstein-natural-divisor-cancel
+  (#universes)
+  (#parameters
+    (#parameter natural-scalar #pt-nat)
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter scalar-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat natural-scalar #pt-zero))) #pt-false))
+    (#parameter divides-scalar (#pt-app (#pt-use eisenstein-divides ()) divisor (#pt-app (#pt-use eisenstein-of-integer ()) (#pt-app (#pt-use integer-of-natural ()) natural-scalar))))
+    (#parameter products-equivalent (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-multiply ()) divisor first) (#pt-app (#pt-use eisenstein-multiply ()) divisor second))))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) first second))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor candidate-factor))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor candidate-factor))))))
+        (#pt-app (#pt-use eisenstein-equal ()) first second))
+      (
+        (#pt-lambda
+          (
+            (factor (#pt-use eisenstein ()))
+            (factor-equivalence
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor factor))))
+          (#pt-app
+            (#pt-use eisenstein-natural-multiply-cancel ())
+            natural-scalar
+            first
+            second
+            scalar-nonzero
+            (#pt-app
+              (#pt-use eisenstein-transitive ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                first)
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                factor
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor first))
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                second)
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                  first)
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                  first)
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  factor
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor first))
+                (#pt-app
+                  (#pt-use eisenstein-multiply-congruent ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                  first
+                  (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                  first
+                  (#pt-app
+                    (#pt-use eisenstein-symmetric ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    (#pt-app
+                      (#pt-use eisenstein-transitive ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                      (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                      (#pt-app
+                        (#pt-use eisenstein-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                      (#pt-app (#pt-use eisenstein-multiply-commutative ()) factor divisor)
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app
+                          (#pt-use eisenstein-of-integer ())
+                          (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                        (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                        factor-equivalence)))
+                  (#pt-app (#pt-use eisenstein-reflexive ()) first))
+                (#pt-app (#pt-use eisenstein-multiply-associative ()) factor divisor first))
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  factor
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor first))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  factor
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor second))
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                  second)
+                (#pt-app
+                  (#pt-use eisenstein-multiply-congruent ())
+                  factor
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor first)
+                  factor
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor second)
+                  (#pt-app (#pt-use eisenstein-reflexive ()) factor)
+                  products-equivalent)
+                (#pt-app
+                  (#pt-use eisenstein-symmetric ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                    second)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    factor
+                    (#pt-app (#pt-use eisenstein-multiply ()) divisor second))
+                  (#pt-app
+                    (#pt-use eisenstein-transitive ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                      second)
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                      second)
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      factor
+                      (#pt-app (#pt-use eisenstein-multiply ()) divisor second))
+                    (#pt-app
+                      (#pt-use eisenstein-multiply-congruent ())
+                      (#pt-app
+                        (#pt-use eisenstein-of-integer ())
+                        (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                      second
+                      (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                      second
+                      (#pt-app
+                        (#pt-use eisenstein-symmetric ())
+                        (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                        (#pt-app
+                          (#pt-use eisenstein-of-integer ())
+                          (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                        (#pt-app
+                          (#pt-use eisenstein-transitive ())
+                          (#pt-app (#pt-use eisenstein-multiply ()) factor divisor)
+                          (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                          (#pt-app
+                            (#pt-use eisenstein-of-integer ())
+                            (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                          (#pt-app (#pt-use eisenstein-multiply-commutative ()) factor divisor)
+                          (#pt-app
+                            (#pt-use eisenstein-symmetric ())
+                            (#pt-app
+                              (#pt-use eisenstein-of-integer ())
+                              (#pt-app (#pt-use integer-of-natural ()) natural-scalar))
+                            (#pt-app (#pt-use eisenstein-multiply ()) divisor factor)
+                            factor-equivalence)))
+                      (#pt-app (#pt-use eisenstein-reflexive ()) second))
+                    (#pt-app (#pt-use eisenstein-multiply-associative ()) factor divisor second))))))))
+      divides-scalar)))
+(#theorem eisenstein-lambda-multiply-cancel
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter products-equivalent (#pt-app (#pt-use eisenstein-equal ()) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) second))))
+  (#statement (#pt-app (#pt-use eisenstein-equal ()) first second))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-natural-divisor-cancel ())
+      (#pt-numeral 3)
+      (#pt-use eisenstein-lambda ())
+      first
+      second
+      (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 2))
+      (#pt-use eisenstein-lambda-divides-three ())
+      products-equivalent)))
+(#theorem eisenstein-lambda-power-divides-product-cancel
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat)
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter divides-proof (#pt-app (#pt-use eisenstein-divides ()) (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) (#pt-succ exponent)) (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first))))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-divides ())
+      (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+      first))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-factor (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-power ())
+                (#pt-use eisenstein-lambda ())
+                (#pt-succ exponent))
+              candidate-factor))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-succ exponent))
+                    candidate-factor))))))
+        (#pt-app
+          (#pt-use eisenstein-divides ())
+          (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+          first))
+      (
+        (#pt-lambda
+          (
+            (factor (#pt-use eisenstein ()))
+            (factor-equivalence
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first)
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-succ exponent))
+                  factor))))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  first
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+                    candidate-factor))))
+            introduce
+            (factor
+              (#pt-app
+                (#pt-use eisenstein-lambda-multiply-cancel ())
+                first
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+                  factor)
+                (#pt-app
+                  (#pt-use eisenstein-transitive ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) (#pt-use eisenstein-lambda ()) first)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-lambda ())
+                      (#pt-succ exponent))
+                    factor)
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app
+                      (#pt-use eisenstein-multiply ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-lambda ())
+                        exponent)
+                      factor))
+                  factor-equivalence
+                  (#pt-app
+                    (#pt-use eisenstein-multiply-associative ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+                    factor)))))))
+      divides-proof)))
+(#theorem eisenstein-lambda-power-nonzero
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) exponent)
+            (#pt-use eisenstein-zero ()))))
+      #pt-false))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) index)
+                (#pt-use eisenstein-zero ()))))
+          #pt-false))
+      (#pt-use eisenstein-one-nonzero ())
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-nonzero
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) previous)
+                    (#pt-use eisenstein-zero ()))))
+              #pt-false)))
+        (#pt-lambda
+          (
+            (power-zero
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-succ previous))
+                (#pt-use eisenstein-zero ()))))
+          (#pt-app
+            previous-nonzero
+            (#pt-app
+              (#pt-use eisenstein-lambda-multiply-cancel ())
+              (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) previous)
+              (#pt-use eisenstein-zero ())
+              (#pt-app
+                (#pt-use eisenstein-transitive ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-app (#pt-use eisenstein-power ()) (#pt-use eisenstein-lambda ()) previous))
+                (#pt-use eisenstein-zero ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-use eisenstein-lambda ())
+                  (#pt-use eisenstein-zero ()))
+                power-zero
+                (#pt-app
+                  (#pt-use eisenstein-symmetric ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-use eisenstein-lambda ())
+                    (#pt-use eisenstein-zero ()))
+                  (#pt-use eisenstein-zero ())
+                  (#pt-app (#pt-use eisenstein-multiply-zero ()) (#pt-use eisenstein-lambda ()))))))))
+      exponent)))

@@ -516,7 +516,7 @@ fn internal_owners(origins: &[LoanOrigin]) -> Vec<BindingId> {
     owners
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

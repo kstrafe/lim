@@ -248,6 +248,31 @@ impl Recurrence {
 }
 
 #[test]
+fn open_dividends_decline_before_analyzing_the_recurrence() {
+    let mut k = kernel();
+    for recurrence in [Recurrence::division(3), Recurrence::remainder(3)] {
+        let value = recurrence.value(&mut k, var(0), literal(4));
+        k.reset_budget();
+        k.check(&[nat()], &value, &nat(), 0).unwrap();
+        k.reset_budget();
+        assert!(k
+            .natural_euclidean_observation(&value, 0)
+            .unwrap()
+            .is_none());
+        assert!(k.work < 16, "open-input recognition should stop cheaply");
+        assert_eq!(k.transformation_bytes(), 0);
+
+        // Declining speculative arithmetic never validates the original term.
+        let Term::App(function, _) = value.as_ref() else {
+            panic!("proof application");
+        };
+        let invalid = app(function.clone(), global("unchecked-proof"));
+        k.reset_budget();
+        assert!(k.check(&[nat()], &invalid, &nat(), 0).is_err());
+    }
+}
+
+#[test]
 fn observations_match_materialized_records_without_the_observation_rule() {
     let mut k = kernel();
     for d in 1..=4 {
@@ -307,7 +332,7 @@ fn structurally_computed_dividends_are_observed_with_successor_fuel() {
         k.reset_budget();
         let result = k.natural_euclidean_observation(&value, 0).unwrap();
         assert!(
-            matches!(result.as_deref(), Some(Term::NatLiteral { value, .. }) if value.decimal() == expected.to_string())
+            matches!(result.as_ref().map(T::as_ref), Some(Term::NatLiteral { value, .. }) if value.decimal() == expected.to_string())
         );
     }
 }
@@ -415,6 +440,28 @@ fn compact_and_fuel_queries_do_not_force_unused_successor_tails() {
             0
         )
         .unwrap());
+}
+
+#[test]
+fn overflowing_compact_successor_charges_the_declined_digit_scan() {
+    let mut k = kernel();
+    let overflow = succ(decimal(&"9".repeat(MAX_DIGITS)));
+    k.reset_budget();
+    k.work = WORK - MAX_DIGITS / 2;
+    let error = k.euclidean_compact_number(NAT, &overflow, 0).unwrap_err();
+    assert!(error.contains("resource limit"), "{error}");
+}
+
+#[test]
+fn fuel_comparison_charges_long_equal_digit_prefixes() {
+    let mut k = kernel();
+    let digits = "9".repeat(MAX_DIGITS);
+    let fuel = decimal(&digits);
+    let required = Natural::parse(&digits).unwrap();
+    k.reset_budget();
+    k.work = WORK - MAX_DIGITS / 2;
+    let error = k.euclidean_has_fuel(NAT, &fuel, &required, 0).unwrap_err();
+    assert!(error.contains("resource limit"), "{error}");
 }
 
 #[test]
@@ -568,7 +615,7 @@ fn remainder_does_not_assume_that_proof_arguments_guarantee_fuel() {
     let value = recurrence.value(&mut k, literal(21), literal(5));
     k.reset_budget();
     assert!(
-        matches!(k.natural_euclidean_observation(&value,0).unwrap().as_deref(),Some(Term::NatLiteral {value,..}) if value.decimal()=="1")
+        matches!(k.natural_euclidean_observation(&value,0).unwrap().as_ref().map(T::as_ref),Some(Term::NatLiteral {value,..}) if value.decimal()=="1")
     );
 }
 
@@ -658,3 +705,6 @@ fn matching_a_guard_does_not_authorize_an_unrelated_decrement_argument() {
     k.reset_budget();
     assert!(k.convertible(&[], &slow, &literal(3), 0).unwrap());
 }
+
+#[path = "delayed_euclidean_tests.rs"]
+mod delayed_observations;

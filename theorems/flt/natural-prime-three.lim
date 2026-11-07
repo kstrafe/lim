@@ -1,0 +1,219 @@
+; Constructive primality and small divisibility facts for three.
+; Prime is the existing no-proper-nonunit-divisor proposition, not a builtin fact.
+(#alias add = ../fermat_statement.lim::add)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-zero = ./natural-order.lim::not-less-than-zero)
+(#alias not-less-than-self = ./natural-order.lim::not-less-than-self)
+(#alias less-than-three-cases = ./natural-small-remainders.lim::less-than-three-cases)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-reflexive = ./natural-divisibility.lim::divides-reflexive)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#alias divisor-not-above = ./natural-divisibility-bounds.lim::divisor-not-above)
+(#alias divides-add-cancel-left = ./natural-divisibility-addition.lim::divides-add-cancel-left)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias two-not-divides-one = ./natural-prime-two.lim::two-not-divides-one)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias substitution = ./equality.lim::substitution)
+(#theorem two-not-divides-three
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ #pt-zero))
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (divides-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ #pt-zero))
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+      (#pt-app
+        (#pt-use two-not-divides-one ())
+        (#pt-app
+          (#pt-use divides-add-cancel-left ())
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-succ #pt-zero)
+          (#pt-app (#pt-use divides-reflexive ()) (#pt-succ (#pt-succ #pt-zero)))
+          divides-proof)))))
+(#theorem prime-three
+  (#universes)
+  (#parameters)
+  (#statement (#pt-app (#pt-use prime ()) (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) (#pt-succ (#pt-succ (#pt-succ #pt-zero))))
+      (#pt-pi
+        (
+          (test-divisor #pt-nat)
+          (nonunit-proof (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) test-divisor))
+          (proper-proof
+            (#pt-app (#pt-use less-than ()) test-divisor (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+          (divisor-proof
+            (#pt-app (#pt-use divides ()) test-divisor (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+        #pt-false)
+      (#pt-construct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-gap #pt-nat))
+            (#pt-eq
+              #pt-nat
+              (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+              (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ #pt-zero)) candidate-gap))))
+        introduce
+        ((#pt-succ #pt-zero) (#pt-refl #pt-nat (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+      (#pt-lambda
+        (
+          (test-divisor #pt-nat)
+          (nonunit-proof (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) test-divisor))
+          (proper-proof
+            (#pt-app (#pt-use less-than ()) test-divisor (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+          (divisor-proof
+            (#pt-app (#pt-use divides ()) test-divisor (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat test-divisor #pt-zero)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-eq #pt-nat test-divisor (#pt-succ #pt-zero))
+            (#pt-eq #pt-nat test-divisor (#pt-succ (#pt-succ #pt-zero))))
+          #pt-false
+          (#pt-lambda
+            ((zero-equation (#pt-eq #pt-nat test-divisor #pt-zero)))
+            (#pt-app
+              (#pt-app (#pt-use not-less-than-zero ()) (#pt-succ #pt-zero))
+              (#pt-app
+                (#pt-use substitution (0))
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) endpoint))
+                test-divisor
+                #pt-zero
+                zero-equation
+                nonunit-proof)))
+          (#pt-lambda
+            (
+              (one-or-two
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-eq #pt-nat test-divisor (#pt-succ #pt-zero))
+                  (#pt-eq #pt-nat test-divisor (#pt-succ (#pt-succ #pt-zero))))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-eq #pt-nat test-divisor (#pt-succ #pt-zero))
+              (#pt-eq #pt-nat test-divisor (#pt-succ (#pt-succ #pt-zero)))
+              #pt-false
+              (#pt-lambda
+                ((one-equation (#pt-eq #pt-nat test-divisor (#pt-succ #pt-zero))))
+                (#pt-app
+                  (#pt-app (#pt-use not-less-than-self ()) (#pt-succ #pt-zero))
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) endpoint))
+                    test-divisor
+                    (#pt-succ #pt-zero)
+                    one-equation
+                    nonunit-proof)))
+              (#pt-lambda
+                ((two-equation (#pt-eq #pt-nat test-divisor (#pt-succ (#pt-succ #pt-zero)))))
+                (#pt-app
+                  (#pt-use two-not-divides-three ())
+                  (#pt-app
+                    (#pt-use substitution (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((endpoint #pt-nat))
+                      (#pt-app
+                        (#pt-use divides ())
+                        endpoint
+                        (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                    test-divisor
+                    (#pt-succ (#pt-succ #pt-zero))
+                    two-equation
+                    divisor-proof)))
+              one-or-two))
+          (#pt-app (#pt-use less-than-three-cases ()) test-divisor proper-proof))))))
+(#theorem three-not-divides-one
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-succ #pt-zero))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (divides-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-succ #pt-zero))))
+      (#pt-app
+        (#pt-app
+          (#pt-use prime-not-one ())
+          (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-use prime-three ()))
+        (#pt-app (#pt-use divides-one ()) (#pt-succ (#pt-succ (#pt-succ #pt-zero))) divides-proof)))))
+(#theorem three-not-divides-two
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-succ (#pt-succ #pt-zero)))))
+      #pt-false))
+  (#proof
+    (#pt-lambda
+      (
+        (divides-proof
+          (#pt-app
+            (#pt-use divides ())
+            (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-succ (#pt-succ #pt-zero)))))
+      (#pt-app
+        (#pt-app
+          (#pt-use divisor-not-above ())
+          (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-app (#pt-use successor-not-zero ()) (#pt-succ #pt-zero))
+          divides-proof)
+        (#pt-construct
+          exists
+          (0)
+          (#pt-nat
+            (#pt-lambda
+              ((candidate-gap #pt-nat))
+              (#pt-eq
+                #pt-nat
+                (#pt-succ (#pt-succ (#pt-succ #pt-zero)))
+                (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ (#pt-succ #pt-zero))) candidate-gap))))
+          introduce
+          (#pt-zero (#pt-refl #pt-nat (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))))))

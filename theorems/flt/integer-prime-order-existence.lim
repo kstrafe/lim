@@ -1,0 +1,222 @@
+; Actual magnitude witnesses and natural quotient descent construct
+; signed valuations for every nonzero integer at every natural prime.
+; Nondivisibility gives index zero; no sign/canonical-record assumption
+; or data-valued choice from Prop is used.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#alias natural-prime-order-zero = ./natural-prime-order-existence.lim::natural-prime-order-zero)
+(#alias
+  natural-prime-order-exists
+  =
+  ./natural-prime-order-existence.lim::natural-prime-order-exists)
+(#alias natural-prime-order-one = ./natural-prime-order-uniqueness.lim::natural-prime-order-one)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias integer-natural-magnitude = ./integer-magnitude.lim::integer-natural-magnitude)
+(#alias integer-nonzero-magnitude = ./integer-magnitude.lim::integer-nonzero-magnitude)
+(#alias integer-divides-of-magnitude = ./integer-magnitude.lim::integer-divides-of-magnitude)
+(#alias integer-prime-order = ./integer-prime-order-defs.lim::integer-prime-order)
+(#theorem integer-prime-order-natural
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter magnitude #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter natural-order (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-prime-order ())
+      prime-number
+      valuation
+      (#pt-app (#pt-use integer-of-natural ()) magnitude)))
+  (#proof
+    (#pt-construct
+      integer-prime-order
+      ()
+      (prime-number valuation (#pt-app (#pt-use integer-of-natural ()) magnitude))
+      introduce
+      (magnitude natural-order (#pt-app (#pt-use integer-natural-magnitude ()) magnitude)))))
+(#theorem integer-prime-order-exists
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-app (#pt-use integer-equal ()) number (#pt-use integer-zero ())))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-valuation #pt-nat))
+        (#pt-app (#pt-use integer-prime-order ()) prime-number candidate-valuation number))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-valuation #pt-nat))
+            (#pt-app (#pt-use integer-prime-order ()) prime-number candidate-valuation number))))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-certificate (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-valuation #pt-nat))
+                (#pt-app
+                  (#pt-use natural-prime-order ())
+                  prime-number
+                  magnitude
+                  candidate-valuation)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-valuation #pt-nat))
+                      (#pt-app
+                        (#pt-use natural-prime-order ())
+                        prime-number
+                        magnitude
+                        candidate-valuation)))))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-valuation #pt-nat))
+                  (#pt-app (#pt-use integer-prime-order ()) prime-number candidate-valuation number))))
+            (
+              (#pt-lambda
+                (
+                  (valuation #pt-nat)
+                  (natural-order
+                    (#pt-app (#pt-use natural-prime-order ()) prime-number magnitude valuation)))
+                (#pt-construct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-valuation #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-prime-order ())
+                        prime-number
+                        candidate-valuation
+                        number)))
+                  introduce
+                  (valuation
+                    (#pt-construct
+                      integer-prime-order
+                      ()
+                      (prime-number valuation number)
+                      introduce
+                      (magnitude natural-order magnitude-certificate))))))
+            (#pt-app
+              (#pt-use natural-prime-order-exists ())
+              prime-number
+              magnitude
+              prime-proof
+              (#pt-app
+                (#pt-use integer-nonzero-magnitude ())
+                number
+                magnitude
+                magnitude-certificate
+                number-nonzero)))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))
+(#theorem integer-prime-order-zero
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number (#pt-use integer ()))
+    (#parameter number-nondivisor (#pt-pi ((denied-proof (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) prime-number) number))) #pt-false)))
+  (#statement (#pt-app (#pt-use integer-prime-order ()) prime-number #pt-zero number))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) number candidate-magnitude)))))
+        (#pt-app (#pt-use integer-prime-order ()) prime-number #pt-zero number))
+      (
+        (#pt-lambda
+          (
+            (magnitude #pt-nat)
+            (magnitude-certificate (#pt-app (#pt-use integer-magnitude ()) number magnitude)))
+          (#pt-construct
+            integer-prime-order
+            ()
+            (prime-number #pt-zero number)
+            introduce
+            (magnitude
+              (#pt-app
+                (#pt-use natural-prime-order-zero ())
+                prime-number
+                magnitude
+                (#pt-lambda
+                  ((natural-divides (#pt-app (#pt-use divides ()) prime-number magnitude)))
+                  (#pt-app
+                    number-nondivisor
+                    (#pt-app
+                      (#pt-use integer-divides-of-magnitude ())
+                      prime-number
+                      number
+                      magnitude
+                      magnitude-certificate
+                      natural-divides))))
+              magnitude-certificate))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) number))))
+(#theorem integer-prime-order-one
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number)))
+  (#statement
+    (#pt-app (#pt-use integer-prime-order ()) prime-number #pt-zero (#pt-use integer-one ())))
+  (#proof
+    (#pt-app
+      (#pt-use integer-prime-order-natural ())
+      prime-number
+      (#pt-succ #pt-zero)
+      #pt-zero
+      (#pt-app (#pt-use natural-prime-order-one ()) prime-number prime-proof))))

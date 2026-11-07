@@ -1,21 +1,61 @@
 //! Source adapter for the independently checked dependent-type kernel.
 //! Program facts are admitted here only after the ordinary program verifier
 //! succeeds. They remain opaque propositions, never equations about Nat.
+mod artifact;
 mod core;
+pub use artifact::check_proof_artifact_from_path;
 mod level;
+mod native_file;
+mod native_limits;
+pub use native_limits::NativeProofLimits;
+mod native_source;
 mod schedule;
+mod standalone;
 use crate::{Expr, Item};
 pub use core::export::{
-    check_lean_export, check_lean_export_receipt_with_budget, check_lean_export_with_budget,
-    check_lean_export_with_policy, translate_lean_export, translate_lean_export_with_budget,
-    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReceipt,
-    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy,
+    check_lean_export, check_lean_export_receipt_with_budget,
+    check_lean_export_receipt_with_limits, check_lean_export_with_budget,
+    check_lean_export_with_limits, check_lean_export_with_policy, translate_lean_export,
+    translate_lean_export_artifact_with_budget, translate_lean_export_artifact_with_limits,
+    translate_lean_export_artifact_with_profiles, translate_lean_export_receipt_with_budget,
+    translate_lean_export_receipt_with_limits, translate_lean_export_receipt_with_profiles,
+    translate_lean_export_with_budget, translate_lean_export_with_limits,
+    translate_lean_export_with_policy, translate_lean_export_with_profiles, LeanDeclarationReport,
+    LeanExportArtifactTranslation, LeanExportError, LeanExportLimits, LeanExportReceipt,
+    LeanExportReceiptTranslation, LeanExportReport, LeanExportTranslation, LeanFoundationPolicy,
 };
 use core::{
     apps, term, InductiveInput, Kernel, Level, Natural, NestedCase, RecursionCase, Term, T,
 };
 use std::collections::{BTreeSet, HashSet};
 type Result<T> = std::result::Result<T, String>;
+
+pub(crate) use standalone::check as check_standalone_theorem;
+pub(crate) use standalone::check_file as check_standalone_theorem_file;
+
+pub(super) trait DeclarationSource {
+    fn len(&self) -> usize;
+    fn name(&self, index: usize) -> &str;
+    fn declaration(&self, index: usize) -> Result<Expr>;
+}
+
+struct ProgramSource<'a> {
+    declarations: Vec<(&'a str, &'a Expr)>,
+}
+
+impl DeclarationSource for ProgramSource<'_> {
+    fn len(&self) -> usize {
+        self.declarations.len()
+    }
+
+    fn name(&self, index: usize) -> &str {
+        self.declarations[index].0
+    }
+
+    fn declaration(&self, index: usize) -> Result<Expr> {
+        Ok(self.declarations[index].1.clone())
+    }
+}
 
 pub(super) fn is_declaration(expr: &Expr) -> bool {
     matches!(expr,Expr::List(parts) if matches!(parts.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#proof-definition"|"#proof-opaque"|"#proof-theorem"|"#proof-inductive")))
@@ -115,49 +155,84 @@ pub(super) fn check(
     program: &crate::Program,
     facts: &HashSet<String>,
 ) -> std::result::Result<(), (String, String)> {
-    let mut kernel = Kernel::with_budget(program.proof_budget);
-    kernel.enable_declaration_spilling();
-    for fact in facts {
-        kernel.certified_program_fact(fact);
-    }
     let mut declarations = Vec::new();
-    let mut metadata = Vec::new();
     for item in &program.items {
         let Item::Proof { name, proposition } = item else {
             continue;
         };
-        if !is_declaration(proposition) {
-            continue;
+        if is_declaration(proposition) {
+            declarations.push((name.as_str(), proposition));
         }
-        if declarations.len() >= schedule::MAX_DECLARATIONS {
-            return Err((name.clone(), "kernel declaration limit exceeded".into()));
-        }
-        let parsed =
-            parse_declaration(name, proposition, facts).map_err(|why| (name.clone(), why))?;
+    }
+    check_declarations(&ProgramSource { declarations }, program.proof_budget, facts)
+}
+
+pub(super) fn check_declarations(
+    source: &impl DeclarationSource,
+    budget: crate::ProofBudget,
+    facts: &HashSet<String>,
+) -> std::result::Result<(), (String, String)> {
+    // Ordinary source has already inventoried its complete finite graph.
+    // Check all of it, including unused declarations beyond the artifact
+    // adapter's default batch size. Artifact entry points retain their
+    // explicitly selected limits through check_declarations_with_limits.
+    let limits = NativeProofLimits {
+        max_declarations: source.len().max(schedule::MAX_DECLARATIONS),
+        ..Default::default()
+    };
+    check_declarations_with_limits(source, budget, facts, limits)
+}
+
+pub(super) fn check_declarations_with_limits(
+    source: &impl DeclarationSource,
+    budget: crate::ProofBudget,
+    facts: &HashSet<String>,
+    limits: NativeProofLimits,
+) -> std::result::Result<(), (String, String)> {
+    let max_declarations = limits.max_declarations;
+    let mut kernel = Kernel::with_budget_and_scratch_limit(budget, limits.max_scratch_bytes);
+    kernel.enable_declaration_spilling();
+    for fact in facts {
+        kernel.certified_program_fact(fact).map_err(|why| {
+            (
+                fact.clone(),
+                format!("installing certified program fact: {why}"),
+            )
+        })?;
+    }
+    let metadata = |index| {
+        let name = source.name(index);
+        let declaration = source.declaration(index)?;
+        let parsed = parse_declaration(name, &declaration, facts)?;
         let members = match parsed.body {
             Body::Inductive { members, .. } => Some(members),
             _ => None,
         };
-        metadata.push(schedule::Metadata {
+        // Parsed terms and string dependencies are released after each call.
+        Ok(schedule::Metadata {
             name: parsed.name,
             dependencies: parsed.dependencies,
             members,
-        });
-        declarations.push((name.as_str(), proposition));
-        // The parsed type and proof are dropped here. Only immutable source
-        // references and dependency metadata survive until a group is ready.
-    }
+        })
+    };
     let diagnostic = |index: usize, message| {
         (
-            declarations
-                .get(index)
-                .map_or("<unknown>", |(name, _)| *name)
-                .to_owned(),
+            if index < source.len() {
+                source.name(index).to_owned()
+            } else {
+                "<unknown>".to_owned()
+            },
             message,
         )
     };
-    let mut schedule = schedule::Schedule::new(metadata, |name| kernel.contains(name))
-        .map_err(|(index, message)| diagnostic(index, message))?;
+    let scheduled = schedule::Schedule::from_source(
+        source.len(),
+        |index| source.name(index),
+        metadata,
+        |name| kernel.contains(name),
+        max_declarations,
+    );
+    let mut schedule = scheduled.map_err(|(index, message)| diagnostic(index, message))?;
     let mut transformation_bytes = 0usize;
     while let Some(indices) = schedule
         .next()
@@ -168,12 +243,15 @@ pub(super) fn check(
             .copied()
             .min()
             .ok_or_else(|| diagnostic(0, "empty kernel declaration group".into()))?;
-        let diagnostic_name = declarations[first].0.to_owned();
+        let diagnostic_name = source.name(first).to_owned();
         let mut pending = Vec::with_capacity(indices.len());
         for index in indices {
-            let (name, proposition) = declarations[index];
+            let name = source.name(index);
+            let proposition = source
+                .declaration(index)
+                .map_err(|why| (name.to_owned(), why))?;
             pending.push(
-                parse_declaration(name, proposition, facts)
+                parse_declaration(name, &proposition, facts)
                     .map_err(|why| (name.to_owned(), why))?,
             );
         }
@@ -277,8 +355,8 @@ pub(super) fn check(
         };
         result?;
         transformation_bytes = transformation_bytes.saturating_add(kernel.transformation_bytes());
-        if transformation_bytes > program.proof_budget.total_bytes() {
-            return Err((diagnostic_name, format!("kernel cumulative transformation allocation limit exceeded ({transformation_bytes} > {} bytes); no theorem was established", program.proof_budget.total_bytes())));
+        if transformation_bytes > budget.total_bytes() {
+            return Err((diagnostic_name, format!("kernel cumulative transformation allocation limit exceeded ({transformation_bytes} > {} bytes); no theorem was established", budget.total_bytes())));
         }
         kernel
             .trim_completed_declarations()

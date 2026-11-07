@@ -5,9 +5,9 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct NestedFamily {
     pub declaration: Declaration,
-    source: String,
-    levels: Vec<Level>,
-    arguments: Vec<T>,
+    pub(super) source: String,
+    pub(super) levels: Vec<Level>,
+    pub(super) arguments: Vec<T>,
 }
 pub(super) struct NestedBuild {
     pub roots: Vec<String>,
@@ -35,9 +35,7 @@ impl Kernel {
             return Err("cannot eliminate a provisional inductive family".into());
         }
         let (family, _) = self.family(name, levels, depth + 1)?;
-        if self.nested.contains_key(name)
-            || !family.group.iter().any(|key| self.nested.contains_key(key))
-        {
+        if self.nested.contains_key(name)? || !self.nested.any(&family.group)? {
             return Err("#pt-nested-induct requires a family with nested recursion cases".into());
         }
         if cases.len() != family.group.len() {
@@ -305,7 +303,7 @@ impl Kernel {
         depth: usize,
     ) -> Result<T> {
         self.tick(depth)?;
-        if let Some(view) = self.nested.get(name).cloned() {
+        if let Some(view) = self.nested.get(name)? {
             if parameters.len()
                 != view
                     .declaration
@@ -444,11 +442,7 @@ impl Kernel {
         if arguments.len() != family.parameters.len() {
             return Err("nested parameter specialization arity mismatch".into());
         }
-        if let Some(first) = family
-            .group
-            .iter()
-            .find(|member| !self.nested.contains_key(*member))
-        {
+        if let Some(first) = self.nested.roots(&family.group)?.first() {
             if first != source {
                 self.nested_instance(first, levels, &arguments, depth + 1)?;
                 if let Some(alias) = self.cached_nested(source, levels, &arguments)? {
@@ -496,7 +490,7 @@ impl Kernel {
             roots[0],
             aliases.len() + 1
         );
-        if self.contains(&key) {
+        if self.contains(&key)? {
             return Err("nested auxiliary identity collision".into());
         }
         self.nested.insert(
@@ -519,7 +513,7 @@ impl Kernel {
                     }),
                 },
             },
-        );
+        )?;
         self.nested_build
             .as_mut()
             .ok_or("missing nested build")?
@@ -574,7 +568,7 @@ impl Kernel {
             // Old auxiliary cases are rediscovered from their physical field
             // types when their owning constructor is processed. Copying them
             // here would change Lean's breadth-first auxiliary numbering.
-            if member != source && !self.nested.contains_key(member) {
+            if member != source && !self.nested.contains_key(member)? {
                 self.nested_instance(member, levels, &arguments, depth + 1)?;
             }
         }
@@ -594,11 +588,7 @@ impl Kernel {
             .aliases
             .clone();
         for alias in aliases {
-            let view = self
-                .nested
-                .get(&alias)
-                .cloned()
-                .ok_or("missing nested view")?;
+            let view = self.nested.get(&alias)?.ok_or("missing nested view")?;
             if view.source != source
                 || view.levels != levels
                 || view.arguments.len() != arguments.len()

@@ -1,0 +1,1224 @@
+; Exhaustive concrete source port of Cyclotomic/Three.lean:54-81.
+; Every unit is equivalent to 1, -1, omega, -omega, omega^2 or -omega^2.
+; The coordinate norm bounds prove exhaustiveness, and actual norm-one
+; certificates prove every listed representative is a unit.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-power = ./eisenstein-defs.lim::eisenstein-power)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias eisenstein-omega = ./eisenstein-defs.lim::eisenstein-omega)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-norm-congruent = ./eisenstein-norm-basic.lim::eisenstein-norm-congruent)
+(#alias
+  eisenstein-unit-of-natural-norm-one
+  =
+  ./eisenstein-norm-unit.lim::eisenstein-unit-of-natural-norm-one)
+(#alias
+  eisenstein-unit-real-small
+  =
+  ./eisenstein-unit-coordinate-bounds.lim::eisenstein-unit-real-small)
+(#alias
+  eisenstein-unit-zero-real-cases
+  =
+  ./eisenstein-unit-coordinate-cases.lim::eisenstein-unit-zero-real-cases)
+(#alias
+  eisenstein-unit-positive-real-cases
+  =
+  ./eisenstein-unit-coordinate-cases.lim::eisenstein-unit-positive-real-cases)
+(#alias
+  eisenstein-unit-negative-real-cases
+  =
+  ./eisenstein-unit-coordinate-cases.lim::eisenstein-unit-negative-real-cases)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#math-definition eisenstein-standard-unit ()
+  (#pt-pi ((number (#pt-use eisenstein ()))) #pt-prop)
+  (#pt-lambda
+    ((number (#pt-use eisenstein ())))
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))))))))))
+(#theorem eisenstein-unit-classification
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number)))
+  (#statement (#pt-app (#pt-use eisenstein-standard-unit ()) number))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        (#pt-project eisenstein 0 number)
+        (#pt-use integer-zero ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 0 number)
+          (#pt-use integer-one ()))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 0 number)
+          (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+      (#pt-app (#pt-use eisenstein-standard-unit ()) number)
+      (#pt-lambda
+        (
+          (real-zero
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 number)
+              (#pt-use integer-zero ()))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+          (#pt-app (#pt-use eisenstein-standard-unit ()) number)
+          (#pt-lambda
+            (
+              (first-root
+                (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))))))))
+              (#pt-app
+                (#pt-use disjunction-right ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2)))))))
+                (#pt-app
+                  (#pt-use disjunction-left ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))))))
+                  first-root))))
+          (#pt-lambda
+            (
+              (second-root
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))))))))
+              (#pt-app
+                (#pt-use disjunction-right ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2)))))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))))))
+                  (#pt-app
+                    (#pt-use disjunction-left ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2)))))
+                    second-root)))))
+          (#pt-app (#pt-use eisenstein-unit-zero-real-cases ()) number unit-proof real-zero)))
+      (#pt-lambda
+        (
+          (real-nonzero
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 number)
+                (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-equal ())
+                (#pt-project eisenstein 0 number)
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 number)
+            (#pt-use integer-one ()))
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 number)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app (#pt-use eisenstein-standard-unit ()) number)
+          (#pt-lambda
+            (
+              (real-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-use integer-one ()))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))))
+              (#pt-app (#pt-use eisenstein-standard-unit ()) number)
+              (#pt-lambda
+                (
+                  (first-root
+                    (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))))
+                (#pt-app
+                  (#pt-use disjunction-left ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))))
+                  first-root))
+              (#pt-lambda
+                (
+                  (second-root
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2))))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))))
+                    (#pt-app
+                      (#pt-use disjunction-right ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))
+                      (#pt-app
+                        (#pt-use disjunction-right ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))
+                        (#pt-app
+                          (#pt-use disjunction-right ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))
+                          second-root))))))
+              (#pt-app
+                (#pt-use eisenstein-unit-positive-real-cases ())
+                number
+                unit-proof
+                real-positive)))
+          (#pt-lambda
+            (
+              (real-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-project eisenstein 0 number)
+                  (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app (#pt-use eisenstein-standard-unit ()) number)
+              (#pt-lambda
+                (
+                  (first-root
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))))
+                  (#pt-app
+                    (#pt-use disjunction-left ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))))
+                    first-root)))
+              (#pt-lambda
+                (
+                  (second-root
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))))
+                    (#pt-app
+                      (#pt-use disjunction-right ())
+                      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))))
+                      (#pt-app
+                        (#pt-use disjunction-right ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))
+                        (#pt-app
+                          (#pt-use disjunction-left ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2))))
+                          second-root))))))
+              (#pt-app
+                (#pt-use eisenstein-unit-negative-real-cases ())
+                number
+                unit-proof
+                real-negative)))
+          real-nonzero))
+      (#pt-app (#pt-use eisenstein-unit-real-small ()) number unit-proof))))
+(#theorem eisenstein-unit-from-norm-one-equivalence
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter representative (#pt-use eisenstein ()))
+    (#parameter representative-equivalence (#pt-app (#pt-use eisenstein-equal ()) number representative))
+    (#parameter representative-norm-one (#pt-app (#pt-use integer-equal ()) (#pt-app (#pt-use eisenstein-norm ()) representative) (#pt-use integer-one ()))))
+  (#statement (#pt-app (#pt-use eisenstein-unit ()) number))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-unit-of-natural-norm-one ())
+      number
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app (#pt-use eisenstein-norm ()) number)
+        (#pt-app (#pt-use eisenstein-norm ()) representative)
+        (#pt-use integer-one ())
+        (#pt-app
+          (#pt-use eisenstein-norm-congruent ())
+          number
+          representative
+          representative-equivalence)
+        representative-norm-one))))
+(#theorem eisenstein-standard-unit-is-unit
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter standard-proof (#pt-app (#pt-use eisenstein-standard-unit ()) number)))
+  (#statement (#pt-app (#pt-use eisenstein-unit ()) number))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-power ())
+                  (#pt-use eisenstein-omega ())
+                  (#pt-numeral 2)))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2))))))))
+      (#pt-app (#pt-use eisenstein-unit ()) number)
+      (#pt-lambda
+        ((standard-0 (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-one ()))))
+        (#pt-app
+          (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+          number
+          (#pt-use eisenstein-one ())
+          standard-0
+          (#pt-refl #pt-nat (#pt-succ #pt-zero))))
+      (#pt-lambda
+        (
+          (remaining-0
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2))))))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-power ())
+                    (#pt-use eisenstein-omega ())
+                    (#pt-numeral 2)))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use eisenstein-negate ())
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))))))
+          (#pt-app (#pt-use eisenstein-unit ()) number)
+          (#pt-lambda
+            (
+              (standard-1
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ())))))
+            (#pt-app
+              (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+              number
+              (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-one ()))
+              standard-1
+              (#pt-refl #pt-nat (#pt-succ #pt-zero))))
+          (#pt-lambda
+            (
+              (remaining-1
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2)))))))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-app
+                      (#pt-use eisenstein-power ())
+                      (#pt-use eisenstein-omega ())
+                      (#pt-numeral 2)))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-app
+                      (#pt-use eisenstein-negate ())
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2))))))
+              (#pt-app (#pt-use eisenstein-unit ()) number)
+              (#pt-lambda
+                (
+                  (standard-2
+                    (#pt-app (#pt-use eisenstein-equal ()) number (#pt-use eisenstein-omega ()))))
+                (#pt-app
+                  (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+                  number
+                  (#pt-use eisenstein-omega ())
+                  standard-2
+                  (#pt-refl #pt-nat (#pt-succ #pt-zero))))
+              (#pt-lambda
+                (
+                  (remaining-2
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2)))
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app
+                            (#pt-use eisenstein-negate ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2))))))))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-power ())
+                        (#pt-use eisenstein-omega ())
+                        (#pt-numeral 2)))
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-app
+                        (#pt-use eisenstein-negate ())
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))))
+                  (#pt-app (#pt-use eisenstein-unit ()) number)
+                  (#pt-lambda
+                    (
+                      (standard-3
+                        (#pt-app
+                          (#pt-use eisenstein-equal ())
+                          number
+                          (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ())))))
+                    (#pt-app
+                      (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+                      number
+                      (#pt-app (#pt-use eisenstein-negate ()) (#pt-use eisenstein-omega ()))
+                      standard-3
+                      (#pt-refl #pt-nat (#pt-succ #pt-zero))))
+                  (#pt-lambda
+                    (
+                      (remaining-3
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          (#pt-app
+                            (#pt-use eisenstein-equal ())
+                            number
+                            (#pt-app
+                              (#pt-use eisenstein-negate ())
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))))
+                    (#pt-app
+                      (#pt-use disjunction-eliminate ())
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-power ())
+                          (#pt-use eisenstein-omega ())
+                          (#pt-numeral 2)))
+                      (#pt-app
+                        (#pt-use eisenstein-equal ())
+                        number
+                        (#pt-app
+                          (#pt-use eisenstein-negate ())
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))))
+                      (#pt-app (#pt-use eisenstein-unit ()) number)
+                      (#pt-lambda
+                        (
+                          (standard-4
+                            (#pt-app
+                              (#pt-use eisenstein-equal ())
+                              number
+                              (#pt-app
+                                (#pt-use eisenstein-power ())
+                                (#pt-use eisenstein-omega ())
+                                (#pt-numeral 2)))))
+                        (#pt-app
+                          (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+                          number
+                          (#pt-app
+                            (#pt-use eisenstein-power ())
+                            (#pt-use eisenstein-omega ())
+                            (#pt-numeral 2))
+                          standard-4
+                          (#pt-refl #pt-nat (#pt-numeral 2))))
+                      (#pt-lambda
+                        (
+                          (remaining-4
+                            (#pt-app
+                              (#pt-use eisenstein-equal ())
+                              number
+                              (#pt-app
+                                (#pt-use eisenstein-negate ())
+                                (#pt-app
+                                  (#pt-use eisenstein-power ())
+                                  (#pt-use eisenstein-omega ())
+                                  (#pt-numeral 2))))))
+                        (#pt-app
+                          (#pt-use eisenstein-unit-from-norm-one-equivalence ())
+                          number
+                          (#pt-app
+                            (#pt-use eisenstein-negate ())
+                            (#pt-app
+                              (#pt-use eisenstein-power ())
+                              (#pt-use eisenstein-omega ())
+                              (#pt-numeral 2)))
+                          remaining-4
+                          (#pt-refl #pt-nat (#pt-numeral 2))))
+                      remaining-3))
+                  remaining-2))
+              remaining-1))
+          remaining-0))
+      standard-proof)))

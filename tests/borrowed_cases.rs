@@ -187,7 +187,7 @@ fn async_generator_matches_borrowed_case_before_await() {
         &source.replace("(Choice.Full 42u64)", "(Choice.Full 41u64)"),
         0,
     );
-    run(&source.replace("(Choice.Full 42u64)", "Empty"), 0);
+    run(&source.replace("(Choice.Full 42u64)", "Choice.Empty"), 0);
     run(
         &source
             .replace("#case-ref-mut", "#case-ref")

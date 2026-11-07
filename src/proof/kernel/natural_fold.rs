@@ -85,7 +85,7 @@ impl Kernel {
             return Ok(None);
         };
         debug_assert!(result.coefficients.is_empty());
-        self.charge_transformation(128 + name.len() + result.constant.decimal().len())?;
+        self.charge_transformation(TERM_NODE_BYTES + name.len() + result.constant.decimal().len())?;
         // Preserve the exact nominal family of the subject, not builtin Nat.
         Ok(Some(term(Term::NatLiteral {
             family: name.into(),
@@ -112,7 +112,7 @@ impl Kernel {
                     value = if map.is_empty() {
                         body
                     } else {
-                        self.universes(&body, &map, depth + 1)?
+                        self.specialized_universes(&body, &map, depth + 1)?
                     };
                 }
                 Term::App(function, argument) => {
@@ -126,15 +126,22 @@ impl Kernel {
                             continue;
                         }
                     }
-                    let function = self.natural_head(function, depth + 1)?;
-                    let Term::Lam(_, body) = function.as_ref() else {
+                    let reduced = self.natural_head(function, depth + 1)?;
+                    let Term::Lam(_, body) = reduced.as_ref() else {
                         if let Some(fused) =
-                            self.natural_apply_fusion(&function, argument, depth + 1)?
+                            self.natural_apply_fusion(&reduced, argument, depth + 1)?
                         {
                             value = fused;
                             continue;
                         }
-                        return Ok(value);
+                        if Arc::ptr_eq(function, &reduced) {
+                            return Ok(value);
+                        }
+                        // Keep completed head reduction even when the exposed
+                        // recursor cannot fuse. Returning the original term
+                        // makes ordinary whnf repeat all of this substitution.
+                        self.charge_transformation(TERM_NODE_BYTES)?;
+                        return Ok(term(Term::App(reduced, argument.clone())));
                     };
                     value = self.instantiate(body, argument, depth + 1)?;
                 }
@@ -161,7 +168,15 @@ impl Kernel {
                                 continue;
                             }
                         }
-                        return Ok(value);
+                        if Arc::ptr_eq(subject, &projected) {
+                            return Ok(value);
+                        }
+                        self.charge_transformation(TERM_NODE_BYTES + family.len())?;
+                        return Ok(term(Term::Project {
+                            family: family.clone(),
+                            index: *index,
+                            subject: projected,
+                        }));
                     };
                     if actual != family {
                         return Ok(value);
@@ -172,9 +187,17 @@ impl Kernel {
                         .ok_or("invalid record field index")?;
                 }
                 Term::First(pair) | Term::Second(pair) => {
-                    let pair = self.natural_head(pair, depth + 1)?;
-                    let Term::Pair(_, first, second) = pair.as_ref() else {
-                        return Ok(value);
+                    let reduced = self.natural_head(pair, depth + 1)?;
+                    let Term::Pair(_, first, second) = reduced.as_ref() else {
+                        if Arc::ptr_eq(pair, &reduced) {
+                            return Ok(value);
+                        }
+                        self.charge_transformation(TERM_NODE_BYTES)?;
+                        return Ok(term(if matches!(value.as_ref(), Term::First(_)) {
+                            Term::First(reduced)
+                        } else {
+                            Term::Second(reduced)
+                        }));
                     };
                     value = if matches!(value.as_ref(), Term::First(_)) {
                         first.clone()

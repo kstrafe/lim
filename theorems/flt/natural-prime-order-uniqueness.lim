@@ -1,0 +1,137 @@
+; Prime valuation witnesses have one index: trichotomy and the actual
+; dividing/excluded powers rule out either strict inequality. Transport
+; along actual Nat equations and construct the valuation of one.
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#alias natural-trichotomy = ./natural-discrete-order.lim::natural-trichotomy)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#alias natural-prime-order-zero = ./natural-prime-order-existence.lim::natural-prime-order-zero)
+(#alias
+  natural-prime-order-power-divides
+  =
+  ./natural-prime-order-bounds.lim::natural-prime-order-power-divides)
+(#alias
+  natural-prime-order-excludes-higher
+  =
+  ./natural-prime-order-bounds.lim::natural-prime-order-excludes-higher)
+(#theorem natural-prime-order-unique
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter other-valuation #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter first-order (#pt-app (#pt-use natural-prime-order ()) prime-number number valuation))
+    (#parameter second-order (#pt-app (#pt-use natural-prime-order ()) prime-number number other-valuation)))
+  (#statement (#pt-eq #pt-nat valuation other-valuation))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use less-than ()) valuation other-valuation)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat valuation other-valuation)
+        (#pt-app (#pt-use less-than ()) other-valuation valuation))
+      (#pt-eq #pt-nat valuation other-valuation)
+      (#pt-lambda
+        ((first-less (#pt-app (#pt-use less-than ()) valuation other-valuation)))
+        (#pt-app
+          (#pt-use false-elimination ())
+          (#pt-eq #pt-nat valuation other-valuation)
+          (#pt-app
+            (#pt-app
+              (#pt-use natural-prime-order-excludes-higher ())
+              prime-number
+              number
+              valuation
+              prime-proof
+              first-order
+              other-valuation
+              first-less)
+            (#pt-app
+              (#pt-use natural-prime-order-power-divides ())
+              prime-number
+              number
+              other-valuation
+              second-order))))
+      (#pt-lambda
+        (
+          (comparison-tail
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat valuation other-valuation)
+              (#pt-app (#pt-use less-than ()) other-valuation valuation))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-eq #pt-nat valuation other-valuation)
+          (#pt-app (#pt-use less-than ()) other-valuation valuation)
+          (#pt-eq #pt-nat valuation other-valuation)
+          (#pt-lambda
+            ((equal-exponents (#pt-eq #pt-nat valuation other-valuation)))
+            equal-exponents)
+          (#pt-lambda
+            ((second-less (#pt-app (#pt-use less-than ()) other-valuation valuation)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-eq #pt-nat valuation other-valuation)
+              (#pt-app
+                (#pt-app
+                  (#pt-use natural-prime-order-excludes-higher ())
+                  prime-number
+                  number
+                  other-valuation
+                  prime-proof
+                  second-order
+                  valuation
+                  second-less)
+                (#pt-app
+                  (#pt-use natural-prime-order-power-divides ())
+                  prime-number
+                  number
+                  valuation
+                  first-order))))
+          comparison-tail))
+      (#pt-app (#pt-use natural-trichotomy ()) valuation other-valuation))))
+(#theorem natural-prime-order-congruent
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number #pt-nat)
+    (#parameter other-number #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter number-equation (#pt-eq #pt-nat number other-number))
+    (#parameter order-certificate (#pt-app (#pt-use natural-prime-order ()) prime-number number valuation)))
+  (#statement (#pt-app (#pt-use natural-prime-order ()) prime-number other-number valuation))
+  (#proof
+    (#pt-eq-elim
+      #pt-nat
+      number
+      (#pt-lambda
+        ((transport-index #pt-nat) (transport-path (#pt-eq #pt-nat number transport-index)))
+        (#pt-app (#pt-use natural-prime-order ()) prime-number transport-index valuation))
+      order-certificate
+      other-number
+      number-equation)))
+(#theorem natural-prime-order-one
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number)))
+  (#statement (#pt-app (#pt-use natural-prime-order ()) prime-number (#pt-succ #pt-zero) #pt-zero))
+  (#proof
+    (#pt-app
+      (#pt-use natural-prime-order-zero ())
+      prime-number
+      (#pt-succ #pt-zero)
+      (#pt-lambda
+        ((unit-divides (#pt-app (#pt-use divides ()) prime-number (#pt-succ #pt-zero))))
+        (#pt-app
+          (#pt-app (#pt-use prime-not-one ()) prime-number prime-proof)
+          (#pt-app (#pt-use divides-one ()) prime-number unit-divides))))))

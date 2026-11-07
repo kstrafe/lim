@@ -17,10 +17,17 @@ use symbolic::{State, Value};
 use validation::ValidationRule;
 
 pub use kernel::{
-    check_lean_export, check_lean_export_receipt_with_budget, check_lean_export_with_budget,
-    check_lean_export_with_policy, translate_lean_export, translate_lean_export_with_budget,
-    translate_lean_export_with_policy, LeanDeclarationReport, LeanExportError, LeanExportReceipt,
-    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy,
+    check_lean_export, check_lean_export_receipt_with_budget,
+    check_lean_export_receipt_with_limits, check_lean_export_with_budget,
+    check_lean_export_with_limits, check_lean_export_with_policy, check_proof_artifact_from_path,
+    translate_lean_export, translate_lean_export_artifact_with_budget,
+    translate_lean_export_artifact_with_limits, translate_lean_export_artifact_with_profiles,
+    translate_lean_export_receipt_with_budget, translate_lean_export_receipt_with_limits,
+    translate_lean_export_receipt_with_profiles, translate_lean_export_with_budget,
+    translate_lean_export_with_limits, translate_lean_export_with_policy,
+    translate_lean_export_with_profiles, LeanDeclarationReport, LeanExportArtifactTranslation,
+    LeanExportError, LeanExportLimits, LeanExportReceipt, LeanExportReceiptTranslation,
+    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy, NativeProofLimits,
 };
 
 pub(crate) fn checked_theorem_foundations(
@@ -29,6 +36,9 @@ pub(crate) fn checked_theorem_foundations(
 ) -> Result<Vec<String>> {
     kernel::foundation_dependencies(program, target)
 }
+
+pub(crate) use kernel::check_standalone_theorem;
+pub(crate) use kernel::check_standalone_theorem_file;
 
 type Result<T> = std::result::Result<T, String>;
 

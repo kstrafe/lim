@@ -1,0 +1,2190 @@
+; A norm-certified existential is equivalent to a proved finite search
+; over four signed coordinate representatives, for every equivalence-
+; preserving property with actual pointwise proposition cases.
+; Both search/witness directions retain real norm/equivalence evidence.
+; This is a constructive proof in Prop, without a search or choice oracle.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias
+  eisenstein-coordinate-representatives
+  =
+  ./eisenstein-finite-coordinates.lim::eisenstein-coordinate-representatives)
+(#alias
+  eisenstein-coordinate-box-witness
+  =
+  ./eisenstein-finite-coordinates.lim::eisenstein-coordinate-box-witness)
+(#alias
+  eisenstein-finite-coordinates-exist
+  =
+  ./eisenstein-finite-coordinates.lim::eisenstein-finite-coordinates-exist)
+(#alias
+  eisenstein-natural-norm-congruent
+  =
+  ./eisenstein-natural-norm-transport.lim::eisenstein-natural-norm-congruent)
+(#alias integer-equality-decided = ./integer-domain.lim::integer-equality-decided)
+(#alias any-up-to = ./bounded-existence.lim::any-up-to)
+(#alias any-up-to-has-witness = ./bounded-search.lim::any-up-to-has-witness)
+(#alias any-up-to-from-less-successor = ./decidable-order.lim::any-up-to-from-less-successor)
+(#alias proposition-prefix-cases = ./proposition-minimum.lim::proposition-prefix-cases)
+(#alias proposition-conjunction-cases = ./proposition-minimum.lim::proposition-conjunction-cases)
+(#alias proposition-disjunction-cases = ./proposition-minimum.lim::proposition-disjunction-cases)
+(#math-definition eisenstein-norm-property ()
+  (#pt-pi
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (number (#pt-use eisenstein ()))
+      (natural-norm #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (number (#pt-use eisenstein ()))
+      (natural-norm #pt-nat))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app property number)
+      (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm))))
+(#math-definition eisenstein-signed-property-choices ()
+  (#pt-pi
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat)
+      (real-magnitude #pt-nat)
+      (omega-magnitude #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat)
+      (real-magnitude #pt-nat)
+      (omega-magnitude #pt-nat))
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use eisenstein-norm-property ())
+        property
+        (#pt-construct
+          eisenstein
+          ()
+          ()
+          pair
+          (
+            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+        natural-norm)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-norm-property ())
+          property
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+          natural-norm)
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+            natural-norm))))))
+(#math-definition eisenstein-coordinate-property-search ()
+  (#pt-pi
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat))
+    (#pt-app
+      (#pt-use any-up-to ())
+      (#pt-lambda
+        ((candidate-real-magnitude #pt-nat))
+        (#pt-app
+          (#pt-use any-up-to ())
+          (#pt-lambda
+            ((candidate-omega-magnitude #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-signed-property-choices ())
+              property
+              natural-norm
+              candidate-real-magnitude
+              candidate-omega-magnitude))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+(#math-definition eisenstein-norm-property-exists ()
+  (#pt-pi
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+      (natural-norm #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use eisenstein ())
+      (#pt-lambda
+        ((candidate-value (#pt-use eisenstein ())))
+        (#pt-app (#pt-use eisenstein-norm-property ()) property candidate-value natural-norm)))))
+(#theorem eisenstein-norm-property-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter pointwise-cases (#pt-pi ((case-value (#pt-use eisenstein ()))) (#pt-app (#pt-use disjunction ()) (#pt-app property case-value) (#pt-pi ((denied-proof (#pt-app property case-value))) #pt-false)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-norm-property ()) property number natural-norm)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app (#pt-use eisenstein-norm-property ()) property number natural-norm)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use proposition-conjunction-cases ())
+      (#pt-app property number)
+      (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+      (#pt-app pointwise-cases number)
+      (#pt-app
+        (#pt-use integer-equality-decided ())
+        (#pt-app (#pt-use eisenstein-norm ()) number)
+        (#pt-app (#pt-use integer-of-natural ()) natural-norm)))))
+(#theorem eisenstein-signed-property-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter real-magnitude #pt-nat)
+    (#parameter omega-magnitude #pt-nat)
+    (#parameter pointwise-cases (#pt-pi ((case-value (#pt-use eisenstein ()))) (#pt-app (#pt-use disjunction ()) (#pt-app property case-value) (#pt-pi ((denied-proof (#pt-app property case-value))) #pt-false)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app
+        (#pt-use eisenstein-signed-property-choices ())
+        property
+        natural-norm
+        real-magnitude
+        omega-magnitude)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app
+              (#pt-use eisenstein-signed-property-choices ())
+              property
+              natural-norm
+              real-magnitude
+              omega-magnitude)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use proposition-disjunction-cases ())
+      (#pt-app
+        (#pt-use eisenstein-norm-property ())
+        property
+        (#pt-construct
+          eisenstein
+          ()
+          ()
+          pair
+          (
+            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+        natural-norm)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-norm-property ())
+          property
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+          natural-norm)
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+            natural-norm)))
+      (#pt-app
+        (#pt-use eisenstein-norm-property-cases ())
+        property
+        natural-norm
+        (#pt-construct
+          eisenstein
+          ()
+          ()
+          pair
+          (
+            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+        pointwise-cases)
+      (#pt-app
+        (#pt-use proposition-disjunction-cases ())
+        (#pt-app
+          (#pt-use eisenstein-norm-property ())
+          property
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+          natural-norm)
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+            natural-norm))
+        (#pt-app
+          (#pt-use eisenstein-norm-property-cases ())
+          property
+          natural-norm
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+          pointwise-cases)
+        (#pt-app
+          (#pt-use proposition-disjunction-cases ())
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use eisenstein-norm-property-cases ())
+            property
+            natural-norm
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            pointwise-cases)
+          (#pt-app
+            (#pt-use eisenstein-norm-property-cases ())
+            property
+            natural-norm
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+            pointwise-cases))))))
+(#theorem eisenstein-coordinate-search-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter pointwise-cases (#pt-pi ((case-value (#pt-use eisenstein ()))) (#pt-app (#pt-use disjunction ()) (#pt-app property case-value) (#pt-pi ((denied-proof (#pt-app property case-value))) #pt-false)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use proposition-prefix-cases ())
+      (#pt-lambda
+        ((candidate-real-magnitude #pt-nat))
+        (#pt-app
+          (#pt-use any-up-to ())
+          (#pt-lambda
+            ((candidate-omega-magnitude #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-signed-property-choices ())
+              property
+              natural-norm
+              candidate-real-magnitude
+              candidate-omega-magnitude))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+      (#pt-lambda
+        ((real-magnitude #pt-nat))
+        (#pt-app
+          (#pt-use proposition-prefix-cases ())
+          (#pt-lambda
+            ((candidate-omega-magnitude #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-signed-property-choices ())
+              property
+              natural-norm
+              real-magnitude
+              candidate-omega-magnitude))
+          (#pt-lambda
+            ((omega-magnitude #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-signed-property-cases ())
+              property
+              natural-norm
+              real-magnitude
+              omega-magnitude
+              pointwise-cases))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+(#theorem eisenstein-representative-property-choices
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter real-magnitude #pt-nat)
+    (#parameter omega-magnitude #pt-nat)
+    (#parameter equivalence-preserves-property (#pt-pi ((source-value (#pt-use eisenstein ())) (target-value (#pt-use eisenstein ())) (value-equivalence (#pt-app (#pt-use eisenstein-equal ()) source-value target-value)) (source-evidence (#pt-app property source-value))) (#pt-app property target-value)))
+    (#parameter property-certificate (#pt-app (#pt-use eisenstein-norm-property ()) property number natural-norm))
+    (#parameter representative-cases (#pt-app (#pt-use eisenstein-coordinate-representatives ()) number real-magnitude omega-magnitude)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-signed-property-choices ())
+      property
+      natural-norm
+      real-magnitude
+      omega-magnitude))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        number
+        (#pt-construct
+          eisenstein
+          ()
+          ()
+          pair
+          (
+            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app
+          (#pt-use eisenstein-equal ())
+          number
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))))
+      (#pt-app
+        (#pt-use eisenstein-signed-property-choices ())
+        property
+        natural-norm
+        real-magnitude
+        omega-magnitude)
+      (#pt-lambda
+        (
+          (choice-0
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app
+            (#pt-use eisenstein-norm-property ())
+            property
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+            natural-norm)
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-norm-property ())
+              property
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+              natural-norm)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-norm-property ())
+                property
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                natural-norm)
+              (#pt-app
+                (#pt-use eisenstein-norm-property ())
+                property
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                natural-norm)))
+          (#pt-app
+            (#pt-use conjunction-introduce ())
+            (#pt-app
+              property
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+            (#pt-app
+              (#pt-use eisenstein-natural-norm ())
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+              natural-norm)
+            (#pt-app
+              equivalence-preserves-property
+              number
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+              choice-0
+              (#pt-app
+                (#pt-use conjunction-left ())
+                (#pt-app property number)
+                (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                property-certificate))
+            (#pt-app
+              (#pt-use eisenstein-natural-norm-congruent ())
+              number
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+              natural-norm
+              choice-0
+              (#pt-app
+                (#pt-use conjunction-right ())
+                (#pt-app property number)
+                (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                property-certificate)))))
+      (#pt-lambda
+        (
+          (remaining-0
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                      (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            number
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+          (#pt-app
+            (#pt-use disjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              number
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                  (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))))
+          (#pt-app
+            (#pt-use eisenstein-signed-property-choices ())
+            property
+            natural-norm
+            real-magnitude
+            omega-magnitude)
+          (#pt-lambda
+            (
+              (choice-1
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  number
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app
+                (#pt-use eisenstein-norm-property ())
+                property
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                natural-norm)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-norm-property ())
+                  property
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                  natural-norm)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                    natural-norm)))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app
+                  (#pt-use eisenstein-norm-property ())
+                  property
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                      (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                  natural-norm)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                    natural-norm))
+                (#pt-app
+                  (#pt-use conjunction-introduce ())
+                  (#pt-app
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+                  (#pt-app
+                    (#pt-use eisenstein-natural-norm ())
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    equivalence-preserves-property
+                    number
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                    choice-1
+                    (#pt-app
+                      (#pt-use conjunction-left ())
+                      (#pt-app property number)
+                      (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                      property-certificate))
+                  (#pt-app
+                    (#pt-use eisenstein-natural-norm-congruent ())
+                    number
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                    natural-norm
+                    choice-1
+                    (#pt-app
+                      (#pt-use conjunction-right ())
+                      (#pt-app property number)
+                      (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                      property-certificate))))))
+          (#pt-lambda
+            (
+              (remaining-1
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    number
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))))))
+            (#pt-app
+              (#pt-use disjunction-eliminate ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                number
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                    (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+              (#pt-app
+                (#pt-use eisenstein-signed-property-choices ())
+                property
+                natural-norm
+                real-magnitude
+                omega-magnitude)
+              (#pt-lambda
+                (
+                  (choice-2
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-norm-property ())
+                      property
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                      natural-norm)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app
+                      (#pt-use eisenstein-norm-property ())
+                      property
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                      natural-norm)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm))
+                    (#pt-app
+                      (#pt-use disjunction-left ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use conjunction-introduce ())
+                        (#pt-app
+                          property
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude))))
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm ())
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                          natural-norm)
+                        (#pt-app
+                          equivalence-preserves-property
+                          number
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                          choice-2
+                          (#pt-app
+                            (#pt-use conjunction-left ())
+                            (#pt-app property number)
+                            (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                            property-certificate))
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm-congruent ())
+                          number
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                          natural-norm
+                          choice-2
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app property number)
+                            (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                            property-certificate)))))))
+              (#pt-lambda
+                (
+                  (remaining-2
+                    (#pt-app
+                      (#pt-use eisenstein-equal ())
+                      number
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-norm-property ())
+                      property
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                      natural-norm)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)))
+                  (#pt-app
+                    (#pt-use disjunction-right ())
+                    (#pt-app
+                      (#pt-use eisenstein-norm-property ())
+                      property
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                      natural-norm)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm))
+                    (#pt-app
+                      (#pt-use disjunction-right ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use conjunction-introduce ())
+                        (#pt-app
+                          property
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude))))
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm ())
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                          natural-norm)
+                        (#pt-app
+                          equivalence-preserves-property
+                          number
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                          remaining-2
+                          (#pt-app
+                            (#pt-use conjunction-left ())
+                            (#pt-app property number)
+                            (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                            property-certificate))
+                        (#pt-app
+                          (#pt-use eisenstein-natural-norm-congruent ())
+                          number
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                          natural-norm
+                          remaining-2
+                          (#pt-app
+                            (#pt-use conjunction-right ())
+                            (#pt-app property number)
+                            (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                            property-certificate)))))))
+              remaining-1))
+          remaining-0))
+      representative-cases)))
+(#theorem eisenstein-box-property-search
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter real-magnitude #pt-nat)
+    (#parameter omega-magnitude #pt-nat)
+    (#parameter equivalence-preserves-property (#pt-pi ((source-value (#pt-use eisenstein ())) (target-value (#pt-use eisenstein ())) (value-equivalence (#pt-app (#pt-use eisenstein-equal ()) source-value target-value)) (source-evidence (#pt-app property source-value))) (#pt-app property target-value)))
+    (#parameter property-certificate (#pt-app (#pt-use eisenstein-norm-property ()) property number natural-norm))
+    (#parameter box-certificate (#pt-app (#pt-use eisenstein-coordinate-box-witness ()) number natural-norm real-magnitude omega-magnitude)))
+  (#statement (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm))
+  (#proof
+    (#pt-app
+      (#pt-use any-up-to-from-less-successor ())
+      (#pt-lambda
+        ((candidate-real-magnitude #pt-nat))
+        (#pt-app
+          (#pt-use any-up-to ())
+          (#pt-lambda
+            ((candidate-omega-magnitude #pt-nat))
+            (#pt-app
+              (#pt-use eisenstein-signed-property-choices ())
+              property
+              natural-norm
+              candidate-real-magnitude
+              candidate-omega-magnitude))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+      real-magnitude
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+      (#pt-app
+        (#pt-use conjunction-left ())
+        (#pt-app
+          (#pt-use less-than ())
+          real-magnitude
+          (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app
+            (#pt-use less-than ())
+            omega-magnitude
+            (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+          (#pt-app
+            (#pt-use eisenstein-coordinate-representatives ())
+            number
+            real-magnitude
+            omega-magnitude))
+        box-certificate)
+      (#pt-app
+        (#pt-use any-up-to-from-less-successor ())
+        (#pt-lambda
+          ((candidate-omega-magnitude #pt-nat))
+          (#pt-app
+            (#pt-use eisenstein-signed-property-choices ())
+            property
+            natural-norm
+            real-magnitude
+            candidate-omega-magnitude))
+        omega-magnitude
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+        (#pt-app
+          (#pt-use conjunction-left ())
+          (#pt-app
+            (#pt-use less-than ())
+            omega-magnitude
+            (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+          (#pt-app
+            (#pt-use eisenstein-coordinate-representatives ())
+            number
+            real-magnitude
+            omega-magnitude)
+          (#pt-app
+            (#pt-use conjunction-right ())
+            (#pt-app
+              (#pt-use less-than ())
+              real-magnitude
+              (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app
+                (#pt-use less-than ())
+                omega-magnitude
+                (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+              (#pt-app
+                (#pt-use eisenstein-coordinate-representatives ())
+                number
+                real-magnitude
+                omega-magnitude))
+            box-certificate))
+        (#pt-app
+          (#pt-use eisenstein-representative-property-choices ())
+          property
+          natural-norm
+          number
+          real-magnitude
+          omega-magnitude
+          equivalence-preserves-property
+          property-certificate
+          (#pt-app
+            (#pt-use conjunction-right ())
+            (#pt-app
+              (#pt-use less-than ())
+              omega-magnitude
+              (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+            (#pt-app
+              (#pt-use eisenstein-coordinate-representatives ())
+              number
+              real-magnitude
+              omega-magnitude)
+            (#pt-app
+              (#pt-use conjunction-right ())
+              (#pt-app
+                (#pt-use less-than ())
+                real-magnitude
+                (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use less-than ())
+                  omega-magnitude
+                  (#pt-succ (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+                (#pt-app
+                  (#pt-use eisenstein-coordinate-representatives ())
+                  number
+                  real-magnitude
+                  omega-magnitude))
+              box-certificate)))))))
+(#theorem eisenstein-norm-existence-to-search
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter equivalence-preserves-property (#pt-pi ((source-value (#pt-use eisenstein ())) (target-value (#pt-use eisenstein ())) (value-equivalence (#pt-app (#pt-use eisenstein-equal ()) source-value target-value)) (source-evidence (#pt-app property source-value))) (#pt-app property target-value)))
+    (#parameter property-existence (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+  (#statement (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-value (#pt-use eisenstein ())))
+          (#pt-app (#pt-use eisenstein-norm-property ()) property candidate-value natural-norm)))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-value (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use eisenstein-norm-property ())
+                  property
+                  candidate-value
+                  natural-norm)))))
+        (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm))
+      (
+        (#pt-lambda
+          (
+            (number (#pt-use eisenstein ()))
+            (property-certificate
+              (#pt-app (#pt-use eisenstein-norm-property ()) property number natural-norm)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-real-magnitude #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-omega-magnitude #pt-nat))
+                    (#pt-app
+                      (#pt-use eisenstein-coordinate-box-witness ())
+                      number
+                      natural-norm
+                      candidate-real-magnitude
+                      candidate-omega-magnitude)))))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-real-magnitude #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-omega-magnitude #pt-nat))
+                          (#pt-app
+                            (#pt-use eisenstein-coordinate-box-witness ())
+                            number
+                            natural-norm
+                            candidate-real-magnitude
+                            candidate-omega-magnitude)))))))
+              (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm))
+            (
+              (#pt-lambda
+                (
+                  (real-magnitude #pt-nat)
+                  (omega-existence
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-omega-magnitude #pt-nat))
+                        (#pt-app
+                          (#pt-use eisenstein-coordinate-box-witness ())
+                          number
+                          natural-norm
+                          real-magnitude
+                          candidate-omega-magnitude)))))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-omega-magnitude #pt-nat))
+                      (#pt-app
+                        (#pt-use eisenstein-coordinate-box-witness ())
+                        number
+                        natural-norm
+                        real-magnitude
+                        candidate-omega-magnitude)))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-omega-magnitude #pt-nat))
+                            (#pt-app
+                              (#pt-use eisenstein-coordinate-box-witness ())
+                              number
+                              natural-norm
+                              real-magnitude
+                              candidate-omega-magnitude)))))
+                    (#pt-app
+                      (#pt-use eisenstein-coordinate-property-search ())
+                      property
+                      natural-norm))
+                  (
+                    (#pt-lambda
+                      (
+                        (omega-magnitude #pt-nat)
+                        (box-certificate
+                          (#pt-app
+                            (#pt-use eisenstein-coordinate-box-witness ())
+                            number
+                            natural-norm
+                            real-magnitude
+                            omega-magnitude)))
+                      (#pt-app
+                        (#pt-use eisenstein-box-property-search ())
+                        property
+                        natural-norm
+                        number
+                        real-magnitude
+                        omega-magnitude
+                        equivalence-preserves-property
+                        property-certificate
+                        box-certificate)))
+                  omega-existence)))
+            (#pt-app
+              (#pt-use eisenstein-finite-coordinates-exist ())
+              number
+              natural-norm
+              (#pt-app
+                (#pt-use conjunction-right ())
+                (#pt-app property number)
+                (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)
+                property-certificate)))))
+      property-existence)))
+(#theorem eisenstein-search-to-norm-existence
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter search-evidence (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)))
+  (#statement (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-real-magnitude #pt-nat))
+          (#pt-app
+            (#pt-use any-up-to ())
+            (#pt-lambda
+              ((candidate-omega-magnitude #pt-nat))
+              (#pt-app
+                (#pt-use eisenstein-signed-property-choices ())
+                property
+                natural-norm
+                candidate-real-magnitude
+                candidate-omega-magnitude))
+            (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-real-magnitude #pt-nat))
+                (#pt-app
+                  (#pt-use any-up-to ())
+                  (#pt-lambda
+                    ((candidate-omega-magnitude #pt-nat))
+                    (#pt-app
+                      (#pt-use eisenstein-signed-property-choices ())
+                      property
+                      natural-norm
+                      candidate-real-magnitude
+                      candidate-omega-magnitude))
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))))
+        (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm))
+      (
+        (#pt-lambda
+          (
+            (real-magnitude #pt-nat)
+            (omega-prefix
+              (#pt-app
+                (#pt-use any-up-to ())
+                (#pt-lambda
+                  ((candidate-omega-magnitude #pt-nat))
+                  (#pt-app
+                    (#pt-use eisenstein-signed-property-choices ())
+                    property
+                    natural-norm
+                    real-magnitude
+                    candidate-omega-magnitude))
+                (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-omega-magnitude #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-signed-property-choices ())
+                  property
+                  natural-norm
+                  real-magnitude
+                  candidate-omega-magnitude)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-omega-magnitude #pt-nat))
+                      (#pt-app
+                        (#pt-use eisenstein-signed-property-choices ())
+                        property
+                        natural-norm
+                        real-magnitude
+                        candidate-omega-magnitude)))))
+              (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm))
+            (
+              (#pt-lambda
+                (
+                  (omega-magnitude #pt-nat)
+                  (signed-evidence
+                    (#pt-app
+                      (#pt-use eisenstein-signed-property-choices ())
+                      property
+                      natural-norm
+                      real-magnitude
+                      omega-magnitude)))
+                (#pt-app
+                  (#pt-use disjunction-eliminate ())
+                  (#pt-app
+                    (#pt-use eisenstein-norm-property ())
+                    property
+                    (#pt-construct
+                      eisenstein
+                      ()
+                      ()
+                      pair
+                      (
+                        (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                        (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                    natural-norm)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app
+                      (#pt-use eisenstein-norm-property ())
+                      property
+                      (#pt-construct
+                        eisenstein
+                        ()
+                        ()
+                        pair
+                        (
+                          (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                          (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                      natural-norm)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)))
+                  (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+                  (#pt-lambda
+                    (
+                      (choice-0
+                        (#pt-app
+                          (#pt-use eisenstein-norm-property ())
+                          property
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                          natural-norm)))
+                    (#pt-construct
+                      exists
+                      (0)
+                      (
+                        (#pt-use eisenstein ())
+                        (#pt-lambda
+                          ((candidate-value (#pt-use eisenstein ())))
+                          (#pt-app
+                            (#pt-use eisenstein-norm-property ())
+                            property
+                            candidate-value
+                            natural-norm)))
+                      introduce
+                      (
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                        choice-0)))
+                  (#pt-lambda
+                    (
+                      (remaining-0
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-app
+                            (#pt-use eisenstein-norm-property ())
+                            property
+                            (#pt-construct
+                              eisenstein
+                              ()
+                              ()
+                              pair
+                              (
+                                (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                            natural-norm)
+                          (#pt-app
+                            (#pt-use disjunction ())
+                            (#pt-app
+                              (#pt-use eisenstein-norm-property ())
+                              property
+                              (#pt-construct
+                                eisenstein
+                                ()
+                                ()
+                                pair
+                                (
+                                  (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                  (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                              natural-norm)
+                            (#pt-app
+                              (#pt-use eisenstein-norm-property ())
+                              property
+                              (#pt-construct
+                                eisenstein
+                                ()
+                                ()
+                                pair
+                                (
+                                  (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                  (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                              natural-norm)))))
+                    (#pt-app
+                      (#pt-use disjunction-eliminate ())
+                      (#pt-app
+                        (#pt-use eisenstein-norm-property ())
+                        property
+                        (#pt-construct
+                          eisenstein
+                          ()
+                          ()
+                          pair
+                          (
+                            (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                            (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                        natural-norm)
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-app
+                          (#pt-use eisenstein-norm-property ())
+                          property
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                          natural-norm)
+                        (#pt-app
+                          (#pt-use eisenstein-norm-property ())
+                          property
+                          (#pt-construct
+                            eisenstein
+                            ()
+                            ()
+                            pair
+                            (
+                              (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                              (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                          natural-norm))
+                      (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+                      (#pt-lambda
+                        (
+                          (choice-1
+                            (#pt-app
+                              (#pt-use eisenstein-norm-property ())
+                              property
+                              (#pt-construct
+                                eisenstein
+                                ()
+                                ()
+                                pair
+                                (
+                                  (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                                  (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                              natural-norm)))
+                        (#pt-construct
+                          exists
+                          (0)
+                          (
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-value (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use eisenstein-norm-property ())
+                                property
+                                candidate-value
+                                natural-norm)))
+                          introduce
+                          (
+                            (#pt-construct
+                              eisenstein
+                              ()
+                              ()
+                              pair
+                              (
+                                (#pt-app (#pt-use integer-of-natural ()) real-magnitude)
+                                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                            choice-1)))
+                      (#pt-lambda
+                        (
+                          (remaining-1
+                            (#pt-app
+                              (#pt-use disjunction ())
+                              (#pt-app
+                                (#pt-use eisenstein-norm-property ())
+                                property
+                                (#pt-construct
+                                  eisenstein
+                                  ()
+                                  ()
+                                  pair
+                                  (
+                                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                    (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                                natural-norm)
+                              (#pt-app
+                                (#pt-use eisenstein-norm-property ())
+                                property
+                                (#pt-construct
+                                  eisenstein
+                                  ()
+                                  ()
+                                  pair
+                                  (
+                                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                    (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                                natural-norm))))
+                        (#pt-app
+                          (#pt-use disjunction-eliminate ())
+                          (#pt-app
+                            (#pt-use eisenstein-norm-property ())
+                            property
+                            (#pt-construct
+                              eisenstein
+                              ()
+                              ()
+                              pair
+                              (
+                                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                            natural-norm)
+                          (#pt-app
+                            (#pt-use eisenstein-norm-property ())
+                            property
+                            (#pt-construct
+                              eisenstein
+                              ()
+                              ()
+                              pair
+                              (
+                                (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                            natural-norm)
+                          (#pt-app
+                            (#pt-use eisenstein-norm-property-exists ())
+                            property
+                            natural-norm)
+                          (#pt-lambda
+                            (
+                              (choice-2
+                                (#pt-app
+                                  (#pt-use eisenstein-norm-property ())
+                                  property
+                                  (#pt-construct
+                                    eisenstein
+                                    ()
+                                    ()
+                                    pair
+                                    (
+                                      (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                      (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                                  natural-norm)))
+                            (#pt-construct
+                              exists
+                              (0)
+                              (
+                                (#pt-use eisenstein ())
+                                (#pt-lambda
+                                  ((candidate-value (#pt-use eisenstein ())))
+                                  (#pt-app
+                                    (#pt-use eisenstein-norm-property ())
+                                    property
+                                    candidate-value
+                                    natural-norm)))
+                              introduce
+                              (
+                                (#pt-construct
+                                  eisenstein
+                                  ()
+                                  ()
+                                  pair
+                                  (
+                                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                    (#pt-app (#pt-use integer-of-natural ()) omega-magnitude)))
+                                choice-2)))
+                          (#pt-lambda
+                            (
+                              (remaining-2
+                                (#pt-app
+                                  (#pt-use eisenstein-norm-property ())
+                                  property
+                                  (#pt-construct
+                                    eisenstein
+                                    ()
+                                    ()
+                                    pair
+                                    (
+                                      (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                      (#pt-app
+                                        (#pt-use integer-negative-natural ())
+                                        omega-magnitude)))
+                                  natural-norm)))
+                            (#pt-construct
+                              exists
+                              (0)
+                              (
+                                (#pt-use eisenstein ())
+                                (#pt-lambda
+                                  ((candidate-value (#pt-use eisenstein ())))
+                                  (#pt-app
+                                    (#pt-use eisenstein-norm-property ())
+                                    property
+                                    candidate-value
+                                    natural-norm)))
+                              introduce
+                              (
+                                (#pt-construct
+                                  eisenstein
+                                  ()
+                                  ()
+                                  pair
+                                  (
+                                    (#pt-app (#pt-use integer-negative-natural ()) real-magnitude)
+                                    (#pt-app (#pt-use integer-negative-natural ()) omega-magnitude)))
+                                remaining-2)))
+                          remaining-1))
+                      remaining-0))
+                  signed-evidence)))
+            (#pt-app
+              (#pt-use any-up-to-has-witness ())
+              (#pt-lambda
+                ((candidate-omega-magnitude #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-signed-property-choices ())
+                  property
+                  natural-norm
+                  real-magnitude
+                  candidate-omega-magnitude))
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+              omega-prefix))))
+      (#pt-app
+        (#pt-use any-up-to-has-witness ())
+        (#pt-lambda
+          ((candidate-real-magnitude #pt-nat))
+          (#pt-app
+            (#pt-use any-up-to ())
+            (#pt-lambda
+              ((candidate-omega-magnitude #pt-nat))
+              (#pt-app
+                (#pt-use eisenstein-signed-property-choices ())
+                property
+                natural-norm
+                candidate-real-magnitude
+                candidate-omega-magnitude))
+            (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)))
+        (#pt-app (#pt-use multiply ()) (#pt-numeral 4) natural-norm)
+        search-evidence))))
+(#theorem eisenstein-norm-existence-cases
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((predicate-value (#pt-use eisenstein ()))) #pt-prop))
+    (#parameter natural-norm #pt-nat)
+    (#parameter equivalence-preserves-property (#pt-pi ((source-value (#pt-use eisenstein ())) (target-value (#pt-use eisenstein ())) (value-equivalence (#pt-app (#pt-use eisenstein-equal ()) source-value target-value)) (source-evidence (#pt-app property source-value))) (#pt-app property target-value)))
+    (#parameter pointwise-cases (#pt-pi ((case-value (#pt-use eisenstein ()))) (#pt-app (#pt-use disjunction ()) (#pt-app property case-value) (#pt-pi ((denied-proof (#pt-app property case-value))) #pt-false)))))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+        #pt-false)))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)
+      (#pt-pi
+        (
+          (denied-proof
+            (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)))
+        #pt-false)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+        (#pt-pi
+          (
+            (denied-proof
+              (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+          #pt-false))
+      (#pt-lambda
+        (
+          (search-evidence
+            (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)))
+        (#pt-app
+          (#pt-use disjunction-left ())
+          (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+            #pt-false)
+          (#pt-app
+            (#pt-use eisenstein-search-to-norm-existence ())
+            property
+            natural-norm
+            search-evidence)))
+      (#pt-lambda
+        (
+          (search-refutation
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app (#pt-use eisenstein-coordinate-property-search ()) property natural-norm)))
+              #pt-false)))
+        (#pt-app
+          (#pt-use disjunction-right ())
+          (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)
+          (#pt-pi
+            (
+              (denied-proof
+                (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+            #pt-false)
+          (#pt-lambda
+            (
+              (existence-evidence
+                (#pt-app (#pt-use eisenstein-norm-property-exists ()) property natural-norm)))
+            (#pt-app
+              search-refutation
+              (#pt-app
+                (#pt-use eisenstein-norm-existence-to-search ())
+                property
+                natural-norm
+                equivalence-preserves-property
+                existence-evidence)))))
+      (#pt-app
+        (#pt-use eisenstein-coordinate-search-cases ())
+        property
+        natural-norm
+        pointwise-cases))))

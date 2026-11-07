@@ -1,0 +1,156 @@
+; Constructive strong induction derived from ordinary Nat induction.
+; below(P,n) supplies P(m) whenever n = succ(m) + gap, with an explicit gap.
+; This is the arithmetic-witness form of the strict-prefix induction hypothesis.
+(#alias add = ../fermat_statement.lim::add)
+(#alias add-zero-right = ./natural-addition.lim::add-zero-right)
+(#alias add-successor-right = ./natural-addition.lim::add-successor-right)
+(#alias successor-injective = ./natural-successor.lim::successor-injective)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#math-definition below ()
+  (#pt-pi ((property (#pt-pi ((index #pt-nat)) #pt-prop)) (bound #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((property (#pt-pi ((index #pt-nat)) #pt-prop)) (bound #pt-nat))
+    (#pt-pi
+      (
+        (earlier #pt-nat)
+        (gap #pt-nat)
+        (position (#pt-eq #pt-nat bound (#pt-app (#pt-use add ()) (#pt-succ earlier) gap))))
+      (#pt-app property earlier))))
+(#theorem below-zero
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop)))
+  (#statement (#pt-app (#pt-use below ()) property #pt-zero))
+  (#proof
+    (#pt-lambda
+      (
+        (earlier #pt-nat)
+        (gap #pt-nat)
+        (position (#pt-eq #pt-nat #pt-zero (#pt-app (#pt-use add ()) (#pt-succ earlier) gap))))
+      (#pt-app
+        (#pt-use false-elimination ())
+        (#pt-app property earlier)
+        (#pt-app
+          (#pt-app (#pt-use successor-not-zero ()) (#pt-app (#pt-use add ()) earlier gap))
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            #pt-zero
+            (#pt-succ (#pt-app (#pt-use add ()) earlier gap))
+            position))))))
+(#theorem below-successor
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter bound #pt-nat)
+    (#parameter history (#pt-app (#pt-use below ()) property bound))
+    (#parameter at-bound (#pt-app property bound)))
+  (#statement (#pt-app (#pt-use below ()) property (#pt-succ bound)))
+  (#proof
+    (#pt-lambda
+      (
+        (earlier #pt-nat)
+        (gap #pt-nat)
+        (position
+          (#pt-eq #pt-nat (#pt-succ bound) (#pt-app (#pt-use add ()) (#pt-succ earlier) gap))))
+      (#pt-app
+        (#pt-nat-induct
+          (#pt-lambda
+            ((difference #pt-nat))
+            (#pt-pi
+              (
+                (location
+                  (#pt-eq
+                    #pt-nat
+                    (#pt-succ bound)
+                    (#pt-app (#pt-use add ()) (#pt-succ earlier) difference))))
+              (#pt-app property earlier)))
+          (#pt-lambda
+            (
+              (at-zero-equality
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ bound)
+                  (#pt-app (#pt-use add ()) (#pt-succ earlier) #pt-zero))))
+            (#pt-eq-elim
+              #pt-nat
+              bound
+              (#pt-lambda
+                ((endpoint #pt-nat) (path (#pt-eq #pt-nat bound endpoint)))
+                (#pt-app property endpoint))
+              at-bound
+              earlier
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                bound
+                (#pt-app (#pt-use add ()) earlier #pt-zero)
+                earlier
+                (#pt-app
+                  (#pt-use successor-injective ())
+                  bound
+                  (#pt-app (#pt-use add ()) earlier #pt-zero)
+                  at-zero-equality)
+                (#pt-app (#pt-use add-zero-right ()) earlier))))
+          (#pt-lambda
+            (
+              (previous #pt-nat)
+              (previous-proof
+                (#pt-pi
+                  (
+                    (location
+                      (#pt-eq
+                        #pt-nat
+                        (#pt-succ bound)
+                        (#pt-app (#pt-use add ()) (#pt-succ earlier) previous))))
+                  (#pt-app property earlier)))
+              (at-successor-equality
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ bound)
+                  (#pt-app (#pt-use add ()) (#pt-succ earlier) (#pt-succ previous)))))
+            (#pt-app
+              history
+              earlier
+              previous
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                bound
+                (#pt-app (#pt-use add ()) earlier (#pt-succ previous))
+                (#pt-succ (#pt-app (#pt-use add ()) earlier previous))
+                (#pt-app
+                  (#pt-use successor-injective ())
+                  bound
+                  (#pt-app (#pt-use add ()) earlier (#pt-succ previous))
+                  at-successor-equality)
+                (#pt-app (#pt-use add-successor-right ()) earlier previous))))
+          gap)
+        position))))
+(#theorem strong-induction-with-gap
+  (#universes)
+  (#parameters
+    (#parameter property (#pt-pi ((index #pt-nat)) #pt-prop))
+    (#parameter step-proof (#pt-pi ((stage #pt-nat) (prior (#pt-app (#pt-use below ()) property stage))) (#pt-app property stage))))
+  (#statement (#pt-pi ((number #pt-nat)) (#pt-app property number)))
+  (#proof
+    (#pt-lambda
+      ((number #pt-nat))
+      (#pt-let
+        (#parameter history (#pt-app (#pt-use below ()) property number))
+        (#pt-nat-induct
+          (#pt-lambda ((ordinal #pt-nat)) (#pt-app (#pt-use below ()) property ordinal))
+          (#pt-app (#pt-use below-zero ()) property)
+          (#pt-lambda
+            ((previous #pt-nat) (previous-history (#pt-app (#pt-use below ()) property previous)))
+            (#pt-app
+              (#pt-use below-successor ())
+              property
+              previous
+              previous-history
+              (#pt-app step-proof previous previous-history)))
+          number)
+        (#pt-app step-proof number history)))))

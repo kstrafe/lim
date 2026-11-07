@@ -1,0 +1,13 @@
+; Natural divisibility carries an existential multiplication witness.
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#math-definition divides ()
+  (#pt-pi ((divisor #pt-nat) (multiple #pt-nat)) #pt-prop)
+  (#pt-lambda
+    ((divisor #pt-nat) (multiple #pt-nat))
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((factor #pt-nat))
+        (#pt-eq #pt-nat multiple (#pt-app (#pt-use multiply ()) divisor factor))))))

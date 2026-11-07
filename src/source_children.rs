@@ -105,7 +105,7 @@ impl FromIterator<SpannedExpr> for SourceChildren {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
     use crate::{Expr, Span};
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn cloning_expression_preserves_value_semantics() {
         let expression = SpannedExpr {
-            expr: Expr::List(vec![Expr::Integer(10)]),
+            expr: Expr::List(vec![Expr::Integer(10)].into()),
             span: Span::new(0, 2, 1, 1),
             children: vec![expr(10)].into(),
         };

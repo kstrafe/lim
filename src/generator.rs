@@ -70,9 +70,9 @@ pub(crate) mod async_array_anchor;
 pub(crate) mod async_cells;
 // Independent source-contract regressions; executable lowering uses the
 // checked original-body graph rather than these former syntax probes.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) mod async_cfg;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) mod async_contract;
 pub(crate) mod async_emit;
 pub(crate) mod async_exec;
@@ -126,7 +126,8 @@ fn declared_lim_function_signatures(
         } else {
             raw_items.len().min(4)
         };
-        let normalized = crate::normalize_keywords(Expr::List(raw_items[..header_len].to_vec()));
+        let normalized =
+            crate::normalize_keywords(Expr::List(raw_items[..header_len].to_vec().into()));
         let Expr::List(items) = &normalized else {
             unreachable!()
         };
@@ -167,7 +168,7 @@ fn declared_lim_function_signatures(
     Ok(signatures)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 #[test]
 fn capability_signature_scan_does_not_parse_function_bodies() {
     let source = "(#fn answer ((value #u64)) #u64 (#not-a-builtin value))";
@@ -235,18 +236,24 @@ impl Origins {
         let (definition_module, definition_file) = descriptor(definition);
         let (invocation_module, invocation_file) = descriptor(invocation);
         let pair = |key: &str, value: String| {
-            Expr::List(vec![Expr::Symbol(key.into()), Expr::String(value)])
+            Expr::List(vec![Expr::Symbol(key.into()), Expr::String(value)].into())
         };
-        let header = Expr::List(vec![
-            Expr::Symbol(crate::generator_authority::HEADER.into()),
-            Expr::List(vec![
-                pair("producer", producer.into()),
-                pair("definition-module", definition_module),
-                pair("definition-file", definition_file),
-                pair("invocation-module", invocation_module),
-                pair("invocation-file", invocation_file),
-            ]),
-        ]);
+        let header = Expr::List(
+            vec![
+                Expr::Symbol(crate::generator_authority::HEADER.into()),
+                Expr::List(
+                    vec![
+                        pair("producer", producer.into()),
+                        pair("definition-module", definition_module),
+                        pair("definition-file", definition_file),
+                        pair("invocation-module", invocation_module),
+                        pair("invocation-file", invocation_file),
+                    ]
+                    .into(),
+                ),
+            ]
+            .into(),
+        );
         crate::expression_source(&header).expect("context header contains only reader syntax")
     }
 
@@ -288,7 +295,7 @@ pub(crate) fn expand_with_origins(
         .map(|(result, _)| result)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn expand_with_generated_cached_and_hits(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
@@ -1555,7 +1562,7 @@ pub(crate) fn generated_source_directory(cache: &Path) -> PathBuf {
 /// Read or create an inspectable generated-source artifact in the shared
 /// content-addressed cache. The complete key and digest remain in the metadata
 /// directory, so a digest collision is detected instead of treated as a hit.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn cached_generated_source(
     directory: &Path,
     key: &str,
@@ -1905,7 +1912,7 @@ fn load_generated_expansion(
     Ok(Some((source, forms)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn read_generated_expansion(directory: &Path, key: &str, origins: &[String]) -> Option<Vec<Expr>> {
     let (source, forms) = load_generated_expansion(directory, key).ok()??;
     let recorded = recorded_generated_origins(&source);
@@ -1932,7 +1939,7 @@ fn publish_generated_expansion(directory: &Path, key: &str, source: &str) -> Res
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn write_generated_expansion(
     directory: &Path,
     key: &str,
@@ -1973,7 +1980,7 @@ fn write_generated_expansion(
     })()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     if key.starts_with("lim-generator-cache-") {
         return read_generated_expansion(directory, key, &[]);
@@ -2027,7 +2034,7 @@ fn read_bounded_cache_text(path: &Path) -> Option<String> {
     String::from_utf8(read_bounded_cache_file(path)?).ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     let end = cursor.checked_add(8)?;
     let length = u64::from_le_bytes(bytes.get(*cursor..end)?.try_into().ok()?);
@@ -2035,7 +2042,7 @@ fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     usize::try_from(length).ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     if key.starts_with("lim-generator-cache-") {
         let _ = write_generated_expansion(directory, key, expressions, &[]);
@@ -2074,7 +2081,7 @@ pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &
     let _ = publish_cache_file(&path, &contents, "generator syntax cache");
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
     if bytes.get(..8)? != b"LIMGEN2\0" {
         return None;
@@ -2505,7 +2512,7 @@ fn expression_nodes(expression: &Expr) -> usize {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 

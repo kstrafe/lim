@@ -60,6 +60,25 @@ fn paged_and_resident_values_weights_and_ids_match_across_page_boundaries() {
 }
 
 #[test]
+fn selected_scratch_limit_pages_cold_reads_and_rejects_exhaustion() {
+    let mut levels = Levels::with_storage_limits(0, 96);
+    for i in 0..4 {
+        levels.push(Level::number(i + 1).unwrap()).unwrap();
+    }
+    assert!(levels.is_spilled());
+    assert_eq!(levels.get(1).unwrap().as_ref(), &Level::number(1).unwrap());
+    assert_eq!(levels.get(4).unwrap().as_ref(), &Level::number(4).unwrap());
+    let mut exhausted = false;
+    for i in 5..30 {
+        if levels.push(Level::number(i).unwrap()).is_err() {
+            exhausted = true;
+            break;
+        }
+    }
+    assert!(exhausted);
+}
+
+#[test]
 fn zero_limit_preserves_all_duplicate_ids_and_various_conditional_levels() {
     let mut levels = Levels::with_limit(0);
     let inputs = examples();

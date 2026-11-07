@@ -1,7 +1,7 @@
 //! Paged exact universe values for source replay. The arithmetic has already
 //! computed these representations; reads restore fields without recomputation
 //! or normalization. No context-dependent typing judgment is stored here.
-use super::{spool::Spool, Level, Result};
+use super::{scratch, spool::Spool, Level, Result};
 use std::{borrow::Cow, cell::RefCell, collections::VecDeque};
 
 const MEMORY_BYTES: usize = 2 * 1024 * 1024;
@@ -19,6 +19,7 @@ enum Storage {
         values: Vec<Level>,
         bytes: usize,
         limit: usize,
+        scratch_limit: u64,
     },
     Spilled(Spilled),
 }
@@ -75,11 +76,22 @@ impl Levels {
         Self::with_limit(MEMORY_BYTES)
     }
     pub(super) fn with_limit(limit: usize) -> Self {
+        Self::with_config(limit, scratch::DEFAULT_BYTES)
+    }
+    pub(super) fn with_scratch_limit(max_scratch_bytes: u64) -> Self {
+        Self::with_config(MEMORY_BYTES, max_scratch_bytes)
+    }
+    #[cfg(test)]
+    fn with_storage_limits(memory_limit: usize, scratch_limit: u64) -> Self {
+        Self::with_config(memory_limit, scratch_limit)
+    }
+    fn with_config(limit: usize, scratch_limit: u64) -> Self {
         // Defer fallible scratch creation until the first actual input record.
         Self(Storage::Memory {
             values: vec![Level::number(0).expect("zero universe")],
             bytes: 0,
             limit,
+            scratch_limit,
         })
     }
     pub(super) fn len(&self) -> usize {
@@ -114,6 +126,7 @@ impl Levels {
             values,
             bytes,
             limit,
+            scratch_limit,
         } = &mut self.0
         {
             let owned = level.storage_memory_weight();
@@ -132,8 +145,16 @@ impl Levels {
                 return Ok(());
             }
             let mut spilled = Spilled {
-                index: RefCell::new(Spool::new()?),
-                data: RefCell::new(Spool::new()?),
+                index: RefCell::new(if *scratch_limit == scratch::DEFAULT_BYTES {
+                    Spool::new()?
+                } else {
+                    Spool::with_limit(*scratch_limit)?
+                }),
+                data: RefCell::new(if *scratch_limit == scratch::DEFAULT_BYTES {
+                    Spool::new()?
+                } else {
+                    Spool::with_limit(*scratch_limit)?
+                }),
                 count: 0,
                 recent: Recent::default(),
             };
@@ -161,6 +182,7 @@ impl TryFrom<Vec<Level>> for Levels {
             values: vec![],
             bytes: 0,
             limit: MEMORY_BYTES,
+            scratch_limit: scratch::DEFAULT_BYTES,
         });
         for value in values {
             result.push(value)?;

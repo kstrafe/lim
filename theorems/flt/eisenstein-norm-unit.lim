@@ -1,0 +1,314 @@
+; Units are exactly the elements with a certified natural norm of one.
+; The reverse direction constructs the conjugate as the inverse.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-one = ./eisenstein-defs.lim::eisenstein-one)
+(#alias eisenstein-lambda = ./eisenstein-defs.lim::eisenstein-lambda)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias
+  eisenstein-of-integer-injective
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-injective)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-norm = ./eisenstein-norm-defs.lim::eisenstein-norm)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias eisenstein-unit = ./eisenstein-defs.lim::eisenstein-unit)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias
+  eisenstein-has-natural-norm
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-has-natural-norm)
+(#alias
+  eisenstein-natural-norm-exists
+  =
+  ./eisenstein-norm-nonnegative.lim::eisenstein-natural-norm-exists)
+(#alias
+  eisenstein-natural-norm-multiply
+  =
+  ./eisenstein-natural-norm-multiply.lim::eisenstein-natural-norm-multiply)
+(#alias eisenstein-norm-congruent = ./eisenstein-norm-basic.lim::eisenstein-norm-congruent)
+(#alias eisenstein-norm-one = ./eisenstein-norm-basic.lim::eisenstein-norm-one)
+(#alias integer-of-natural-injective = ./integer-equality.lim::integer-of-natural-injective)
+(#alias divides-one = ./natural-divisibility-bounds.lim::divides-one)
+(#alias eisenstein-product-conjugate = ./eisenstein-conjugate.lim::eisenstein-product-conjugate)
+(#alias
+  eisenstein-of-integer-congruent
+  =
+  ./eisenstein-equality.lim::eisenstein-of-integer-congruent)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#theorem eisenstein-unit-natural-norm-one
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter natural-norm #pt-nat)
+    (#parameter unit-proof (#pt-app (#pt-use eisenstein-unit ()) number))
+    (#parameter norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number natural-norm)))
+  (#statement (#pt-eq #pt-nat natural-norm (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) number candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse number)
+              (#pt-use eisenstein-one ())))))
+      (#pt-lambda
+        (
+          (eisenstein-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use eisenstein ())
+              (#pt-lambda
+                ((candidate-inverse (#pt-use eisenstein ())))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) number candidate-inverse)
+                    (#pt-use eisenstein-one ()))
+                  (#pt-app
+                    (#pt-use eisenstein-equal ())
+                    (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse number)
+                    (#pt-use eisenstein-one ())))))))
+        (#pt-eq #pt-nat natural-norm (#pt-succ #pt-zero)))
+      (
+        (#pt-lambda
+          (
+            (inverse (#pt-use eisenstein ()))
+            (inverse-equations
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) number inverse)
+                  (#pt-use eisenstein-one ()))
+                (#pt-app
+                  (#pt-use eisenstein-equal ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) inverse number)
+                  (#pt-use eisenstein-one ())))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-norm #pt-nat))
+                (#pt-app (#pt-use eisenstein-natural-norm ()) inverse candidate-norm)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-norm #pt-nat))
+                      (#pt-app (#pt-use eisenstein-natural-norm ()) inverse candidate-norm)))))
+              (#pt-eq #pt-nat natural-norm (#pt-succ #pt-zero)))
+            (
+              (#pt-lambda
+                (
+                  (inverse-norm #pt-nat)
+                  (inverse-certificate
+                    (#pt-app (#pt-use eisenstein-natural-norm ()) inverse inverse-norm)))
+                (#pt-app
+                  (#pt-use divides-one ())
+                  natural-norm
+                  (#pt-construct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((candidate-factor #pt-nat))
+                        (#pt-eq
+                          #pt-nat
+                          (#pt-succ #pt-zero)
+                          (#pt-app (#pt-use multiply ()) natural-norm candidate-factor))))
+                    introduce
+                    (inverse-norm
+                      (#pt-app
+                        (#pt-use symmetry (0))
+                        #pt-nat
+                        (#pt-app (#pt-use multiply ()) natural-norm inverse-norm)
+                        (#pt-succ #pt-zero)
+                        (#pt-app
+                          (#pt-use integer-of-natural-injective ())
+                          (#pt-app (#pt-use multiply ()) natural-norm inverse-norm)
+                          (#pt-succ #pt-zero)
+                          (#pt-app
+                            (#pt-use integer-transitive ())
+                            (#pt-app
+                              (#pt-use integer-of-natural ())
+                              (#pt-app (#pt-use multiply ()) natural-norm inverse-norm))
+                            (#pt-app
+                              (#pt-use eisenstein-norm ())
+                              (#pt-app (#pt-use eisenstein-multiply ()) number inverse))
+                            (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+                            (#pt-app
+                              (#pt-use integer-symmetric ())
+                              (#pt-app
+                                (#pt-use eisenstein-norm ())
+                                (#pt-app (#pt-use eisenstein-multiply ()) number inverse))
+                              (#pt-app
+                                (#pt-use integer-of-natural ())
+                                (#pt-app (#pt-use multiply ()) natural-norm inverse-norm))
+                              (#pt-app
+                                (#pt-use eisenstein-natural-norm-multiply ())
+                                number
+                                inverse
+                                natural-norm
+                                inverse-norm
+                                norm-certificate
+                                inverse-certificate))
+                            (#pt-app
+                              (#pt-use integer-transitive ())
+                              (#pt-app
+                                (#pt-use eisenstein-norm ())
+                                (#pt-app (#pt-use eisenstein-multiply ()) number inverse))
+                              (#pt-app (#pt-use eisenstein-norm ()) (#pt-use eisenstein-one ()))
+                              (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+                              (#pt-app
+                                (#pt-use eisenstein-norm-congruent ())
+                                (#pt-app (#pt-use eisenstein-multiply ()) number inverse)
+                                (#pt-use eisenstein-one ())
+                                (#pt-app
+                                  (#pt-use conjunction-left ())
+                                  (#pt-app
+                                    (#pt-use eisenstein-equal ())
+                                    (#pt-app (#pt-use eisenstein-multiply ()) number inverse)
+                                    (#pt-use eisenstein-one ()))
+                                  (#pt-app
+                                    (#pt-use eisenstein-equal ())
+                                    (#pt-app (#pt-use eisenstein-multiply ()) inverse number)
+                                    (#pt-use eisenstein-one ()))
+                                  inverse-equations))
+                              (#pt-use eisenstein-norm-one ()))))))))))
+            (#pt-app (#pt-use eisenstein-natural-norm-exists ()) inverse))))
+      unit-proof)))
+(#theorem eisenstein-unit-of-natural-norm-one
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use eisenstein ()))
+    (#parameter norm-one-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) number (#pt-succ #pt-zero))))
+  (#statement (#pt-app (#pt-use eisenstein-unit ()) number))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (
+        (#pt-use eisenstein ())
+        (#pt-lambda
+          ((candidate-inverse (#pt-use eisenstein ())))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) number candidate-inverse)
+              (#pt-use eisenstein-one ()))
+            (#pt-app
+              (#pt-use eisenstein-equal ())
+              (#pt-app (#pt-use eisenstein-multiply ()) candidate-inverse number)
+              (#pt-use eisenstein-one ())))))
+      introduce
+      (
+        (#pt-app (#pt-use eisenstein-conjugate ()) number)
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              number
+              (#pt-app (#pt-use eisenstein-conjugate ()) number))
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-equal ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-conjugate ()) number)
+              number)
+            (#pt-use eisenstein-one ()))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              number
+              (#pt-app (#pt-use eisenstein-conjugate ()) number))
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use eisenstein-norm ()) number))
+            (#pt-use eisenstein-one ())
+            (#pt-app (#pt-use eisenstein-product-conjugate ()) number)
+            (#pt-app
+              (#pt-use eisenstein-of-integer-congruent ())
+              (#pt-app (#pt-use eisenstein-norm ()) number)
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+              norm-one-certificate))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-conjugate ()) number)
+              number)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              number
+              (#pt-app (#pt-use eisenstein-conjugate ()) number))
+            (#pt-use eisenstein-one ())
+            (#pt-app
+              (#pt-use eisenstein-multiply-commutative ())
+              (#pt-app (#pt-use eisenstein-conjugate ()) number)
+              number)
+            (#pt-app
+              (#pt-use eisenstein-transitive ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                number
+                (#pt-app (#pt-use eisenstein-conjugate ()) number))
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use eisenstein-norm ()) number))
+              (#pt-use eisenstein-one ())
+              (#pt-app (#pt-use eisenstein-product-conjugate ()) number)
+              (#pt-app
+                (#pt-use eisenstein-of-integer-congruent ())
+                (#pt-app (#pt-use eisenstein-norm ()) number)
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))
+                norm-one-certificate))))))))

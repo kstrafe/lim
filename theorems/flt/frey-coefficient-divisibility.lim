@@ -1,0 +1,605 @@
+; Source repository: Copyright 2026 Anthropic, PBC; see NOTICE.FLT.
+; Exact divisibility witnesses in S_FreyPackage_freyCurveInt_map:17-47.
+; Signed modulo-four and odd-power witnesses prove four divides the
+; second numerator; actual even factors and exponent gaps give sixteen
+; dividing the fourth. Retain all quotient witnesses; no residue oracle.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias integer-negate-congruent = ./integer-equality.lim::integer-negate-congruent)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#alias integer-divides-transitive = ./integer-divisibility.lim::integer-divides-transitive)
+(#alias
+  integer-divides-congruent-target
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-target)
+(#alias
+  integer-divides-congruent-divisor
+  =
+  ./integer-divisibility.lim::integer-divides-congruent-divisor)
+(#alias
+  integer-divides-negative-target
+  =
+  ./integer-divisibility.lim::integer-divides-negative-target)
+(#alias integer-divides-add = ./integer-divisibility-addition.lim::integer-divides-add)
+(#alias integer-power-of-natural = ./integer-power-laws.lim::integer-power-of-natural)
+(#alias integer-negative-odd-power = ./integer-power-laws.lim::integer-negative-odd-power)
+(#alias integer-negate-involution = ./integer-addition.lim::integer-negate-involution)
+(#alias
+  integer-successor-times-four
+  =
+  ./integer-mod-four-normalization.lim::integer-successor-times-four)
+(#alias integer-three-mod-four = ./integer-mod-four-normalization.lim::integer-three-mod-four)
+(#alias less-than-successor = ./natural-order.lim::less-than-successor)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias
+  integer-divides-product-right
+  =
+  ./integer-power-divisibility.lim::integer-divides-product-right)
+(#alias
+  integer-divides-product-powers
+  =
+  ./integer-power-divisibility.lim::integer-divides-product-powers)
+(#alias
+  integer-power-strict-prefix-divides
+  =
+  ./integer-power-divisibility.lim::integer-power-strict-prefix-divides)
+(#alias integer-one-power = ./integer-power-divisibility.lim::integer-one-power)
+(#alias
+  integer-power-difference-divides
+  =
+  ./integer-power-differences.lim::integer-power-difference-divides)
+(#alias integer-add-swap-last = ./integer-integral-identities.lim::integer-add-swap-last)
+(#alias integer-frey-a2-rearrange = ./integer-integral-identities.lim::integer-frey-a2-rearrange)
+(#theorem integer-three-mod-four-plus-one-divisible
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter residue-three (#pt-app (#pt-use integer-three-mod-four ()) number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+      (#pt-app (#pt-use integer-add ()) number (#pt-use integer-one ()))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-quotient (#pt-use integer ())))
+          (#pt-app
+            (#pt-use integer-equal ())
+            number
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                candidate-quotient
+                (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+              (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-quotient (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  number
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      candidate-quotient
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))))))))
+        (#pt-app
+          (#pt-use integer-divides ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use integer-add ()) number (#pt-use integer-one ()))))
+      (
+        (#pt-lambda
+          (
+            (quotient (#pt-use integer ()))
+            (residue-equation
+              (#pt-app
+                (#pt-use integer-equal ())
+                number
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    quotient
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))))))
+          (#pt-construct
+            exists
+            (0)
+            (
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-factor (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  (#pt-app (#pt-use integer-add ()) number (#pt-use integer-one ()))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                    candidate-factor))))
+            introduce
+            (
+              (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-transitive ())
+                (#pt-app (#pt-use integer-add ()) number (#pt-use integer-one ()))
+                (#pt-app
+                  (#pt-use integer-add ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      quotient
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                  (#pt-use integer-one ()))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                  (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ())))
+                (#pt-app
+                  (#pt-use integer-add-congruent ())
+                  number
+                  (#pt-use integer-one ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      quotient
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                  (#pt-use integer-one ())
+                  residue-equation
+                  (#pt-app (#pt-use integer-reflexive ()) (#pt-use integer-one ())))
+                (#pt-app
+                  (#pt-use integer-transitive ())
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        quotient
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                    (#pt-use integer-one ()))
+                  (#pt-app
+                    (#pt-use integer-add ())
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        quotient
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                      (#pt-use integer-one ()))
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                  (#pt-app
+                    (#pt-use integer-multiply ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                    (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ())))
+                  (#pt-app
+                    (#pt-use integer-add-swap-last ())
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      quotient
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3))
+                    (#pt-use integer-one ()))
+                  (#pt-app
+                    (#pt-use integer-transitive ())
+                    (#pt-app
+                      (#pt-use integer-add ())
+                      (#pt-app
+                        (#pt-use integer-add ())
+                        (#pt-app
+                          (#pt-use integer-multiply ())
+                          quotient
+                          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                        (#pt-use integer-one ()))
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ()))
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                    (#pt-app
+                      (#pt-use integer-multiply ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+                      (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ())))
+                    (#pt-app
+                      (#pt-use integer-symmetric ())
+                      (#pt-app
+                        (#pt-use integer-multiply ())
+                        (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ()))
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                      (#pt-app
+                        (#pt-use integer-add ())
+                        (#pt-app
+                          (#pt-use integer-add ())
+                          (#pt-app
+                            (#pt-use integer-multiply ())
+                            quotient
+                            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4)))
+                          (#pt-use integer-one ()))
+                        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 3)))
+                      (#pt-app (#pt-use integer-successor-times-four ()) quotient))
+                    (#pt-app
+                      (#pt-use integer-multiply-commutative ())
+                      (#pt-app (#pt-use integer-add ()) quotient (#pt-use integer-one ()))
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))))))))))
+      residue-three)))
+(#theorem integer-three-mod-four-odd-power-plus-one-divisible
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter residue-three (#pt-app (#pt-use integer-three-mod-four ()) number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) number exponent)
+        (#pt-use integer-one ()))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-divides-congruent-target ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) number exponent)
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+            exponent)))
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-power ()) number exponent)
+        (#pt-use integer-one ()))
+      (#pt-app
+        (#pt-use integer-add-congruent ())
+        (#pt-app (#pt-use integer-power ()) number exponent)
+        (#pt-app
+          (#pt-use integer-negate ())
+          (#pt-app
+            (#pt-use integer-power ())
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+            exponent))
+        (#pt-app (#pt-use integer-power ()) number exponent)
+        (#pt-use integer-one ())
+        (#pt-app
+          (#pt-use integer-reflexive ())
+          (#pt-app (#pt-use integer-power ()) number exponent))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+              exponent))
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-use integer-one ())
+          (#pt-app
+            (#pt-use integer-negate-congruent ())
+            (#pt-app
+              (#pt-use integer-power ())
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+              exponent)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+            (#pt-app
+              (#pt-use integer-transitive ())
+              (#pt-app
+                (#pt-use integer-power ())
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+                exponent)
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-power ()) (#pt-use integer-one ()) exponent))
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+              (#pt-app
+                (#pt-use integer-negative-odd-power ())
+                (#pt-use integer-one ())
+                exponent
+                odd-exponent)
+              (#pt-app
+                (#pt-use integer-negate-congruent ())
+                (#pt-app (#pt-use integer-power ()) (#pt-use integer-one ()) exponent)
+                (#pt-use integer-one ())
+                (#pt-app (#pt-use integer-one-power ()) exponent))))
+          (#pt-app (#pt-use integer-negate-involution ()) (#pt-use integer-one ()))))
+      (#pt-app
+        (#pt-use integer-power-difference-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        number
+        (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))
+        exponent
+        (#pt-app
+          (#pt-use integer-divides-congruent-target ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use integer-add ()) number (#pt-use integer-one ()))
+          (#pt-app
+            (#pt-use integer-add ())
+            number
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ()))))
+          (#pt-app
+            (#pt-use integer-add-congruent ())
+            number
+            (#pt-use integer-one ())
+            number
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+            (#pt-app (#pt-use integer-reflexive ()) number)
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app
+                (#pt-use integer-negate ())
+                (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+              (#pt-use integer-one ())
+              (#pt-app (#pt-use integer-negate-involution ()) (#pt-use integer-one ()))))
+          (#pt-app (#pt-use integer-three-mod-four-plus-one-divisible ()) number residue-three))))))
+(#theorem integer-even-large-power-divisible-four
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-numeral 4) exponent))
+    (#parameter even-number (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero))) number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+      (#pt-app (#pt-use integer-power ()) number exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-divides-transitive ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+      (#pt-app (#pt-use integer-power ()) number (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-app (#pt-use integer-power ()) number exponent)
+      (#pt-app
+        (#pt-use integer-divides-congruent-divisor ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app (#pt-use integer-power ()) number (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use integer-power-of-natural ())
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-succ (#pt-succ #pt-zero)))
+        (#pt-app
+          (#pt-use integer-divides-product-powers ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+          number
+          (#pt-succ (#pt-succ #pt-zero))
+          even-number))
+      (#pt-app
+        (#pt-use integer-power-strict-prefix-divides ())
+        number
+        (#pt-succ (#pt-succ #pt-zero))
+        exponent
+        (#pt-app
+          (#pt-use less-than-transitive ())
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-numeral 4)
+          exponent
+          (#pt-app
+            (#pt-use less-than-transitive ())
+            (#pt-succ (#pt-succ #pt-zero))
+            (#pt-numeral 3)
+            (#pt-numeral 4)
+            (#pt-app (#pt-use less-than-successor ()) (#pt-succ (#pt-succ #pt-zero)))
+            (#pt-app (#pt-use less-than-successor ()) (#pt-numeral 3)))
+          large-exponent)))))
+(#theorem integer-even-large-power-divisible-sixteen
+  (#universes)
+  (#parameters
+    (#parameter number (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-numeral 4) exponent))
+    (#parameter even-number (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero))) number)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-divides ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+      (#pt-app (#pt-use integer-power ()) number exponent)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-divides-transitive ())
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+      (#pt-app (#pt-use integer-power ()) number (#pt-numeral 4))
+      (#pt-app (#pt-use integer-power ()) number exponent)
+      (#pt-app
+        (#pt-use integer-divides-congruent-divisor ())
+        (#pt-app
+          (#pt-use integer-power ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+          (#pt-numeral 4))
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+        (#pt-app (#pt-use integer-power ()) number (#pt-numeral 4))
+        (#pt-app
+          (#pt-use integer-power-of-natural ())
+          (#pt-succ (#pt-succ #pt-zero))
+          (#pt-numeral 4))
+        (#pt-app
+          (#pt-use integer-divides-product-powers ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero)))
+          number
+          (#pt-numeral 4)
+          even-number))
+      (#pt-app
+        (#pt-use integer-power-strict-prefix-divides ())
+        number
+        (#pt-numeral 4)
+        exponent
+        large-exponent))))
+(#theorem frey-integral-coefficients-divisible
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter exponent #pt-nat)
+    (#parameter large-exponent (#pt-app (#pt-use less-than ()) (#pt-numeral 4) exponent))
+    (#parameter odd-exponent (#pt-app (#pt-use odd ()) exponent))
+    (#parameter second-even (#pt-app (#pt-use integer-divides ()) (#pt-app (#pt-use integer-of-natural ()) (#pt-succ (#pt-succ #pt-zero))) second))
+    (#parameter first-residue-three (#pt-app (#pt-use integer-three-mod-four ()) first)))
+  (#statement
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) second exponent)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))))
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+          (#pt-app (#pt-use integer-power ()) second exponent)))))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) second exponent)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))))
+      (#pt-app
+        (#pt-use integer-divides ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+          (#pt-app (#pt-use integer-power ()) second exponent)))
+      (#pt-app
+        (#pt-use integer-divides-congruent-target ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app (#pt-use integer-power ()) second exponent)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-use integer-one ()))))
+        (#pt-app
+          (#pt-use integer-add ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) second exponent)
+            (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+          (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent)))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) second exponent)
+              (#pt-app (#pt-use integer-negate ()) (#pt-use integer-one ())))
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app (#pt-use integer-power ()) first exponent)))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app (#pt-use integer-power ()) second exponent)
+            (#pt-app
+              (#pt-use integer-negate ())
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app (#pt-use integer-power ()) first exponent)
+                (#pt-use integer-one ()))))
+          (#pt-app
+            (#pt-use integer-frey-a2-rearrange ())
+            (#pt-app (#pt-use integer-power ()) first exponent)
+            (#pt-app (#pt-use integer-power ()) second exponent)))
+        (#pt-app
+          (#pt-use integer-divides-add ())
+          (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+          (#pt-app (#pt-use integer-power ()) second exponent)
+          (#pt-app
+            (#pt-use integer-negate ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-use integer-one ())))
+          (#pt-app
+            (#pt-use integer-even-large-power-divisible-four ())
+            second
+            exponent
+            large-exponent
+            second-even)
+          (#pt-app
+            (#pt-use integer-divides-negative-target ())
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 4))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app (#pt-use integer-power ()) first exponent)
+              (#pt-use integer-one ()))
+            (#pt-app
+              (#pt-use integer-three-mod-four-odd-power-plus-one-divisible ())
+              first
+              exponent
+              odd-exponent
+              first-residue-three))))
+      (#pt-app
+        (#pt-use integer-divides-product-right ())
+        (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 16))
+        (#pt-app (#pt-use integer-power ()) second exponent)
+        (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-power ()) first exponent))
+        (#pt-app
+          (#pt-use integer-even-large-power-divisible-sixteen ())
+          second
+          exponent
+          large-exponent
+          second-even)))))

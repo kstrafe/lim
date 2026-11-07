@@ -1,0 +1,117 @@
+; Explicit arbitrary-exponent growth: k < 3^k.
+; This supplies a finite lambda-divisibility bound without an opaque PID.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias less-than-transitive = ./natural-order.lim::less-than-transitive)
+(#alias zero-less-successor = ./natural-discrete-order.lim::zero-less-successor)
+(#alias successor-less-successor = ./natural-discrete-order.lim::successor-less-successor)
+(#alias
+  multiply-successor-right
+  =
+  ./natural-multiplication-commutative.lim::multiply-successor-right)
+(#alias power-nonzero = ./natural-nonzero.lim::power-nonzero)
+(#alias successor-not-zero = ./natural-nonzero.lim::successor-not-zero)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#theorem successor-below-triple
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat)
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use less-than ())
+      (#pt-succ number)
+      (#pt-app (#pt-use multiply ()) (#pt-numeral 3) number)))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat index #pt-zero))) #pt-false)))
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-succ index)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 3) index))))
+        (#pt-lambda
+          ((nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat #pt-zero #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use false-elimination ())
+            (#pt-app
+              (#pt-use less-than ())
+              (#pt-succ #pt-zero)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 3) #pt-zero))
+            (#pt-app nonzero (#pt-refl #pt-nat #pt-zero))))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-result
+              (#pt-pi
+                ((nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat previous #pt-zero))) #pt-false)))
+                (#pt-app
+                  (#pt-use less-than ())
+                  (#pt-succ previous)
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 3) previous))))
+            (nonzero
+              (#pt-pi ((denied-proof (#pt-eq #pt-nat (#pt-succ previous) #pt-zero))) #pt-false)))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) (#pt-numeral 3) (#pt-succ previous))
+                  (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ (#pt-succ previous))) candidate-gap))))
+            introduce
+            (
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 2) previous)
+              (#pt-app (#pt-use multiply-successor-right ()) (#pt-numeral 3) previous))))
+        number)
+      number-nonzero)))
+(#theorem exponent-below-three-power
+  (#universes)
+  (#parameters
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app (#pt-use less-than ()) exponent (#pt-app (#pt-use power ()) (#pt-numeral 3) exponent)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app (#pt-use less-than ()) index (#pt-app (#pt-use power ()) (#pt-numeral 3) index)))
+      (#pt-app (#pt-use zero-less-successor ()) #pt-zero)
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (previous-less
+            (#pt-app
+              (#pt-use less-than ())
+              previous
+              (#pt-app (#pt-use power ()) (#pt-numeral 3) previous))))
+        (#pt-app
+          (#pt-use less-than-transitive ())
+          (#pt-succ previous)
+          (#pt-succ (#pt-app (#pt-use power ()) (#pt-numeral 3) previous))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 3)
+            (#pt-app (#pt-use power ()) (#pt-numeral 3) previous))
+          (#pt-app
+            (#pt-use successor-less-successor ())
+            previous
+            (#pt-app (#pt-use power ()) (#pt-numeral 3) previous)
+            previous-less)
+          (#pt-app
+            (#pt-use successor-below-triple ())
+            (#pt-app (#pt-use power ()) (#pt-numeral 3) previous)
+            (#pt-app
+              (#pt-use power-nonzero ())
+              (#pt-numeral 3)
+              previous
+              (#pt-app (#pt-use successor-not-zero ()) (#pt-numeral 2))))))
+      exponent)))

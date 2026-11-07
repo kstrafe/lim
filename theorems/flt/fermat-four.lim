@@ -1,0 +1,915 @@
+; Closed proof of Fermat's Last Theorem for exponent four over Nat.
+; Prove descent for both common-prime and primitive cases, then apply the
+; checked infinite-descent principle to the third-coordinate measure.
+; This ports the mathematics of Mathlib/NumberTheory/FLT/Four.lean using
+; positive naturals and explicit addition gaps rather than signed normalization.
+; Copyright (c) 2020 Paul van Wamelen; source adaptation under Apache 2.0.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias power = ../fermat_statement.lim::power)
+(#alias fermats-last-theorem-statement = ../fermat_statement.lim::fermats-last-theorem-statement)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias quartic = ./fermat-four-defs.lim::quartic)
+(#alias fermat-four-two = ./fermat-four-defs.lim::fermat-four-two)
+(#alias four-two-counterexample-at = ./fermat-four-defs.lim::four-two-counterexample-at)
+(#alias four-two-smaller-than = ./fermat-four-defs.lim::four-two-smaller-than)
+(#alias four-two-swap = ./fermat-four-defs.lim::four-two-swap)
+(#alias power-four-as-quartic = ./fermat-four-defs.lim::power-four-as-quartic)
+(#alias
+  four-two-primitive-descends
+  =
+  ./fermat-four-primitive-descent.lim::four-two-primitive-descends)
+(#alias
+  four-two-common-prime-descends
+  =
+  ./fermat-four-factor-descent.lim::four-two-common-prime-descends)
+(#alias coprime = ./natural-coprime.lim::coprime)
+(#alias coprime-symmetric = ./natural-coprime.lim::coprime-symmetric)
+(#alias coprime-of-gcd-one = ./natural-coprime.lim::coprime-of-gcd-one)
+(#alias gcd-spec = ./natural-gcd.lim::gcd-spec)
+(#alias has-gcd = ./natural-gcd.lim::has-gcd)
+(#alias gcd-exists = ./natural-gcd.lim::gcd-exists)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias divides-transitive = ./natural-divisibility.lim::divides-transitive)
+(#alias zero-divisor-equation = ./decidable-divisibility.lim::zero-divisor-equation)
+(#alias odd = ./natural-parity.lim::odd)
+(#alias even-or-odd = ./natural-parity.lim::even-or-odd)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias exists-prime-divisor = ./natural-prime.lim::exists-prime-divisor)
+(#alias prime-two = ./natural-prime-two.lim::prime-two)
+(#alias prime-not-one = ./natural-prime-divisibility.lim::prime-not-one)
+(#alias zero-one-or-large = ./natural-small-cases.lim::zero-one-or-large)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias no-infinite-descent = ./infinite-descent.lim::no-infinite-descent)
+(#alias fermat-for = ./fermat-for.lim::fermat-for)
+(#alias
+  fermat-statement-from-four-and-odd-primes
+  =
+  ./odd-prime-reduction.lim::fermat-statement-from-four-and-odd-primes)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias substitution = ./equality.lim::substitution)
+(#alias false-elimination = ./logic-false.lim::false-elimination)
+(#theorem four-two-coprime-descends
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse))
+    (#parameter coprime-proof (#pt-app (#pt-use coprime ()) first second)))
+  (#statement (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) first)
+      (#pt-app (#pt-use odd ()) first)
+      (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+      (#pt-lambda
+        ((first-even (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) first)))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) second)
+          (#pt-app (#pt-use odd ()) second)
+          (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+          (#pt-lambda
+            ((second-even (#pt-app (#pt-use divides ()) (#pt-succ (#pt-succ #pt-zero)) second)))
+            (#pt-app
+              (#pt-use false-elimination ())
+              (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+              (#pt-app
+                (#pt-app
+                  (#pt-use prime-not-one ())
+                  (#pt-succ (#pt-succ #pt-zero))
+                  (#pt-use prime-two ()))
+                (#pt-app coprime-proof (#pt-succ (#pt-succ #pt-zero)) first-even second-even))))
+          (#pt-lambda
+            ((second-odd (#pt-app (#pt-use odd ()) second)))
+            (#pt-app
+              (#pt-use four-two-primitive-descends ())
+              second
+              first
+              hypotenuse
+              (#pt-app (#pt-use four-two-swap ()) first second hypotenuse counterexample)
+              (#pt-app (#pt-use coprime-symmetric ()) first second coprime-proof)
+              second-odd))
+          (#pt-app (#pt-use even-or-odd ()) second)))
+      (#pt-lambda
+        ((first-odd (#pt-app (#pt-use odd ()) first)))
+        (#pt-app
+          (#pt-use four-two-primitive-descends ())
+          first
+          second
+          hypotenuse
+          counterexample
+          coprime-proof
+          first-odd))
+      (#pt-app (#pt-use even-or-odd ()) first))))
+(#theorem four-two-descends
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse)))
+  (#statement (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gcd #pt-nat))
+          (#pt-app (#pt-use gcd-spec ()) first second candidate-gcd)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gcd #pt-nat))
+                (#pt-app (#pt-use gcd-spec ()) first second candidate-gcd)))))
+        (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+      (
+        (#pt-lambda
+          (
+            (greatest-divisor #pt-nat)
+            (gcd-proof (#pt-app (#pt-use gcd-spec ()) first second greatest-divisor)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-eq #pt-nat greatest-divisor #pt-zero)
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+              (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor))
+            (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+            (#pt-lambda
+              ((zero-equation (#pt-eq #pt-nat greatest-divisor #pt-zero)))
+              (#pt-app
+                (#pt-use false-elimination ())
+                (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+                (#pt-app
+                  (#pt-project fermat-four-two 0 counterexample)
+                  (#pt-app
+                    (#pt-use zero-divisor-equation ())
+                    first
+                    (#pt-app
+                      (#pt-use substitution (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((endpoint #pt-nat))
+                        (#pt-app (#pt-use divides ()) endpoint first))
+                      greatest-divisor
+                      #pt-zero
+                      zero-equation
+                      (#pt-app
+                        (#pt-use conjunction-left ())
+                        (#pt-app (#pt-use divides ()) greatest-divisor first)
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app (#pt-use divides ()) greatest-divisor second)
+                          (#pt-pi
+                            (
+                              (candidate-common #pt-nat)
+                              (candidate-first
+                                (#pt-app (#pt-use divides ()) candidate-common first))
+                              (candidate-second
+                                (#pt-app (#pt-use divides ()) candidate-common second)))
+                            (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                        gcd-proof))))))
+            (#pt-lambda
+              (
+                (nonzero-case
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+                    (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor))))
+              (#pt-app
+                (#pt-use disjunction-eliminate ())
+                (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))
+                (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor)
+                (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse)
+                (#pt-lambda
+                  ((one-equation (#pt-eq #pt-nat greatest-divisor (#pt-succ #pt-zero))))
+                  (#pt-app
+                    (#pt-use four-two-coprime-descends ())
+                    first
+                    second
+                    hypotenuse
+                    counterexample
+                    (#pt-app
+                      (#pt-use coprime-of-gcd-one ())
+                      first
+                      second
+                      greatest-divisor
+                      gcd-proof
+                      one-equation)))
+                (#pt-lambda
+                  (
+                    (larger-than-one
+                      (#pt-app (#pt-use less-than ()) (#pt-succ #pt-zero) greatest-divisor)))
+                  (#pt-induct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((prime-candidate #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app (#pt-use prime ()) prime-candidate)
+                          (#pt-app (#pt-use divides ()) prime-candidate greatest-divisor))))
+                    (#pt-lambda
+                      (
+                        (certificate
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((prime-candidate #pt-nat))
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use prime ()) prime-candidate)
+                                (#pt-app (#pt-use divides ()) prime-candidate greatest-divisor))))))
+                      (#pt-app (#pt-use four-two-smaller-than ()) hypotenuse))
+                    (
+                      (#pt-lambda
+                        (
+                          (prime-number #pt-nat)
+                          (prime-certificate
+                            (#pt-app
+                              (#pt-use conjunction ())
+                              (#pt-app (#pt-use prime ()) prime-number)
+                              (#pt-app (#pt-use divides ()) prime-number greatest-divisor))))
+                        (#pt-app
+                          (#pt-use four-two-common-prime-descends ())
+                          first
+                          second
+                          hypotenuse
+                          counterexample
+                          prime-number
+                          (#pt-app
+                            (#pt-use conjunction-left ())
+                            (#pt-app (#pt-use prime ()) prime-number)
+                            (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                            prime-certificate)
+                          (#pt-app
+                            (#pt-use divides-transitive ())
+                            prime-number
+                            greatest-divisor
+                            first
+                            (#pt-app
+                              (#pt-use conjunction-right ())
+                              (#pt-app (#pt-use prime ()) prime-number)
+                              (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                              prime-certificate)
+                            (#pt-app
+                              (#pt-use conjunction-left ())
+                              (#pt-app (#pt-use divides ()) greatest-divisor first)
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use divides ()) greatest-divisor second)
+                                (#pt-pi
+                                  (
+                                    (candidate-common #pt-nat)
+                                    (candidate-first
+                                      (#pt-app (#pt-use divides ()) candidate-common first))
+                                    (candidate-second
+                                      (#pt-app (#pt-use divides ()) candidate-common second)))
+                                  (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                              gcd-proof))
+                          (#pt-app
+                            (#pt-use divides-transitive ())
+                            prime-number
+                            greatest-divisor
+                            second
+                            (#pt-app
+                              (#pt-use conjunction-right ())
+                              (#pt-app (#pt-use prime ()) prime-number)
+                              (#pt-app (#pt-use divides ()) prime-number greatest-divisor)
+                              prime-certificate)
+                            (#pt-app
+                              (#pt-use conjunction-left ())
+                              (#pt-app (#pt-use divides ()) greatest-divisor second)
+                              (#pt-pi
+                                (
+                                  (candidate-common #pt-nat)
+                                  (candidate-first
+                                    (#pt-app (#pt-use divides ()) candidate-common first))
+                                  (candidate-second
+                                    (#pt-app (#pt-use divides ()) candidate-common second)))
+                                (#pt-app (#pt-use divides ()) candidate-common greatest-divisor))
+                              (#pt-app
+                                (#pt-use conjunction-right ())
+                                (#pt-app (#pt-use divides ()) greatest-divisor first)
+                                (#pt-app
+                                  (#pt-use conjunction ())
+                                  (#pt-app (#pt-use divides ()) greatest-divisor second)
+                                  (#pt-pi
+                                    (
+                                      (candidate-common #pt-nat)
+                                      (candidate-first
+                                        (#pt-app (#pt-use divides ()) candidate-common first))
+                                      (candidate-second
+                                        (#pt-app (#pt-use divides ()) candidate-common second)))
+                                    (#pt-app (#pt-use divides ()) candidate-common greatest-divisor)))
+                                gcd-proof))))))
+                    (#pt-app (#pt-use exists-prime-divisor ()) greatest-divisor larger-than-one)))
+                nonzero-case))
+            (#pt-app (#pt-use zero-one-or-large ()) greatest-divisor))))
+      (#pt-app (#pt-use gcd-exists ()) first second))))
+(#theorem four-two-counterexample-descends
+  (#universes)
+  (#parameters
+    (#parameter hypotenuse #pt-nat)
+    (#parameter original-certificate (#pt-app (#pt-use four-two-counterexample-at ()) hypotenuse)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-smaller #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+          (#pt-app (#pt-use four-two-counterexample-at ()) candidate-smaller)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-first #pt-nat))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-second #pt-nat))
+              (#pt-app (#pt-use fermat-four-two ()) candidate-first candidate-second hypotenuse)))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-first #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-second #pt-nat))
+                    (#pt-app
+                      (#pt-use fermat-four-two ())
+                      candidate-first
+                      candidate-second
+                      hypotenuse)))))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-smaller #pt-nat))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+              (#pt-app (#pt-use four-two-counterexample-at ()) candidate-smaller)))))
+      (
+        (#pt-lambda
+          (
+            (first #pt-nat)
+            (original-second-certificate
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-second #pt-nat))
+                  (#pt-app (#pt-use fermat-four-two ()) first candidate-second hypotenuse)))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-second #pt-nat))
+                (#pt-app (#pt-use fermat-four-two ()) first candidate-second hypotenuse)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-second #pt-nat))
+                      (#pt-app (#pt-use fermat-four-two ()) first candidate-second hypotenuse)))))
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-smaller #pt-nat))
+                  (#pt-app
+                    (#pt-use conjunction ())
+                    (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+                    (#pt-app (#pt-use four-two-counterexample-at ()) candidate-smaller)))))
+            (
+              (#pt-lambda
+                (
+                  (second #pt-nat)
+                  (counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse)))
+                (#pt-induct
+                  exists
+                  (0)
+                  (#pt-nat
+                    (#pt-lambda
+                      ((candidate-first #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-second #pt-nat))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-hypotenuse #pt-nat))
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app
+                                  (#pt-use fermat-four-two ())
+                                  candidate-first
+                                  candidate-second
+                                  candidate-hypotenuse)
+                                (#pt-app (#pt-use less-than ()) candidate-hypotenuse hypotenuse))))))))
+                  (#pt-lambda
+                    (
+                      (certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-first #pt-nat))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-second #pt-nat))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-hypotenuse #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use fermat-four-two ())
+                                        candidate-first
+                                        candidate-second
+                                        candidate-hypotenuse)
+                                      (#pt-app
+                                        (#pt-use less-than ())
+                                        candidate-hypotenuse
+                                        hypotenuse))))))))))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      #pt-nat
+                      (#pt-lambda
+                        ((candidate-smaller #pt-nat))
+                        (#pt-app
+                          (#pt-use conjunction ())
+                          (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+                          (#pt-app (#pt-use four-two-counterexample-at ()) candidate-smaller)))))
+                  (
+                    (#pt-lambda
+                      (
+                        (next-first #pt-nat)
+                        (second-certificate
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-second #pt-nat))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-hypotenuse #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app
+                                      (#pt-use fermat-four-two ())
+                                      next-first
+                                      candidate-second
+                                      candidate-hypotenuse)
+                                    (#pt-app (#pt-use less-than ()) candidate-hypotenuse hypotenuse))))))))
+                      (#pt-induct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-second #pt-nat))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-hypotenuse #pt-nat))
+                                (#pt-app
+                                  (#pt-use conjunction ())
+                                  (#pt-app
+                                    (#pt-use fermat-four-two ())
+                                    next-first
+                                    candidate-second
+                                    candidate-hypotenuse)
+                                  (#pt-app (#pt-use less-than ()) candidate-hypotenuse hypotenuse))))))
+                        (#pt-lambda
+                          (
+                            (certificate
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-second #pt-nat))
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-hypotenuse #pt-nat))
+                                      (#pt-app
+                                        (#pt-use conjunction ())
+                                        (#pt-app
+                                          (#pt-use fermat-four-two ())
+                                          next-first
+                                          candidate-second
+                                          candidate-hypotenuse)
+                                        (#pt-app
+                                          (#pt-use less-than ())
+                                          candidate-hypotenuse
+                                          hypotenuse))))))))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-smaller #pt-nat))
+                              (#pt-app
+                                (#pt-use conjunction ())
+                                (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+                                (#pt-app (#pt-use four-two-counterexample-at ()) candidate-smaller)))))
+                        (
+                          (#pt-lambda
+                            (
+                              (next-second #pt-nat)
+                              (hypotenuse-certificate
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-hypotenuse #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app
+                                        (#pt-use fermat-four-two ())
+                                        next-first
+                                        next-second
+                                        candidate-hypotenuse)
+                                      (#pt-app
+                                        (#pt-use less-than ())
+                                        candidate-hypotenuse
+                                        hypotenuse))))))
+                            (#pt-induct
+                              exists
+                              (0)
+                              (#pt-nat
+                                (#pt-lambda
+                                  ((candidate-hypotenuse #pt-nat))
+                                  (#pt-app
+                                    (#pt-use conjunction ())
+                                    (#pt-app
+                                      (#pt-use fermat-four-two ())
+                                      next-first
+                                      next-second
+                                      candidate-hypotenuse)
+                                    (#pt-app (#pt-use less-than ()) candidate-hypotenuse hypotenuse))))
+                              (#pt-lambda
+                                (
+                                  (certificate
+                                    (#pt-app
+                                      (#pt-use exists (0))
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((candidate-hypotenuse #pt-nat))
+                                        (#pt-app
+                                          (#pt-use conjunction ())
+                                          (#pt-app
+                                            (#pt-use fermat-four-two ())
+                                            next-first
+                                            next-second
+                                            candidate-hypotenuse)
+                                          (#pt-app
+                                            (#pt-use less-than ())
+                                            candidate-hypotenuse
+                                            hypotenuse))))))
+                                (#pt-app
+                                  (#pt-use exists (0))
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((candidate-smaller #pt-nat))
+                                    (#pt-app
+                                      (#pt-use conjunction ())
+                                      (#pt-app (#pt-use less-than ()) candidate-smaller hypotenuse)
+                                      (#pt-app
+                                        (#pt-use four-two-counterexample-at ())
+                                        candidate-smaller)))))
+                              (
+                                (#pt-lambda
+                                  (
+                                    (next-hypotenuse #pt-nat)
+                                    (smaller-certificate
+                                      (#pt-app
+                                        (#pt-use conjunction ())
+                                        (#pt-app
+                                          (#pt-use fermat-four-two ())
+                                          next-first
+                                          next-second
+                                          next-hypotenuse)
+                                        (#pt-app (#pt-use less-than ()) next-hypotenuse hypotenuse))))
+                                  (#pt-construct
+                                    exists
+                                    (0)
+                                    (#pt-nat
+                                      (#pt-lambda
+                                        ((candidate-smaller #pt-nat))
+                                        (#pt-app
+                                          (#pt-use conjunction ())
+                                          (#pt-app
+                                            (#pt-use less-than ())
+                                            candidate-smaller
+                                            hypotenuse)
+                                          (#pt-app
+                                            (#pt-use four-two-counterexample-at ())
+                                            candidate-smaller))))
+                                    introduce
+                                    (next-hypotenuse
+                                      (#pt-app
+                                        (#pt-use conjunction-introduce ())
+                                        (#pt-app (#pt-use less-than ()) next-hypotenuse hypotenuse)
+                                        (#pt-app
+                                          (#pt-use four-two-counterexample-at ())
+                                          next-hypotenuse)
+                                        (#pt-app
+                                          (#pt-use conjunction-right ())
+                                          (#pt-app
+                                            (#pt-use fermat-four-two ())
+                                            next-first
+                                            next-second
+                                            next-hypotenuse)
+                                          (#pt-app
+                                            (#pt-use less-than ())
+                                            next-hypotenuse
+                                            hypotenuse)
+                                          smaller-certificate)
+                                        (#pt-construct
+                                          exists
+                                          (0)
+                                          (#pt-nat
+                                            (#pt-lambda
+                                              ((candidate-first #pt-nat))
+                                              (#pt-app
+                                                (#pt-use exists (0))
+                                                #pt-nat
+                                                (#pt-lambda
+                                                  ((candidate-second #pt-nat))
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    candidate-first
+                                                    candidate-second
+                                                    next-hypotenuse)))))
+                                          introduce
+                                          (next-first
+                                            (#pt-construct
+                                              exists
+                                              (0)
+                                              (#pt-nat
+                                                (#pt-lambda
+                                                  ((candidate-second #pt-nat))
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    next-first
+                                                    candidate-second
+                                                    next-hypotenuse)))
+                                              introduce
+                                              (next-second
+                                                (#pt-app
+                                                  (#pt-use conjunction-left ())
+                                                  (#pt-app
+                                                    (#pt-use fermat-four-two ())
+                                                    next-first
+                                                    next-second
+                                                    next-hypotenuse)
+                                                  (#pt-app
+                                                    (#pt-use less-than ())
+                                                    next-hypotenuse
+                                                    hypotenuse)
+                                                  smaller-certificate))))))))))
+                              hypotenuse-certificate)))
+                        second-certificate)))
+                  (#pt-app (#pt-use four-two-descends ()) first second hypotenuse counterexample))))
+            original-second-certificate)))
+      original-certificate)))
+(#theorem no-four-two-counterexample
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter hypotenuse #pt-nat)
+    (#parameter counterexample (#pt-app (#pt-use fermat-four-two ()) first second hypotenuse)))
+  (#statement #pt-false)
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use no-infinite-descent ())
+        (#pt-lambda ((measure #pt-nat)) (#pt-app (#pt-use four-two-counterexample-at ()) measure))
+        (#pt-lambda
+          ((measure #pt-nat) (evidence (#pt-app (#pt-use four-two-counterexample-at ()) measure)))
+          (#pt-app (#pt-use four-two-counterexample-descends ()) measure evidence)))
+      hypotenuse
+      (#pt-construct
+        exists
+        (0)
+        (#pt-nat
+          (#pt-lambda
+            ((candidate-first #pt-nat))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-second #pt-nat))
+                (#pt-app (#pt-use fermat-four-two ()) candidate-first candidate-second hypotenuse)))))
+        introduce
+        (first
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-second #pt-nat))
+                (#pt-app (#pt-use fermat-four-two ()) first candidate-second hypotenuse)))
+            introduce
+            (second counterexample)))))))
+(#theorem fermat-for-four
+  (#universes)
+  (#parameters)
+  (#statement
+    (#pt-app (#pt-use fermat-for ()) (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+  (#proof
+    (#pt-lambda
+      (
+        (first #pt-nat)
+        (second #pt-nat)
+        (third #pt-nat)
+        (first-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat first #pt-zero))) #pt-false))
+        (second-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat second #pt-zero))) #pt-false))
+        (third-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat third #pt-zero))) #pt-false))
+        (power-equation
+          (#pt-eq
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use power ())
+                first
+                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+              (#pt-app
+                (#pt-use power ())
+                second
+                (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+            (#pt-app (#pt-use power ()) third (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))))
+      (#pt-app
+        (#pt-use no-four-two-counterexample ())
+        first
+        second
+        (#pt-app (#pt-use multiply ()) third third)
+        (#pt-construct
+          fermat-four-two
+          ()
+          (first second (#pt-app (#pt-use multiply ()) third third))
+          introduce
+          (first-nonzero
+            second-nonzero
+            (#pt-app
+              (#pt-use transitivity (0))
+              #pt-nat
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use quartic ()) first)
+                (#pt-app (#pt-use quartic ()) second))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use power ())
+                  first
+                  (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                (#pt-app (#pt-use quartic ()) second))
+              (#pt-app (#pt-use quartic ()) third)
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda
+                  ((endpoint #pt-nat))
+                  (#pt-app (#pt-use add ()) endpoint (#pt-app (#pt-use quartic ()) second)))
+                (#pt-app (#pt-use quartic ()) first)
+                (#pt-app
+                  (#pt-use power ())
+                  first
+                  (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                (#pt-app
+                  (#pt-use symmetry (0))
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use power ())
+                    first
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                  (#pt-app (#pt-use quartic ()) first)
+                  (#pt-app (#pt-use power-four-as-quartic ()) first)))
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use power ())
+                    first
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                  (#pt-app (#pt-use quartic ()) second))
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use power ())
+                    first
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                  (#pt-app
+                    (#pt-use power ())
+                    second
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+                (#pt-app (#pt-use quartic ()) third)
+                (#pt-app
+                  (#pt-use congruence (0 0))
+                  #pt-nat
+                  #pt-nat
+                  (#pt-lambda
+                    ((endpoint #pt-nat))
+                    (#pt-app
+                      (#pt-use add ())
+                      (#pt-app
+                        (#pt-use power ())
+                        first
+                        (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                      endpoint))
+                  (#pt-app (#pt-use quartic ()) second)
+                  (#pt-app
+                    (#pt-use power ())
+                    second
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    (#pt-app
+                      (#pt-use power ())
+                      second
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                    (#pt-app (#pt-use quartic ()) second)
+                    (#pt-app (#pt-use power-four-as-quartic ()) second)))
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  (#pt-app
+                    (#pt-use add ())
+                    (#pt-app
+                      (#pt-use power ())
+                      first
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                    (#pt-app
+                      (#pt-use power ())
+                      second
+                      (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero))))))
+                  (#pt-app
+                    (#pt-use power ())
+                    third
+                    (#pt-succ (#pt-succ (#pt-succ (#pt-succ #pt-zero)))))
+                  (#pt-app (#pt-use quartic ()) third)
+                  power-equation
+                  (#pt-app (#pt-use power-four-as-quartic ()) third))))))))))
+(#theorem fermat-statement-from-odd-primes
+  (#universes)
+  (#parameters
+    (#parameter odd-prime-cases (#pt-pi ((prime-exponent #pt-nat) (prime-evidence (#pt-app (#pt-use prime ()) prime-exponent)) (odd-evidence (#pt-app (#pt-use odd ()) prime-exponent))) (#pt-app (#pt-use fermat-for ()) prime-exponent))))
+  (#statement (#pt-use fermats-last-theorem-statement ()))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-statement-from-four-and-odd-primes ())
+      (#pt-use fermat-for-four ())
+      odd-prime-cases)))

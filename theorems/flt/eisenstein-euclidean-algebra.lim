@@ -1,0 +1,850 @@
+; Explicit remainder algebra for arbitrary Eisenstein division.
+; r=x-y*q reconstructs x, and coordinate division of x*conjugate(y)
+; by its actual natural norm proves r*conjugate(y)=a+b*omega.
+; These are checked ring identities, without a division/PID assumption.
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-zero = ./eisenstein-defs.lim::eisenstein-zero)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-reflexive = ./eisenstein-equality.lim::eisenstein-reflexive)
+(#alias eisenstein-symmetric = ./eisenstein-equality.lim::eisenstein-symmetric)
+(#alias eisenstein-transitive = ./eisenstein-equality.lim::eisenstein-transitive)
+(#alias eisenstein-multiply-congruent = ./eisenstein-equality.lim::eisenstein-multiply-congruent)
+(#alias eisenstein-multiply-commutative = ./eisenstein-ring.lim::eisenstein-multiply-commutative)
+(#alias eisenstein-multiply-associative = ./eisenstein-ring.lim::eisenstein-multiply-associative)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias eisenstein-conjugate = ./eisenstein-norm-defs.lim::eisenstein-conjugate)
+(#alias eisenstein-natural-norm = ./eisenstein-norm-defs.lim::eisenstein-natural-norm)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-negate = ./eisenstein-defs.lim::eisenstein-negate)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias eisenstein-add-congruent = ./eisenstein-equality.lim::eisenstein-add-congruent)
+(#alias eisenstein-negate-congruent = ./eisenstein-equality.lim::eisenstein-negate-congruent)
+(#alias eisenstein-add-associative = ./eisenstein-ring.lim::eisenstein-add-associative)
+(#alias eisenstein-add-commutative = ./eisenstein-ring.lim::eisenstein-add-commutative)
+(#alias eisenstein-add-inverse = ./eisenstein-ring.lim::eisenstein-add-inverse)
+(#alias eisenstein-multiply-distributive = ./eisenstein-ring.lim::eisenstein-multiply-distributive)
+(#alias eisenstein-multiply-negative = ./eisenstein-ring.lim::eisenstein-multiply-negative)
+(#alias eisenstein-zero-add = ./eisenstein-additive-divisibility.lim::eisenstein-zero-add)
+(#alias
+  eisenstein-negative-add-cancel
+  =
+  ./eisenstein-bezout-linear-algebra.lim::eisenstein-negative-add-cancel)
+(#alias
+  eisenstein-product-conjugate-natural
+  =
+  ./eisenstein-natural-norm-transport.lim::eisenstein-product-conjugate-natural)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias
+  eisenstein-coordinate-division-spec
+  =
+  ./eisenstein-coordinate-division.lim::eisenstein-coordinate-division-spec)
+(#alias less-than = ./natural-order.lim::less-than)
+(#math-definition eisenstein-division-remainder ()
+  (#pt-pi
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor (#pt-use eisenstein ()))
+      (quotient (#pt-use eisenstein ())))
+    (#pt-use eisenstein ()))
+  (#pt-lambda
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor (#pt-use eisenstein ()))
+      (quotient (#pt-use eisenstein ())))
+    (#pt-app
+      (#pt-use eisenstein-add ())
+      dividend
+      (#pt-app
+        (#pt-use eisenstein-negate ())
+        (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))))
+(#theorem eisenstein-division-reconstruction
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      dividend
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-symmetric ())
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient))
+      dividend
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+          (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+            dividend))
+        dividend
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            dividend
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+            dividend)
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+          (#pt-app
+            (#pt-use eisenstein-add-commutative ())
+            dividend
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+              dividend))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))
+            dividend)
+          dividend
+          (#pt-app
+            (#pt-use eisenstein-symmetric ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))
+              dividend)
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+                dividend))
+            (#pt-app
+              (#pt-use eisenstein-add-associative ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+              dividend))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))
+              dividend)
+            (#pt-app (#pt-use eisenstein-add ()) (#pt-use eisenstein-zero ()) dividend)
+            dividend
+            (#pt-app
+              (#pt-use eisenstein-add-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+                (#pt-app
+                  (#pt-use eisenstein-negate ())
+                  (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)))
+              dividend
+              (#pt-use eisenstein-zero ())
+              dividend
+              (#pt-app
+                (#pt-use eisenstein-add-inverse ())
+                (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+              (#pt-app (#pt-use eisenstein-reflexive ()) dividend))
+            (#pt-app (#pt-use eisenstein-zero-add ()) dividend)))))))
+(#theorem eisenstein-three-factor-swap-tail
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use eisenstein ()))
+    (#parameter second (#pt-use eisenstein ()))
+    (#parameter third (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+        third)
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first third)
+        second)))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first second)
+        third)
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        first
+        (#pt-app (#pt-use eisenstein-multiply ()) second third))
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-multiply ()) first third)
+        second)
+      (#pt-app (#pt-use eisenstein-multiply-associative ()) first second third)
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) second third))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) third second))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app (#pt-use eisenstein-multiply ()) first third)
+          second)
+        (#pt-app
+          (#pt-use eisenstein-multiply-congruent ())
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) second third)
+          first
+          (#pt-app (#pt-use eisenstein-multiply ()) third second)
+          (#pt-app (#pt-use eisenstein-reflexive ()) first)
+          (#pt-app (#pt-use eisenstein-multiply-commutative ()) second third))
+        (#pt-app
+          (#pt-use eisenstein-symmetric ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app (#pt-use eisenstein-multiply ()) first third)
+            second)
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            first
+            (#pt-app (#pt-use eisenstein-multiply ()) third second))
+          (#pt-app (#pt-use eisenstein-multiply-associative ()) first third second))))))
+(#theorem eisenstein-remainder-conjugate-expansion
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ())))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          dividend
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              divisor
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            quotient)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          dividend
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          dividend
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              divisor
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            quotient)))
+      (#pt-app
+        (#pt-use eisenstein-multiply-distributive ())
+        dividend
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient)))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient))
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              dividend
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+          (#pt-app
+            (#pt-use eisenstein-multiply-negative ())
+            (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient))
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              dividend
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+          (#pt-app
+            (#pt-use eisenstein-negate-congruent ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app (#pt-use eisenstein-multiply ()) divisor quotient)
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient)
+            (#pt-app
+              (#pt-use eisenstein-three-factor-swap-tail ())
+              divisor
+              quotient
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))))))))
+(#theorem eisenstein-remainder-conjugate-from-coordinates
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor (#pt-use eisenstein ()))
+    (#parameter quotient (#pt-use eisenstein ()))
+    (#parameter divisor-norm #pt-nat)
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter divisor-norm-certificate (#pt-app (#pt-use eisenstein-natural-norm ()) divisor divisor-norm))
+    (#parameter coordinate-certificate (#pt-app (#pt-use eisenstein-coordinate-division-spec ()) (#pt-app (#pt-use eisenstein-multiply ()) dividend (#pt-app (#pt-use eisenstein-conjugate ()) divisor)) divisor-norm quotient real-remainder omega-remainder)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-equal ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+      (#pt-construct
+        eisenstein
+        ()
+        ()
+        pair
+        (
+          (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+          (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+  (#proof
+    (#pt-app
+      (#pt-use eisenstein-transitive ())
+      (#pt-app
+        (#pt-use eisenstein-multiply ())
+        (#pt-app (#pt-use eisenstein-division-remainder ()) dividend divisor quotient)
+        (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+      (#pt-app
+        (#pt-use eisenstein-add ())
+        (#pt-app
+          (#pt-use eisenstein-multiply ())
+          dividend
+          (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+        (#pt-app
+          (#pt-use eisenstein-negate ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              divisor
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            quotient)))
+      (#pt-construct
+        eisenstein
+        ()
+        ()
+        pair
+        (
+          (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+          (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+      (#pt-app (#pt-use eisenstein-remainder-conjugate-expansion ()) dividend divisor quotient)
+      (#pt-app
+        (#pt-use eisenstein-transitive ())
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient)))
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+              quotient)))
+        (#pt-construct
+          eisenstein
+          ()
+          ()
+          pair
+          (
+            (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+            (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+        (#pt-app
+          (#pt-use eisenstein-add-congruent ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient))
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            dividend
+            (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+          (#pt-app
+            (#pt-use eisenstein-negate ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+              quotient))
+          (#pt-app
+            (#pt-use eisenstein-reflexive ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              dividend
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor)))
+          (#pt-app
+            (#pt-use eisenstein-negate-congruent ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient)
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+              quotient)
+            (#pt-app
+              (#pt-use eisenstein-multiply-congruent ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                divisor
+                (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+              quotient
+              (#pt-app
+                (#pt-use eisenstein-of-integer ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+              quotient
+              (#pt-app
+                (#pt-use eisenstein-product-conjugate-natural ())
+                divisor
+                divisor-norm
+                divisor-norm-certificate)
+              (#pt-app (#pt-use eisenstein-reflexive ()) quotient))))
+        (#pt-app
+          (#pt-use eisenstein-transitive ())
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              dividend
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient)))
+          (#pt-app
+            (#pt-use eisenstein-add ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient)
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient)))
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+          (#pt-app
+            (#pt-use eisenstein-add-congruent ())
+            (#pt-app
+              (#pt-use eisenstein-multiply ())
+              dividend
+              (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient)
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))
+            (#pt-app
+              (#pt-use eisenstein-negate ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient))
+            (#pt-app
+              (#pt-use conjunction-left ())
+              (#pt-app
+                (#pt-use eisenstein-equal ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  dividend
+                  (#pt-app (#pt-use eisenstein-conjugate ()) divisor))
+                (#pt-app
+                  (#pt-use eisenstein-add ())
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                    quotient)
+                  (#pt-construct
+                    eisenstein
+                    ()
+                    ()
+                    pair
+                    (
+                      (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                      (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-app (#pt-use less-than ()) real-remainder divisor-norm)
+                (#pt-app (#pt-use less-than ()) omega-remainder divisor-norm))
+              coordinate-certificate)
+            (#pt-app
+              (#pt-use eisenstein-reflexive ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient))))
+          (#pt-app
+            (#pt-use eisenstein-transitive ())
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient)
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient)))
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient))
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient)
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+            (#pt-construct
+              eisenstein
+              ()
+              ()
+              pair
+              (
+                (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+            (#pt-app
+              (#pt-use eisenstein-add-commutative ())
+              (#pt-app
+                (#pt-use eisenstein-add ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient)
+                (#pt-construct
+                  eisenstein
+                  ()
+                  ()
+                  pair
+                  (
+                    (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                    (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))
+              (#pt-app
+                (#pt-use eisenstein-negate ())
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                  quotient)))
+            (#pt-app
+              (#pt-use eisenstein-negative-add-cancel ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor-norm))
+                quotient)
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))))))))

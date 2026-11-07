@@ -1,0 +1,339 @@
+; Constructive complement arithmetic for signed Euclidean division.
+; Positive remainders give an actual complement below the divisor;
+; the adjusted negative quotient is justified by an exact addition balance.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias zero-less-successor = ./natural-discrete-order.lim::zero-less-successor)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias add-commutative = ./natural-addition.lim::add-commutative)
+(#alias add-associative = ./natural-addition.lim::add-associative)
+(#alias add-successor-right = ./natural-addition.lim::add-successor-right)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#theorem natural-zero-or-positive
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-eq #pt-nat number #pt-zero)
+      (#pt-app (#pt-use less-than ()) #pt-zero number)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-eq #pt-nat index #pt-zero)
+          (#pt-app (#pt-use less-than ()) #pt-zero index)))
+      (#pt-app
+        (#pt-use disjunction-left ())
+        (#pt-eq #pt-nat #pt-zero #pt-zero)
+        (#pt-app (#pt-use less-than ()) #pt-zero #pt-zero)
+        (#pt-refl #pt-nat #pt-zero))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (unused-previous
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-eq #pt-nat previous #pt-zero)
+              (#pt-app (#pt-use less-than ()) #pt-zero previous))))
+        (#pt-app
+          (#pt-use disjunction-right ())
+          (#pt-eq #pt-nat (#pt-succ previous) #pt-zero)
+          (#pt-app (#pt-use less-than ()) #pt-zero (#pt-succ previous))
+          (#pt-app (#pt-use zero-less-successor ()) previous)))
+      number)))
+(#theorem natural-complement-below-divisor
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter complement #pt-nat)
+    (#parameter positive-remainder (#pt-app (#pt-use less-than ()) #pt-zero remainder))
+    (#parameter sum-equation (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder complement))))
+  (#statement (#pt-app (#pt-use less-than ()) complement divisor))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-predecessor #pt-nat))
+          (#pt-eq
+            #pt-nat
+            remainder
+            (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) candidate-predecessor))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-predecessor #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  remainder
+                  (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) candidate-predecessor))))))
+        (#pt-app (#pt-use less-than ()) complement divisor))
+      (
+        (#pt-lambda
+          (
+            (predecessor #pt-nat)
+            (positive-position
+              (#pt-eq #pt-nat remainder (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) predecessor))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  divisor
+                  (#pt-app (#pt-use add ()) (#pt-succ complement) candidate-gap))))
+            introduce
+            (predecessor
+              (#pt-app
+                (#pt-use transitivity (0))
+                #pt-nat
+                divisor
+                (#pt-app (#pt-use add ()) remainder complement)
+                (#pt-app (#pt-use add ()) (#pt-succ complement) predecessor)
+                sum-equation
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  (#pt-app (#pt-use add ()) remainder complement)
+                  (#pt-app (#pt-use add ()) (#pt-succ predecessor) complement)
+                  (#pt-app (#pt-use add ()) (#pt-succ complement) predecessor)
+                  (#pt-app
+                    (#pt-use congruence (0 0))
+                    #pt-nat
+                    #pt-nat
+                    (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint complement))
+                    remainder
+                    (#pt-succ predecessor)
+                    positive-position)
+                  (#pt-app
+                    (#pt-use congruence (0 0))
+                    #pt-nat
+                    #pt-nat
+                    (#pt-lambda ((endpoint #pt-nat)) (#pt-succ endpoint))
+                    (#pt-app (#pt-use add ()) predecessor complement)
+                    (#pt-app (#pt-use add ()) complement predecessor)
+                    (#pt-app (#pt-use add-commutative ()) predecessor complement))))))))
+      positive-remainder)))
+(#theorem natural-remainder-complement-exists
+  (#universes)
+  (#parameters
+    (#parameter divisor #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter positive-remainder (#pt-app (#pt-use less-than ()) #pt-zero remainder))
+    (#parameter small-remainder (#pt-app (#pt-use less-than ()) remainder divisor)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-complement #pt-nat))
+        (#pt-app
+          (#pt-use conjunction ())
+          (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder candidate-complement))
+          (#pt-app (#pt-use less-than ()) candidate-complement divisor)))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) (#pt-succ remainder) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  divisor
+                  (#pt-app (#pt-use add ()) (#pt-succ remainder) candidate-gap))))))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-complement #pt-nat))
+            (#pt-app
+              (#pt-use conjunction ())
+              (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder candidate-complement))
+              (#pt-app (#pt-use less-than ()) candidate-complement divisor)))))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (remainder-position
+              (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) (#pt-succ remainder) gap))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-complement #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder candidate-complement))
+                  (#pt-app (#pt-use less-than ()) candidate-complement divisor))))
+            introduce
+            (
+              (#pt-succ gap)
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder (#pt-succ gap)))
+                (#pt-app (#pt-use less-than ()) (#pt-succ gap) divisor)
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  divisor
+                  (#pt-app (#pt-use add ()) (#pt-succ remainder) gap)
+                  (#pt-app (#pt-use add ()) remainder (#pt-succ gap))
+                  remainder-position
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    (#pt-app (#pt-use add ()) remainder (#pt-succ gap))
+                    (#pt-app (#pt-use add ()) (#pt-succ remainder) gap)
+                    (#pt-app (#pt-use add-successor-right ()) remainder gap)))
+                (#pt-app
+                  (#pt-use natural-complement-below-divisor ())
+                  divisor
+                  remainder
+                  (#pt-succ gap)
+                  positive-remainder
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    divisor
+                    (#pt-app (#pt-use add ()) (#pt-succ remainder) gap)
+                    (#pt-app (#pt-use add ()) remainder (#pt-succ gap))
+                    remainder-position
+                    (#pt-app
+                      (#pt-use symmetry (0))
+                      #pt-nat
+                      (#pt-app (#pt-use add ()) remainder (#pt-succ gap))
+                      (#pt-app (#pt-use add ()) (#pt-succ remainder) gap)
+                      (#pt-app (#pt-use add-successor-right ()) remainder gap)))))))))
+      small-remainder)))
+(#theorem natural-negative-division-balance
+  (#universes)
+  (#parameters
+    (#parameter dividend #pt-nat)
+    (#parameter divisor #pt-nat)
+    (#parameter quotient #pt-nat)
+    (#parameter remainder #pt-nat)
+    (#parameter complement #pt-nat)
+    (#parameter division-equation (#pt-eq #pt-nat dividend (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder)))
+    (#parameter complement-equation (#pt-eq #pt-nat divisor (#pt-app (#pt-use add ()) remainder complement))))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) (#pt-succ quotient) divisor)
+      (#pt-app (#pt-use add ()) complement dividend)))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app (#pt-use multiply ()) (#pt-succ quotient) divisor)
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use add ()) remainder complement)
+        (#pt-app (#pt-use multiply ()) quotient divisor))
+      (#pt-app (#pt-use add ()) complement dividend)
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app (#pt-use add ()) endpoint (#pt-app (#pt-use multiply ()) quotient divisor)))
+        divisor
+        (#pt-app (#pt-use add ()) remainder complement)
+        complement-equation)
+      (#pt-app
+        (#pt-use transitivity (0))
+        #pt-nat
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use add ()) remainder complement)
+          (#pt-app (#pt-use multiply ()) quotient divisor))
+        (#pt-app
+          (#pt-use add ())
+          remainder
+          (#pt-app (#pt-use add ()) complement (#pt-app (#pt-use multiply ()) quotient divisor)))
+        (#pt-app (#pt-use add ()) complement dividend)
+        (#pt-app
+          (#pt-use add-associative ())
+          remainder
+          complement
+          (#pt-app (#pt-use multiply ()) quotient divisor))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            remainder
+            (#pt-app (#pt-use add ()) complement (#pt-app (#pt-use multiply ()) quotient divisor)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use add ()) complement (#pt-app (#pt-use multiply ()) quotient divisor))
+            remainder)
+          (#pt-app (#pt-use add ()) complement dividend)
+          (#pt-app
+            (#pt-use add-commutative ())
+            remainder
+            (#pt-app (#pt-use add ()) complement (#pt-app (#pt-use multiply ()) quotient divisor)))
+          (#pt-app
+            (#pt-use transitivity (0))
+            #pt-nat
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use add ()) complement (#pt-app (#pt-use multiply ()) quotient divisor))
+              remainder)
+            (#pt-app
+              (#pt-use add ())
+              complement
+              (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder))
+            (#pt-app (#pt-use add ()) complement dividend)
+            (#pt-app
+              (#pt-use add-associative ())
+              complement
+              (#pt-app (#pt-use multiply ()) quotient divisor)
+              remainder)
+            (#pt-app
+              (#pt-use congruence (0 0))
+              #pt-nat
+              #pt-nat
+              (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) complement endpoint))
+              (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) quotient divisor) remainder)
+              dividend
+              (#pt-app
+                (#pt-use symmetry (0))
+                #pt-nat
+                dividend
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app (#pt-use multiply ()) quotient divisor)
+                  remainder)
+                division-equation))))))))

@@ -1,4 +1,8 @@
-use std::collections::{BTreeSet, HashMap};
+//! Dependency metadata schedules work, never supplies checking authority.
+//! Resolve and release one declaration's string dependencies at a time; retain
+//! numeric compressed adjacency lists, including explicit mutual groups.
+use std::cmp::Reverse;
+use std::collections::{BTreeSet, BinaryHeap, HashMap};
 
 pub(super) const MAX_DECLARATIONS: usize = 4096;
 
@@ -9,175 +13,250 @@ pub(super) struct Metadata {
 }
 
 pub(super) struct Schedule {
-    groups: Vec<Vec<usize>>,
-    dependents: Vec<Vec<usize>>,
+    members: Vec<usize>,
+    group_offsets: Vec<usize>,
+    dependents: Vec<usize>,
+    dependent_offsets: Vec<usize>,
     remaining: Vec<usize>,
-    ready: BTreeSet<(usize, usize)>,
+    ready: BinaryHeap<Reverse<usize>>,
     done: Vec<bool>,
     completed: usize,
 }
 
 impl Schedule {
+    #[cfg(test)]
     pub(super) fn new(
         metadata: Vec<Metadata>,
-        builtin: impl Fn(&str) -> bool,
+        builtin: impl Fn(&str) -> std::result::Result<bool, String>,
     ) -> Result<Self, (usize, String)> {
-        let count = metadata.len();
-        if count > MAX_DECLARATIONS {
-            return Err((MAX_DECLARATIONS, "kernel declaration limit exceeded".into()));
-        }
+        Self::with_limit(metadata, builtin, MAX_DECLARATIONS)
+    }
 
-        let mut by_name = HashMap::with_capacity(count);
-        for (index, item) in metadata.iter().enumerate() {
-            if by_name.insert(item.name.as_str(), index).is_some() {
-                return Err((
-                    index,
-                    format!("duplicate kernel declaration '{}'", item.name),
-                ));
-            }
-        }
+    #[cfg(test)]
+    pub(super) fn with_limit(
+        metadata: Vec<Metadata>,
+        builtin: impl Fn(&str) -> std::result::Result<bool, String>,
+        max_declarations: usize,
+    ) -> Result<Self, (usize, String)> {
+        let names: Vec<_> = metadata.iter().map(|item| item.name.clone()).collect();
+        let mut items = metadata.into_iter();
+        Self::from_source(
+            names.len(),
+            |index| names[index].as_str(),
+            |_| Ok(items.next().expect("metadata count is exact")),
+            builtin,
+            max_declarations,
+        )
+    }
 
-        for (index, item) in metadata.iter().enumerate() {
-            for dependency in &item.dependencies {
-                if !by_name.contains_key(dependency.as_str()) && !builtin(dependency) {
-                    return Err((index, format!("unknown kernel declaration '{dependency}'")));
-                }
-            }
-        }
-
-        let mut grouped = vec![false; count];
-        let mut groups = Vec::<Vec<usize>>::with_capacity(count);
-        for (index, item) in metadata.iter().enumerate() {
-            if grouped[index] {
-                continue;
-            }
-            let Some(members) = &item.members else {
-                continue;
-            };
-            if members.is_empty() || members.len() > 16 {
-                return Err((
-                    index,
-                    "mutual group membership must be identical on every inductive member".into(),
-                ));
-            }
-            let mut seen = BTreeSet::new();
-            if !members.iter().all(|member| seen.insert(member.as_str()))
-                || !seen.contains(item.name.as_str())
-            {
-                return Err((
-                    index,
-                    "mutual group membership must be identical on every inductive member".into(),
-                ));
-            }
-            let mut group = Vec::with_capacity(members.len());
-            for member in members {
-                let Some(&member_index) = by_name.get(member.as_str()) else {
-                    return Err((index, format!("unknown mutual group family '{member}'")));
-                };
-                let other = &metadata[member_index];
-                if other.members.as_ref() != Some(members) {
-                    return Err((
-                        index,
-                        "mutual group membership must be identical on every inductive member"
-                            .into(),
-                    ));
-                }
-                if grouped[member_index] {
-                    return Err((
-                        index,
-                        "mutual group membership must be identical on every inductive member"
-                            .into(),
-                    ));
-                }
-                group.push(member_index);
-            }
-            for &member_index in &group {
-                grouped[member_index] = true;
-            }
-            groups.push(group);
-        }
-        for index in 0..count {
-            if !grouped[index] {
-                groups.push(vec![index]);
+    pub(super) fn from_source<'a>(
+        count: usize,
+        name: impl Fn(usize) -> &'a str,
+        mut metadata: impl FnMut(usize) -> Result<Metadata, String>,
+        builtin: impl Fn(&str) -> Result<bool, String>,
+        max_declarations: usize,
+    ) -> Result<Self, (usize, String)> {
+        // Borrow names from the immutable source directory. Never allocate
+        // proportional to the selected limit, or inspect beyond its boundary.
+        let visible_count = count.min(max_declarations);
+        let mut by_name = HashMap::with_capacity(visible_count);
+        let mut duplicate = None;
+        for index in 0..visible_count {
+            let key = name(index);
+            if by_name.insert(key, index).is_some() && duplicate.is_none() {
+                duplicate = Some((index, format!("duplicate kernel declaration '{key}'")));
             }
         }
 
-        // Keep groups in source priority order, while retaining explicit member order.
-        groups.sort_by_key(|group| group.iter().copied().min().unwrap_or(usize::MAX));
-        let mut group_of = vec![usize::MAX; count];
-        let mut source_priority = Vec::with_capacity(groups.len());
-        for (group_index, group) in groups.iter().enumerate() {
-            source_priority.push(group.iter().copied().min().unwrap_or(usize::MAX));
-            for &member in group {
-                group_of[member] = group_index;
+        let mut dependencies = Vec::new();
+        let mut dependency_offsets = Vec::with_capacity(visible_count + 1);
+        dependency_offsets.push(0);
+        let mut membership = Vec::with_capacity(visible_count);
+        let mut dependency_error = None;
+        for index in 0..visible_count {
+            // Parse errors retain precedence over schedule errors, as in the
+            // original complete inventory pass. No body survives this call.
+            let item = metadata(index).map_err(|why| (index, why))?;
+            if item.name != name(index) {
+                return Err((index, "kernel declaration metadata changed identity".into()));
             }
-        }
-
-        let mut edge_sets = vec![BTreeSet::<usize>::new(); groups.len()];
-        for (source, item) in metadata.iter().enumerate() {
-            let from = group_of[source];
-            for dependency in &item.dependencies {
-                let Some(&target) = by_name.get(dependency.as_str()) else {
-                    continue;
-                };
-                let to = group_of[target];
-                if from == to {
-                    if groups[from].len() > 1 || metadata[source].members.is_some() {
-                        // Only edges internal to a validated explicit inductive group
-                        // (including a singleton inductive family) are omitted.
+            if count <= max_declarations && duplicate.is_none() && dependency_error.is_none() {
+                for dependency in &item.dependencies {
+                    if let Some(&target) = by_name.get(dependency.as_str()) {
+                        dependencies.push(target);
                         continue;
                     }
+                    match builtin(dependency) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            dependency_error =
+                                Some((index, format!("unknown kernel declaration '{dependency}'")));
+                            break;
+                        }
+                        Err(why) => {
+                            dependency_error = Some((
+                                index,
+                                format!("checking builtin dependency '{dependency}': {why}"),
+                            ));
+                            break;
+                        }
+                    }
                 }
-                edge_sets[from].insert(to);
             }
+            membership.push(item.members);
+            dependency_offsets.push(dependencies.len());
         }
-        let mut dependents = vec![Vec::new(); groups.len()];
-        let mut remaining = vec![0usize; groups.len()];
-        for (dependent, prerequisites) in edge_sets.into_iter().enumerate() {
-            remaining[dependent] = prerequisites.len();
-            for prerequisite in prerequisites {
-                dependents[prerequisite].push(dependent);
-            }
+        if count > max_declarations {
+            return Err((max_declarations, "kernel declaration limit exceeded".into()));
         }
-        let mut ready = BTreeSet::new();
-        for index in 0..groups.len() {
-            if remaining[index] == 0 {
-                ready.insert((source_priority[index], index));
-            }
+        if let Some(error) = duplicate.or(dependency_error) {
+            return Err(error);
         }
 
-        // Drop all names and string dependency keys before returning.
+        let mut members = Vec::with_capacity(count);
+        let mut group_offsets = Vec::with_capacity(count + 1);
+        group_offsets.push(0);
+        let mut group_of = vec![usize::MAX; count];
+        let mut inductive = Vec::new();
+        for index in 0..count {
+            if group_of[index] != usize::MAX {
+                continue;
+            }
+            let group_index = group_offsets.len() - 1;
+            let start = members.len();
+            let invalid = || {
+                (
+                    index,
+                    "mutual group membership must be identical on every inductive member".into(),
+                )
+            };
+            if let Some(reported) = &membership[index] {
+                if reported.is_empty() || reported.len() > 16 {
+                    return Err(invalid());
+                }
+                let mut seen = BTreeSet::new();
+                if !reported.iter().all(|member| seen.insert(member.as_str()))
+                    || !seen.contains(name(index))
+                {
+                    return Err(invalid());
+                }
+                for member in reported {
+                    let Some(&member_index) = by_name.get(member.as_str()) else {
+                        return Err((index, format!("unknown mutual group family '{member}'")));
+                    };
+                    if membership[member_index].as_ref() != Some(reported)
+                        || group_of[member_index] != usize::MAX
+                    {
+                        return Err(invalid());
+                    }
+                    members.push(member_index);
+                }
+            } else {
+                members.push(index);
+            }
+            for &member in &members[start..] {
+                group_of[member] = group_index;
+            }
+            inductive.push(membership[index].is_some());
+            group_offsets.push(members.len());
+        }
+        // Groups are in ascending minimum-source-index order; explicit member
+        // order remains intact within each group.
         drop(by_name);
-        drop(metadata);
+        drop(membership);
+
+        let groups = group_offsets.len() - 1;
+        let mut prerequisites = Vec::new();
+        let mut prerequisite_offsets = Vec::with_capacity(groups + 1);
+        prerequisite_offsets.push(0);
+        let mut remaining = Vec::with_capacity(groups);
+        let mut dependent_counts = vec![0usize; groups];
+        let mut edges = Vec::new();
+        for group in 0..groups {
+            edges.clear();
+            for &source in &members[group_offsets[group]..group_offsets[group + 1]] {
+                for &target in
+                    &dependencies[dependency_offsets[source]..dependency_offsets[source + 1]]
+                {
+                    let prerequisite = group_of[target];
+                    // Only validated explicit inductive groups omit internal
+                    // edges. Ordinary self references remain cycles.
+                    if prerequisite != group || !inductive[group] {
+                        edges.push(prerequisite);
+                    }
+                }
+            }
+            edges.sort_unstable();
+            edges.dedup();
+            remaining.push(edges.len());
+            for &prerequisite in &edges {
+                dependent_counts[prerequisite] += 1;
+            }
+            prerequisites.extend_from_slice(&edges);
+            prerequisite_offsets.push(prerequisites.len());
+        }
+        drop(edges);
+        drop(dependencies);
+        drop(dependency_offsets);
+        drop(group_of);
+        drop(inductive);
+
+        let mut dependent_offsets = Vec::with_capacity(groups + 1);
+        dependent_offsets.push(0usize);
+        for count in dependent_counts {
+            let end = dependent_offsets
+                .last()
+                .unwrap()
+                .checked_add(count)
+                .ok_or((
+                    0,
+                    "kernel declaration schedule edge count overflow".to_owned(),
+                ))?;
+            dependent_offsets.push(end);
+        }
+        let mut dependents = vec![0usize; prerequisites.len()];
+        let mut positions = dependent_offsets[..groups].to_vec();
+        for dependent in 0..groups {
+            for &prerequisite in
+                &prerequisites[prerequisite_offsets[dependent]..prerequisite_offsets[dependent + 1]]
+            {
+                dependents[positions[prerequisite]] = dependent;
+                positions[prerequisite] += 1;
+            }
+        }
+        let ready = remaining
+            .iter()
+            .enumerate()
+            .filter_map(|(group, &count)| (count == 0).then_some(Reverse(group)))
+            .collect();
         Ok(Self {
-            groups,
+            members,
+            group_offsets,
             dependents,
+            dependent_offsets,
             remaining,
             ready,
-            done: vec![false; source_priority.len()],
+            done: vec![false; groups],
             completed: 0,
         })
     }
 
+    fn group(&self, index: usize) -> &[usize] {
+        &self.members[self.group_offsets[index]..self.group_offsets[index + 1]]
+    }
+    fn source_priority(&self, index: usize) -> usize {
+        self.group(index).iter().copied().min().unwrap_or(0)
+    }
     pub(super) fn next(&mut self) -> Result<Option<Vec<usize>>, (usize, String)> {
-        let Some(&(priority, group_index)) = self.ready.iter().next() else {
-            if self.completed == self.groups.len() {
+        let Some(Reverse(group)) = self.ready.pop() else {
+            if self.completed == self.remaining.len() {
                 return Ok(None);
             }
             let source = self
                 .done
                 .iter()
-                .enumerate()
-                .filter_map(|(group_index, done)| {
-                    (!done).then_some(
-                        self.groups[group_index]
-                            .iter()
-                            .copied()
-                            .min()
-                            .unwrap_or(usize::MAX),
-                    )
-                })
-                .min()
+                .position(|done| !done)
+                .map(|index| self.source_priority(index))
                 .unwrap_or(0);
             return Err((
                 source,
@@ -185,29 +264,29 @@ impl Schedule {
                     .into(),
             ));
         };
-        self.ready.remove(&(priority, group_index));
-        if self.done[group_index] {
+        if self.done[group] {
             return Err((
-                priority,
+                self.source_priority(group),
                 "kernel declaration schedule state is inconsistent".into(),
             ));
         }
-        self.done[group_index] = true;
+        self.done[group] = true;
         self.completed += 1;
-        for &dependent in &self.dependents[group_index] {
+        for &dependent in
+            &self.dependents[self.dependent_offsets[group]..self.dependent_offsets[group + 1]]
+        {
             self.remaining[dependent] -= 1;
             if self.remaining[dependent] == 0 {
-                let source = self.groups[dependent]
-                    .iter()
-                    .copied()
-                    .min()
-                    .unwrap_or(usize::MAX);
-                self.ready.insert((source, dependent));
+                self.ready.push(Reverse(dependent));
             }
         }
-        Ok(Some(self.groups[group_index].clone()))
+        Ok(Some(self.group(group).to_vec()))
     }
 }
+
+#[cfg(test)]
+#[path = "schedule_model_tests.rs"]
+mod model_tests;
 
 #[cfg(test)]
 mod tests {
@@ -244,15 +323,59 @@ mod tests {
                 item("middle", &["first"]),
                 item("first", &[]),
             ],
-            |_| false,
+            |_| Ok(false),
         )
         .unwrap();
         assert_eq!(all(schedule), vec![vec![1], vec![3], vec![2], vec![0]]);
         let schedule = Schedule::new(
             vec![item("a", &["missing"]), item("b", &["also-missing"])],
-            |_| false,
+            |_| Ok(false),
         );
         assert!(matches!(schedule, Err((0, _))));
+    }
+
+    #[test]
+    fn selected_count_and_default_capacity_validate_after_metadata_collection() {
+        let metadata: Vec<_> = (0..=MAX_DECLARATIONS)
+            .map(|i| item(&format!("n{i}"), &[]))
+            .collect();
+        assert!(Schedule::new(metadata, |_| Ok(false)).is_err());
+        let selected: Vec<_> = (0..=MAX_DECLARATIONS)
+            .map(|i| item(&format!("n{i}"), &[]))
+            .collect();
+        let schedule = Schedule::with_limit(selected, |_| Ok(false), MAX_DECLARATIONS + 1).unwrap();
+        assert_eq!(all(schedule).len(), MAX_DECLARATIONS + 1);
+        let mut late_unknown: Vec<_> = (0..=MAX_DECLARATIONS)
+            .map(|i| item(&format!("n{i}"), &[]))
+            .collect();
+        late_unknown[MAX_DECLARATIONS]
+            .dependencies
+            .insert("missing".into());
+        assert!(matches!(
+            Schedule::with_limit(late_unknown, |_| Ok(false), MAX_DECLARATIONS + 1),
+            Err((MAX_DECLARATIONS, message)) if message.contains("unknown kernel declaration 'missing'")
+        ));
+        assert!(matches!(
+            Schedule::with_limit(vec![item("late", &["missing"])], |_| Ok(false), 0),
+            Err((0, _))
+        ));
+        let cycle = vec![item("a", &["b"]), item("b", &["a"])];
+        let mut schedule = Schedule::with_limit(cycle, |_| Ok(false), 2).unwrap();
+        assert!(schedule.next().is_err());
+    }
+
+    #[test]
+    fn builtin_lookup_error_is_propagated_with_dependency_context() {
+        let schedule = Schedule::new(vec![item("uses-builtin", &["builtin"])], |_| {
+            Err("directory is corrupt".into())
+        });
+        let (index, error) = match schedule {
+            Err(error) => error,
+            Ok(_) => panic!("builtin lookup error was swallowed"),
+        };
+        assert_eq!(index, 0);
+        assert!(error.contains("checking builtin dependency 'builtin'"));
+        assert!(error.contains("directory is corrupt"));
     }
 
     #[test]
@@ -265,7 +388,7 @@ mod tests {
                 item("leaf", &["left", "right"]),
                 item("free", &[]),
             ],
-            |_| false,
+            |_| Ok(false),
         )
         .unwrap();
         assert_eq!(
@@ -281,7 +404,7 @@ mod tests {
                 inductive("A", &["B"], &["B", "A"]),
                 inductive("B", &["A"], &["B", "A"]),
             ],
-            |_| false,
+            |_| Ok(false),
         )
         .unwrap();
         assert_eq!(all(schedule), vec![vec![1, 0]]);
@@ -290,29 +413,31 @@ mod tests {
                 inductive("A", &[], &["A", "B"]),
                 inductive("B", &[], &["B", "A"])
             ],
-            |_| false
+            |_| Ok(false)
         )
         .is_err());
-        assert!(Schedule::new(vec![inductive("A", &[], &["A", "missing"])], |_| false).is_err());
+        assert!(
+            Schedule::new(vec![inductive("A", &[], &["A", "missing"])], |_| Ok(false)).is_err()
+        );
     }
 
     #[test]
     fn cycles_and_invalid_groups_reject() {
-        let mut self_cycle = Schedule::new(vec![item("A", &["A"])], |_| false).unwrap();
+        let mut self_cycle = Schedule::new(vec![item("A", &["A"])], |_| Ok(false)).unwrap();
         assert!(self_cycle.next().is_err());
         let mut two_cycle =
-            Schedule::new(vec![item("A", &["B"]), item("B", &["A"])], |_| false).unwrap();
+            Schedule::new(vec![item("A", &["B"]), item("B", &["A"])], |_| Ok(false)).unwrap();
         assert!(two_cycle.next().is_err());
         let mut self_with_ready =
-            Schedule::new(vec![item("A", &["A"]), item("free", &[])], |_| false).unwrap();
+            Schedule::new(vec![item("A", &["A"]), item("free", &[])], |_| Ok(false)).unwrap();
         assert_eq!(self_with_ready.next().unwrap(), Some(vec![1]));
         assert!(self_with_ready.next().is_err());
         let singleton_inductive =
-            Schedule::new(vec![inductive("I", &["I"], &["I"])], |_| false).unwrap();
+            Schedule::new(vec![inductive("I", &["I"], &["I"])], |_| Ok(false)).unwrap();
         assert_eq!(all(singleton_inductive), vec![vec![0]]);
         assert!(Schedule::new(
             vec![inductive("A", &[], &["A", "B"]), item("B", &[])],
-            |_| false
+            |_| Ok(false)
         )
         .is_err());
         assert!(Schedule::new(
@@ -321,7 +446,7 @@ mod tests {
                 inductive("B", &[], &["A", "B"]),
                 inductive("C", &[], &["A", "C"])
             ],
-            |_| false
+            |_| Ok(false)
         )
         .is_err());
     }
@@ -329,10 +454,10 @@ mod tests {
     #[test]
     fn builtins_and_duplicate_names() {
         let schedule =
-            Schedule::new(vec![item("x", &["builtin"])], |name| name == "builtin").unwrap();
+            Schedule::new(vec![item("x", &["builtin"])], |name| Ok(name == "builtin")).unwrap();
         assert_eq!(all(schedule), vec![vec![0]]);
-        assert!(Schedule::new(vec![item("x", &[]), item("x", &[])], |_| false).is_err());
-        assert!(Schedule::new(vec![item("x", &["unknown"])], |_| false).is_err());
+        assert!(Schedule::new(vec![item("x", &[]), item("x", &[])], |_| Ok(false)).is_err());
+        assert!(Schedule::new(vec![item("x", &["unknown"])], |_| Ok(false)).is_err());
     }
 
     #[test]
@@ -340,7 +465,7 @@ mod tests {
         let metadata = (0..MAX_DECLARATIONS)
             .map(|index| item(&format!("n{index}"), &[]))
             .collect();
-        let schedule = Schedule::new(metadata, |_| false).unwrap();
+        let schedule = Schedule::new(metadata, |_| Ok(false)).unwrap();
         assert_eq!(all(schedule).len(), MAX_DECLARATIONS);
     }
 }

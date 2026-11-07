@@ -1,0 +1,23 @@
+; Copyright (c) 2024 Riccardo Brasca and contributors.
+; Native mathematical source adaptation under Apache-2.0; see provenance.json.
+; Closed exponent-three Fermat theorem over all natural numbers.
+; Native source port of Mathlib/NumberTheory/FLT/Three.lean, using
+; the proved primitive/signed reduction and actual Eisenstein descent.
+; This is the exponent-three case, not complete unbounded FLT.
+(#alias fermat-for = ./fermat-for.lim::fermat-for)
+(#alias
+  fermat-for-three-from-eisenstein
+  =
+  ./fermat-three-signed-bridge.lim::fermat-for-three-from-eisenstein)
+(#alias
+  eisenstein-fermat-three-general-proved
+  =
+  ./eisenstein-cubic-descent.lim::eisenstein-fermat-three-general-proved)
+(#theorem fermat-for-three
+  (#universes)
+  (#parameters)
+  (#statement (#pt-app (#pt-use fermat-for ()) (#pt-numeral 3)))
+  (#proof
+    (#pt-app
+      (#pt-use fermat-for-three-from-eisenstein ())
+      (#pt-use eisenstein-fermat-three-general-proved ()))))

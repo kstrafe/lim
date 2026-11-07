@@ -1,0 +1,1781 @@
+; Commutative ring multiplication on formal-difference integers.
+; The component identities are ordinary checked natural semiring proofs.
+(#alias add = ../fermat_statement.lim::add)
+(#alias multiply = ../fermat_statement.lim::multiply)
+(#alias cube = ./natural-ninth-residues.lim::cube)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-cube = ./integer-defs.lim::integer-cube)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-congruent-first = ./integer-equality.lim::integer-multiply-congruent-first)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias
+  product-commutative-positive
+  =
+  ./integer-product-commutative-identities.lim::product-commutative-positive)
+(#alias
+  product-commutative-negative
+  =
+  ./integer-product-commutative-identities.lim::product-commutative-negative)
+(#alias
+  product-associative-positive
+  =
+  ./integer-product-associative-identities.lim::product-associative-positive)
+(#alias
+  product-associative-negative
+  =
+  ./integer-product-associative-identities.lim::product-associative-negative)
+(#alias
+  product-distributive-positive
+  =
+  ./integer-product-distributive-identities.lim::product-distributive-positive)
+(#alias
+  product-distributive-negative
+  =
+  ./integer-product-distributive-identities.lim::product-distributive-negative)
+(#alias product-one-positive = ./integer-product-one-identities.lim::product-one-positive)
+(#alias product-one-negative = ./integer-product-one-identities.lim::product-one-negative)
+(#alias product-zero-positive = ./integer-product-zero-identities.lim::product-zero-positive)
+(#alias product-zero-negative = ./integer-product-zero-identities.lim::product-zero-negative)
+(#alias
+  product-negative-positive
+  =
+  ./integer-product-negative-identities.lim::product-negative-positive)
+(#alias
+  product-negative-negative
+  =
+  ./integer-product-negative-identities.lim::product-negative-negative)
+(#alias
+  cube-positive-positive-component
+  =
+  ./integer-cube-identities.lim::cube-positive-positive-component)
+(#alias
+  cube-positive-negative-component
+  =
+  ./integer-cube-identities.lim::cube-positive-negative-component)
+(#alias
+  cube-negative-positive-component
+  =
+  ./integer-cube-identities.lim::cube-negative-positive-component)
+(#alias
+  cube-negative-negative-component
+  =
+  ./integer-cube-identities.lim::cube-negative-negative-component)
+(#alias
+  natural-product-positive-component
+  =
+  ./integer-embedding-identities.lim::natural-product-positive-component)
+(#alias
+  natural-product-negative-component
+  =
+  ./integer-embedding-identities.lim::natural-product-negative-component)
+(#theorem integer-multiply-commutative
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use integer-multiply ()) second first)))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 0 first))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 0 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 1 first)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 0 first))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 0 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 1 first)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            endpoint
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 first))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 first)))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 0 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 1 first)))
+        (#pt-app
+          (#pt-use product-commutative-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)
+          (#pt-project integer 0 second)
+          (#pt-project integer 1 second)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 first))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 first)))
+            endpoint))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 first))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 second)
+            (#pt-project integer 0 first)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 1 second))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 0 second)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 1 first))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 0 first)))
+          (#pt-app
+            (#pt-use product-commutative-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 second)))))))
+(#theorem integer-multiply-associative
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-multiply ()) first second)
+        third)
+      (#pt-app
+        (#pt-use integer-multiply ())
+        first
+        (#pt-app (#pt-use integer-multiply ()) second third))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second)))
+            (#pt-project integer 0 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 second)))
+            (#pt-project integer 1 third)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third))))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third)))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third))))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third)))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second)))
+            (#pt-project integer 1 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 second)))
+            (#pt-project integer 0 third))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            endpoint
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 0 second)
+                    (#pt-project integer 1 third))
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 1 second)
+                    (#pt-project integer 0 third))))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 0 second)
+                    (#pt-project integer 0 third))
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 1 second)
+                    (#pt-project integer 1 third)))))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second)))
+            (#pt-project integer 0 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 second)))
+            (#pt-project integer 1 third)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third)))))
+        (#pt-app
+          (#pt-use product-associative-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)
+          (#pt-project integer 0 second)
+          (#pt-project integer 1 second)
+          (#pt-project integer 0 third)
+          (#pt-project integer 1 third)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 0 second)
+                    (#pt-project integer 0 third))
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 1 second)
+                    (#pt-project integer 1 third))))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-app
+                  (#pt-use add ())
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 0 second)
+                    (#pt-project integer 1 third))
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-project integer 1 second)
+                    (#pt-project integer 0 third)))))
+            endpoint))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 0 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 1 third)))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second)))
+            (#pt-project integer 1 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 second)))
+            (#pt-project integer 0 third)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 first)
+                  (#pt-project integer 0 second))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 first)
+                  (#pt-project integer 1 second)))
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 first)
+                  (#pt-project integer 1 second))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 first)
+                  (#pt-project integer 0 second)))
+              (#pt-project integer 0 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 second)
+                  (#pt-project integer 1 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 second)
+                  (#pt-project integer 0 third))))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 second)
+                  (#pt-project integer 0 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 second)
+                  (#pt-project integer 1 third)))))
+          (#pt-app
+            (#pt-use product-associative-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 second)
+            (#pt-project integer 0 third)
+            (#pt-project integer 1 third)))))))
+(#theorem integer-multiply-distributive
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-add ()) first second) third)
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-multiply ()) first third)
+        (#pt-app (#pt-use integer-multiply ()) second third))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 0 second))
+            (#pt-project integer 0 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 1 first) (#pt-project integer 1 second))
+            (#pt-project integer 1 third)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 0 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 0 third)))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 1 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 1 third))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 0 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 0 third)))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 1 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 1 third))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 0 second))
+            (#pt-project integer 1 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 1 first) (#pt-project integer 1 second))
+            (#pt-project integer 0 third))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            endpoint
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 first)
+                  (#pt-project integer 1 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 first)
+                  (#pt-project integer 0 third)))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 second)
+                  (#pt-project integer 1 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 second)
+                  (#pt-project integer 0 third))))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 0 second))
+            (#pt-project integer 0 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 1 first) (#pt-project integer 1 second))
+            (#pt-project integer 1 third)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 1 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 0 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 1 third))))
+        (#pt-app
+          (#pt-use product-distributive-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)
+          (#pt-project integer 0 second)
+          (#pt-project integer 1 second)
+          (#pt-project integer 0 third)
+          (#pt-project integer 1 third)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 first)
+                  (#pt-project integer 0 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 first)
+                  (#pt-project integer 1 third)))
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 0 second)
+                  (#pt-project integer 0 third))
+                (#pt-app
+                  (#pt-use multiply ())
+                  (#pt-project integer 1 second)
+                  (#pt-project integer 1 third))))
+            endpoint))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 0 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 second)
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 second)
+              (#pt-project integer 0 third))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 0 second))
+            (#pt-project integer 1 third))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-app (#pt-use add ()) (#pt-project integer 1 first) (#pt-project integer 1 second))
+            (#pt-project integer 0 third)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-project integer 1 third))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app
+                (#pt-use add ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second))
+              (#pt-project integer 0 third)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 third)))
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 second)
+                (#pt-project integer 1 third))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 second)
+                (#pt-project integer 0 third))))
+          (#pt-app
+            (#pt-use product-distributive-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 second)
+            (#pt-project integer 0 third)
+            (#pt-project integer 1 third)))))))
+(#theorem integer-multiply-one
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) first (#pt-use integer-one ()))
+      first))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 1))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+        (#pt-project integer 1 first))
+      (#pt-app (#pt-use add ()) (#pt-project integer 0 first) (#pt-project integer 1 first))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-project integer 0 first)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 1))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app (#pt-use add ()) endpoint (#pt-project integer 1 first)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 1))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+        (#pt-project integer 0 first)
+        (#pt-app
+          (#pt-use product-one-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app (#pt-use add ()) (#pt-project integer 0 first) endpoint))
+        (#pt-project integer 1 first)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 1)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+            (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 1)))
+          (#pt-project integer 1 first)
+          (#pt-app
+            (#pt-use product-one-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)))))))
+(#theorem integer-multiply-zero
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) first (#pt-use integer-zero ()))
+      (#pt-use integer-zero ())))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+        (#pt-numeral 0))
+      (#pt-app (#pt-use add ()) (#pt-numeral 0) (#pt-numeral 0))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint (#pt-numeral 0)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use product-zero-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) (#pt-numeral 0) endpoint))
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) (#pt-project integer 0 first) (#pt-numeral 0))
+            (#pt-app (#pt-use multiply ()) (#pt-project integer 1 first) (#pt-numeral 0)))
+          (#pt-numeral 0)
+          (#pt-app
+            (#pt-use product-zero-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)))))))
+(#theorem integer-multiply-negative
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ())))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) (#pt-app (#pt-use integer-negate ()) first) second)
+      (#pt-app (#pt-use integer-negate ()) (#pt-app (#pt-use integer-multiply ()) first second))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second))))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            endpoint
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 0 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 1 second)))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)))
+        (#pt-app
+          (#pt-use product-negative-positive ())
+          (#pt-project integer 0 first)
+          (#pt-project integer 1 first)
+          (#pt-project integer 0 second)
+          (#pt-project integer 1 second)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 0 first)
+                (#pt-project integer 1 second))
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-project integer 1 first)
+                (#pt-project integer 0 second)))
+            endpoint))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 1 first)
+            (#pt-project integer 1 second))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 0 second)))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 1 second))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 0 second)))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 0 first)
+              (#pt-project integer 0 second))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-project integer 1 first)
+              (#pt-project integer 1 second)))
+          (#pt-app
+            (#pt-use product-negative-negative ())
+            (#pt-project integer 0 first)
+            (#pt-project integer 1 first)
+            (#pt-project integer 0 second)
+            (#pt-project integer 1 second)))))))
+(#theorem integer-multiply-congruent-second
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter equivalent (#pt-app (#pt-use integer-equal ()) second third)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use integer-multiply ()) first third)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use integer-multiply ()) second first)
+      (#pt-app (#pt-use integer-multiply ()) first third)
+      (#pt-app (#pt-use integer-multiply-commutative ()) first second)
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app (#pt-use integer-multiply ()) second first)
+        (#pt-app (#pt-use integer-multiply ()) third first)
+        (#pt-app (#pt-use integer-multiply ()) first third)
+        (#pt-app (#pt-use integer-multiply-congruent-first ()) second third first equivalent)
+        (#pt-app (#pt-use integer-multiply-commutative ()) third first)))))
+(#theorem integer-multiply-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter third (#pt-use integer ()))
+    (#parameter fourth (#pt-use integer ()))
+    (#parameter first-equivalence (#pt-app (#pt-use integer-equal ()) first third))
+    (#parameter second-equivalence (#pt-app (#pt-use integer-equal ()) second fourth)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use integer-multiply ()) third fourth)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app (#pt-use integer-multiply ()) first second)
+      (#pt-app (#pt-use integer-multiply ()) third second)
+      (#pt-app (#pt-use integer-multiply ()) third fourth)
+      (#pt-app (#pt-use integer-multiply-congruent-first ()) first third second first-equivalence)
+      (#pt-app
+        (#pt-use integer-multiply-congruent-second ())
+        third
+        second
+        fourth
+        second-equivalence))))
+(#theorem integer-cube-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter equivalent (#pt-app (#pt-use integer-equal ()) first second)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-cube ()) first)
+      (#pt-app (#pt-use integer-cube ()) second)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-multiply-congruent ())
+      first
+      (#pt-app (#pt-use integer-multiply ()) first first)
+      second
+      (#pt-app (#pt-use integer-multiply ()) second second)
+      equivalent
+      (#pt-app
+        (#pt-use integer-multiply-congruent ())
+        first
+        first
+        second
+        second
+        equivalent
+        equivalent))))
+(#theorem integer-cube-positive
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-of-natural ()) number))
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use cube ()) number))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number number)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number))))
+        (#pt-numeral 0))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+        (#pt-numeral 0))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number number)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint (#pt-numeral 0)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number number)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number))))
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+        (#pt-app (#pt-use cube-positive-positive-component ()) number))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+            endpoint))
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)))
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) number number)
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0)))))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              number
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))
+                (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)))
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-numeral 0)
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use multiply ()) number number)
+                (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0)))))
+          (#pt-numeral 0)
+          (#pt-app (#pt-use cube-positive-negative-component ()) number))))))
+(#theorem integer-cube-negative
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app (#pt-use integer-cube ()) (#pt-app (#pt-use integer-negative-natural ()) number))
+      (#pt-app (#pt-use integer-negative-natural ()) (#pt-app (#pt-use cube ()) number))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) number number)))
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0)))))
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number)))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-numeral 0)
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number)))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))))
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) number number)))))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app
+            (#pt-use add ())
+            endpoint
+            (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) number number)))
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0)))))
+        (#pt-numeral 0)
+        (#pt-app (#pt-use cube-negative-positive-component ()) number))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) (#pt-numeral 0) endpoint))
+        (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app
+            (#pt-use multiply ())
+            (#pt-numeral 0)
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)
+              (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))))
+          (#pt-app
+            (#pt-use multiply ())
+            number
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))
+              (#pt-app (#pt-use multiply ()) number number))))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-numeral 0)
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use multiply ()) (#pt-numeral 0) number)
+                (#pt-app (#pt-use multiply ()) number (#pt-numeral 0))))
+            (#pt-app
+              (#pt-use multiply ())
+              number
+              (#pt-app
+                (#pt-use add ())
+                (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0))
+                (#pt-app (#pt-use multiply ()) number number))))
+          (#pt-app (#pt-use multiply ()) number (#pt-app (#pt-use multiply ()) number number))
+          (#pt-app (#pt-use cube-negative-negative-component ()) number))))))
+(#theorem integer-multiply-of-natural
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-of-natural ()) first)
+        (#pt-app (#pt-use integer-of-natural ()) second))
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use multiply ()) first second))))
+  (#proof
+    (#pt-app
+      (#pt-use transitivity (0))
+      #pt-nat
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first second)
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0)))
+        (#pt-numeral 0))
+      (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first second) (#pt-numeral 0))
+      (#pt-app
+        (#pt-use add ())
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 0) second)))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) endpoint (#pt-numeral 0)))
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first second)
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 0) (#pt-numeral 0)))
+        (#pt-app (#pt-use multiply ()) first second)
+        (#pt-app (#pt-use natural-product-positive-component ()) first second))
+      (#pt-app
+        (#pt-use congruence (0 0))
+        #pt-nat
+        #pt-nat
+        (#pt-lambda
+          ((endpoint #pt-nat))
+          (#pt-app (#pt-use add ()) (#pt-app (#pt-use multiply ()) first second) endpoint))
+        (#pt-numeral 0)
+        (#pt-app
+          (#pt-use add ())
+          (#pt-app (#pt-use multiply ()) first (#pt-numeral 0))
+          (#pt-app (#pt-use multiply ()) (#pt-numeral 0) second))
+        (#pt-app
+          (#pt-use symmetry (0))
+          #pt-nat
+          (#pt-app
+            (#pt-use add ())
+            (#pt-app (#pt-use multiply ()) first (#pt-numeral 0))
+            (#pt-app (#pt-use multiply ()) (#pt-numeral 0) second))
+          (#pt-numeral 0)
+          (#pt-app (#pt-use natural-product-negative-component ()) first second))))))
+(#theorem integer-add-of-natural
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-add ())
+        (#pt-app (#pt-use integer-of-natural ()) first)
+        (#pt-app (#pt-use integer-of-natural ()) second))
+      (#pt-app (#pt-use integer-of-natural ()) (#pt-app (#pt-use add ()) first second))))
+  (#proof
+    (#pt-refl #pt-nat (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) first second) #pt-zero))))

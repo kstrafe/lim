@@ -1,0 +1,556 @@
+; Discrete order and trichotomy for constructive Euclidean arithmetic.
+(#alias add = ../fermat_statement.lim::add)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias not-less-than-zero = ./natural-order.lim::not-less-than-zero)
+(#alias successor-injective = ./natural-successor.lim::successor-injective)
+(#alias add-zero-right = ./natural-addition.lim::add-zero-right)
+(#alias add-successor-right = ./natural-addition.lim::add-successor-right)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-left = ./logical-connectives.lim::disjunction-left)
+(#alias disjunction-right = ./logical-connectives.lim::disjunction-right)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#theorem zero-less-successor
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement (#pt-app (#pt-use less-than ()) #pt-zero (#pt-succ number)))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            (#pt-succ number)
+            (#pt-app (#pt-use add ()) (#pt-succ #pt-zero) candidate-gap))))
+      introduce
+      (number (#pt-refl #pt-nat (#pt-succ number))))))
+(#theorem successor-less-successor
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement (#pt-app (#pt-use less-than ()) (#pt-succ lower) (#pt-succ upper)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))))
+        (#pt-app (#pt-use less-than ()) (#pt-succ lower) (#pt-succ upper)))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (gap-equation (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) gap))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ upper)
+                  (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) candidate-gap))))
+            introduce
+            (gap
+              (#pt-app
+                (#pt-use congruence (0 0))
+                #pt-nat
+                #pt-nat
+                (#pt-lambda ((endpoint #pt-nat)) (#pt-succ endpoint))
+                upper
+                (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                gap-equation)))))
+      less-proof)))
+(#theorem successor-less-reflect
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) (#pt-succ lower) (#pt-succ upper))))
+  (#statement (#pt-app (#pt-use less-than ()) lower upper))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq
+            #pt-nat
+            (#pt-succ upper)
+            (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq
+                  #pt-nat
+                  (#pt-succ upper)
+                  (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) candidate-gap))))))
+        (#pt-app (#pt-use less-than ()) lower upper))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (gap-equation
+              (#pt-eq
+                #pt-nat
+                (#pt-succ upper)
+                (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) gap))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+            introduce
+            (gap
+              (#pt-app
+                (#pt-use successor-injective ())
+                upper
+                (#pt-app (#pt-use add ()) (#pt-succ lower) gap)
+                gap-equation)))))
+      less-proof)))
+(#theorem less-than-discrete-step
+  (#universes)
+  (#parameters
+    (#parameter lower #pt-nat)
+    (#parameter upper #pt-nat)
+    (#parameter less-proof (#pt-app (#pt-use less-than ()) lower upper)))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-eq #pt-nat (#pt-succ lower) upper)
+      (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-gap #pt-nat))
+          (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-gap #pt-nat))
+                (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) candidate-gap))))))
+        (#pt-app
+          (#pt-use disjunction ())
+          (#pt-eq #pt-nat (#pt-succ lower) upper)
+          (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper)))
+      (
+        (#pt-lambda
+          (
+            (gap #pt-nat)
+            (gap-equation (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) gap))))
+          (#pt-app
+            (#pt-nat-induct
+              (#pt-lambda
+                ((index #pt-nat))
+                (#pt-pi
+                  (
+                    (gap-evidence
+                      (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) index))))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat (#pt-succ lower) upper)
+                    (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper))))
+              (#pt-lambda
+                (
+                  (zero-gap-equation
+                    (#pt-eq #pt-nat upper (#pt-app (#pt-use add ()) (#pt-succ lower) #pt-zero))))
+                (#pt-app
+                  (#pt-use disjunction-left ())
+                  (#pt-eq #pt-nat (#pt-succ lower) upper)
+                  (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper)
+                  (#pt-app
+                    (#pt-use symmetry (0))
+                    #pt-nat
+                    upper
+                    (#pt-succ lower)
+                    (#pt-app
+                      (#pt-use transitivity (0))
+                      #pt-nat
+                      upper
+                      (#pt-app (#pt-use add ()) (#pt-succ lower) #pt-zero)
+                      (#pt-succ lower)
+                      zero-gap-equation
+                      (#pt-app (#pt-use add-zero-right ()) (#pt-succ lower))))))
+              (#pt-lambda
+                (
+                  (previous #pt-nat)
+                  (unused-previous
+                    (#pt-pi
+                      (
+                        (prior-equation
+                          (#pt-eq
+                            #pt-nat
+                            upper
+                            (#pt-app (#pt-use add ()) (#pt-succ lower) previous))))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-eq #pt-nat (#pt-succ lower) upper)
+                        (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper))))
+                  (positive-gap-equation
+                    (#pt-eq
+                      #pt-nat
+                      upper
+                      (#pt-app (#pt-use add ()) (#pt-succ lower) (#pt-succ previous)))))
+                (#pt-app
+                  (#pt-use disjunction-right ())
+                  (#pt-eq #pt-nat (#pt-succ lower) upper)
+                  (#pt-app (#pt-use less-than ()) (#pt-succ lower) upper)
+                  (#pt-construct
+                    exists
+                    (0)
+                    (#pt-nat
+                      (#pt-lambda
+                        ((candidate-gap #pt-nat))
+                        (#pt-eq
+                          #pt-nat
+                          upper
+                          (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) candidate-gap))))
+                    introduce
+                    (previous
+                      (#pt-app
+                        (#pt-use transitivity (0))
+                        #pt-nat
+                        upper
+                        (#pt-app (#pt-use add ()) (#pt-succ lower) (#pt-succ previous))
+                        (#pt-app (#pt-use add ()) (#pt-succ (#pt-succ lower)) previous)
+                        positive-gap-equation
+                        (#pt-app (#pt-use add-successor-right ()) (#pt-succ lower) previous))))))
+              gap)
+            gap-equation)))
+      less-proof)))
+(#theorem natural-trichotomy
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use disjunction ())
+      (#pt-app (#pt-use less-than ()) first second)
+      (#pt-app
+        (#pt-use disjunction ())
+        (#pt-eq #pt-nat first second)
+        (#pt-app (#pt-use less-than ()) second first))))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((test #pt-nat))
+            (#pt-app
+              (#pt-use disjunction ())
+              (#pt-app (#pt-use less-than ()) index test)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat index test)
+                (#pt-app (#pt-use less-than ()) test index)))))
+        (#pt-lambda
+          ((comparison #pt-nat))
+          (#pt-nat-induct
+            (#pt-lambda
+              ((index #pt-nat))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use less-than ()) #pt-zero index)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-eq #pt-nat #pt-zero index)
+                  (#pt-app (#pt-use less-than ()) index #pt-zero))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use less-than ()) #pt-zero #pt-zero)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat #pt-zero #pt-zero)
+                (#pt-app (#pt-use less-than ()) #pt-zero #pt-zero))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-eq #pt-nat #pt-zero #pt-zero)
+                (#pt-app (#pt-use less-than ()) #pt-zero #pt-zero)
+                (#pt-refl #pt-nat #pt-zero)))
+            (#pt-lambda
+              (
+                (previous-comparison #pt-nat)
+                (unused-case
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app (#pt-use less-than ()) #pt-zero previous-comparison)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-eq #pt-nat #pt-zero previous-comparison)
+                      (#pt-app (#pt-use less-than ()) previous-comparison #pt-zero)))))
+              (#pt-app
+                (#pt-use disjunction-left ())
+                (#pt-app (#pt-use less-than ()) #pt-zero (#pt-succ previous-comparison))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-eq #pt-nat #pt-zero (#pt-succ previous-comparison))
+                  (#pt-app (#pt-use less-than ()) (#pt-succ previous-comparison) #pt-zero))
+                (#pt-app (#pt-use zero-less-successor ()) previous-comparison)))
+            comparison))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-order
+              (#pt-pi
+                ((test #pt-nat))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app (#pt-use less-than ()) previous test)
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat previous test)
+                    (#pt-app (#pt-use less-than ()) test previous)))))
+            (comparison #pt-nat))
+          (#pt-nat-induct
+            (#pt-lambda
+              ((index #pt-nat))
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-app (#pt-use less-than ()) (#pt-succ previous) index)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-eq #pt-nat (#pt-succ previous) index)
+                  (#pt-app (#pt-use less-than ()) index (#pt-succ previous)))))
+            (#pt-app
+              (#pt-use disjunction-right ())
+              (#pt-app (#pt-use less-than ()) (#pt-succ previous) #pt-zero)
+              (#pt-app
+                (#pt-use disjunction ())
+                (#pt-eq #pt-nat (#pt-succ previous) #pt-zero)
+                (#pt-app (#pt-use less-than ()) #pt-zero (#pt-succ previous)))
+              (#pt-app
+                (#pt-use disjunction-right ())
+                (#pt-eq #pt-nat (#pt-succ previous) #pt-zero)
+                (#pt-app (#pt-use less-than ()) #pt-zero (#pt-succ previous))
+                (#pt-app (#pt-use zero-less-successor ()) previous)))
+            (#pt-lambda
+              (
+                (previous-comparison #pt-nat)
+                (unused-comparison
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-app (#pt-use less-than ()) (#pt-succ previous) previous-comparison)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-eq #pt-nat (#pt-succ previous) previous-comparison)
+                      (#pt-app (#pt-use less-than ()) previous-comparison (#pt-succ previous))))))
+              (#pt-app
+                (#pt-use disjunction-eliminate ())
+                (#pt-app (#pt-use less-than ()) previous previous-comparison)
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-eq #pt-nat previous previous-comparison)
+                  (#pt-app (#pt-use less-than ()) previous-comparison previous))
+                (#pt-app
+                  (#pt-use disjunction ())
+                  (#pt-app
+                    (#pt-use less-than ())
+                    (#pt-succ previous)
+                    (#pt-succ previous-comparison))
+                  (#pt-app
+                    (#pt-use disjunction ())
+                    (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                    (#pt-app
+                      (#pt-use less-than ())
+                      (#pt-succ previous-comparison)
+                      (#pt-succ previous))))
+                (#pt-lambda
+                  ((left-less (#pt-app (#pt-use less-than ()) previous previous-comparison)))
+                  (#pt-app
+                    (#pt-use disjunction-left ())
+                    (#pt-app
+                      (#pt-use less-than ())
+                      (#pt-succ previous)
+                      (#pt-succ previous-comparison))
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                      (#pt-app
+                        (#pt-use less-than ())
+                        (#pt-succ previous-comparison)
+                        (#pt-succ previous)))
+                    (#pt-app
+                      (#pt-use successor-less-successor ())
+                      previous
+                      previous-comparison
+                      left-less)))
+                (#pt-lambda
+                  (
+                    (remaining-case
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-eq #pt-nat previous previous-comparison)
+                        (#pt-app (#pt-use less-than ()) previous-comparison previous))))
+                  (#pt-app
+                    (#pt-use disjunction-eliminate ())
+                    (#pt-eq #pt-nat previous previous-comparison)
+                    (#pt-app (#pt-use less-than ()) previous-comparison previous)
+                    (#pt-app
+                      (#pt-use disjunction ())
+                      (#pt-app
+                        (#pt-use less-than ())
+                        (#pt-succ previous)
+                        (#pt-succ previous-comparison))
+                      (#pt-app
+                        (#pt-use disjunction ())
+                        (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                        (#pt-app
+                          (#pt-use less-than ())
+                          (#pt-succ previous-comparison)
+                          (#pt-succ previous))))
+                    (#pt-lambda
+                      ((equal-proof (#pt-eq #pt-nat previous previous-comparison)))
+                      (#pt-app
+                        (#pt-use disjunction-right ())
+                        (#pt-app
+                          (#pt-use less-than ())
+                          (#pt-succ previous)
+                          (#pt-succ previous-comparison))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                          (#pt-app
+                            (#pt-use less-than ())
+                            (#pt-succ previous-comparison)
+                            (#pt-succ previous)))
+                        (#pt-app
+                          (#pt-use disjunction-left ())
+                          (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                          (#pt-app
+                            (#pt-use less-than ())
+                            (#pt-succ previous-comparison)
+                            (#pt-succ previous))
+                          (#pt-app
+                            (#pt-use congruence (0 0))
+                            #pt-nat
+                            #pt-nat
+                            (#pt-lambda ((endpoint #pt-nat)) (#pt-succ endpoint))
+                            previous
+                            previous-comparison
+                            equal-proof))))
+                    (#pt-lambda
+                      ((right-less (#pt-app (#pt-use less-than ()) previous-comparison previous)))
+                      (#pt-app
+                        (#pt-use disjunction-right ())
+                        (#pt-app
+                          (#pt-use less-than ())
+                          (#pt-succ previous)
+                          (#pt-succ previous-comparison))
+                        (#pt-app
+                          (#pt-use disjunction ())
+                          (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                          (#pt-app
+                            (#pt-use less-than ())
+                            (#pt-succ previous-comparison)
+                            (#pt-succ previous)))
+                        (#pt-app
+                          (#pt-use disjunction-right ())
+                          (#pt-eq #pt-nat (#pt-succ previous) (#pt-succ previous-comparison))
+                          (#pt-app
+                            (#pt-use less-than ())
+                            (#pt-succ previous-comparison)
+                            (#pt-succ previous))
+                          (#pt-app
+                            (#pt-use successor-less-successor ())
+                            previous-comparison
+                            previous
+                            right-less))))
+                    remaining-case))
+                (#pt-app previous-order previous-comparison)))
+            comparison))
+        first)
+      second)))
+(#theorem not-less-than-addition
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat))
+  (#statement
+    (#pt-pi
+      (
+        (denied-proof
+          (#pt-app (#pt-use less-than ()) (#pt-app (#pt-use add ()) first second) first)))
+      #pt-false))
+  (#proof
+    (#pt-app
+      (#pt-nat-induct
+        (#pt-lambda
+          ((index #pt-nat))
+          (#pt-pi
+            ((tail #pt-nat))
+            (#pt-pi
+              (
+                (denied-proof
+                  (#pt-app (#pt-use less-than ()) (#pt-app (#pt-use add ()) index tail) index)))
+              #pt-false)))
+        (#pt-lambda
+          ((tail #pt-nat) (impossible (#pt-app (#pt-use less-than ()) tail #pt-zero)))
+          (#pt-app (#pt-app (#pt-use not-less-than-zero ()) tail) impossible))
+        (#pt-lambda
+          (
+            (previous #pt-nat)
+            (previous-exclusion
+              (#pt-pi
+                ((tail #pt-nat))
+                (#pt-pi
+                  (
+                    (denied-proof
+                      (#pt-app
+                        (#pt-use less-than ())
+                        (#pt-app (#pt-use add ()) previous tail)
+                        previous)))
+                  #pt-false)))
+            (tail #pt-nat)
+            (impossible
+              (#pt-app
+                (#pt-use less-than ())
+                (#pt-app (#pt-use add ()) (#pt-succ previous) tail)
+                (#pt-succ previous))))
+          (#pt-app
+            previous-exclusion
+            tail
+            (#pt-app
+              (#pt-use successor-less-reflect ())
+              (#pt-app (#pt-use add ()) previous tail)
+              previous
+              impossible)))
+        first)
+      second)))

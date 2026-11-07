@@ -1,0 +1,518 @@
+; Construct local valuations by strict quotient descent on the actual Nat.
+; Divisibility is decided constructively. A nonunit prime factor makes
+; each nonzero quotient strictly smaller. Keep factorization/cofactor
+; certificates and eliminate witnesses only into Prop.
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias power = ./../fermat_statement.lim::power)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias symmetry = ./equality.lim::symmetry)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias congruence = ./equality.lim::congruence)
+(#alias divides = ./natural-divisibility-defs.lim::divides)
+(#alias prime = ./natural-prime.lim::prime)
+(#alias multiply-one-left = ./natural-multiplication.lim::multiply-one-left)
+(#alias multiply-associative = ./natural-multiplication.lim::multiply-associative)
+(#alias multiply-zero-right = ./natural-multiplication-right.lim::multiply-zero-right)
+(#alias nonunit-multiple-above = ./natural-square-arithmetic.lim::nonunit-multiple-above)
+(#alias natural-divisibility-decided = ./decidable-divisibility.lim::natural-divisibility-decided)
+(#alias strong-induction = ./natural-order.lim::strong-induction)
+(#alias prime-larger-than-one = ./natural-prime.lim::prime-larger-than-one)
+(#alias natural-prime-order = ./natural-prime-order-defs.lim::natural-prime-order)
+(#theorem natural-prime-order-zero
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number #pt-nat)
+    (#parameter number-nondivisor (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) prime-number number))) #pt-false)))
+  (#statement (#pt-app (#pt-use natural-prime-order ()) prime-number number #pt-zero))
+  (#proof
+    (#pt-construct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-cofactor #pt-nat))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-eq
+              #pt-nat
+              number
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) prime-number #pt-zero)
+                candidate-cofactor))
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+              #pt-false))))
+      introduce
+      (number
+        (#pt-app
+          (#pt-use conjunction-introduce ())
+          (#pt-eq
+            #pt-nat
+            number
+            (#pt-app
+              (#pt-use multiply ())
+              (#pt-app (#pt-use power ()) prime-number #pt-zero)
+              number))
+          (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) prime-number number))) #pt-false)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use multiply ()) (#pt-succ #pt-zero) number)
+            number
+            (#pt-app (#pt-use multiply-one-left ()) number))
+          number-nondivisor)))))
+(#theorem natural-prime-order-step
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number #pt-nat)
+    (#parameter remaining #pt-nat)
+    (#parameter valuation #pt-nat)
+    (#parameter factor-equation (#pt-eq #pt-nat number (#pt-app (#pt-use multiply ()) prime-number remaining)))
+    (#parameter remaining-order (#pt-app (#pt-use natural-prime-order ()) prime-number remaining valuation)))
+  (#statement (#pt-app (#pt-use natural-prime-order ()) prime-number number (#pt-succ valuation)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-cofactor #pt-nat))
+          (#pt-app
+            (#pt-use conjunction ())
+            (#pt-eq
+              #pt-nat
+              remaining
+              (#pt-app
+                (#pt-use multiply ())
+                (#pt-app (#pt-use power ()) prime-number valuation)
+                candidate-cofactor))
+            (#pt-pi
+              ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+              #pt-false))))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-cofactor #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq
+                    #pt-nat
+                    remaining
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use power ()) prime-number valuation)
+                      candidate-cofactor))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                    #pt-false))))))
+        (#pt-app (#pt-use natural-prime-order ()) prime-number number (#pt-succ valuation)))
+      (
+        (#pt-lambda
+          (
+            (cofactor #pt-nat)
+            (cofactor-certificate
+              (#pt-app
+                (#pt-use conjunction ())
+                (#pt-eq
+                  #pt-nat
+                  remaining
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app (#pt-use power ()) prime-number valuation)
+                    cofactor))
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use divides ()) prime-number cofactor)))
+                  #pt-false))))
+          (#pt-construct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-cofactor #pt-nat))
+                (#pt-app
+                  (#pt-use conjunction ())
+                  (#pt-eq
+                    #pt-nat
+                    number
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app (#pt-use power ()) prime-number (#pt-succ valuation))
+                      candidate-cofactor))
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) prime-number candidate-cofactor)))
+                    #pt-false))))
+            introduce
+            (cofactor
+              (#pt-app
+                (#pt-use conjunction-introduce ())
+                (#pt-eq
+                  #pt-nat
+                  number
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app (#pt-use power ()) prime-number (#pt-succ valuation))
+                    cofactor))
+                (#pt-pi
+                  ((denied-proof (#pt-app (#pt-use divides ()) prime-number cofactor)))
+                  #pt-false)
+                (#pt-app
+                  (#pt-use transitivity (0))
+                  #pt-nat
+                  number
+                  (#pt-app (#pt-use multiply ()) prime-number remaining)
+                  (#pt-app
+                    (#pt-use multiply ())
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app (#pt-use power ()) prime-number valuation))
+                    cofactor)
+                  factor-equation
+                  (#pt-app
+                    (#pt-use transitivity (0))
+                    #pt-nat
+                    (#pt-app (#pt-use multiply ()) prime-number remaining)
+                    (#pt-app
+                      (#pt-use multiply ())
+                      prime-number
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use power ()) prime-number valuation)
+                        cofactor))
+                    (#pt-app
+                      (#pt-use multiply ())
+                      (#pt-app
+                        (#pt-use multiply ())
+                        prime-number
+                        (#pt-app (#pt-use power ()) prime-number valuation))
+                      cofactor)
+                    (#pt-app
+                      (#pt-use congruence (0 0))
+                      #pt-nat
+                      #pt-nat
+                      (#pt-lambda
+                        ((remaining-value #pt-nat))
+                        (#pt-app (#pt-use multiply ()) prime-number remaining-value))
+                      remaining
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app (#pt-use power ()) prime-number valuation)
+                        cofactor)
+                      (#pt-project conjunction 0 cofactor-certificate))
+                    (#pt-app
+                      (#pt-use symmetry (0))
+                      #pt-nat
+                      (#pt-app
+                        (#pt-use multiply ())
+                        (#pt-app
+                          (#pt-use multiply ())
+                          prime-number
+                          (#pt-app (#pt-use power ()) prime-number valuation))
+                        cofactor)
+                      (#pt-app
+                        (#pt-use multiply ())
+                        prime-number
+                        (#pt-app
+                          (#pt-use multiply ())
+                          (#pt-app (#pt-use power ()) prime-number valuation)
+                          cofactor))
+                      (#pt-app
+                        (#pt-use multiply-associative ())
+                        prime-number
+                        (#pt-app (#pt-use power ()) prime-number valuation)
+                        cofactor))))
+                (#pt-project conjunction 1 cofactor-certificate))))))
+      remaining-order)))
+(#theorem natural-prime-order-exists
+  (#universes)
+  (#parameters
+    (#parameter prime-number #pt-nat)
+    (#parameter number #pt-nat)
+    (#parameter prime-proof (#pt-app (#pt-use prime ()) prime-number))
+    (#parameter number-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat number #pt-zero))) #pt-false)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      #pt-nat
+      (#pt-lambda
+        ((candidate-valuation #pt-nat))
+        (#pt-app (#pt-use natural-prime-order ()) prime-number number candidate-valuation))))
+  (#proof
+    (#pt-app
+      (#pt-app
+        (#pt-use strong-induction ())
+        (#pt-lambda
+          ((stage-index #pt-nat))
+          (#pt-pi
+            (
+              (stage-nonzero
+                (#pt-pi ((denied-proof (#pt-eq #pt-nat stage-index #pt-zero))) #pt-false)))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-valuation #pt-nat))
+                (#pt-app
+                  (#pt-use natural-prime-order ())
+                  prime-number
+                  stage-index
+                  candidate-valuation)))))
+        (#pt-lambda
+          (
+            (stage #pt-nat)
+            (earlier-orders
+              (#pt-pi
+                (
+                  (earlier #pt-nat)
+                  (earlier-less (#pt-app (#pt-use less-than ()) earlier stage))
+                  (earlier-nonzero
+                    (#pt-pi ((denied-proof (#pt-eq #pt-nat earlier #pt-zero))) #pt-false)))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-valuation #pt-nat))
+                    (#pt-app
+                      (#pt-use natural-prime-order ())
+                      prime-number
+                      earlier
+                      candidate-valuation)))))
+            (stage-nonzero (#pt-pi ((denied-proof (#pt-eq #pt-nat stage #pt-zero))) #pt-false)))
+          (#pt-app
+            (#pt-use disjunction-eliminate ())
+            (#pt-app (#pt-use divides ()) prime-number stage)
+            (#pt-pi ((denied-proof (#pt-app (#pt-use divides ()) prime-number stage))) #pt-false)
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-valuation #pt-nat))
+                (#pt-app (#pt-use natural-prime-order ()) prime-number stage candidate-valuation)))
+            (#pt-lambda
+              ((stage-divides (#pt-app (#pt-use divides ()) prime-number stage)))
+              (#pt-induct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((candidate-factor #pt-nat))
+                    (#pt-eq
+                      #pt-nat
+                      stage
+                      (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))
+                (#pt-lambda
+                  (
+                    (certificate
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-factor #pt-nat))
+                          (#pt-eq
+                            #pt-nat
+                            stage
+                            (#pt-app (#pt-use multiply ()) prime-number candidate-factor))))))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-valuation #pt-nat))
+                      (#pt-app
+                        (#pt-use natural-prime-order ())
+                        prime-number
+                        stage
+                        candidate-valuation))))
+                (
+                  (#pt-lambda
+                    (
+                      (quotient #pt-nat)
+                      (quotient-equation
+                        (#pt-eq #pt-nat stage (#pt-app (#pt-use multiply ()) prime-number quotient))))
+                    (#pt-induct
+                      exists
+                      (0)
+                      (#pt-nat
+                        (#pt-lambda
+                          ((candidate-valuation #pt-nat))
+                          (#pt-app
+                            (#pt-use natural-prime-order ())
+                            prime-number
+                            quotient
+                            candidate-valuation)))
+                      (#pt-lambda
+                        (
+                          (certificate
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-valuation #pt-nat))
+                                (#pt-app
+                                  (#pt-use natural-prime-order ())
+                                  prime-number
+                                  quotient
+                                  candidate-valuation)))))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-valuation #pt-nat))
+                            (#pt-app
+                              (#pt-use natural-prime-order ())
+                              prime-number
+                              stage
+                              candidate-valuation))))
+                      (
+                        (#pt-lambda
+                          (
+                            (earlier-valuation #pt-nat)
+                            (earlier-certificate
+                              (#pt-app
+                                (#pt-use natural-prime-order ())
+                                prime-number
+                                quotient
+                                earlier-valuation)))
+                          (#pt-construct
+                            exists
+                            (0)
+                            (#pt-nat
+                              (#pt-lambda
+                                ((candidate-valuation #pt-nat))
+                                (#pt-app
+                                  (#pt-use natural-prime-order ())
+                                  prime-number
+                                  stage
+                                  candidate-valuation)))
+                            introduce
+                            (
+                              (#pt-succ earlier-valuation)
+                              (#pt-app
+                                (#pt-use natural-prime-order-step ())
+                                prime-number
+                                stage
+                                quotient
+                                earlier-valuation
+                                quotient-equation
+                                earlier-certificate)))))
+                      (#pt-app
+                        earlier-orders
+                        quotient
+                        (#pt-eq-elim
+                          #pt-nat
+                          (#pt-app (#pt-use multiply ()) prime-number quotient)
+                          (#pt-lambda
+                            (
+                              (transport-index #pt-nat)
+                              (transport-path
+                                (#pt-eq
+                                  #pt-nat
+                                  (#pt-app (#pt-use multiply ()) prime-number quotient)
+                                  transport-index)))
+                            (#pt-app (#pt-use less-than ()) quotient transport-index))
+                          (#pt-app
+                            (#pt-use nonunit-multiple-above ())
+                            quotient
+                            prime-number
+                            (#pt-lambda
+                              ((quotient-zero (#pt-eq #pt-nat quotient #pt-zero)))
+                              (#pt-app
+                                stage-nonzero
+                                (#pt-app
+                                  (#pt-use transitivity (0))
+                                  #pt-nat
+                                  stage
+                                  (#pt-app (#pt-use multiply ()) prime-number quotient)
+                                  #pt-zero
+                                  quotient-equation
+                                  (#pt-app
+                                    (#pt-use transitivity (0))
+                                    #pt-nat
+                                    (#pt-app (#pt-use multiply ()) prime-number quotient)
+                                    (#pt-app (#pt-use multiply ()) prime-number #pt-zero)
+                                    #pt-zero
+                                    (#pt-app
+                                      (#pt-use congruence (0 0))
+                                      #pt-nat
+                                      #pt-nat
+                                      (#pt-lambda
+                                        ((quotient-value #pt-nat))
+                                        (#pt-app (#pt-use multiply ()) prime-number quotient-value))
+                                      quotient
+                                      #pt-zero
+                                      quotient-zero)
+                                    (#pt-app (#pt-use multiply-zero-right ()) prime-number)))))
+                            (#pt-app (#pt-use prime-larger-than-one ()) prime-number prime-proof))
+                          stage
+                          (#pt-app
+                            (#pt-use symmetry (0))
+                            #pt-nat
+                            stage
+                            (#pt-app (#pt-use multiply ()) prime-number quotient)
+                            quotient-equation))
+                        (#pt-lambda
+                          ((quotient-zero (#pt-eq #pt-nat quotient #pt-zero)))
+                          (#pt-app
+                            stage-nonzero
+                            (#pt-app
+                              (#pt-use transitivity (0))
+                              #pt-nat
+                              stage
+                              (#pt-app (#pt-use multiply ()) prime-number quotient)
+                              #pt-zero
+                              quotient-equation
+                              (#pt-app
+                                (#pt-use transitivity (0))
+                                #pt-nat
+                                (#pt-app (#pt-use multiply ()) prime-number quotient)
+                                (#pt-app (#pt-use multiply ()) prime-number #pt-zero)
+                                #pt-zero
+                                (#pt-app
+                                  (#pt-use congruence (0 0))
+                                  #pt-nat
+                                  #pt-nat
+                                  (#pt-lambda
+                                    ((quotient-value #pt-nat))
+                                    (#pt-app (#pt-use multiply ()) prime-number quotient-value))
+                                  quotient
+                                  #pt-zero
+                                  quotient-zero)
+                                (#pt-app (#pt-use multiply-zero-right ()) prime-number)))))))))
+                stage-divides))
+            (#pt-lambda
+              (
+                (stage-nondivisor
+                  (#pt-pi
+                    ((denied-proof (#pt-app (#pt-use divides ()) prime-number stage)))
+                    #pt-false)))
+              (#pt-construct
+                exists
+                (0)
+                (#pt-nat
+                  (#pt-lambda
+                    ((candidate-valuation #pt-nat))
+                    (#pt-app
+                      (#pt-use natural-prime-order ())
+                      prime-number
+                      stage
+                      candidate-valuation)))
+                introduce
+                (#pt-zero
+                  (#pt-app
+                    (#pt-use natural-prime-order-zero ())
+                    prime-number
+                    stage
+                    stage-nondivisor))))
+            (#pt-app (#pt-use natural-divisibility-decided ()) prime-number stage))))
+      number
+      number-nonzero)))

@@ -1,0 +1,837 @@
+; Coordinate division in the concrete Eisenstein pair ring.
+; An arbitrary pair is d*q+(a+b*omega), with actual signed quotient
+; coordinates and natural 0<=a,b<d. No Euclidean norm bound or
+; factorization theorem is assumed by this intermediate construction.
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-add = ./integer-defs.lim::integer-add)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-add-congruent = ./integer-equality.lim::integer-add-congruent)
+(#alias exists = ./logic-exists.lim::exists)
+(#alias less-than = ./natural-order.lim::less-than)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#alias conjunction-left = ./logical-connectives.lim::conjunction-left)
+(#alias conjunction-right = ./logical-connectives.lim::conjunction-right)
+(#alias eisenstein = ./eisenstein-defs.lim::eisenstein)
+(#alias eisenstein-equal = ./eisenstein-defs.lim::eisenstein-equal)
+(#alias eisenstein-multiply = ./eisenstein-defs.lim::eisenstein-multiply)
+(#alias eisenstein-add = ./eisenstein-defs.lim::eisenstein-add)
+(#alias eisenstein-of-integer = ./eisenstein-defs.lim::eisenstein-of-integer)
+(#alias
+  eisenstein-scalar-multiply-real
+  =
+  ./eisenstein-lambda-cancellation.lim::eisenstein-scalar-multiply-real)
+(#alias
+  eisenstein-scalar-multiply-omega
+  =
+  ./eisenstein-lambda-cancellation.lim::eisenstein-scalar-multiply-omega)
+(#alias integer-division-spec = ./integer-division-defs.lim::integer-division-spec)
+(#alias integer-division-exists = ./integer-division-existence.lim::integer-division-exists)
+(#alias integer-multiply-commutative = ./integer-multiplication.lim::integer-multiply-commutative)
+(#math-definition eisenstein-coordinate-division-spec ()
+  (#pt-pi
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor #pt-nat)
+      (quotient (#pt-use eisenstein ()))
+      (real-remainder #pt-nat)
+      (omega-remainder #pt-nat))
+    #pt-prop)
+  (#pt-lambda
+    (
+      (dividend (#pt-use eisenstein ()))
+      (divisor #pt-nat)
+      (quotient (#pt-use eisenstein ()))
+      (real-remainder #pt-nat)
+      (omega-remainder #pt-nat))
+    (#pt-app
+      (#pt-use conjunction ())
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        dividend
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            quotient)
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use less-than ()) real-remainder divisor)
+        (#pt-app (#pt-use less-than ()) omega-remainder divisor)))))
+(#theorem eisenstein-coordinate-division-from-components
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor #pt-nat)
+    (#parameter real-quotient (#pt-use integer ()))
+    (#parameter omega-quotient (#pt-use integer ()))
+    (#parameter real-remainder #pt-nat)
+    (#parameter omega-remainder #pt-nat)
+    (#parameter real-division (#pt-app (#pt-use integer-division-spec ()) (#pt-project eisenstein 0 dividend) divisor real-quotient real-remainder))
+    (#parameter omega-division (#pt-app (#pt-use integer-division-spec ()) (#pt-project eisenstein 1 dividend) divisor omega-quotient omega-remainder)))
+  (#statement
+    (#pt-app
+      (#pt-use eisenstein-coordinate-division-spec ())
+      dividend
+      divisor
+      (#pt-construct eisenstein () () pair (real-quotient omega-quotient))
+      real-remainder
+      omega-remainder))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app
+        (#pt-use eisenstein-equal ())
+        dividend
+        (#pt-app
+          (#pt-use eisenstein-add ())
+          (#pt-app
+            (#pt-use eisenstein-multiply ())
+            (#pt-app
+              (#pt-use eisenstein-of-integer ())
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-construct eisenstein () () pair (real-quotient omega-quotient)))
+          (#pt-construct
+            eisenstein
+            ()
+            ()
+            pair
+            (
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))))
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use less-than ()) real-remainder divisor)
+        (#pt-app (#pt-use less-than ()) omega-remainder divisor))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 0 dividend)
+          (#pt-project
+            eisenstein
+            0
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-construct eisenstein () () pair (real-quotient omega-quotient)))
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-project eisenstein 1 dividend)
+          (#pt-project
+            eisenstein
+            1
+            (#pt-app
+              (#pt-use eisenstein-add ())
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-construct eisenstein () () pair (real-quotient omega-quotient)))
+              (#pt-construct
+                eisenstein
+                ()
+                ()
+                pair
+                (
+                  (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+                  (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-project eisenstein 0 dividend)
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              real-quotient
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) real-remainder))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project
+              eisenstein
+              0
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+            (#pt-app (#pt-use integer-of-natural ()) real-remainder))
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 0 dividend)
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  real-quotient
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-app (#pt-use integer-of-natural ()) real-remainder)))
+            (#pt-app (#pt-use less-than ()) real-remainder divisor)
+            real-division)
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                real-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                real-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project
+                eisenstein
+                0
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor))
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                real-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                real-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app
+                (#pt-use integer-multiply-commutative ())
+                real-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-of-natural ()) real-remainder)))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                real-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-project
+                eisenstein
+                0
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor))
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-project
+                  eisenstein
+                  0
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) divisor))
+                    (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor)
+                  real-quotient)
+                (#pt-app
+                  (#pt-use eisenstein-scalar-multiply-real ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor)
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-of-natural ()) real-remainder)))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-project eisenstein 1 dividend)
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              omega-quotient
+              (#pt-app (#pt-use integer-of-natural ()) divisor))
+            (#pt-app (#pt-use integer-of-natural ()) omega-remainder))
+          (#pt-app
+            (#pt-use integer-add ())
+            (#pt-project
+              eisenstein
+              1
+              (#pt-app
+                (#pt-use eisenstein-multiply ())
+                (#pt-app
+                  (#pt-use eisenstein-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+            (#pt-app (#pt-use integer-of-natural ()) omega-remainder))
+          (#pt-app
+            (#pt-use conjunction-left ())
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-project eisenstein 1 dividend)
+              (#pt-app
+                (#pt-use integer-add ())
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  omega-quotient
+                  (#pt-app (#pt-use integer-of-natural ()) divisor))
+                (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+            (#pt-app (#pt-use less-than ()) omega-remainder divisor)
+            omega-division)
+          (#pt-app
+            (#pt-use integer-transitive ())
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                omega-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                omega-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder))
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-project
+                eisenstein
+                1
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor))
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                omega-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                omega-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)
+              (#pt-app
+                (#pt-use integer-multiply-commutative ())
+                omega-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+            (#pt-app
+              (#pt-use integer-add-congruent ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-of-natural ()) divisor)
+                omega-quotient)
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)
+              (#pt-project
+                eisenstein
+                1
+                (#pt-app
+                  (#pt-use eisenstein-multiply ())
+                  (#pt-app
+                    (#pt-use eisenstein-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) divisor))
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                (#pt-project
+                  eisenstein
+                  1
+                  (#pt-app
+                    (#pt-use eisenstein-multiply ())
+                    (#pt-app
+                      (#pt-use eisenstein-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) divisor))
+                    (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+                (#pt-app
+                  (#pt-use integer-multiply ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor)
+                  omega-quotient)
+                (#pt-app
+                  (#pt-use eisenstein-scalar-multiply-omega ())
+                  (#pt-app (#pt-use integer-of-natural ()) divisor)
+                  (#pt-construct eisenstein () () pair (real-quotient omega-quotient))))
+              (#pt-app
+                (#pt-use integer-reflexive ())
+                (#pt-app (#pt-use integer-of-natural ()) omega-remainder))))))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use less-than ()) real-remainder divisor)
+        (#pt-app (#pt-use less-than ()) omega-remainder divisor)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 0 dividend)
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                real-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) real-remainder)))
+          (#pt-app (#pt-use less-than ()) real-remainder divisor)
+          real-division)
+        (#pt-app
+          (#pt-use conjunction-right ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            (#pt-project eisenstein 1 dividend)
+            (#pt-app
+              (#pt-use integer-add ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                omega-quotient
+                (#pt-app (#pt-use integer-of-natural ()) divisor))
+              (#pt-app (#pt-use integer-of-natural ()) omega-remainder)))
+          (#pt-app (#pt-use less-than ()) omega-remainder divisor)
+          omega-division)))))
+(#theorem eisenstein-coordinate-division-exists
+  (#universes)
+  (#parameters
+    (#parameter dividend (#pt-use eisenstein ()))
+    (#parameter divisor #pt-nat)
+    (#parameter positive-divisor (#pt-app (#pt-use less-than ()) #pt-zero divisor)))
+  (#statement
+    (#pt-app
+      (#pt-use exists (0))
+      (#pt-use eisenstein ())
+      (#pt-lambda
+        ((candidate-quotient (#pt-use eisenstein ())))
+        (#pt-app
+          (#pt-use exists (0))
+          #pt-nat
+          (#pt-lambda
+            ((candidate-real-remainder #pt-nat))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-omega-remainder #pt-nat))
+                (#pt-app
+                  (#pt-use eisenstein-coordinate-division-spec ())
+                  dividend
+                  divisor
+                  candidate-quotient
+                  candidate-real-remainder
+                  candidate-omega-remainder))))))))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (
+        (#pt-use integer ())
+        (#pt-lambda
+          ((candidate-quotient (#pt-use integer ())))
+          (#pt-app
+            (#pt-use exists (0))
+            #pt-nat
+            (#pt-lambda
+              ((candidate-remainder #pt-nat))
+              (#pt-app
+                (#pt-use integer-division-spec ())
+                (#pt-project eisenstein 0 dividend)
+                divisor
+                candidate-quotient
+                candidate-remainder)))))
+      (#pt-lambda
+        (
+          (integer-certificate
+            (#pt-app
+              (#pt-use exists (0))
+              (#pt-use integer ())
+              (#pt-lambda
+                ((candidate-quotient (#pt-use integer ())))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use integer-division-spec ())
+                      (#pt-project eisenstein 0 dividend)
+                      divisor
+                      candidate-quotient
+                      candidate-remainder)))))))
+        (#pt-app
+          (#pt-use exists (0))
+          (#pt-use eisenstein ())
+          (#pt-lambda
+            ((candidate-quotient (#pt-use eisenstein ())))
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-real-remainder #pt-nat))
+                (#pt-app
+                  (#pt-use exists (0))
+                  #pt-nat
+                  (#pt-lambda
+                    ((candidate-omega-remainder #pt-nat))
+                    (#pt-app
+                      (#pt-use eisenstein-coordinate-division-spec ())
+                      dividend
+                      divisor
+                      candidate-quotient
+                      candidate-real-remainder
+                      candidate-omega-remainder))))))))
+      (
+        (#pt-lambda
+          (
+            (real-quotient (#pt-use integer ()))
+            (real-remainder-existence
+              (#pt-app
+                (#pt-use exists (0))
+                #pt-nat
+                (#pt-lambda
+                  ((candidate-remainder #pt-nat))
+                  (#pt-app
+                    (#pt-use integer-division-spec ())
+                    (#pt-project eisenstein 0 dividend)
+                    divisor
+                    real-quotient
+                    candidate-remainder)))))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-remainder #pt-nat))
+                (#pt-app
+                  (#pt-use integer-division-spec ())
+                  (#pt-project eisenstein 0 dividend)
+                  divisor
+                  real-quotient
+                  candidate-remainder)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use integer-division-spec ())
+                        (#pt-project eisenstein 0 dividend)
+                        divisor
+                        real-quotient
+                        candidate-remainder)))))
+              (#pt-app
+                (#pt-use exists (0))
+                (#pt-use eisenstein ())
+                (#pt-lambda
+                  ((candidate-quotient (#pt-use eisenstein ())))
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-real-remainder #pt-nat))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-omega-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use eisenstein-coordinate-division-spec ())
+                            dividend
+                            divisor
+                            candidate-quotient
+                            candidate-real-remainder
+                            candidate-omega-remainder))))))))
+            (
+              (#pt-lambda
+                (
+                  (real-remainder #pt-nat)
+                  (real-division
+                    (#pt-app
+                      (#pt-use integer-division-spec ())
+                      (#pt-project eisenstein 0 dividend)
+                      divisor
+                      real-quotient
+                      real-remainder)))
+                (#pt-induct
+                  exists
+                  (0)
+                  (
+                    (#pt-use integer ())
+                    (#pt-lambda
+                      ((candidate-quotient (#pt-use integer ())))
+                      (#pt-app
+                        (#pt-use exists (0))
+                        #pt-nat
+                        (#pt-lambda
+                          ((candidate-remainder #pt-nat))
+                          (#pt-app
+                            (#pt-use integer-division-spec ())
+                            (#pt-project eisenstein 1 dividend)
+                            divisor
+                            candidate-quotient
+                            candidate-remainder)))))
+                  (#pt-lambda
+                    (
+                      (integer-certificate
+                        (#pt-app
+                          (#pt-use exists (0))
+                          (#pt-use integer ())
+                          (#pt-lambda
+                            ((candidate-quotient (#pt-use integer ())))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-remainder #pt-nat))
+                                (#pt-app
+                                  (#pt-use integer-division-spec ())
+                                  (#pt-project eisenstein 1 dividend)
+                                  divisor
+                                  candidate-quotient
+                                  candidate-remainder)))))))
+                    (#pt-app
+                      (#pt-use exists (0))
+                      (#pt-use eisenstein ())
+                      (#pt-lambda
+                        ((candidate-quotient (#pt-use eisenstein ())))
+                        (#pt-app
+                          (#pt-use exists (0))
+                          #pt-nat
+                          (#pt-lambda
+                            ((candidate-real-remainder #pt-nat))
+                            (#pt-app
+                              (#pt-use exists (0))
+                              #pt-nat
+                              (#pt-lambda
+                                ((candidate-omega-remainder #pt-nat))
+                                (#pt-app
+                                  (#pt-use eisenstein-coordinate-division-spec ())
+                                  dividend
+                                  divisor
+                                  candidate-quotient
+                                  candidate-real-remainder
+                                  candidate-omega-remainder))))))))
+                  (
+                    (#pt-lambda
+                      (
+                        (omega-quotient (#pt-use integer ()))
+                        (omega-remainder-existence
+                          (#pt-app
+                            (#pt-use exists (0))
+                            #pt-nat
+                            (#pt-lambda
+                              ((candidate-remainder #pt-nat))
+                              (#pt-app
+                                (#pt-use integer-division-spec ())
+                                (#pt-project eisenstein 1 dividend)
+                                divisor
+                                omega-quotient
+                                candidate-remainder)))))
+                      (#pt-induct
+                        exists
+                        (0)
+                        (#pt-nat
+                          (#pt-lambda
+                            ((candidate-remainder #pt-nat))
+                            (#pt-app
+                              (#pt-use integer-division-spec ())
+                              (#pt-project eisenstein 1 dividend)
+                              divisor
+                              omega-quotient
+                              candidate-remainder)))
+                        (#pt-lambda
+                          (
+                            (certificate
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-remainder #pt-nat))
+                                  (#pt-app
+                                    (#pt-use integer-division-spec ())
+                                    (#pt-project eisenstein 1 dividend)
+                                    divisor
+                                    omega-quotient
+                                    candidate-remainder)))))
+                          (#pt-app
+                            (#pt-use exists (0))
+                            (#pt-use eisenstein ())
+                            (#pt-lambda
+                              ((candidate-quotient (#pt-use eisenstein ())))
+                              (#pt-app
+                                (#pt-use exists (0))
+                                #pt-nat
+                                (#pt-lambda
+                                  ((candidate-real-remainder #pt-nat))
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-omega-remainder #pt-nat))
+                                      (#pt-app
+                                        (#pt-use eisenstein-coordinate-division-spec ())
+                                        dividend
+                                        divisor
+                                        candidate-quotient
+                                        candidate-real-remainder
+                                        candidate-omega-remainder))))))))
+                        (
+                          (#pt-lambda
+                            (
+                              (omega-remainder #pt-nat)
+                              (omega-division
+                                (#pt-app
+                                  (#pt-use integer-division-spec ())
+                                  (#pt-project eisenstein 1 dividend)
+                                  divisor
+                                  omega-quotient
+                                  omega-remainder)))
+                            (#pt-construct
+                              exists
+                              (0)
+                              (
+                                (#pt-use eisenstein ())
+                                (#pt-lambda
+                                  ((candidate-quotient (#pt-use eisenstein ())))
+                                  (#pt-app
+                                    (#pt-use exists (0))
+                                    #pt-nat
+                                    (#pt-lambda
+                                      ((candidate-real-remainder #pt-nat))
+                                      (#pt-app
+                                        (#pt-use exists (0))
+                                        #pt-nat
+                                        (#pt-lambda
+                                          ((candidate-omega-remainder #pt-nat))
+                                          (#pt-app
+                                            (#pt-use eisenstein-coordinate-division-spec ())
+                                            dividend
+                                            divisor
+                                            candidate-quotient
+                                            candidate-real-remainder
+                                            candidate-omega-remainder)))))))
+                              introduce
+                              (
+                                (#pt-construct eisenstein () () pair (real-quotient omega-quotient))
+                                (#pt-construct
+                                  exists
+                                  (0)
+                                  (#pt-nat
+                                    (#pt-lambda
+                                      ((candidate-real-remainder #pt-nat))
+                                      (#pt-app
+                                        (#pt-use exists (0))
+                                        #pt-nat
+                                        (#pt-lambda
+                                          ((candidate-omega-remainder #pt-nat))
+                                          (#pt-app
+                                            (#pt-use eisenstein-coordinate-division-spec ())
+                                            dividend
+                                            divisor
+                                            (#pt-construct
+                                              eisenstein
+                                              ()
+                                              ()
+                                              pair
+                                              (real-quotient omega-quotient))
+                                            candidate-real-remainder
+                                            candidate-omega-remainder)))))
+                                  introduce
+                                  (real-remainder
+                                    (#pt-construct
+                                      exists
+                                      (0)
+                                      (#pt-nat
+                                        (#pt-lambda
+                                          ((candidate-omega-remainder #pt-nat))
+                                          (#pt-app
+                                            (#pt-use eisenstein-coordinate-division-spec ())
+                                            dividend
+                                            divisor
+                                            (#pt-construct
+                                              eisenstein
+                                              ()
+                                              ()
+                                              pair
+                                              (real-quotient omega-quotient))
+                                            real-remainder
+                                            candidate-omega-remainder)))
+                                      introduce
+                                      (omega-remainder
+                                        (#pt-app
+                                          (#pt-use
+                                            eisenstein-coordinate-division-from-components
+                                            ())
+                                          dividend
+                                          divisor
+                                          real-quotient
+                                          omega-quotient
+                                          real-remainder
+                                          omega-remainder
+                                          real-division
+                                          omega-division)))))))))
+                        omega-remainder-existence)))
+                  (#pt-app
+                    (#pt-use integer-division-exists ())
+                    (#pt-project eisenstein 1 dividend)
+                    divisor
+                    positive-divisor))))
+            real-remainder-existence)))
+      (#pt-app
+        (#pt-use integer-division-exists ())
+        (#pt-project eisenstein 0 dividend)
+        divisor
+        positive-divisor))))

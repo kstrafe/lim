@@ -16,9 +16,9 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
       (#static pair Floats (#struct-literal Floats ((large forward) (small rounded))))
       (#static values (#array #f64 2) (#array-of (#array #f64 2) negativeZero infinity))
       (#fn main () #u64
-        (#let rounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
-        (#assert (#f32::eq rounded rounded))
-        (#assert (#f32::eq rounded 0.0f32))
+        (#let runtimeRounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
+        (#assert (#f32::eq runtimeRounded runtimeRounded))
+        (#assert (#f32::eq runtimeRounded 0.0f32))
         (#assert (#f64::eq forward 2.0f64))
         (#assert (#f64::ne nan nan))
         (#assert (#f64::eq infinity (#f64::div 1.0f64 0.0f64)))

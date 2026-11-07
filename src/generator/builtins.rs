@@ -141,7 +141,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
             }
             names.push(access);
         }
-        normalized.push(Expr::List(names));
+        normalized.push(Expr::List(names.into()));
         normalized.push(
             values
                 .remove("waker")
@@ -151,7 +151,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         if let Some(cancel) = values.remove("cancel") {
             normalized.push(cancel);
         }
-        return Ok(Expr::List(normalized));
+        return Ok(Expr::List(normalized.into()));
     }
     for key in keys {
         normalized.push(
@@ -160,10 +160,10 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
                 .ok_or_else(|| format!("#generate {kind} is missing argument '{key}'"))?,
         );
     }
-    Ok(Expr::List(normalized))
+    Ok(Expr::List(normalized.into()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "proof-kernel-tests")))]
 mod tests {
     use super::*;
 
@@ -190,7 +190,10 @@ mod tests {
                 "Work::poll",
                 "WorkAwait",
             ];
-            assert_eq!(names, &expected.map(|name| Expr::Symbol(name.into())));
+            assert_eq!(
+                names.as_slice(),
+                &expected.map(|name| Expr::Symbol(name.into()))
+            );
         }
     }
 }

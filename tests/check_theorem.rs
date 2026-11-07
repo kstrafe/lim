@@ -38,6 +38,73 @@ fn write(scratch: &support::Scratch, relative: &str, source: &str) {
 }
 
 #[test]
+fn mathematical_constructor_names_are_not_runtime_case_markers() {
+    let scratch = support::Scratch::new("proof-constructor-case");
+    write(
+        &scratch,
+        "base.lim",
+        "(#math-inductive example () () (#pt-type 0) ((case ())))",
+    );
+    write(
+        &scratch,
+        "main.lim",
+        "(#alias example = ./base.lim::example)
+         (#theorem constructor-reflexivity (#universes) (#parameters)
+           (#statement (#pt-eq (#pt-use example ())
+             (#pt-construct example () () case ())
+             (#pt-construct example () () case ())))
+           (#proof (#pt-refl (#pt-use example ())
+             (#pt-construct example () () case ()))))",
+    );
+    let (status, stdout, stderr) = run(
+        &scratch,
+        &["--check-theorem", "main.lim", "constructor-reflexivity"],
+    );
+    assert!(status.success(), "{stderr}");
+    assert_eq!(stdout, "checked theorem constructor-reflexivity\n");
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
+#[test]
+fn complete_imported_source_graph_is_checked_beyond_the_artifact_batch_size() {
+    for invalid_tail in [false, true] {
+        let scratch = support::Scratch::new("proof-large-import");
+        let mut source = String::new();
+        for index in 0..4100 {
+            source.push_str(&format!(
+                "(#theorem p-{index} (#universes) (#parameters)
+                 (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
+                 (#proof (#pt-refl #pt-nat #pt-zero)))\n"
+            ));
+        }
+        if invalid_tail {
+            source.push_str(
+                "(#theorem unused-false-tail (#universes) (#parameters)
+                 (#statement (#pt-eq #pt-nat #pt-zero (#pt-succ #pt-zero)))
+                 (#proof (#pt-refl #pt-nat #pt-zero)))",
+            );
+        }
+        write(&scratch, "base.lim", &source);
+        write(
+            &scratch,
+            "main.lim",
+            "(#alias selected = ./base.lim::p-4099)",
+        );
+        let (status, stdout, stderr) = run(&scratch, &["--check-theorem", "main.lim", "selected"]);
+        if invalid_tail {
+            assert!(!status.success());
+            assert!(stdout.is_empty(), "{stdout}");
+            assert!(stderr.contains("mismatch"), "{stderr}");
+            assert!(stderr.contains("base.lim:"), "{stderr}");
+        } else {
+            assert!(status.success(), "{stderr}");
+            assert_eq!(stdout, "checked theorem selected\n");
+            assert!(stderr.is_empty(), "{stderr}");
+        }
+    }
+}
+
+#[test]
 fn generic_and_procedural_theorems_have_an_exact_success_line_and_no_native_output() {
     for (source, name) in [
         (REFLEXIVITY, "reflexivity"),
@@ -368,9 +435,9 @@ fn timing_json_keeps_success_stdout_separate_and_has_no_native_emission_stages()
     assert!(lines[0].starts_with("{\"timings\":["), "{stderr}");
     for stage in [
         "input_read",
-        "prepare_imports_parse_cfg",
-        "expansion",
+        "proof_source_inventory",
         "semantic_validate",
+        "proof_foundation_audit",
         "total",
     ] {
         assert!(stderr.contains(stage), "{stderr}");

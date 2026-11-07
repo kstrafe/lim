@@ -42,7 +42,7 @@ pub(super) fn dimensions(value: &str) -> Result<(usize, usize)> {
     } else {
         builder_depth(count) + 2
     };
-    let node_bytes = std::mem::size_of::<Term>() + 2 * std::mem::size_of::<usize>();
+    let node_bytes = std::mem::size_of::<TermNode>() + 2 * std::mem::size_of::<usize>();
     let payload = (count * 6 + 32) * node_bytes + count * 24 + value.len() + 1024;
     Ok((depth, payload))
 }

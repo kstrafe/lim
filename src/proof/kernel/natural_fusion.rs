@@ -3,8 +3,12 @@
 //! Projecting the first record field commutes with a fold only if its step
 //! observes the previous state exclusively through that same projection.
 //! Applying a fixed argument commutes only when every use of the old function
-//! applies that exact argument. Neither rule depends on declaration names.
+//! applies that exact argument. An identity-base tail composition can instead
+//! iterate its argument update as a scalar fold. No rule depends on names.
 use super::*;
+
+#[path = "natural_tail_fusion.rs"]
+mod tail;
 
 impl Kernel {
     pub(super) fn natural_project_fusion(
@@ -105,6 +109,9 @@ impl Kernel {
                 if refused {
                     return Ok(ControlFlow::Break(value.clone()));
                 }
+                if value.loose_range() == 0 {
+                    return Ok(ControlFlow::Break(value.clone()));
+                }
                 let value = kernel.natural_head(value, depth + 1)?;
                 if let Term::Project {
                     family,
@@ -181,14 +188,14 @@ impl Kernel {
     fn natural_scalar_type(&mut self, value: &T, family: &str, depth: usize) -> Result<Option<T>> {
         self.tick(depth)?;
         if self.natural_type(value, family, depth + 1)? {
-            self.charge_transformation(128 + family.len())?;
+            self.charge_transformation(TERM_NODE_BYTES + family.len())?;
             return Ok(Some(term(Term::Global(family.into(), vec![]))));
         }
         let value = self.natural_head(value, depth + 1)?;
         let Term::Global(name, levels) = value.as_ref() else {
             return Ok(None);
         };
-        if !levels.is_empty() || self.provisional_family(name) || self.nested.contains_key(name) {
+        if !levels.is_empty() || self.provisional_family(name) || self.nested.contains_key(name)? {
             return Ok(None);
         }
         let Some(declaration) = self.declarations.get(name)? else {
@@ -294,7 +301,7 @@ impl Kernel {
             return Ok(None);
         }
         let shifted_argument = self.shift(argument, 2, 0, depth + 1)?;
-        self.charge_transformation(128)?;
+        self.charge_transformation(TERM_NODE_BYTES)?;
         let body = term(Term::App(body.clone(), shifted_argument));
         let mut refused = false;
         let specialized = self.transform_nodes(
@@ -303,6 +310,9 @@ impl Kernel {
             depth + 1,
             &mut |kernel, value, binders, depth| {
                 if refused {
+                    return Ok(ControlFlow::Break(value.clone()));
+                }
+                if value.loose_range() == 0 {
                     return Ok(ControlFlow::Break(value.clone()));
                 }
                 let value = kernel.natural_head(value, depth + 1)?;
@@ -331,7 +341,9 @@ impl Kernel {
             &mut |level| Ok(level.clone()),
         )?;
         if refused {
-            return Ok(None);
+            // A changed argument may still be a predecessor-independent tail
+            // composition with identity base; let its update become the step.
+            return self.natural_tail_apply_fusion(value, argument, depth + 1);
         }
         let nat = term(Term::Global(family.clone(), vec![]));
         self.charge_transformation(1024 + family.len() * 4)?;
@@ -626,6 +638,8 @@ mod tests {
     #[test]
     fn a_recursive_call_at_another_argument_is_not_a_fixed_argument_fold() {
         let mut kernel = kernel();
+        // The outer successor in function_fold also prevents tail composition:
+        // this is succ(oldFunction(succ x)), not oldFunction(U(x)).
         let fold = function_fold(literal(3), true);
         let value = term(Term::App(fold.clone(), literal(2)));
         kernel.check(&[], &value, &nat(), 0).unwrap();

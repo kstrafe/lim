@@ -1,0 +1,133 @@
+; Copyright (c) 2021 Kevin Buzzard. All rights reserved.
+; Released under Apache 2.0 license as described in LICENSE.MATHLIB.
+; Authors: Kevin Buzzard, David Kurniadi Angdinata
+; Native Lim adaptation of the pinned Weierstrass invariant relations.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias rational = ./rational-defs.lim::rational)
+(#alias rational-equal = ./rational-defs.lim::rational-equal)
+(#alias rational-of-integer = ./rational-defs.lim::rational-of-integer)
+(#alias rational-add = ./rational-defs.lim::rational-add)
+(#alias rational-multiply = ./rational-defs.lim::rational-multiply)
+(#alias rational-negate = ./rational-defs.lim::rational-negate)
+(#alias rational-power = ./rational-defs.lim::rational-power)
+(#alias
+  discriminant-step-0356
+  =
+  ./rational-c-relation-polynomial-part-02.lim::discriminant-step-0356)
+(#theorem rational-c-relation-polynomial
+  (#universes)
+  (#parameters
+    (#parameter b2 (#pt-use rational ()))
+    (#parameter b4 (#pt-use rational ()))
+    (#parameter b6 (#pt-use rational ())))
+  (#statement
+    (#pt-app
+      (#pt-use rational-equal ())
+      (#pt-app
+        (#pt-use rational-multiply ())
+        (#pt-app
+          (#pt-use rational-of-integer ())
+          (#pt-app
+            (#pt-use integer-of-natural ())
+            (#pt-app
+              (#pt-use add ())
+              (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 3))
+              (#pt-numeral 48))))
+        (#pt-app
+          (#pt-use rational-add ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app (#pt-use rational-power ()) b2 (#pt-numeral 2)))
+                (#pt-app
+                  (#pt-use rational-add ())
+                  (#pt-app (#pt-use rational-multiply ()) b2 b6)
+                  (#pt-app
+                    (#pt-use rational-negate ())
+                    (#pt-app (#pt-use rational-power ()) b4 (#pt-numeral 2)))))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 32)))
+                  (#pt-app (#pt-use rational-power ()) b4 (#pt-numeral 3)))))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 108)))
+                (#pt-app (#pt-use rational-power ()) b6 (#pt-numeral 2)))))
+          (#pt-app
+            (#pt-use rational-multiply ())
+            (#pt-app
+              (#pt-use rational-multiply ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+                b2)
+              b4)
+            b6)))
+      (#pt-app
+        (#pt-use rational-add ())
+        (#pt-app
+          (#pt-use rational-power ())
+          (#pt-app
+            (#pt-use rational-add ())
+            (#pt-app (#pt-use rational-power ()) b2 (#pt-numeral 2))
+            (#pt-app
+              (#pt-use rational-negate ())
+              (#pt-app
+                (#pt-use rational-multiply ())
+                (#pt-app
+                  (#pt-use rational-of-integer ())
+                  (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 24)))
+                b4)))
+          (#pt-numeral 3))
+        (#pt-app
+          (#pt-use rational-negate ())
+          (#pt-app
+            (#pt-use rational-power ())
+            (#pt-app
+              (#pt-use rational-add ())
+              (#pt-app
+                (#pt-use rational-add ())
+                (#pt-app
+                  (#pt-use rational-negate ())
+                  (#pt-app (#pt-use rational-power ()) b2 (#pt-numeral 3)))
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-multiply ())
+                    (#pt-app
+                      (#pt-use rational-of-integer ())
+                      (#pt-app (#pt-use integer-of-natural ()) (#pt-numeral 36)))
+                    b2)
+                  b4))
+              (#pt-app
+                (#pt-use rational-negate ())
+                (#pt-app
+                  (#pt-use rational-multiply ())
+                  (#pt-app
+                    (#pt-use rational-of-integer ())
+                    (#pt-app
+                      (#pt-use integer-of-natural ())
+                      (#pt-app
+                        (#pt-use add ())
+                        (#pt-app (#pt-use multiply ()) (#pt-numeral 128) (#pt-numeral 1))
+                        (#pt-numeral 88))))
+                  b6)))
+            (#pt-numeral 2))))))
+  (#proof (#pt-app (#pt-use discriminant-step-0356 ()) b2 b4 b6)))

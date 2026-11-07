@@ -1,0 +1,162 @@
+; Copyright (c) 2014 Microsoft Corporation. All rights reserved.
+; Released under Apache 2.0 license as described in the file LICENSE.
+; Authors: Floris van Doorn, Leonardo de Moura
+; Mathematical adaptation: see provenance.json and LICENSE.LEAN4.
+; Direct source-level Nat addition proofs, following Lean's Nat.add equations.
+; Source references: Init/Data/Nat/Basic.lean, Nat.add_zero (right identity),
+; Nat.add_succ, Nat.add_comm, and Nat.add_assoc.
+(#alias add = ../fermat_statement.lim::add)
+(#alias congruence = ./equality.lim::congruence)
+(#alias transitivity = ./equality.lim::transitivity)
+(#alias symmetry = ./equality.lim::symmetry)
+(#theorem add-zero-right
+  (#universes)
+  (#parameters
+    (#parameter number #pt-nat))
+  (#statement (#pt-eq #pt-nat (#pt-app (#pt-use add ()) number #pt-zero) number))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-eq #pt-nat (#pt-app (#pt-use add ()) ordinal #pt-zero) ordinal))
+      (#pt-refl #pt-nat #pt-zero)
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (hypothesis (#pt-eq #pt-nat (#pt-app (#pt-use add ()) previous #pt-zero) previous)))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((value #pt-nat)) (#pt-succ value))
+          (#pt-app (#pt-use add ()) previous #pt-zero)
+          previous
+          hypothesis))
+      number)))
+(#theorem add-successor-right
+  (#universes)
+  (#parameters
+    (#parameter left #pt-nat)
+    (#parameter right #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use add ()) left (#pt-succ right))
+      (#pt-succ (#pt-app (#pt-use add ()) left right))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use add ()) ordinal (#pt-succ right))
+          (#pt-succ (#pt-app (#pt-use add ()) ordinal right))))
+      (#pt-refl #pt-nat (#pt-succ right))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (hypothesis
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use add ()) previous (#pt-succ right))
+              (#pt-succ (#pt-app (#pt-use add ()) previous right)))))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((value #pt-nat)) (#pt-succ value))
+          (#pt-app (#pt-use add ()) previous (#pt-succ right))
+          (#pt-succ (#pt-app (#pt-use add ()) previous right))
+          hypothesis))
+      left)))
+; Induction on the first argument, using right-zero and right-successor.
+(#theorem add-commutative
+  (#universes)
+  (#parameters
+    (#parameter left #pt-nat)
+    (#parameter right #pt-nat))
+  (#statement
+    (#pt-eq #pt-nat (#pt-app (#pt-use add ()) left right) (#pt-app (#pt-use add ()) right left)))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use add ()) ordinal right)
+          (#pt-app (#pt-use add ()) right ordinal)))
+      (#pt-app
+        (#pt-use symmetry (0))
+        #pt-nat
+        (#pt-app (#pt-use add ()) right #pt-zero)
+        right
+        (#pt-app (#pt-use add-zero-right ()) right))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (hypothesis
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use add ()) previous right)
+              (#pt-app (#pt-use add ()) right previous))))
+        (#pt-app
+          (#pt-use transitivity (0))
+          #pt-nat
+          (#pt-succ (#pt-app (#pt-use add ()) previous right))
+          (#pt-succ (#pt-app (#pt-use add ()) right previous))
+          (#pt-app (#pt-use add ()) right (#pt-succ previous))
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((value #pt-nat)) (#pt-succ value))
+            (#pt-app (#pt-use add ()) previous right)
+            (#pt-app (#pt-use add ()) right previous)
+            hypothesis)
+          (#pt-app
+            (#pt-use symmetry (0))
+            #pt-nat
+            (#pt-app (#pt-use add ()) right (#pt-succ previous))
+            (#pt-succ (#pt-app (#pt-use add ()) right previous))
+            (#pt-app (#pt-use add-successor-right ()) right previous))))
+      left)))
+; Lean's Nat.add_assoc recurses on the third argument. This direct proof
+; instead inducts on the first argument, where both successor cases reduce
+; to congruence of the induction hypothesis.
+(#theorem add-associative
+  (#universes)
+  (#parameters
+    (#parameter first #pt-nat)
+    (#parameter second #pt-nat)
+    (#parameter third #pt-nat))
+  (#statement
+    (#pt-eq
+      #pt-nat
+      (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) first second) third)
+      (#pt-app (#pt-use add ()) first (#pt-app (#pt-use add ()) second third))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((ordinal #pt-nat))
+        (#pt-eq
+          #pt-nat
+          (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) ordinal second) third)
+          (#pt-app (#pt-use add ()) ordinal (#pt-app (#pt-use add ()) second third))))
+      (#pt-refl #pt-nat (#pt-app (#pt-use add ()) second third))
+      (#pt-lambda
+        (
+          (previous #pt-nat)
+          (hypothesis
+            (#pt-eq
+              #pt-nat
+              (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) previous second) third)
+              (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use add ()) second third)))))
+        (#pt-app
+          (#pt-use congruence (0 0))
+          #pt-nat
+          #pt-nat
+          (#pt-lambda ((value #pt-nat)) (#pt-succ value))
+          (#pt-app (#pt-use add ()) (#pt-app (#pt-use add ()) previous second) third)
+          (#pt-app (#pt-use add ()) previous (#pt-app (#pt-use add ()) second third))
+          hypothesis))
+      first)))

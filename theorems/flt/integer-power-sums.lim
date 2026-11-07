@@ -1,0 +1,226 @@
+; Arbitrary signed exponent addition and squared-power/doubled-exponent
+; compatibility. Prove by actual Nat induction and equality transport,
+; preserving the exact 2*n exponent used by the pinned discriminant.
+(#alias add = ./../fermat_statement.lim::add)
+(#alias multiply = ./../fermat_statement.lim::multiply)
+(#alias congruence = ./equality.lim::congruence)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-power = ./integer-defs.lim::integer-power)
+(#alias integer-reflexive = ./integer-equality.lim::integer-reflexive)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias integer-transitive = ./integer-equality.lim::integer-transitive)
+(#alias integer-multiply-congruent = ./integer-multiplication.lim::integer-multiply-congruent)
+(#alias integer-multiply-associative = ./integer-multiplication.lim::integer-multiply-associative)
+(#alias add-zero-right = ./natural-addition.lim::add-zero-right)
+(#alias integer-multiply-one = ./integer-multiplication.lim::integer-multiply-one)
+(#alias integer-one-multiply = ./integer-bezout-algebra.lim::integer-one-multiply)
+(#theorem integer-power-add
+  (#universes)
+  (#parameters
+    (#parameter base (#pt-use integer ()))
+    (#parameter first-exponent #pt-nat)
+    (#parameter second-exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-power ())
+        base
+        (#pt-app (#pt-use add ()) first-exponent second-exponent))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-power ()) base first-exponent)
+        (#pt-app (#pt-use integer-power ()) base second-exponent))))
+  (#proof
+    (#pt-nat-induct
+      (#pt-lambda
+        ((index #pt-nat))
+        (#pt-app
+          (#pt-use integer-equal ())
+          (#pt-app (#pt-use integer-power ()) base (#pt-app (#pt-use add ()) index second-exponent))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-power ()) base index)
+            (#pt-app (#pt-use integer-power ()) base second-exponent))))
+      (#pt-app
+        (#pt-use integer-symmetric ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-use integer-one ())
+          (#pt-app (#pt-use integer-power ()) base second-exponent))
+        (#pt-app (#pt-use integer-power ()) base second-exponent)
+        (#pt-app
+          (#pt-use integer-one-multiply ())
+          (#pt-app (#pt-use integer-power ()) base second-exponent)))
+      (#pt-lambda
+        (
+          (previous-exponent #pt-nat)
+          (previous-sum
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app
+                (#pt-use integer-power ())
+                base
+                (#pt-app (#pt-use add ()) previous-exponent second-exponent))
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-power ()) base previous-exponent)
+                (#pt-app (#pt-use integer-power ()) base second-exponent)))))
+        (#pt-app
+          (#pt-use integer-transitive ())
+          (#pt-app
+            (#pt-use integer-multiply ())
+            base
+            (#pt-app
+              (#pt-use integer-power ())
+              base
+              (#pt-app (#pt-use add ()) previous-exponent second-exponent)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            base
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-power ()) base previous-exponent)
+              (#pt-app (#pt-use integer-power ()) base second-exponent)))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              base
+              (#pt-app (#pt-use integer-power ()) base previous-exponent))
+            (#pt-app (#pt-use integer-power ()) base second-exponent))
+          (#pt-app
+            (#pt-use integer-multiply-congruent ())
+            base
+            (#pt-app
+              (#pt-use integer-power ())
+              base
+              (#pt-app (#pt-use add ()) previous-exponent second-exponent))
+            base
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app (#pt-use integer-power ()) base previous-exponent)
+              (#pt-app (#pt-use integer-power ()) base second-exponent))
+            (#pt-app (#pt-use integer-reflexive ()) base)
+            previous-sum)
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app
+              (#pt-use integer-multiply ())
+              (#pt-app
+                (#pt-use integer-multiply ())
+                base
+                (#pt-app (#pt-use integer-power ()) base previous-exponent))
+              (#pt-app (#pt-use integer-power ()) base second-exponent))
+            (#pt-app
+              (#pt-use integer-multiply ())
+              base
+              (#pt-app
+                (#pt-use integer-multiply ())
+                (#pt-app (#pt-use integer-power ()) base previous-exponent)
+                (#pt-app (#pt-use integer-power ()) base second-exponent)))
+            (#pt-app
+              (#pt-use integer-multiply-associative ())
+              base
+              (#pt-app (#pt-use integer-power ()) base previous-exponent)
+              (#pt-app (#pt-use integer-power ()) base second-exponent)))))
+      first-exponent)))
+(#theorem integer-power-square
+  (#universes)
+  (#parameters
+    (#parameter base (#pt-use integer ()))
+    (#parameter exponent #pt-nat))
+  (#statement
+    (#pt-app
+      (#pt-use integer-equal ())
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-app
+        (#pt-use integer-power ())
+        base
+        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent))))
+  (#proof
+    (#pt-app
+      (#pt-use integer-transitive ())
+      (#pt-app
+        (#pt-use integer-power ())
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-succ (#pt-succ #pt-zero)))
+      (#pt-app
+        (#pt-use integer-multiply ())
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-app (#pt-use integer-power ()) base exponent))
+      (#pt-app
+        (#pt-use integer-power ())
+        base
+        (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent))
+      (#pt-app
+        (#pt-use integer-multiply-congruent ())
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-power ()) base exponent)
+          (#pt-use integer-one ()))
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-app (#pt-use integer-power ()) base exponent)
+        (#pt-app (#pt-use integer-reflexive ()) (#pt-app (#pt-use integer-power ()) base exponent))
+        (#pt-app
+          (#pt-use integer-multiply-one ())
+          (#pt-app (#pt-use integer-power ()) base exponent)))
+      (#pt-app
+        (#pt-use integer-transitive ())
+        (#pt-app
+          (#pt-use integer-multiply ())
+          (#pt-app (#pt-use integer-power ()) base exponent)
+          (#pt-app (#pt-use integer-power ()) base exponent))
+        (#pt-app (#pt-use integer-power ()) base (#pt-app (#pt-use add ()) exponent exponent))
+        (#pt-app
+          (#pt-use integer-power ())
+          base
+          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent))
+        (#pt-app
+          (#pt-use integer-symmetric ())
+          (#pt-app (#pt-use integer-power ()) base (#pt-app (#pt-use add ()) exponent exponent))
+          (#pt-app
+            (#pt-use integer-multiply ())
+            (#pt-app (#pt-use integer-power ()) base exponent)
+            (#pt-app (#pt-use integer-power ()) base exponent))
+          (#pt-app (#pt-use integer-power-add ()) base exponent exponent))
+        (#pt-eq-elim
+          #pt-nat
+          (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+          (#pt-lambda
+            (
+              (endpoint #pt-nat)
+              (exponent-equality
+                (#pt-eq
+                  #pt-nat
+                  (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)
+                  endpoint)))
+            (#pt-app
+              (#pt-use integer-equal ())
+              (#pt-app (#pt-use integer-power ()) base endpoint)
+              (#pt-app
+                (#pt-use integer-power ())
+                base
+                (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent))))
+          (#pt-app
+            (#pt-use integer-reflexive ())
+            (#pt-app
+              (#pt-use integer-power ())
+              base
+              (#pt-app (#pt-use multiply ()) (#pt-succ (#pt-succ #pt-zero)) exponent)))
+          (#pt-app (#pt-use add ()) exponent exponent)
+          (#pt-app
+            (#pt-use congruence (0 0))
+            #pt-nat
+            #pt-nat
+            (#pt-lambda ((endpoint #pt-nat)) (#pt-app (#pt-use add ()) exponent endpoint))
+            (#pt-app (#pt-use add ()) exponent #pt-zero)
+            exponent
+            (#pt-app (#pt-use add-zero-right ()) exponent)))))))

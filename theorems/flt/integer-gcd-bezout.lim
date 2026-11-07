@@ -1,0 +1,459 @@
+; Bezout identities and a proved coprimality interface for signed gcds.
+; integer-coprime means actual coefficients whose linear combination is one.
+; It is not an opaque alias for a common-divisor property.
+(#alias exists = ./logic-exists.lim::exists)
+(#alias integer = ./integer-defs.lim::integer)
+(#alias integer-of-natural = ./integer-defs.lim::integer-of-natural)
+(#alias integer-negative-natural = ./integer-defs.lim::integer-negative-natural)
+(#alias integer-zero = ./integer-defs.lim::integer-zero)
+(#alias integer-one = ./integer-defs.lim::integer-one)
+(#alias integer-equal = ./integer-defs.lim::integer-equal)
+(#alias integer-negate = ./integer-defs.lim::integer-negate)
+(#alias integer-multiply = ./integer-defs.lim::integer-multiply)
+(#alias integer-divides = ./integer-defs.lim::integer-divides)
+(#alias integer-magnitude = ./integer-magnitude.lim::integer-magnitude)
+(#alias integer-magnitude-exists = ./integer-magnitude.lim::integer-magnitude-exists)
+(#alias gcd-spec = ./natural-gcd.lim::gcd-spec)
+(#alias integer-gcd-spec = ./integer-gcd.lim::integer-gcd-spec)
+(#alias integer-gcd-magnitudes = ./integer-gcd.lim::integer-gcd-magnitudes)
+(#alias natural-gcd-bezout = ./natural-bezout.lim::natural-gcd-bezout)
+(#alias integer-has-bezout = ./integer-bezout-defs.lim::integer-has-bezout)
+(#alias integer-bezout-negative-first = ./integer-bezout.lim::integer-bezout-negative-first)
+(#alias integer-bezout-negative-second = ./integer-bezout.lim::integer-bezout-negative-second)
+(#alias
+  integer-bezout-arguments-congruent
+  =
+  ./integer-bezout.lim::integer-bezout-arguments-congruent)
+(#alias integer-bezout-common-divisor = ./integer-bezout.lim::integer-bezout-common-divisor)
+(#alias integer-one-multiply = ./integer-bezout-algebra.lim::integer-one-multiply)
+(#alias integer-symmetric = ./integer-equality.lim::integer-symmetric)
+(#alias disjunction = ./logical-connectives.lim::disjunction)
+(#alias disjunction-eliminate = ./logical-connectives.lim::disjunction-eliminate)
+(#alias conjunction = ./logical-connectives.lim::conjunction)
+(#alias conjunction-introduce = ./logical-connectives.lim::conjunction-introduce)
+(#theorem integer-bezout-from-magnitudes
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter first-magnitude #pt-nat)
+    (#parameter second-magnitude #pt-nat)
+    (#parameter value (#pt-use integer ()))
+    (#parameter first-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) first first-magnitude))
+    (#parameter second-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) second second-magnitude))
+    (#parameter magnitude-bezout-proof (#pt-app (#pt-use integer-has-bezout ()) (#pt-app (#pt-use integer-of-natural ()) first-magnitude) (#pt-app (#pt-use integer-of-natural ()) second-magnitude) value)))
+  (#statement (#pt-app (#pt-use integer-has-bezout ()) first second value))
+  (#proof
+    (#pt-app
+      (#pt-use disjunction-eliminate ())
+      (#pt-app
+        (#pt-use integer-equal ())
+        first
+        (#pt-app (#pt-use integer-of-natural ()) first-magnitude))
+      (#pt-app
+        (#pt-use integer-equal ())
+        first
+        (#pt-app (#pt-use integer-negative-natural ()) first-magnitude))
+      (#pt-app (#pt-use integer-has-bezout ()) first second value)
+      (#pt-lambda
+        (
+          (first-sign-positive
+            (#pt-app
+              (#pt-use integer-equal ())
+              first
+              (#pt-app (#pt-use integer-of-natural ()) first-magnitude))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+          (#pt-app (#pt-use integer-has-bezout ()) first second value)
+          (#pt-lambda
+            (
+              (second-sign-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-bezout-arguments-congruent ())
+              (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+              (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+              first
+              second
+              value
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                first
+                (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                first-sign-positive)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                second
+                (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                second-sign-positive)
+              magnitude-bezout-proof))
+          (#pt-lambda
+            (
+              (second-sign-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-bezout-arguments-congruent ())
+              (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+              first
+              second
+              value
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                first
+                (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                first-sign-positive)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                second
+                (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+                second-sign-negative)
+              (#pt-app
+                (#pt-use integer-bezout-negative-second ())
+                (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                value
+                magnitude-bezout-proof)))
+          second-magnitude-proof))
+      (#pt-lambda
+        (
+          (first-sign-negative
+            (#pt-app
+              (#pt-use integer-equal ())
+              first
+              (#pt-app (#pt-use integer-negative-natural ()) first-magnitude))))
+        (#pt-app
+          (#pt-use disjunction-eliminate ())
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-of-natural ()) second-magnitude))
+          (#pt-app
+            (#pt-use integer-equal ())
+            second
+            (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))
+          (#pt-app (#pt-use integer-has-bezout ()) first second value)
+          (#pt-lambda
+            (
+              (second-sign-positive
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-of-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-bezout-arguments-congruent ())
+              (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+              (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+              first
+              second
+              value
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                first
+                (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                first-sign-negative)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                second
+                (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                second-sign-positive)
+              (#pt-app
+                (#pt-use integer-bezout-negative-first ())
+                (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                value
+                magnitude-bezout-proof)))
+          (#pt-lambda
+            (
+              (second-sign-negative
+                (#pt-app
+                  (#pt-use integer-equal ())
+                  second
+                  (#pt-app (#pt-use integer-negative-natural ()) second-magnitude))))
+            (#pt-app
+              (#pt-use integer-bezout-arguments-congruent ())
+              (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+              (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+              first
+              second
+              value
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                first
+                (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                first-sign-negative)
+              (#pt-app
+                (#pt-use integer-symmetric ())
+                second
+                (#pt-app (#pt-use integer-negative-natural ()) second-magnitude)
+                second-sign-negative)
+              (#pt-app
+                (#pt-use integer-bezout-negative-second ())
+                (#pt-app (#pt-use integer-negative-natural ()) first-magnitude)
+                (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                value
+                (#pt-app
+                  (#pt-use integer-bezout-negative-first ())
+                  (#pt-app (#pt-use integer-of-natural ()) first-magnitude)
+                  (#pt-app (#pt-use integer-of-natural ()) second-magnitude)
+                  value
+                  magnitude-bezout-proof))))
+          second-magnitude-proof))
+      first-magnitude-proof)))
+(#theorem integer-gcd-bezout
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter greatest-divisor #pt-nat)
+    (#parameter gcd-proof (#pt-app (#pt-use integer-gcd-spec ()) first second greatest-divisor)))
+  (#statement
+    (#pt-app
+      (#pt-use integer-has-bezout ())
+      first
+      second
+      (#pt-app (#pt-use integer-of-natural ()) greatest-divisor)))
+  (#proof
+    (#pt-induct
+      exists
+      (0)
+      (#pt-nat
+        (#pt-lambda
+          ((candidate-magnitude #pt-nat))
+          (#pt-app (#pt-use integer-magnitude ()) first candidate-magnitude)))
+      (#pt-lambda
+        (
+          (certificate
+            (#pt-app
+              (#pt-use exists (0))
+              #pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) first candidate-magnitude)))))
+        (#pt-app
+          (#pt-use integer-has-bezout ())
+          first
+          second
+          (#pt-app (#pt-use integer-of-natural ()) greatest-divisor)))
+      (
+        (#pt-lambda
+          (
+            (first-magnitude #pt-nat)
+            (first-magnitude-proof (#pt-app (#pt-use integer-magnitude ()) first first-magnitude)))
+          (#pt-induct
+            exists
+            (0)
+            (#pt-nat
+              (#pt-lambda
+                ((candidate-magnitude #pt-nat))
+                (#pt-app (#pt-use integer-magnitude ()) second candidate-magnitude)))
+            (#pt-lambda
+              (
+                (certificate
+                  (#pt-app
+                    (#pt-use exists (0))
+                    #pt-nat
+                    (#pt-lambda
+                      ((candidate-magnitude #pt-nat))
+                      (#pt-app (#pt-use integer-magnitude ()) second candidate-magnitude)))))
+              (#pt-app
+                (#pt-use integer-has-bezout ())
+                first
+                second
+                (#pt-app (#pt-use integer-of-natural ()) greatest-divisor)))
+            (
+              (#pt-lambda
+                (
+                  (second-magnitude #pt-nat)
+                  (second-magnitude-proof
+                    (#pt-app (#pt-use integer-magnitude ()) second second-magnitude)))
+                (#pt-app
+                  (#pt-use integer-bezout-from-magnitudes ())
+                  first
+                  second
+                  first-magnitude
+                  second-magnitude
+                  (#pt-app (#pt-use integer-of-natural ()) greatest-divisor)
+                  first-magnitude-proof
+                  second-magnitude-proof
+                  (#pt-app
+                    (#pt-use natural-gcd-bezout ())
+                    first-magnitude
+                    second-magnitude
+                    greatest-divisor
+                    (#pt-app
+                      (#pt-use integer-gcd-magnitudes ())
+                      first
+                      second
+                      first-magnitude
+                      second-magnitude
+                      greatest-divisor
+                      first-magnitude-proof
+                      second-magnitude-proof
+                      gcd-proof)))))
+            (#pt-app (#pt-use integer-magnitude-exists ()) second))))
+      (#pt-app (#pt-use integer-magnitude-exists ()) first))))
+(#math-definition integer-coprime ()
+  (#pt-pi ((first (#pt-use integer ())) (second (#pt-use integer ()))) #pt-prop)
+  (#pt-lambda
+    ((first (#pt-use integer ())) (second (#pt-use integer ())))
+    (#pt-app (#pt-use integer-has-bezout ()) first second (#pt-use integer-one ()))))
+(#theorem integer-coprime-of-gcd-one
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter gcd-one-proof (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero))))
+  (#statement (#pt-app (#pt-use integer-coprime ()) first second))
+  (#proof (#pt-app (#pt-use integer-gcd-bezout ()) first second (#pt-succ #pt-zero) gcd-one-proof)))
+(#theorem integer-gcd-one-of-coprime
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter coprime-proof (#pt-app (#pt-use integer-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use integer-gcd-spec ()) first second (#pt-succ #pt-zero)))
+  (#proof
+    (#pt-app
+      (#pt-use conjunction-introduce ())
+      (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) first)
+      (#pt-app
+        (#pt-use conjunction ())
+        (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) second)
+        (#pt-pi
+          (
+            (candidate-integer (#pt-use integer ()))
+            (candidate-first (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+            (candidate-second (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+          (#pt-app
+            (#pt-use integer-divides ())
+            candidate-integer
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero)))))
+      (#pt-construct
+        exists
+        (0)
+        (
+          (#pt-use integer ())
+          (#pt-lambda
+            ((candidate-factor (#pt-use integer ())))
+            (#pt-app
+              (#pt-use integer-equal ())
+              first
+              (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) candidate-factor))))
+        introduce
+        (first
+          (#pt-app
+            (#pt-use integer-symmetric ())
+            (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) first)
+            first
+            (#pt-app (#pt-use integer-one-multiply ()) first))))
+      (#pt-app
+        (#pt-use conjunction-introduce ())
+        (#pt-app (#pt-use integer-divides ()) (#pt-use integer-one ()) second)
+        (#pt-pi
+          (
+            (candidate-integer (#pt-use integer ()))
+            (candidate-first (#pt-app (#pt-use integer-divides ()) candidate-integer first))
+            (candidate-second (#pt-app (#pt-use integer-divides ()) candidate-integer second)))
+          (#pt-app
+            (#pt-use integer-divides ())
+            candidate-integer
+            (#pt-app (#pt-use integer-of-natural ()) (#pt-succ #pt-zero))))
+        (#pt-construct
+          exists
+          (0)
+          (
+            (#pt-use integer ())
+            (#pt-lambda
+              ((candidate-factor (#pt-use integer ())))
+              (#pt-app
+                (#pt-use integer-equal ())
+                second
+                (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) candidate-factor))))
+          introduce
+          (second
+            (#pt-app
+              (#pt-use integer-symmetric ())
+              (#pt-app (#pt-use integer-multiply ()) (#pt-use integer-one ()) second)
+              second
+              (#pt-app (#pt-use integer-one-multiply ()) second))))
+        (#pt-lambda
+          (
+            (common-integer (#pt-use integer ()))
+            (first-divides (#pt-app (#pt-use integer-divides ()) common-integer first))
+            (second-divides (#pt-app (#pt-use integer-divides ()) common-integer second)))
+          (#pt-app
+            (#pt-use integer-bezout-common-divisor ())
+            first
+            second
+            (#pt-use integer-one ())
+            common-integer
+            coprime-proof
+            first-divides
+            second-divides))))))
+(#theorem integer-coprime-negative-first
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter coprime-proof (#pt-app (#pt-use integer-coprime ()) first second)))
+  (#statement
+    (#pt-app (#pt-use integer-coprime ()) (#pt-app (#pt-use integer-negate ()) first) second))
+  (#proof
+    (#pt-app
+      (#pt-use integer-bezout-negative-first ())
+      first
+      second
+      (#pt-use integer-one ())
+      coprime-proof)))
+(#theorem integer-coprime-negative-second
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter coprime-proof (#pt-app (#pt-use integer-coprime ()) first second)))
+  (#statement
+    (#pt-app (#pt-use integer-coprime ()) first (#pt-app (#pt-use integer-negate ()) second)))
+  (#proof
+    (#pt-app
+      (#pt-use integer-bezout-negative-second ())
+      first
+      second
+      (#pt-use integer-one ())
+      coprime-proof)))
+(#theorem integer-coprime-congruent
+  (#universes)
+  (#parameters
+    (#parameter first (#pt-use integer ()))
+    (#parameter second (#pt-use integer ()))
+    (#parameter other-first (#pt-use integer ()))
+    (#parameter other-second (#pt-use integer ()))
+    (#parameter first-equivalence (#pt-app (#pt-use integer-equal ()) first other-first))
+    (#parameter second-equivalence (#pt-app (#pt-use integer-equal ()) second other-second))
+    (#parameter coprime-proof (#pt-app (#pt-use integer-coprime ()) first second)))
+  (#statement (#pt-app (#pt-use integer-coprime ()) other-first other-second))
+  (#proof
+    (#pt-app
+      (#pt-use integer-bezout-arguments-congruent ())
+      first
+      second
+      other-first
+      other-second
+      (#pt-use integer-one ())
+      first-equivalence
+      second-equivalence
+      coprime-proof)))

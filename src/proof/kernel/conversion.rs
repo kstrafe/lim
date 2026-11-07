@@ -17,7 +17,39 @@ pub(super) struct ConversionProgress {
     pub(super) left: Option<T>,
 }
 
+enum Congruence<'a> {
+    Compared(bool),
+    // These are complete spines borrowed from this comparison's original
+    // inputs, not partially reduced or unchecked replacement expressions.
+    Inductive(Vec<&'a T>, Vec<&'a T>),
+}
+
 impl Kernel {
+    pub(super) fn completed_data_record(
+        &mut self,
+        name: &str,
+        levels: &[Level],
+        constructor: &str,
+        parameters: usize,
+        fields: usize,
+        depth: usize,
+    ) -> Result<bool> {
+        if self.provisional_family(name) || self.nested.contains_key(name)? {
+            return Ok(false);
+        }
+        let (family, map) = self.family(name, levels, depth)?;
+        Ok(family.group.len() == 1
+            && family.indices.is_empty()
+            && family.parameters.len() == parameters
+            && family.constructors.len() == 1
+            && family.constructors[0].name == constructor
+            && family.constructors[0].fields.len() == fields
+            && family.constructors[0].recursive.iter().all(Option::is_none)
+            // A symbolic sort may be Prop. Require exactly Type 0 after
+            // specializing the checked family's universe arguments.
+            && family.sort.substitute(&map)?.equivalent(&Level::number(1)?)?)
+    }
+
     pub(super) fn conversion_progress(
         &mut self,
         ctx: &[T],
@@ -25,18 +57,38 @@ impl Kernel {
         b: &T,
         depth: usize,
     ) -> Result<ConversionProgress> {
-        if !matches!((a.as_ref(), b.as_ref()), (Term::App(..), Term::App(..))) {
-            return Ok(ConversionProgress {
-                equivalent: false,
-                right: None,
-                left: None,
-            });
-        }
-        if self.application_congruence(ctx, a, b, depth + 1)? {
+        let applications = matches!((a.as_ref(), b.as_ref()), (Term::App(..), Term::App(..)));
+        if applications && self.congruence_probe(ctx, a, b, depth + 1)? {
             return Ok(ConversionProgress {
                 equivalent: true,
                 right: None,
                 left: None,
+            });
+        }
+        // Preserve the original complete scalar call before speculative
+        // delta candidates replace its packing wrapper with an inner worker.
+        // Congruence above still gets the cheaper comparison of shared heads.
+        if ctx.is_empty() {
+            if let Some(left) = self.delayed_record_wrapper(a, depth + 1)? {
+                return Ok(ConversionProgress {
+                    equivalent: false,
+                    left: Some(left),
+                    right: None,
+                });
+            }
+            if let Some(right) = self.delayed_record_wrapper(b, depth + 1)? {
+                return Ok(ConversionProgress {
+                    equivalent: false,
+                    left: None,
+                    right: Some(right),
+                });
+            }
+        }
+        if !applications {
+            return Ok(ConversionProgress {
+                equivalent: false,
+                left: None,
+                right: None,
             });
         }
         let mut left = None;
@@ -66,7 +118,7 @@ impl Kernel {
                     left = Some(reduced);
                     let compared_left = left.as_ref().unwrap();
                     if self.same_syntax(compared_left, &candidate)?
-                        || self.application_congruence(ctx, compared_left, &candidate, depth + 1)?
+                        || self.congruence_probe(ctx, compared_left, &candidate, depth + 1)?
                     {
                         return Ok(ConversionProgress {
                             equivalent: true,
@@ -93,7 +145,7 @@ impl Kernel {
             };
             let compared_left = left.as_ref().unwrap_or(a);
             if self.same_syntax(compared_left, &reduced)?
-                || self.application_congruence(ctx, compared_left, &reduced, depth + 1)?
+                || self.congruence_probe(ctx, compared_left, &reduced, depth + 1)?
             {
                 return Ok(ConversionProgress {
                     equivalent: true,
@@ -196,9 +248,107 @@ impl Kernel {
         Ok((head, arguments))
     }
 
+    fn congruence_probe(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
+        if !ctx.is_empty() {
+            return self.application_congruence(ctx, a, b, depth);
+        }
+        let result = self.reduction_probe(depth, |kernel| {
+            let Some((head, a, b)) = kernel.common_application_arguments(a, b, depth + 1)? else {
+                return Ok(Congruence::Compared(false));
+            };
+            if kernel.natural_index_arguments(head, &a, &b, depth + 2)? {
+                // Compare natural indices of a checked datatype directly.
+                // Structured data and proof-valued calls retain speculation.
+                return Ok(Congruence::Inductive(a, b));
+            }
+            kernel
+                .congruent_arguments(ctx, &a, &b, depth + 2)
+                .map(Congruence::Compared)
+        })?;
+        match result {
+            Some(Congruence::Compared(equivalent)) => Ok(equivalent),
+            Some(Congruence::Inductive(a, b)) => self.congruent_arguments(ctx, &a, &b, depth + 1),
+            None => Ok(false),
+        }
+    }
+
     fn application_congruence(&mut self, ctx: &[T], a: &T, b: &T, depth: usize) -> Result<bool> {
-        if !matches!((a.as_ref(), b.as_ref()), (Term::App(..), Term::App(..))) {
+        let Some((_, a, b)) = self.common_application_arguments(a, b, depth)? else {
             return Ok(false);
+        };
+        self.congruent_arguments(ctx, &a, &b, depth + 1)
+    }
+
+    fn natural_index_arguments(
+        &mut self,
+        head: &T,
+        a: &[&T],
+        b: &[&T],
+        depth: usize,
+    ) -> Result<bool> {
+        self.tick(depth)?;
+        let Term::Global(name, _) = head.as_ref() else {
+            return Ok(false);
+        };
+        let Some(declaration) = self.declarations.resident(name)? else {
+            return Ok(false);
+        };
+        let Some(family) = &declaration.family else {
+            return Ok(false);
+        };
+        if declaration.value.is_some()
+            || family.parameters.is_empty()
+            || !matches!(family.parameters[0].as_ref(), Term::Sort(..))
+            || a.len() < 2
+            || a.len() != family.parameters.len() + family.indices.len()
+        {
+            return Ok(false);
+        }
+        // Every remaining parameter/index has the same explicit type parameter;
+        // each preceding argument shifts that parameter by one binder.
+        for (index, domain) in family.parameters[1..]
+            .iter()
+            .chain(&family.indices)
+            .enumerate()
+        {
+            self.tick(depth + 1)?;
+            if !matches!(domain.as_ref(), Term::Var(actual) if *actual == index) {
+                return Ok(false);
+            }
+        }
+        if !self.same_syntax(a[0], b[0])? {
+            return Ok(false);
+        }
+        let Term::Global(natural, levels) = a[0].as_ref() else {
+            return Ok(false);
+        };
+        if !levels.is_empty()
+            || self.provisional_family(natural)
+            || self.nested.contains_key(natural)?
+        {
+            return Ok(false);
+        }
+        let Some(declaration) = self.declarations.resident(natural)? else {
+            return Ok(false);
+        };
+        if !declaration.universes.is_empty() {
+            return Ok(false);
+        }
+        match &declaration.family {
+            Some(family) => natural::natural_shape(natural, family),
+            None => Ok(false),
+        }
+    }
+
+    #[expect(clippy::type_complexity)]
+    fn common_application_arguments<'a>(
+        &mut self,
+        a: &'a T,
+        b: &'a T,
+        depth: usize,
+    ) -> Result<Option<(&'a T, Vec<&'a T>, Vec<&'a T>)>> {
+        if !matches!((a.as_ref(), b.as_ref()), (Term::App(..), Term::App(..))) {
+            return Ok(None);
         }
         let (a_head, a_args) = self.application_spine(a, depth + 1)?;
         let (b_head, b_args) = self.application_spine(b, depth + 1)?;
@@ -206,10 +356,14 @@ impl Kernel {
             || !matches!(a_head.as_ref(), Term::Global(..) | Term::Var(..))
             || !self.same_syntax(a_head, b_head)?
         {
-            return Ok(false);
+            return Ok(None);
         }
-        for (a, b) in a_args.iter().zip(b_args) {
-            if !self.convertible(ctx, a, b, depth + 1)? {
+        Ok(Some((a_head, a_args, b_args)))
+    }
+
+    fn congruent_arguments(&mut self, ctx: &[T], a: &[&T], b: &[&T], depth: usize) -> Result<bool> {
+        for (a, b) in a.iter().zip(b) {
+            if !self.convertible(ctx, a, b, depth)? {
                 return Ok(false);
             }
         }
@@ -238,7 +392,7 @@ impl Kernel {
         } else {
             self.universes(&body, &map, depth + 1)?
         };
-        self.charge_transformation(arguments.len() * 128)?;
+        self.charge_transformation(arguments.len() * TERM_NODE_BYTES)?;
         let arguments = arguments.into_iter().cloned().collect::<Vec<_>>();
         let applied = apps(body, &arguments);
         self.whnf_delta(ctx, &applied, false, depth + 1).map(Some)
@@ -252,3 +406,7 @@ mod tests;
 #[cfg(test)]
 #[path = "conversion_left_tests.rs"]
 mod left_tests;
+
+#[cfg(test)]
+#[path = "congruence_probe_tests.rs"]
+mod probe_tests;
