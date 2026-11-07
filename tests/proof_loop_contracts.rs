@@ -175,7 +175,7 @@ fn reference_free_helpers_can_mutate_their_owned_local_records() {
 }
 
 #[test]
-fn selecting_a_reference_contract_does_not_enable_aliased_induction() {
+fn selected_readonly_reference_contracts_can_be_used_in_a_loop() {
     for claim in [
         "(#proof-contract owner true true)",
         "(#proof-not (#proof-contract owner true true))",
@@ -193,7 +193,11 @@ fn selecting_a_reference_contract_does_not_enable_aliased_induction() {
           (#theorem owner-contract (#proof-using (read-contract)
             (#proof-with-invariants ((owner again true remaining)) {claim})))"#
         );
-        rejected(&source, "owner-contract", ProofOutcome::Unsupported);
+        if claim.starts_with("(#proof-not") {
+            rejected(&source, "owner-contract", ProofOutcome::ContractFailure);
+        } else {
+            proved(&source, "owner-contract");
+        }
     }
 }
 

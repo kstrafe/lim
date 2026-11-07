@@ -1,0 +1,44 @@
+; A checked memory contract composes with an invariant over borrowed state.
+(#struct Counter () (: remaining #u8 : sibling #u8))
+
+(#fn decrement (: state (#ref-mut Counter)) ()
+  (#deref-set
+    (#borrow-mut (#get (#deref state) remaining))
+    (#u8::sub-wrap (#get state remaining) 1u8))
+  (#return ()))
+
+(#theorem decrement-contract
+  (#proof-contract
+    decrement
+    (#u8::gt (#get state remaining) 0u8)
+    (#proof-and
+      (#proof-eq (#get state remaining) (#u8::sub-wrap (#proof-old (#get state remaining)) 1u8))
+      (#proof-eq (#get state sibling) (#proof-old (#get state sibling))))))
+
+(#fn countdown (: state (#ref-mut Counter)) ()
+  (#let initial-sibling #u8 (#get state sibling))
+  (#label
+    again
+    (#while (#u8::gt (#get state remaining) 0u8)
+      (#call decrement (: state state))))
+  (#return ()))
+; All byte inputs are covered with one abstract iteration and a decreasing rank.
+
+(#theorem countdown-contract
+  (#proof-using
+    (decrement-contract)
+    (#proof-with-invariants
+      ((countdown again (#u8::eq (#get state sibling) initial-sibling) (#get state remaining)))
+      (#proof-loop-limit
+        1
+        (#proof-contract
+          countdown
+          true
+          (#proof-and
+            (#proof-eq (#get state remaining) 0u8)
+            (#proof-eq (#get state sibling) (#proof-old (#get state sibling)))))))))
+
+(#fn main () #u64
+  (#let-mut state Counter (#struct-literal Counter (: remaining 255u8 : sibling 42u8)))
+  (#call countdown (: state (#borrow-mut state)))
+  (#return (#as (#get state sibling) #u64)))

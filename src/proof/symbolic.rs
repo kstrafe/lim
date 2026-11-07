@@ -4,6 +4,8 @@ use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
+#[path = "induction_memory.rs"]
+mod induction_memory;
 #[path = "slices.rs"]
 mod slices;
 
@@ -1883,7 +1885,7 @@ impl Engine<'_, '_> {
 
     fn inductive_loop(
         &mut self,
-        mut state: State,
+        state: State,
         label: Option<&str>,
         condition: Option<&Expr>,
         body: &[Statement],
@@ -1926,24 +1928,7 @@ impl Engine<'_, '_> {
                 "trace claims require complete loop exploration",
             ));
         }
-        let function = state.frames.last().unwrap().function.clone();
-        if self
-            .graph
-            .forbidden_effect(&function, "global-write")?
-            .is_some()
-        {
-            return Err(Error::unsupported(
-                "induction over global mutation is unsupported",
-            ));
-        }
         let locals = state.frames.last().unwrap().locals.clone();
-        // No alias can be carried through havoc, even via an unmodified
-        // reference copied into a new iteration-local binding.
-        if state.heap.iter().any(Value::contains_ref) {
-            return Err(Error::unsupported(
-                "induction over aliased or reference-bearing storage is unsupported",
-            ));
-        }
         // Lazy lookup of a global/constant can execute an initializer and can
         // introduce references not present in the entry heap. Reject such reads.
         enum Visit<'a> {
@@ -2027,7 +2012,7 @@ impl Engine<'_, '_> {
         if let Some(condition) = condition {
             pure(condition, &locals, 0)?;
         }
-        let mut modified = BTreeSet::new();
+        let mut modified = induction_memory::Changes::default();
         let contracts = self.induction_contracts()?;
         collect_modified(body, &mut modified, &contracts)?;
         if let Some(step) = step {
@@ -2039,120 +2024,106 @@ impl Engine<'_, '_> {
         // an execution reachable from the original program inputs.
         self.inductive_witness = true;
         self.establish(entry, "loop invariant fails on entry")?;
-        for name in modified {
-            let Some((place, ty)) = locals.get(&name).cloned() else {
-                if self.globals.contains_key(&name)
-                    || state.globals.contains_key(&name)
-                    || self.constants.contains_key(&name)
-                {
-                    return Err(Error::unsupported("induction cannot havoc global storage"));
-                }
-                // An iteration-local binding is recreated by the body.
-                continue;
-            };
-            if !place.path.is_empty() {
-                return Err(Error::unsupported("induction requires owned root bindings"));
-            }
-            let previous = self.read(&state, &place)?;
-            if previous.contains_ref() {
-                return Err(Error::unsupported(
-                    "induction cannot havoc reference-bearing state",
-                ));
-            }
-            let value = self.fresh_value(&mut state, &ty, 0)?;
-            self.write(&mut state, &place, value)?;
-        }
+        let reference_entry = state.clone();
         let mut output = Vec::new();
-        for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
-            if state.flow != Flow::Normal {
-                return Err(Error::unsupported("invariant transfers control"));
-            }
-            state.guard = self.circuit.and(state.guard, predicate.boolean()?);
-            for (state, rank) in self.expr(state, &invariant.rank, true)? {
-                let Value::Bits(old_rank, old_type) = rank else {
-                    return Err("loop rank must be an unsigned integer".into());
-                };
-                if old_rank.signed || state.flow != Flow::Normal {
-                    return Err("loop rank must be a pure unsigned integer".into());
+        for state in self.induction_memory_states(state, &locals, &modified)? {
+            for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
+                if state.flow != Flow::Normal {
+                    return Err(Error::unsupported("invariant transfers control"));
                 }
-                let tests = if let Some(condition) = condition {
-                    self.expr(state, condition, false)?
-                } else {
-                    vec![(state, Value::Bool(TRUE))]
-                };
-                for (state, test) in tests {
-                    if state.flow != Flow::Normal {
-                        return Err(Error::unsupported("induction condition transfers control"));
+                state.guard = self.circuit.and(state.guard, predicate.boolean()?);
+                for (state, rank) in self.expr(state, &invariant.rank, true)? {
+                    let Value::Bits(old_rank, old_type) = rank else {
+                        return Err("loop rank must be an unsigned integer".into());
+                    };
+                    if old_rank.signed || state.flow != Flow::Normal {
+                        return Err("loop rank must be a pure unsigned integer".into());
                     }
-                    let test = test.boolean()?;
-                    if condition.is_some() {
-                        let mut exit = state.clone();
-                        exit.guard = self.circuit.and(exit.guard, self.circuit.not(test));
-                        exit.value = Value::Unit;
-                        exit.frames.last_mut().unwrap().locals = locals.clone();
-                        output.push((exit, Value::Unit));
-                    }
-                    let mut enter = state;
-                    enter.guard = self.circuit.and(enter.guard, test);
-                    if self.circuit.satisfy(enter.guard)?.is_none() {
-                        continue;
-                    }
-                    for mut state in self.statements(vec![enter], body)? {
-                        if state.flow == Flow::Normal
-                            || matches!(&state.flow,Flow::Continue(target)if target.is_none()||target.as_deref()==label)
-                        {
-                            state.flow = Flow::Normal;
-                            // The for-step and invariant use the loop's outer
-                            // bindings, not locals declared during this iteration.
-                            state.frames.last_mut().unwrap().locals = locals.clone();
-                            let runs = if let Some(step) = step {
-                                self.statement(state, step)?
-                            } else {
-                                vec![state]
-                            };
-                            for mut state in runs {
-                                if state.flow != Flow::Normal {
-                                    return Err(Error::unsupported(
-                                        "induction step transfers control",
-                                    ));
-                                }
-                                state.frames.last_mut().unwrap().locals = locals.clone();
-                                let preserved =
-                                    self.proposition(state.clone(), &invariant.predicate)?;
-                                self.establish(preserved, "loop invariant is not preserved")?;
-                                for (state, rank) in self.expr(state, &invariant.rank, true)? {
-                                    let Value::Bits(rank, ty) = rank else {
-                                        return Err("loop rank is not numeric".into());
-                                    };
-                                    if state.flow != Flow::Normal
-                                        || rank.signed
-                                        || rank.bits.len() != old_rank.bits.len()
-                                        || ty != old_type
-                                    {
-                                        return Err(
-                                            "loop rank type changed or transfers control".into()
-                                        );
-                                    }
-                                    let decreases = self.circuit.lt_word(&rank, &old_rank);
-                                    let bad =
-                                        self.circuit.and(state.guard, self.circuit.not(decreases));
-                                    self.require_unsat(
-                                        bad,
-                                        "loop rank does not strictly decrease",
-                                    )?;
-                                }
-                            }
-                        } else {
-                            if matches!(&state.flow,Flow::Break(target)if target.is_none()||target.as_deref()==label)
+                    let tests = if let Some(condition) = condition {
+                        self.expr(state, condition, false)?
+                    } else {
+                        vec![(state, Value::Bool(TRUE))]
+                    };
+                    for (state, test) in tests {
+                        if state.flow != Flow::Normal {
+                            return Err(Error::unsupported(
+                                "induction condition transfers control",
+                            ));
+                        }
+                        let test = test.boolean()?;
+                        if condition.is_some() {
+                            let mut exit = state.clone();
+                            exit.guard = self.circuit.and(exit.guard, self.circuit.not(test));
+                            exit.value = Value::Unit;
+                            exit.frames.last_mut().unwrap().locals = locals.clone();
+                            output.push((exit, Value::Unit));
+                        }
+                        let mut enter = state;
+                        enter.guard = self.circuit.and(enter.guard, test);
+                        if self.circuit.satisfy(enter.guard)?.is_none() {
+                            continue;
+                        }
+                        for mut state in self.statements(vec![enter], body)? {
+                            if state.flow == Flow::Normal
+                                || matches!(&state.flow,Flow::Continue(target)if target.is_none()||target.as_deref()==label)
                             {
                                 state.flow = Flow::Normal;
+                                // The for-step and invariant use the loop's outer
+                                // bindings, not locals declared during this iteration.
+                                state.frames.last_mut().unwrap().locals = locals.clone();
+                                let runs = if let Some(step) = step {
+                                    self.statement(state, step)?
+                                } else {
+                                    vec![state]
+                                };
+                                for mut state in runs {
+                                    if state.flow != Flow::Normal {
+                                        return Err(Error::unsupported(
+                                            "induction step transfers control",
+                                        ));
+                                    }
+                                    state.frames.last_mut().unwrap().locals = locals.clone();
+                                    self.induction_reference_shape(&reference_entry, &state)?;
+                                    let preserved =
+                                        self.proposition(state.clone(), &invariant.predicate)?;
+                                    self.establish(preserved, "loop invariant is not preserved")?;
+                                    for (state, rank) in self.expr(state, &invariant.rank, true)? {
+                                        let Value::Bits(rank, ty) = rank else {
+                                            return Err("loop rank is not numeric".into());
+                                        };
+                                        if state.flow != Flow::Normal
+                                            || rank.signed
+                                            || rank.bits.len() != old_rank.bits.len()
+                                            || ty != old_type
+                                        {
+                                            return Err(
+                                                "loop rank type changed or transfers control"
+                                                    .into(),
+                                            );
+                                        }
+                                        let decreases = self.circuit.lt_word(&rank, &old_rank);
+                                        let bad = self
+                                            .circuit
+                                            .and(state.guard, self.circuit.not(decreases));
+                                        self.require_unsat(
+                                            bad,
+                                            "loop rank does not strictly decrease",
+                                        )?;
+                                    }
+                                }
+                            } else {
+                                self.induction_reference_shape(&reference_entry, &state)?;
+                                if matches!(&state.flow,Flow::Break(target)if target.is_none()||target.as_deref()==label)
+                                {
+                                    state.flow = Flow::Normal;
+                                }
+                                state.frames.last_mut().unwrap().locals = locals.clone();
+                                let value = state.value.clone();
+                                output.push((state, value));
                             }
-                            state.frames.last_mut().unwrap().locals = locals.clone();
-                            let value = state.value.clone();
-                            output.push((state, value));
                         }
+                        self.limit_paths(output.len())?;
                     }
-                    self.limit_paths(output.len())?;
                 }
             }
         }
@@ -2651,13 +2622,35 @@ impl Engine<'_, '_> {
 
 fn collect_modified(
     body: &[Statement],
-    names: &mut BTreeSet<String>,
-    contracts: &BTreeSet<String>,
+    names: &mut induction_memory::Changes,
+    contracts: &BTreeMap<String, bool>,
 ) -> Result<()> {
+    fn borrowed_root(
+        expr: &Expr,
+        names: &mut induction_memory::Changes,
+        depth: usize,
+    ) -> Result<()> {
+        if depth > 64 {
+            return Err(Error::limit("induction borrow nesting exceeds 64"));
+        }
+        if let Expr::Symbol(name) = expr {
+            names.locals.insert(name.clone());
+            return Ok(());
+        }
+        let (head, args) = form(expr)
+            .ok_or_else(|| Error::unsupported("induction borrow requires a modeled place"))?;
+        if matches!(head, "deref" | "get" | "index") && !args.is_empty() {
+            borrowed_root(&args[0], names, depth + 1)
+        } else {
+            Err(Error::unsupported(
+                "induction borrow requires a modeled place",
+            ))
+        }
+    }
     fn expression(
         expr: &Expr,
-        names: &mut BTreeSet<String>,
-        contracts: &BTreeSet<String>,
+        names: &mut induction_memory::Changes,
+        contracts: &BTreeMap<String, bool>,
         depth: usize,
     ) -> Result<()> {
         if depth > 64 {
@@ -2675,11 +2668,12 @@ fn collect_modified(
                 let Expr::Function(name) = &items[0] else {
                     unreachable!()
                 };
-                if !contracts.contains(name) {
+                let Some(mutates) = contracts.get(name) else {
                     return Err(Error::unsupported(format!(
-                        "induction cannot summarize user-call effects for {name:?}; select a verified reference-free contract with #proof-using"
+                        "induction cannot summarize user-call effects for {name:?}; select a verified contract with #proof-using"
                     )));
-                }
+                };
+                names.memory |= mutates;
                 // Arguments execute in the caller. Their nested statements must
                 // contribute to the havoc set even though the callee is opaque.
                 for argument in &items[1..] {
@@ -2709,6 +2703,11 @@ fn collect_modified(
                             | "get"
                             | "index"
                             | "deref"
+                            | "borrow"
+                            | "borrow-mut"
+                            | "pin-borrow"
+                            | "pin-borrow-mut"
+                            | "deref-set"
                             | "tuple-of"
                             | "array-of"
                             | "tuple"
@@ -2726,6 +2725,19 @@ fn collect_modified(
                 // Type/field/constructor metadata is not evaluated. Traverse
                 // executable operands, including dynamic array indices.
                 match head {
+                    "borrow-mut" | "pin-borrow-mut" => {
+                        arity(head, args, 1)?;
+                        borrowed_root(&args[0], names, depth + 1)?;
+                        expression(&args[0], names, contracts, depth + 1)
+                    }
+                    "deref-set" => {
+                        arity(head, args, 2)?;
+                        names.memory = true;
+                        for arg in args {
+                            expression(arg, names, contracts, depth + 1)?;
+                        }
+                        Ok(())
+                    }
                     "literal" => Ok(()),
                     "as" | "get" | "variant-is" => {
                         arity(head, args, 2)?;
@@ -2762,23 +2774,31 @@ fn collect_modified(
     }
     fn statements(
         body: &[Statement],
-        names: &mut BTreeSet<String>,
-        contracts: &BTreeSet<String>,
+        names: &mut induction_memory::Changes,
+        contracts: &BTreeMap<String, bool>,
         depth: usize,
     ) -> Result<()> {
         if depth > 64 {
             return Err(Error::limit("induction statement nesting exceeds 64"));
         }
         for statement in body {
+            if matches!(
+                statement,
+                Statement::FieldAssign { .. }
+                    | Statement::TupleAssign { .. }
+                    | Statement::ArrayAssign { .. }
+            ) {
+                names.memory = true;
+            }
             match statement {
                 Statement::Assign { name, value }
                 | Statement::FieldAssign { name, value, .. }
                 | Statement::TupleAssign { name, value, .. } => {
-                    names.insert(name.clone());
+                    names.locals.insert(name.clone());
                     expression(value, names, contracts, depth + 1)?;
                 }
                 Statement::ArrayAssign { name, index, value } => {
-                    names.insert(name.clone());
+                    names.locals.insert(name.clone());
                     expression(index, names, contracts, depth + 1)?;
                     expression(value, names, contracts, depth + 1)?;
                 }

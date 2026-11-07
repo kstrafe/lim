@@ -72,9 +72,10 @@ program-shape dependent; this list is not a claim of completeness.
   execution are bounded; unsupported state changes and unsupported invariant
   forms fail closed. The countdown example demonstrates a result proved via
   an invariant rather than iterating through every input value. Calls inside
-  the loop body or for-step can use explicitly selected, verified contracts
-  with reference-free inputs and results. Argument expressions still contribute
-  their writes to the loop's abstract state.
+  the loop body or for-step can use explicitly selected, verified contracts,
+  including borrowed inputs and reference results. Argument expressions still
+  contribute their writes to the loop's abstract state. Borrowed data is
+  abstracted while existing reference identities remain unchanged.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness and permutation within a limit. Indexing and
@@ -207,11 +208,31 @@ countdown result for every byte input with an unroll limit of one. Omitting the
 selected contract leaves the helper call unsupported. A weak postcondition or
 an unestablished precondition remains unproved, including under negation.
 
-This composition currently requires reference-free loop storage and helper
-signatures. Invariant predicates, ranks and loop conditions remain restricted
-to pure, call-free expressions. Reference-bearing and environmental loop frames
-need a separate sound induction model; selecting a memory contract does not
-silently enable them.
+[`examples/proof_borrowed_induction.lim`](../examples/proof_borrowed_induction.lim)
+uses a memory contract inside a loop over a borrowed record. Its invariant
+preserves a sibling field while the helper's postcondition establishes decrease
+of the borrowed counter. The proof covers every byte input with one abstract
+iteration; native replay checks all byte values as well.
+
+Induction separates stored reference handles from their numeric data. Possibly
+written owned roots and targets reachable through mutable handles receive fresh
+symbolic contents. Handles keep their original locations, including references
+inside records, arrays, tuples and active enum payloads. A mutable borrow created
+inside the loop contributes its source root to the write frame; an alias cannot
+hide a loop-carried update. Updates use ordinary heap writes and invalidate
+affected validation facts. Readonly loops retain their borrowed contents.
+
+Before establishing preservation or forwarding a loop exit, the checker verifies
+that existing reference identities and tags of reference-bearing enums are
+unchanged. Unsupported graph changes remain unproved even if the pointed-to
+values are equal, and negation cannot turn them into a proof. Frame discovery
+retains its 256-region/alternative and 4096-entry limits. These are conservative
+frames: an invariant must state any unchanged sibling data needed after the loop.
+
+Invariant predicates, ranks and loop conditions remain restricted to pure,
+call-free expressions. Changing reference graphs, slice backing storage, global
+write destinations and implicit environmental effects need additional models;
+selecting a contract does not silently enable them.
 
 Stored references use the borrow checker's final store-origin summaries. A
 definite replacement can discard the entry reference; a possible write retains
