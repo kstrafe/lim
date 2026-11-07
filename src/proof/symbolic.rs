@@ -152,6 +152,10 @@ impl State {
 }
 
 impl Engine<'_, '_> {
+    fn written_spec(&self, spec: bool) -> bool {
+        spec && self.checked_expression_depth == 0
+    }
+
     fn allocate(&mut self, state: &mut State, value: Value) -> Result<Location> {
         if state.heap.len() >= 4096 {
             return Err(Error::limit("symbolic storage budget exhausted"));
@@ -400,11 +404,26 @@ impl Engine<'_, '_> {
             return Ok(place);
         }
         if let Some((ty, expr)) = self.constants.get(name).cloned() {
-            let values = self.expr_as(state.clone(), &expr, true, &ty)?;
+            // Initializers are checked runtime ASTs, with normalized builtin
+            // spelling and ordered constructors. Keep specification purity,
+            // but decode that AST rather than applying written-proof rules.
+            let previous_span = self.spec_span;
+            self.spec_span = declaration_span(self.checked.program(), name).or(previous_span);
+            self.checked_expression_depth += 1;
+            let mut initializer = state.clone();
+            initializer.frames.push(Frame {
+                function: String::new(),
+                locals: BTreeMap::new(),
+            });
+            let values = self.expr_as(initializer, &expr, true, &ty);
+            self.checked_expression_depth -= 1;
+            self.spec_span = previous_span;
+            let values = values?;
             if values.len() != 1 {
                 return Err(Error::unsupported("branching global initialization"));
             }
-            let (updated, value) = values.into_iter().next().unwrap();
+            let (mut updated, value) = values.into_iter().next().unwrap();
+            updated.frames.pop();
             *state = updated;
             let place = self.allocate(state, value)?;
             state.globals.insert(name.into(), place.clone());
@@ -734,8 +753,8 @@ impl Engine<'_, '_> {
             .ok_or("proof values require explicitly typed literals or modeled expressions")?;
         // Ordinary checking has already lowered #struct-literal to its ordered
         // internal constructor. Raw proof expressions still need the keyword.
-        if !spec && self.records.contains_key(head) {
-            return self.checked_record(state, head, args);
+        if (!spec || self.checked_expression_depth != 0) && self.records.contains_key(head) {
+            return self.checked_record(state, head, args, spec);
         }
         if head.starts_with("proof-") {
             match head {
@@ -783,7 +802,7 @@ impl Engine<'_, '_> {
     ) -> Result<Vec<(State, Value)>> {
         let (ty, op, mode) = operation;
 
-        if spec
+        if self.written_spec(spec)
             && !matches!(expr,Expr::List(items) if items.first().is_some_and(|head| symbol(head).is_ok_and(|name| name.starts_with('#'))))
         {
             return Err("proof numeric operations require canonical # prefixed keywords".into());
@@ -937,7 +956,7 @@ impl Engine<'_, '_> {
         match head {
             "literal" => {
                 arity(head, args, 2)?;
-                let ty = proof_type(&args[0], spec)?;
+                let ty = proof_type(&args[0], self.written_spec(spec))?;
                 let value = match &args[1] {
                     Expr::Integer(n) => *n as u128,
                     Expr::UnsignedInteger(n) => *n,
@@ -1033,7 +1052,7 @@ impl Engine<'_, '_> {
             }
             "as" => {
                 arity(head, args, 2)?;
-                let ty = proof_type(&args[1], spec)?;
+                let ty = proof_type(&args[1], self.written_spec(spec))?;
                 let resolved = self.resolve_type(&ty)?;
                 if matches!(resolved, Type::Char | Type::RawPointer { .. }) {
                     return Err(Error::unsupported(
@@ -1184,7 +1203,7 @@ impl Engine<'_, '_> {
                 if args.is_empty() {
                     return Err("aggregate construction needs an explicit type".into());
                 }
-                let ty = proof_type(&args[0], spec)?;
+                let ty = proof_type(&args[0], self.written_spec(spec))?;
                 let types = match self.resolve_type(&ty)? {
                     Type::Tuple(types) => types,
                     Type::Array(element, len) => vec![*element; len],
@@ -2229,7 +2248,9 @@ impl Engine<'_, '_> {
         state: State,
         owner: &str,
         args: &[Expr],
+        spec: bool,
     ) -> Result<Vec<(State, Value)>> {
+        self.representation(owner, spec)?;
         let fields = self
             .records
             .get(owner)
@@ -2242,7 +2263,7 @@ impl Engine<'_, '_> {
         for (field, expr) in fields.iter().zip(args) {
             let mut next = Vec::new();
             for (state, previous) in states {
-                for (state, value) in self.expr_as(state, expr, false, &field.ty)? {
+                for (state, value) in self.expr_as(state, expr, spec, &field.ty)? {
                     let mut fields = previous.clone();
                     fields.push((field.name.clone(), value));
                     next.push((state, fields));

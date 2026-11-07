@@ -84,6 +84,11 @@ program-shape dependent; this list is not a claim of completeness.
   that does not model dereference or unsafe memory effects. Validation facts
   reached through slices depend on the elements selected by their ranges,
   including any references stored in those elements.
+- **Checked constants.** Scalar and aggregate global initializers are evaluated
+  from their checked ASTs in their own local scope and definition context.
+  Normalized compiler spelling does not weaken the canonical syntax rules for
+  user-written specifications. Initializer evaluation retains specification
+  purity and restores caller access permissions before continuing the proof.
 - **Proof reports and failure.** A false obligation reports a counterexample
   when the solver can provide one. Scalar witnesses use typed literal
   spellings. Arrays, records and active enum payloads show their values;
