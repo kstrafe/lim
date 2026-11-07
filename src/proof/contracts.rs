@@ -97,6 +97,28 @@ pub(super) fn order<'p>(
 }
 
 impl<'a, 'p> Engine<'a, 'p> {
+    /// Only explicit, already checked contracts can hide a loop-body call.
+    /// Owned reference-free arguments cannot modify the caller through aliases;
+    /// contract_frame has already excluded implicit global/environment access.
+    pub(super) fn induction_contracts(&mut self) -> Result<BTreeSet<String>> {
+        let mut allowed = BTreeSet::new();
+        if self.summary_depth != 0 {
+            return Ok(allowed);
+        }
+        for name in self.summaries.keys().cloned().collect::<Vec<_>>() {
+            self.tick()?;
+            let function = self.function(&name)?;
+            let mut references = self.reference_type(&function.return_type, 0)?;
+            for parameter in &function.parameters {
+                references |= self.reference_type(&parameter.ty, 0)?;
+            }
+            if !references {
+                allowed.insert(name);
+            }
+        }
+        Ok(allowed)
+    }
+
     pub(super) fn verified_contract(
         &self,
         name: &str,

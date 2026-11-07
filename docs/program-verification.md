@@ -71,7 +71,10 @@ program-shape dependent; this list is not a claim of completeness.
   and exit obligations for the modeled loop. Loop unrolling and symbolic
   execution are bounded; unsupported state changes and unsupported invariant
   forms fail closed. The countdown example demonstrates a result proved via
-  an invariant rather than iterating through every input value.
+  an invariant rather than iterating through every input value. Calls inside
+  the loop body or for-step can use explicitly selected, verified contracts
+  with reference-free inputs and results. Argument expressions still contribute
+  their writes to the loop's abstract state.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness and permutation within a limit. Indexing and
@@ -194,6 +197,21 @@ remain possible. Negation cannot turn that uncertainty or a resource limit into
 a proof. [`examples/proof_reference_contracts.lim`](../examples/proof_reference_contracts.lim)
 demonstrates a projected mutable return updating its caller while preserving a
 sibling field; native replay tests every byte value, including wraparound.
+
+[`examples/proof_loop_contracts.lim`](../examples/proof_loop_contracts.lim)
+combines a helper contract with an invariant and decreasing rank. Its loop
+calls `decrement`, whose selected contract requires a positive input and
+guarantees subtraction by one. The loop guard establishes that precondition;
+the helper's postcondition establishes strict decrease. The checker proves the
+countdown result for every byte input with an unroll limit of one. Omitting the
+selected contract leaves the helper call unsupported. A weak postcondition or
+an unestablished precondition remains unproved, including under negation.
+
+This composition currently requires reference-free loop storage and helper
+signatures. Invariant predicates, ranks and loop conditions remain restricted
+to pure, call-free expressions. Reference-bearing and environmental loop frames
+need a separate sound induction model; selecting a memory contract does not
+silently enable them.
 
 Stored references use the borrow checker's final store-origin summaries. A
 definite replacement can discard the entry reference; a possible write retains

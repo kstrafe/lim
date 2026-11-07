@@ -2028,9 +2028,10 @@ impl Engine<'_, '_> {
             pure(condition, &locals, 0)?;
         }
         let mut modified = BTreeSet::new();
-        collect_modified(body, &mut modified)?;
+        let contracts = self.induction_contracts()?;
+        collect_modified(body, &mut modified, &contracts)?;
         if let Some(step) = step {
-            collect_modified(std::slice::from_ref(step), &mut modified)?;
+            collect_modified(std::slice::from_ref(step), &mut modified, &contracts)?;
         }
         let entry = self.proposition(state.clone(), &invariant.predicate)?;
         // Subsequent obligations may use an arbitrary loop-head state. Its
@@ -2648,22 +2649,44 @@ impl Engine<'_, '_> {
     }
 }
 
-fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<()> {
-    fn expression(expr: &Expr, names: &mut BTreeSet<String>, depth: usize) -> Result<()> {
+fn collect_modified(
+    body: &[Statement],
+    names: &mut BTreeSet<String>,
+    contracts: &BTreeSet<String>,
+) -> Result<()> {
+    fn expression(
+        expr: &Expr,
+        names: &mut BTreeSet<String>,
+        contracts: &BTreeSet<String>,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 64 {
             return Err(Error::limit("induction effect nesting exceeds 64"));
         }
         match expr {
-            Expr::Block(body) | Expr::Loop(body) => statements(body, names, depth + 1),
+            Expr::Block(body) | Expr::Loop(body) => statements(body, names, contracts, depth + 1),
             Expr::Labeled {
                 expression: inner, ..
-            } => expression(inner, names, depth + 1),
+            } => expression(inner, names, contracts, depth + 1),
             Expr::Function(_) => Err(Error::unsupported(
                 "induction cannot summarize user-call effects",
             )),
-            Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) => Err(
-                Error::unsupported("induction cannot summarize user-call effects"),
-            ),
+            Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) => {
+                let Expr::Function(name) = &items[0] else {
+                    unreachable!()
+                };
+                if !contracts.contains(name) {
+                    return Err(Error::unsupported(format!(
+                        "induction cannot summarize user-call effects for {name:?}; select a verified reference-free contract with #proof-using"
+                    )));
+                }
+                // Arguments execute in the caller. Their nested statements must
+                // contribute to the havoc set even though the callee is opaque.
+                for argument in &items[1..] {
+                    expression(argument, names, contracts, depth + 1)?;
+                }
+                Ok(())
+            }
             Expr::List(items) if items.is_empty() => Ok(()),
             Expr::List(_) => {
                 let (head, args) = form(expr).ok_or_else(|| {
@@ -2674,9 +2697,9 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                         .iter()
                         .map(|expression| crate::parse_statement(expression).map_err(Error::from))
                         .collect::<Result<Vec<_>>>()?;
-                    return statements(&body, names, depth + 1);
+                    return statements(&body, names, contracts, depth + 1);
                 }
-                // Fail closed on new builtins, calls (including clone hooks),
+                // Fail closed on new builtins, unselected calls (including clone hooks),
                 // mutable borrowing, raw/atomic/pinned writes and unsafe code.
                 if numeric(head).is_none()
                     && !matches!(
@@ -2706,11 +2729,11 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                     "literal" => Ok(()),
                     "as" | "get" | "variant-is" => {
                         arity(head, args, 2)?;
-                        expression(&args[0], names, depth + 1)
+                        expression(&args[0], names, contracts, depth + 1)
                     }
                     "tuple-of" | "array-of" | "tuple" | "enum-literal" => {
                         for arg in args.iter().skip(1) {
-                            expression(arg, names, depth + 1)?;
+                            expression(arg, names, contracts, depth + 1)?;
                         }
                         Ok(())
                     }
@@ -2721,13 +2744,13 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                             if pair.len() != 2 {
                                 return Err("invalid induction record literal".into());
                             }
-                            expression(&pair[1], names, depth + 1)?;
+                            expression(&pair[1], names, contracts, depth + 1)?;
                         }
                         Ok(())
                     }
                     _ => {
                         for arg in args {
-                            expression(arg, names, depth + 1)?;
+                            expression(arg, names, contracts, depth + 1)?;
                         }
                         Ok(())
                     }
@@ -2737,7 +2760,12 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
             _ => Err(Error::unsupported("unsupported induction effect syntax")),
         }
     }
-    fn statements(body: &[Statement], names: &mut BTreeSet<String>, depth: usize) -> Result<()> {
+    fn statements(
+        body: &[Statement],
+        names: &mut BTreeSet<String>,
+        contracts: &BTreeSet<String>,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 64 {
             return Err(Error::limit("induction statement nesting exceeds 64"));
         }
@@ -2747,37 +2775,52 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
                 | Statement::FieldAssign { name, value, .. }
                 | Statement::TupleAssign { name, value, .. } => {
                     names.insert(name.clone());
-                    expression(value, names, depth + 1)?;
+                    expression(value, names, contracts, depth + 1)?;
                 }
                 Statement::ArrayAssign { name, index, value } => {
                     names.insert(name.clone());
-                    expression(index, names, depth + 1)?;
-                    expression(value, names, depth + 1)?;
+                    expression(index, names, contracts, depth + 1)?;
+                    expression(value, names, contracts, depth + 1)?;
                 }
                 Statement::Let { value, .. }
                 | Statement::Expr(value)
                 | Statement::Return(Some(value))
                 | Statement::BreakValue(value)
-                | Statement::BreakToValue { value, .. } => expression(value, names, depth + 1)?,
-                Statement::While { condition, body } => {
-                    expression(condition, names, depth + 1)?;
-                    statements(body, names, depth + 1)?;
+                | Statement::BreakToValue { value, .. } => {
+                    expression(value, names, contracts, depth + 1)?
                 }
-                Statement::Loop { body } => statements(body, names, depth + 1)?,
+                Statement::While { condition, body } => {
+                    expression(condition, names, contracts, depth + 1)?;
+                    statements(body, names, contracts, depth + 1)?;
+                }
+                Statement::Loop { body } => statements(body, names, contracts, depth + 1)?,
                 Statement::For {
                     init,
                     condition,
                     step,
                     body,
                 } => {
-                    statements(std::slice::from_ref(init.as_ref()), names, depth + 1)?;
-                    expression(condition, names, depth + 1)?;
-                    statements(std::slice::from_ref(step.as_ref()), names, depth + 1)?;
-                    statements(body, names, depth + 1)?;
+                    statements(
+                        std::slice::from_ref(init.as_ref()),
+                        names,
+                        contracts,
+                        depth + 1,
+                    )?;
+                    expression(condition, names, contracts, depth + 1)?;
+                    statements(
+                        std::slice::from_ref(step.as_ref()),
+                        names,
+                        contracts,
+                        depth + 1,
+                    )?;
+                    statements(body, names, contracts, depth + 1)?;
                 }
-                Statement::Labeled { statement, .. } => {
-                    statements(std::slice::from_ref(statement.as_ref()), names, depth + 1)?
-                }
+                Statement::Labeled { statement, .. } => statements(
+                    std::slice::from_ref(statement.as_ref()),
+                    names,
+                    contracts,
+                    depth + 1,
+                )?,
                 // Pattern evaluation and payload projections can introduce aliases
                 // or execute specification expressions; no ownership summary yet.
                 Statement::Destructure { .. }
@@ -2796,7 +2839,7 @@ fn collect_modified(body: &[Statement], names: &mut BTreeSet<String>) -> Result<
         }
         Ok(())
     }
-    statements(body, names, 0)
+    statements(body, names, contracts, 0)
 }
 
 fn validate_integer(value: u128, negative: bool, width: usize, signed: bool) -> Result<()> {

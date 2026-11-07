@@ -1,0 +1,28 @@
+; Compose a checked helper contract with a loop invariant and decreasing rank.
+(#fn decrement (: value #u8) #u8
+  (#return (#u8::sub-wrap value 1u8)))
+
+(#theorem decrement-contract
+  (#proof-contract
+    decrement
+    (#u8::gt value 0u8)
+    (#proof-eq (#proof-result) (#u8::sub-wrap value 1u8))))
+
+(#fn countdown (: count #u8) #u8
+  (#let-mut remaining #u8 count)
+  (#label
+    again
+    (#while (#u8::gt remaining 0u8)
+      (#set remaining (#call decrement (: value remaining)))))
+  (#return remaining))
+; The proof covers every byte input without unrolling all 255 iterations.
+
+(#theorem countdown-contract
+  (#proof-using
+    (decrement-contract)
+    (#proof-with-invariants
+      ((countdown again true remaining))
+      (#proof-loop-limit 1 (#proof-contract countdown true (#proof-eq (#proof-result) 0u8))))))
+
+(#fn main () #u64
+  (#return (#u64::add-wrap 42u64 (#as (#call countdown (: count 255u8)) #u64))))

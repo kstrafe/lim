@@ -2025,6 +2025,13 @@ The implementation restricts induction to modeled direct owned-variable
 updates: global mutation, aliased writes, reference-bearing modified state, and
 trace claims are unsupported. A valid invariant/rank can avoid fully unrolling
 a supported loop; it does not enable arbitrary hidden execution.
+Loop-body and for-step calls may use direct contracts explicitly selected by
+`#proof-using` when their parameter and result types contain no references.
+The selected contracts retain their effect restrictions, and every helper
+precondition must follow from the loop-head invariant and current path guard.
+Call-argument writes contribute to the loop's modified-variable set. Invariants,
+ranks and loop conditions remain pure and call-free; selecting a contract does
+not permit aliased loop storage or hidden global/environment access.
 
 Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
 path-budget checks, 4,096 symbolic storage slots, call depth 128, combined
