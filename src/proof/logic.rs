@@ -1,4 +1,5 @@
-//! Finite, little-endian bitvectors and a bounded, fail-closed SAT solver.
+//! Finite bitvectors and bounded, fail-closed SAT with watched propagation
+//! and conflict-driven clause learning.
 //! Bits are `2 * node_id + negation`; node zero is the constant false.
 use std::collections::HashMap;
 
@@ -534,6 +535,24 @@ impl Circuit {
         if condition == FALSE {
             return Ok(None);
         }
+        // Earlier obligations may leave unrelated arithmetic in this circuit.
+        // Only the transitive inputs of this query constrain its result.
+        // Exhaustion is checked above: pruning cannot erase a previous error.
+        let mut needed = vec![false; self.nodes.len() + 1];
+        let mut pending = vec![(condition >> 1) as usize];
+        while let Some(id) = pending.pop() {
+            if id == 0 || needed[id] {
+                continue;
+            }
+            needed[id] = true;
+            match self.nodes[id - 1] {
+                Gate::Input => {}
+                Gate::And(a, b) | Gate::Xor(a, b) => {
+                    pending.push((a >> 1) as usize);
+                    pending.push((b >> 1) as usize);
+                }
+            }
+        }
         let mut clauses = Vec::new();
         // Constant literals are simplified explicitly; DIMACS zero is never a variable.
         fn clause(clauses: &mut Vec<Vec<i32>>, bits: &[Bit]) {
@@ -555,6 +574,9 @@ impl Circuit {
             );
         }
         for (i, gate) in self.nodes.iter().enumerate() {
+            if !needed[i + 1] {
+                continue;
+            }
             let z = ((i + 1) as Bit) << 1;
             match *gate {
                 Gate::Input => (),
@@ -573,7 +595,16 @@ impl Circuit {
         }
         clause(&mut clauses, &[condition]);
         let mut solver = Solver { clauses, work: 0 };
-        match solver.search(self.nodes.len()) {
+        let inputs = self
+            .nodes
+            .iter()
+            .enumerate()
+            .rev()
+            .filter_map(|(index, gate)| {
+                (needed[index + 1] && matches!(gate, Gate::Input)).then_some(index + 1)
+            })
+            .collect::<Vec<_>>();
+        match solver.search_with_inputs(self.nodes.len(), &inputs) {
             Ok(Some(assignment)) => {
                 let inputs: Vec<_> = assignment.iter().map(|&v| v == 1).collect();
                 let model = self.evaluate(&inputs);
@@ -596,91 +627,286 @@ struct Solver {
     clauses: Vec<Vec<i32>>,
     work: usize,
 }
-struct Decision {
-    variable: usize,
-    trail_start: usize,
-    tried_false: bool,
+fn literal_index(literal: i32) -> usize {
+    literal.unsigned_abs() as usize * 2 + usize::from(literal < 0)
 }
+
+fn literal_value(literal: i32, assignment: &[i8]) -> i8 {
+    let value = assignment[literal.unsigned_abs() as usize];
+    if literal < 0 {
+        -value
+    } else {
+        value
+    }
+}
+
+fn solver_work(work: &mut usize, amount: usize) -> Result<(), String> {
+    *work = work.saturating_add(amount);
+    if *work > WORK_LIMIT {
+        Err("SAT work budget exhausted".into())
+    } else {
+        Ok(())
+    }
+}
+
 impl Solver {
+    #[cfg(test)]
     fn search(&mut self, variables: usize) -> Result<Option<Vec<i8>>, String> {
+        self.search_with_inputs(variables, &(1..=variables).rev().collect::<Vec<_>>())
+    }
+
+    fn search_with_inputs(
+        &mut self,
+        variables: usize,
+        inputs: &[usize],
+    ) -> Result<Option<Vec<i8>>, String> {
         let mut assignment = vec![0i8; variables + 1];
         let mut trail = Vec::new();
-        let mut decisions: Vec<Decision> = Vec::new();
-        loop {
-            let mut conflict = false;
-            let mut choice;
-            loop {
-                let before = trail.len();
-                choice = None;
-                for clause in &self.clauses {
-                    // Count empty clauses too, and every visited literal.
-                    self.work += 1;
-                    if self.work > WORK_LIMIT {
-                        return Err("SAT work budget exhausted".into());
+        let mut decisions = Vec::new();
+        let mut levels = vec![0; variables + 1];
+        let mut reasons = vec![None; variables + 1];
+        let mut learned_literals = 0usize;
+        let mut watches = vec![Vec::<usize>::new(); (variables + 1) * 2];
+        // Duplicate literals and tautologies must not turn a pair of watches
+        // into a false unit or a missed conflict. Normalize before watching.
+        for clause in &mut self.clauses {
+            solver_work(&mut self.work, clause.len() + 1)?;
+            if clause
+                .iter()
+                .any(|&literal| literal == 0 || literal.unsigned_abs() as usize > variables)
+            {
+                return Err("invalid SAT clause variable".into());
+            }
+            clause.sort_unstable();
+            clause.dedup();
+        }
+        self.clauses.retain(|clause| {
+            !clause
+                .iter()
+                .any(|literal| clause.binary_search(&-*literal).is_ok())
+        });
+        let mut positions = vec![[0, 0]; self.clauses.len()];
+        for (id, clause) in self.clauses.iter().enumerate() {
+            match clause.as_slice() {
+                [] => return Ok(None),
+                [literal] => {
+                    let value = literal_value(*literal, &assignment);
+                    if value < 0 {
+                        return Ok(None);
                     }
-                    let mut satisfied = false;
-                    let mut unassigned = 0;
-                    let mut last = 0;
-                    for &literal in clause {
-                        self.work += 1;
-                        if self.work > WORK_LIMIT {
-                            return Err("SAT work budget exhausted".into());
-                        }
-                        let value = assignment[literal.unsigned_abs() as usize];
-                        if value == 0 {
-                            unassigned += 1;
-                            last = literal;
-                        } else if (value == 1) == (literal > 0) {
-                            satisfied = true;
+                    if value == 0 {
+                        let variable = literal.unsigned_abs() as usize;
+                        assignment[variable] = if *literal > 0 { 1 } else { -1 };
+                        reasons[variable] = Some(id);
+                        trail.push(variable);
+                    }
+                }
+                _ => {
+                    positions[id] = [0, 1];
+                    watches[literal_index(clause[0])].push(id);
+                    watches[literal_index(clause[1])].push(id);
+                }
+            }
+        }
+        let mut propagated = 0;
+        loop {
+            let mut conflict = None;
+            while propagated < trail.len() && conflict.is_none() {
+                let variable = trail[propagated];
+                propagated += 1;
+                let false_literal = if assignment[variable] > 0 {
+                    -(variable as i32)
+                } else {
+                    variable as i32
+                };
+                let watch_index = literal_index(false_literal);
+                let mut pending = std::mem::take(&mut watches[watch_index]);
+                while let Some(id) = pending.pop() {
+                    solver_work(&mut self.work, 1)?;
+                    let clause = &self.clauses[id];
+                    let slot = usize::from(clause[positions[id][0]] != false_literal);
+                    let other = clause[positions[id][1 - slot]];
+                    let other_value = literal_value(other, &assignment);
+                    if other_value > 0 {
+                        watches[watch_index].push(id);
+                        continue;
+                    }
+                    let mut replacement = None;
+                    for (index, &literal) in clause.iter().enumerate() {
+                        solver_work(&mut self.work, 1)?;
+                        if index != positions[id][0]
+                            && index != positions[id][1]
+                            && literal_value(literal, &assignment) >= 0
+                        {
+                            replacement = Some(index);
                             break;
                         }
                     }
-                    if satisfied {
+                    if let Some(index) = replacement {
+                        positions[id][slot] = index;
+                        watches[literal_index(clause[index])].push(id);
                         continue;
                     }
-                    if unassigned == 0 {
-                        conflict = true;
+                    watches[watch_index].push(id);
+                    if other_value < 0 {
+                        conflict = Some(id);
+                        watches[watch_index].append(&mut pending);
                         break;
                     }
-                    if unassigned == 1 {
-                        let variable = last.unsigned_abs() as usize;
-                        assignment[variable] = if last > 0 { 1 } else { -1 };
-                        trail.push(variable);
-                    } else if choice.is_none() {
-                        choice = Some(last.unsigned_abs() as usize);
-                    }
-                }
-                if conflict || trail.len() == before {
-                    break;
+                    let variable = other.unsigned_abs() as usize;
+                    assignment[variable] = if other > 0 { 1 } else { -1 };
+                    levels[variable] = decisions.len();
+                    reasons[variable] = Some(id);
+                    trail.push(variable);
                 }
             }
-            if conflict {
-                loop {
-                    let Some(decision) = decisions.last_mut() else {
-                        return Ok(None);
-                    };
-                    while trail.len() > decision.trail_start {
-                        assignment[trail.pop().unwrap()] = 0;
-                    }
-                    if !decision.tried_false {
-                        decision.tried_false = true;
-                        assignment[decision.variable] = -1;
-                        trail.push(decision.variable);
-                        break;
-                    }
-                    decisions.pop();
+            if let Some(conflict) = conflict {
+                if decisions.is_empty() {
+                    return Ok(None);
                 }
-            } else if let Some(variable) = choice {
-                decisions.push(Decision {
-                    variable,
-                    trail_start: trail.len(),
-                    tried_false: false,
-                });
-                assignment[variable] = 1;
+                // Resolve implication reasons to the first unique implication
+                // point. The learned clause is a consequence of existing
+                // clauses, not an assumption about unexplored executions.
+                let mut learned = self.analyze_conflict(
+                    conflict,
+                    &assignment,
+                    &trail,
+                    &levels,
+                    &reasons,
+                    decisions.len(),
+                )?;
+                learned_literals = learned_literals.saturating_add(learned.len());
+                if learned_literals > NODE_LIMIT {
+                    return Err("SAT learned clause budget exhausted".into());
+                }
+                let mut backjump = 0;
+                if learned.len() > 1 {
+                    let highest = (1..learned.len())
+                        .max_by_key(|&index| levels[learned[index].unsigned_abs() as usize])
+                        .unwrap();
+                    learned.swap(1, highest);
+                    backjump = levels[learned[1].unsigned_abs() as usize];
+                }
+                let cutoff = decisions[backjump];
+                while trail.len() > cutoff {
+                    let variable = trail.pop().unwrap();
+                    assignment[variable] = 0;
+                    levels[variable] = 0;
+                    reasons[variable] = None;
+                }
+                decisions.truncate(backjump);
+                propagated = trail.len();
+                let id = self.clauses.len();
+                let literal = learned[0];
+                if learned.len() > 1 {
+                    watches[literal_index(learned[0])].push(id);
+                    watches[literal_index(learned[1])].push(id);
+                    positions.push([0, 1]);
+                } else {
+                    positions.push([0, 0]);
+                }
+                self.clauses.push(learned);
+                let variable = literal.unsigned_abs() as usize;
+                assignment[variable] = if literal > 0 { 1 } else { -1 };
+                levels[variable] = backjump;
+                reasons[variable] = Some(id);
                 trail.push(variable);
             } else {
-                return Ok(Some(assignment));
+                // Input decisions determine every gate. Branching on computed
+                // gates creates inconsistent partial evaluations and repeated
+                // conflicts without exploring a new program input.
+                let mut choice = None;
+                for &variable in inputs {
+                    solver_work(&mut self.work, 1)?;
+                    if assignment[variable] == 0 {
+                        choice = Some(variable);
+                        break;
+                    }
+                }
+                let Some(variable) = choice else {
+                    for clause in &self.clauses {
+                        let mut satisfied = false;
+                        for &literal in clause {
+                            solver_work(&mut self.work, 1)?;
+                            if literal_value(literal, &assignment) > 0 {
+                                satisfied = true;
+                                break;
+                            }
+                        }
+                        if !satisfied {
+                            return Err("SAT propagation left an unresolved clause".into());
+                        }
+                    }
+                    for value in assignment.iter_mut().skip(1) {
+                        if *value == 0 {
+                            *value = -1;
+                        }
+                    }
+                    return Ok(Some(assignment));
+                };
+                decisions.push(trail.len());
+                assignment[variable] = -1;
+                levels[variable] = decisions.len();
+                reasons[variable] = None;
+                trail.push(variable);
             }
+        }
+    }
+
+    fn analyze_conflict(
+        &mut self,
+        mut clause: usize,
+        assignment: &[i8],
+        trail: &[usize],
+        levels: &[usize],
+        reasons: &[Option<usize>],
+        current: usize,
+    ) -> Result<Vec<i32>, String> {
+        let mut seen = vec![false; assignment.len()];
+        let mut learned = vec![0];
+        let mut pending = 0usize;
+        let mut cursor = trail.len();
+        let mut resolved = None;
+        loop {
+            for &literal in &self.clauses[clause] {
+                solver_work(&mut self.work, 1)?;
+                let variable = literal.unsigned_abs() as usize;
+                if resolved == Some(variable) || seen[variable] || levels[variable] == 0 {
+                    continue;
+                }
+                seen[variable] = true;
+                if levels[variable] == current {
+                    pending += 1;
+                } else {
+                    learned.push(literal);
+                }
+            }
+            let variable = loop {
+                solver_work(&mut self.work, 1)?;
+                if cursor == 0 {
+                    return Err("invalid SAT conflict trail".into());
+                }
+                cursor -= 1;
+                let variable = trail[cursor];
+                if seen[variable] {
+                    break variable;
+                }
+            };
+            if pending == 0 {
+                return Err("invalid SAT conflict level".into());
+            }
+            pending -= 1;
+            seen[variable] = false;
+            if pending == 0 {
+                learned[0] = if assignment[variable] > 0 {
+                    -(variable as i32)
+                } else {
+                    variable as i32
+                };
+                return Ok(learned);
+            }
+            clause = reasons[variable].ok_or("invalid SAT conflict reason")?;
+            resolved = Some(variable);
         }
     }
 }
@@ -688,6 +914,113 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watched_propagation_handles_reverse_order_implication_chains() {
+        let variables = 6000;
+        let mut clauses = (1..variables)
+            .rev()
+            .map(|variable| vec![-(variable as i32), variable as i32 + 1])
+            .collect::<Vec<_>>();
+        clauses.push(vec![1]);
+        for contradicted in [false, true] {
+            let mut clauses = clauses.clone();
+            if contradicted {
+                clauses.push(vec![-(variables as i32)]);
+            }
+            let mut solver = Solver { clauses, work: 0 };
+            let result = solver.search(variables).unwrap();
+            assert_eq!(result.is_none(), contradicted);
+            if let Some(model) = result {
+                assert!(model[1..].iter().all(|value| *value == 1));
+            }
+            assert!(
+                solver.work < WORK_LIMIT / 4,
+                "{} propagation steps",
+                solver.work
+            );
+        }
+    }
+
+    #[test]
+    fn sat_queries_ignore_unrelated_arithmetic_but_keep_full_models() {
+        let mut circuit = Circuit::new();
+        let mut outputs = Vec::new();
+        for _ in 0..24 {
+            let a = circuit.word(8, false);
+            let b = circuit.word(8, false);
+            let product = circuit.binary("mul", Some("wrap"), &a, &b).unwrap().0;
+            outputs.push(product);
+        }
+        let input = circuit.fresh();
+        let model = circuit.satisfy(input).unwrap().unwrap();
+        assert!(circuit.eval(input, &model));
+        for output in outputs {
+            assert_eq!(circuit.value(&output, &model), 0);
+        }
+        assert!(circuit.satisfy(input ^ 1).unwrap().is_some());
+    }
+
+    #[test]
+    fn symbolic_usize_range_membership_matches_its_selected_element() {
+        let mut circuit = Circuit::new();
+        let start = circuit.word(64, false);
+        let valid = circuit.lt_word(&start, &Circuit::constant(3, 64, false));
+        let end = circuit
+            .binary(
+                "add",
+                Some("wrap"),
+                &start,
+                &Circuit::constant(1, 64, false),
+            )
+            .unwrap()
+            .0;
+        for index in 0..3 {
+            let index = Circuit::constant(index, 64, false);
+            let before = circuit.lt_word(&index, &start);
+            let below_end = circuit.lt_word(&index, &end);
+            let within = circuit.and(circuit.not(before), below_end);
+            let equal = circuit.eq_word(&start, &index);
+            let different = circuit.xor(within, equal);
+            let bad = circuit.and(valid, different);
+            assert!(circuit.satisfy(bad).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn conflict_learning_handles_satisfiable_and_unsatisfiable_pigeonholes() {
+        for pigeons in [3, 4] {
+            let holes = 3;
+            let variables = pigeons * holes;
+            let mut clauses = Vec::new();
+            for pigeon in 0..pigeons {
+                clauses.push(
+                    (0..holes)
+                        .map(|hole| (pigeon * holes + hole + 1) as i32)
+                        .collect(),
+                );
+                for other in 0..pigeon {
+                    for hole in 0..holes {
+                        clauses.push(vec![
+                            -((pigeon * holes + hole + 1) as i32),
+                            -((other * holes + hole + 1) as i32),
+                        ]);
+                    }
+                }
+            }
+            let expected = (0usize..1 << variables).any(|assignment| {
+                clauses.iter().all(|clause| {
+                    clause.iter().any(|&literal| {
+                        let value = assignment & (1 << (literal.unsigned_abs() - 1)) != 0;
+                        value == (literal > 0)
+                    })
+                })
+            });
+            let mut solver = Solver { clauses, work: 0 };
+            assert_eq!(solver.search(variables).unwrap().is_some(), expected);
+            assert_eq!(expected, pigeons <= holes);
+        }
+    }
     fn integer(x: u32, width: usize, signed: bool) -> i64 {
         if signed && x & (1 << (width - 1)) != 0 {
             x as i64 - (1i64 << width)
@@ -965,13 +1298,13 @@ mod tests {
         }
     }
     #[test]
-    fn dpll_matches_brute_force_cnf_including_backtracking() {
+    fn solver_matches_brute_force_cnf_and_preserves_every_satisfying_model() {
         let mut seed = 0x9e3779b9u32;
         let mut next = || {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             seed
         };
-        for variables in 2..=5 {
+        for variables in 2..=8 {
             for _ in 0..500 {
                 let mut clauses = Vec::new();
                 for _ in 0..(next() % 18) {
@@ -1001,6 +1334,20 @@ mod tests {
                 };
                 let actual = solver.search(variables).unwrap();
                 assert_eq!(actual.is_some(), expected);
+                // Every learned clause must preserve every satisfying model,
+                // independently of the solver's final SAT/UNSAT answer.
+                for assignment in (0..1 << variables).filter(|&bits| satisfies(bits)) {
+                    assert!(
+                        solver
+                            .clauses
+                            .iter()
+                            .all(|clause| clause.iter().any(|&literal| {
+                                let value = assignment & (1 << (literal.unsigned_abs() - 1)) != 0;
+                                value == (literal > 0)
+                            })),
+                        "learning removed a satisfying assignment"
+                    );
+                }
                 if let Some(model) = actual {
                     assert!(clauses.iter().all(|clause| clause.iter().any(|&literal| {
                         model[literal.unsigned_abs() as usize] == if literal > 0 { 1 } else { -1 }
