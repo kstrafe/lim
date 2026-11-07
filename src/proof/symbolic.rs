@@ -128,8 +128,12 @@ pub(super) struct State {
     acted: Bit,
     required: Bit,
     pub validations: Vec<ValidationFact>,
+    revision: u64,
 }
 impl State {
+    pub(super) fn revision(&self) -> u64 {
+        self.revision
+    }
     pub(super) fn root_value(&self, root: usize) -> Option<&Value> {
         self.heap.get(root)
     }
@@ -149,6 +153,7 @@ impl State {
             acted: FALSE,
             required: FALSE,
             validations: Vec::new(),
+            revision: 0,
         }
     }
 }
@@ -166,6 +171,7 @@ impl Engine<'_, '_> {
             root: state.heap.len(),
             path: Vec::new(),
         };
+        state.revision += 1;
         state.heap.push(value);
         Ok(place)
     }
@@ -510,6 +516,7 @@ impl Engine<'_, '_> {
             .ok_or("invalid symbolic reference")?
             .clone();
         state.heap[place.root] = self.write_path(previous, &place.path, &value)?;
+        state.revision += 1;
         Ok(())
     }
     fn write_path(&mut self, mut old: Value, path: &[Segment], value: &Value) -> Result<Value> {

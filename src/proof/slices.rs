@@ -159,28 +159,64 @@ impl Engine<'_, '_> {
                         let valid = self.circuit.lt_word(&index, &view.len);
                         let bad = self.circuit.and(state.guard, self.circuit.not(valid));
                         self.require_unsat(bad, "a slice index can be out of bounds")?;
-                        let index = self
-                            .circuit
-                            .binary("add", Some("wrap"), &view.start, &index)?
-                            .0;
-                        if self.handle_type(&view.element, 0)? {
+                        if self.inductive_witness || self.handle_type(&view.element, 0)? {
                             // Different stored references cannot be represented
                             // as numeric muxes. Keep each feasible element's
                             // actual location in a separate guarded execution.
+                            // Induction also benefits from concrete addresses
+                            // when relating earlier writes to processed cells.
                             let Value::Array(_, values) = self.read(&state, &view.place)? else {
                                 return Err(Error::checker("slice lost its array backing"));
                             };
-                            self.bounds(&state, &index, values.len())?;
-                            for offset in 0..values.len() {
-                                let selected = Circuit::constant(offset as u128, 64, false);
-                                let matches = self.circuit.eq_word(&index, &selected);
+                            if values.len() > 64 {
+                                return Err(Error::limit(
+                                    "symbolic slice backing arrays are limited to 64 elements",
+                                ));
+                            }
+                            self.bounds(&state, &view.start, values.len() + 1)?;
+                            let mut addresses = vec![FALSE; values.len()];
+                            for start in 0..=values.len() {
+                                let mut pinned = state.clone();
+                                let constant = Circuit::constant(start as u128, 64, false);
+                                let selected_start = self.circuit.eq_word(&view.start, &constant);
+                                pinned.guard = self.circuit.and(pinned.guard, selected_start);
+                                pinned.guard = self.circuit.and(pinned.guard, valid);
+                                if self.circuit.satisfy(pinned.guard)?.is_none() {
+                                    continue;
+                                }
+                                let fixed = Slice {
+                                    start: constant,
+                                    ..view.clone()
+                                };
+                                self.slice_backing_values(&pinned, &fixed, TRUE)?;
+                                let capacity =
+                                    Circuit::constant((values.len() - start) as u128, 64, false);
+                                let too_long = self.circuit.lt_word(&capacity, &view.len);
+                                // Retain the geometry fact just checked above.
+                                pinned.guard =
+                                    self.circuit.and(pinned.guard, self.circuit.not(too_long));
+                                self.bounds(&pinned, &index, values.len() - start)?;
+                                for (offset, guard) in addresses.iter_mut().enumerate().skip(start)
+                                {
+                                    let relative =
+                                        Circuit::constant((offset - start) as u128, 64, false);
+                                    let selected = self.circuit.eq_word(&index, &relative);
+                                    let guard_here = self.circuit.and(pinned.guard, selected);
+                                    *guard = self.circuit.or(*guard, guard_here);
+                                }
+                            }
+                            for (offset, guard) in addresses.into_iter().enumerate() {
                                 let mut branch = state.clone();
-                                branch.guard = self.circuit.and(branch.guard, matches);
+                                branch.guard = guard;
                                 if self.circuit.satisfy(branch.guard)?.is_none() {
                                     continue;
                                 }
                                 let mut place = view.place.clone();
-                                place.path.push(Segment::Index(selected));
+                                place.path.push(Segment::Index(Circuit::constant(
+                                    offset as u128,
+                                    64,
+                                    false,
+                                )));
                                 output.push((
                                     branch,
                                     Value::Ref {
@@ -194,6 +230,10 @@ impl Engine<'_, '_> {
                             self.limit_paths(output.len())?;
                             continue;
                         }
+                        let index = self
+                            .circuit
+                            .binary("add", Some("wrap"), &view.start, &index)?
+                            .0;
                         let mut place = view.place.clone();
                         place.path.push(Segment::Index(index));
                         output.push((

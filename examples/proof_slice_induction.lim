@@ -1,4 +1,5 @@
-; Prove bounds and preservation outside a mutable slice without unrolling it.
+; Prove every selected byte is zero and every outside byte is unchanged.
+; The backing array is bounded; its contents and start/end remain symbolic.
 (#fn clear-view (: view (#slice-mut #u8)) #usize
   (#let-mut remaining #usize (#slice-mut-len view))
   (#label
@@ -20,12 +21,35 @@
   (#proof-loop-limit
     1
     (#proof-with-invariants
-      ((clear-view again (#usize::le remaining (#slice-mut-len view)) remaining))
+      (
+        (clear-view
+          again
+          (#proof-and
+            (#usize::le remaining (#slice-mut-len view))
+            (#proof-implies
+              (#bool::and (#usize::le remaining 0usize) (#usize::lt 0usize (#slice-mut-len view)))
+              (#proof-eq (#deref (#slice-mut-idx view 0usize)) 0u8))
+            (#proof-implies
+              (#bool::and (#usize::le remaining 1usize) (#usize::lt 1usize (#slice-mut-len view)))
+              (#proof-eq (#deref (#slice-mut-idx view 1usize)) 0u8))
+            (#proof-implies
+              (#bool::and (#usize::le remaining 2usize) (#usize::lt 2usize (#slice-mut-len view)))
+              (#proof-eq (#deref (#slice-mut-idx view 2usize)) 0u8)))
+          remaining))
       (#proof-contract
         clear-range
         (#bool::and (#usize::le start end) (#usize::le end 3usize))
         (#proof-and
           (#proof-eq (#proof-result) 0usize)
+          (#proof-implies
+            (#bool::and (#usize::le start 0usize) (#usize::lt 0usize end))
+            (#proof-eq (#index source 0usize) 0u8))
+          (#proof-implies
+            (#bool::and (#usize::le start 1usize) (#usize::lt 1usize end))
+            (#proof-eq (#index source 1usize) 0u8))
+          (#proof-implies
+            (#bool::and (#usize::le start 2usize) (#usize::lt 2usize end))
+            (#proof-eq (#index source 2usize) 0u8))
           (#proof-implies
             (#bool::or (#usize::lt 0usize start) (#usize::le end 0usize))
             (#proof-eq (#index source 0usize) (#proof-old (#index source 0usize))))

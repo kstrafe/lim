@@ -231,12 +231,22 @@ to 256 writable regions, 4096 visited values and nesting depth 32. These are con
 frames: an invariant must state any unchanged sibling data needed after the loop.
 
 [`examples/proof_slice_induction.lim`](../examples/proof_slice_induction.lim)
-proves that a slice loop completes and preserves every backing element outside
-its input range. The slice's start and end remain symbolic; its backing array
-provides the finite storage bound. The invariant establishes that the remaining
-count never exceeds the view length, allowing every access and the decreasing
-rank to be checked with an unroll limit of one. This theorem states bounds and
-the outside-range frame; it does not assert the final interior contents.
+proves that a slice loop completes, sets every selected byte to zero and
+preserves every backing element outside its input range. The array's contents
+and the slice's start and end remain symbolic; the three-element backing array
+provides the finite storage bound. The invariant bounds the remaining count
+and states that each processed cell is zero. Each access, the invariant's
+preservation and the decreasing rank are checked with an unroll limit of one.
+Omitting a processed-cell clause or writing a nonzero value leaves the theorem
+unproved, including when the contract is negated.
+
+Read-only implications retain guarded bounds checks but combine their results
+into a Boolean formula, avoiding a separate execution state for every true or
+false premise. This does not skip malformed expressions under false premises,
+erase counterexample evidence or admit effectful specifications. During
+induction, slice indexing can enumerate concrete backing locations under
+checked start/index guards. Missing feasible paths and exhausted solver or
+execution budgets still cannot establish a theorem.
 
 Mutable slice frames use guarded element updates: only membership in the
 selected range permits fresh data. Nested views and slices in aggregates keep

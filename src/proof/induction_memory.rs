@@ -424,7 +424,7 @@ impl Engine<'_, '_> {
                 }
             }
             Value::Slice(view) => {
-                let values = self.induction_slice_values(state, view, active)?;
+                let values = self.slice_backing_values(state, view, active)?;
                 let end = self
                     .circuit
                     .binary("add", Some("wrap"), &view.start, &view.len)?
@@ -473,7 +473,7 @@ impl Engine<'_, '_> {
         Ok(())
     }
 
-    fn induction_slice_values(
+    pub(super) fn slice_backing_values(
         &mut self,
         state: &State,
         view: &Slice,

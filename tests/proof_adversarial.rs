@@ -277,6 +277,19 @@ fn deep_symbolic_evaluation_fails_with_a_budget_error() {
 }
 
 #[test]
+fn deep_symbolic_implications_fail_with_a_budget_error() {
+    let expression = format!(
+        "{}true{}",
+        "(#proof-implies true ".repeat(48),
+        ")".repeat(48)
+    );
+    reject(
+        &format!("(#theorem deep {expression})"),
+        "evaluation nesting exceeds 32",
+    );
+}
+
+#[test]
 fn proofs_do_not_accept_internal_unprefixed_operator_spellings() {
     reject(
         "(#theorem bad (#proof-eq (u8.+.wrap 1u8 2u8) 3u8))",

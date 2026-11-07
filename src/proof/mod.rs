@@ -9,6 +9,8 @@ mod graph;
 #[cfg(test)]
 mod induction_tests;
 mod logic;
+mod obligations;
+mod observations;
 mod outcome;
 mod symbolic;
 mod validation;
@@ -408,19 +410,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                     })
                     .collect()
             }
-            "proof-implies" => {
-                arity(head, args, 2)?;
-                let mut output = Vec::new();
-                for (mut state, condition) in self.proposition(state, &args[0])? {
-                    let condition = condition.boolean()?;
-                    let mut false_case = state.clone();
-                    false_case.guard = self.circuit.and(state.guard, self.circuit.not(condition));
-                    output.push((false_case, Value::Bool(TRUE)));
-                    state.guard = self.circuit.and(state.guard, condition);
-                    output.extend(self.proposition(state, &args[1])?);
-                }
-                Ok(output)
-            }
+            "proof-implies" => self.implication(state, args),
             "proof-eq" => {
                 arity(head, args, 2)?;
                 let mut output = Vec::new();
@@ -511,90 +501,8 @@ impl<'a, 'p> Engine<'a, 'p> {
                 )?;
                 Ok(vec![(state, Value::Bool(bit(bytes <= bound)))])
             }
-            "proof-for-all" => {
-                arity(head, args, 2)?;
-                if self.quantified {
-                    return Err(Error::unsupported(
-                        "nested quantified claims are unsupported; combine #proof-for-all bindings",
-                    ));
-                }
-                self.quantified = true;
-                let original = state.clone();
-                let input_start = self.inputs.len();
-                let mut state = state;
-                for binding in list(&args[0])? {
-                    let binding = list(binding)?;
-                    if binding.len() != 2 {
-                        return Err("#proof-for-all requires (name Type) pairs".into());
-                    }
-                    let name = symbol(&binding[0])?.to_owned();
-                    if state.frames.last().unwrap().locals.contains_key(&name) {
-                        return Err(
-                            format!("proof binding '{name}' shadows an existing binding").into(),
-                        );
-                    }
-                    let ty = proof_type(&binding[1], true)?;
-                    let value = self.fresh_value(&mut state, &ty, 0)?;
-                    self.inputs.push((name.clone(), value.clone()));
-                    self.bind(&mut state, name, ty, value)?;
-                }
-                self.input_state = Some(state.clone());
-                let runs = self.proposition(state, &args[1])?;
-                self.quantified = false;
-                self.close_claim(original, runs, input_start)
-            }
-            "proof-contract" => {
-                arity(head, args, 3)?;
-                if self.quantified {
-                    return Err(Error::unsupported(
-                        "nested quantified claims are unsupported",
-                    ));
-                }
-                self.quantified = true;
-                let original = state.clone();
-                let input_start = self.inputs.len();
-                if !state.frames.last().unwrap().locals.is_empty() {
-                    return Err("a contract quantifies its own declared function parameters; put it outside #proof-for-all".into());
-                }
-                let function = self.function(symbol(&args[0])?)?;
-                let mut arguments = Vec::new();
-                let mut state = state;
-                for parameter in &function.parameters {
-                    let value = self.fresh_value(&mut state, &parameter.ty, 0)?;
-                    self.inputs.push((parameter.name.clone(), value.clone()));
-                    self.bind(
-                        &mut state,
-                        parameter.name.clone(),
-                        parameter.ty.clone(),
-                        value.clone(),
-                    )?;
-                    arguments.push(value);
-                }
-                self.old = Some(state.clone());
-                self.input_state = Some(state.clone());
-                let mut output = Vec::new();
-                for (mut state, pre) in self.proposition(state, &args[1])? {
-                    let pre = pre.boolean()?;
-                    state.guard = self.circuit.and(state.guard, pre);
-                    for (mut state, result) in
-                        self.call(state, function, arguments.clone(), false)?
-                    {
-                        if self.verify_reference_origins {
-                            self.verify_contract_return(&state, function, &arguments, &result)?;
-                            let entry = self
-                                .old
-                                .clone()
-                                .ok_or_else(|| Error::checker("missing contract entry snapshot"))?;
-                            self.verify_contract_stores(&entry, &state, function, &arguments)?;
-                        }
-                        state.result = Some(result);
-                        output.extend(self.proposition(state, &args[2])?);
-                    }
-                }
-                self.old = None;
-                self.quantified = false;
-                self.close_claim(original, output, input_start)
-            }
+            "proof-for-all" => self.quantified_values(state, head, args),
+            "proof-contract" => self.contract_claim(state, head, args),
             "proof-calls-when" | "proof-calls-before" | "proof-requires-validation" => {
                 if self.quantified {
                     return Err("trace claims quantify their own function inputs; put them outside #proof-for-all".into());
