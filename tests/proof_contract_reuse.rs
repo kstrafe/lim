@@ -224,10 +224,10 @@ fn contract_selection_is_scoped() {
 }
 
 #[test]
-fn reference_arguments_and_effects_are_not_given_a_pure_frame() {
+fn reference_results_and_effects_are_not_given_an_unmodeled_frame() {
     rejected(
         r#"
-      (#fn read (: value (#ref #u8)) #u8 (#return (#deref value)))
+      (#fn read (: value (#ref #u8)) (#ref #u8) (#return value))
       (#theorem read-contract (#proof-contract read true true))
       (#theorem selected (#proof-using (read-contract) true))"#,
         "selected",

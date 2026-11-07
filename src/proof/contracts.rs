@@ -1,5 +1,5 @@
 //! Explicit reuse of proved contracts. The initial frame rule is deliberately
-//! limited to reference-free values and functions without environment access.
+//! limited to reference-free referents/results and no implicit environment access.
 //! Abstract summary results may establish a claim, but cannot refute one.
 use super::*;
 use symbolic::Frame;
@@ -155,17 +155,10 @@ impl<'a, 'p> Engine<'a, 'p> {
     fn contract_frame(&mut self, contract: &Contract<'p>) -> Result<()> {
         let function = self.function(&contract.function)?;
         for parameter in &function.parameters {
-            self.contract_type(&parameter.ty, 0)?;
+            self.contract_type(&parameter.ty, 0, true)?;
         }
-        self.contract_type(&function.return_type, 0)?;
-        for effect in [
-            "global-write",
-            "unsafe",
-            "io",
-            "allocation",
-            "external",
-            "asm",
-        ] {
+        self.contract_type(&function.return_type, 0, false)?;
+        for effect in ["unsafe", "io", "allocation", "external", "asm"] {
             if self
                 .graph
                 .forbidden_effect(&function.name, effect)?
@@ -179,13 +172,13 @@ impl<'a, 'p> Engine<'a, 'p> {
         }
         if self.graph.accesses_globals(&function.name)? {
             return Err(Error::unsupported(
-                "reusable contracts do not yet summarize global storage reads",
+                "reusable contracts do not yet summarize implicit global storage reads or writes",
             ));
         }
         Ok(())
     }
 
-    fn contract_type(&mut self, ty: &Type, depth: usize) -> Result<()> {
+    fn contract_type(&mut self, ty: &Type, depth: usize, allow_references: bool) -> Result<()> {
         self.tick()?;
         if depth > 32 {
             return Err(Error::limit("contract frame type nesting exceeds 32"));
@@ -197,22 +190,35 @@ impl<'a, 'p> Engine<'a, 'p> {
             return Ok(());
         }
         match ty {
-            Type::Array(element, _) => self.contract_type(&element, depth + 1),
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. }
+                if allow_references =>
+            {
+                self.contract_type(&target, depth + 1, false)
+            }
+            Type::Array(element, _) => self.contract_type(&element, depth + 1, allow_references),
             Type::Tuple(elements) => {
-                for element in elements { self.contract_type(&element, depth + 1)?; }
+                for element in elements {
+                    self.contract_type(&element, depth + 1, allow_references)?;
+                }
                 Ok(())
             }
             Type::Named(name) if self.records.contains_key(&name) => {
-                for field in self.records[&name].clone() { self.contract_type(&field.ty, depth + 1)?; }
+                for field in self.records[&name].clone() {
+                    self.contract_type(&field.ty, depth + 1, allow_references)?;
+                }
                 Ok(())
             }
             Type::Named(name) if self.enums.contains_key(&name) => {
                 for variant in self.enums[&name].clone() {
-                    for field in variant.fields { self.contract_type(&field, depth + 1)?; }
+                    for field in variant.fields {
+                        self.contract_type(&field, depth + 1, allow_references)?;
+                    }
                 }
                 Ok(())
             }
-            _ => Err(Error::unsupported("reusable contracts currently require reference-free modeled input and result types")),
+            _ => Err(Error::unsupported(
+                "reusable contracts require reference-free modeled results and reference targets",
+            )),
         }
     }
 
@@ -222,16 +228,26 @@ impl<'a, 'p> Engine<'a, 'p> {
         function: &Function,
         arguments: Vec<Value>,
         contract: &Contract<'p>,
+        spec: bool,
     ) -> Result<Vec<(State, Value)>> {
         if self.trace.is_some() {
             return Err(Error::unsupported("result contracts do not summarize execution traces; inspect the function body for trace proofs"));
+        }
+        let mutates = self
+            .graph
+            .forbidden_effect(&function.name, "mutation")?
+            .is_some();
+        if spec && mutates {
+            return Err(Error::unsupported(
+                "a mutating contract cannot be invoked as a specification call",
+            ));
         }
         self.summary_witness = true;
         state.frames.push(Frame {
             function: function.name.clone(),
             locals: BTreeMap::new(),
         });
-        for (parameter, value) in function.parameters.iter().zip(arguments) {
+        for (parameter, value) in function.parameters.iter().zip(arguments.iter().cloned()) {
             self.bind(
                 &mut state,
                 parameter.name.clone(),
@@ -258,13 +274,21 @@ impl<'a, 'p> Engine<'a, 'p> {
                     )));
                 }
                 state.guard = self.circuit.and(state.guard, condition);
-                let result = self.fresh_value(&mut state, &function.return_type, 0)?;
-                state.result = Some(result.clone());
-                for (mut state, post) in self.proposition(state, contract.post)? {
-                    state.guard = self.circuit.and(state.guard, post.boolean()?);
-                    state.result = saved_result.clone();
-                    state.frames.pop();
-                    output.push((state, result.clone()));
+                let states = if mutates {
+                    self.contract_memory_states(state, &arguments)?
+                } else {
+                    vec![state]
+                };
+                for mut state in states {
+                    let result = self.fresh_value(&mut state, &function.return_type, 0)?;
+                    state.result = Some(result.clone());
+                    for (mut state, post) in self.proposition(state, contract.post)? {
+                        state.guard = self.circuit.and(state.guard, post.boolean()?);
+                        state.result = saved_result.clone();
+                        state.frames.pop();
+                        output.push((state, result.clone()));
+                    }
+                    self.limit_paths(output.len())?;
                 }
             }
             self.limit_paths(output.len())?;

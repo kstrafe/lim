@@ -1,5 +1,6 @@
 //! Compile-time propositions checked against the validated, expanded program.
 //! No theorem is an assumption: unsupported semantics and exhausted budgets fail.
+mod contract_memory;
 mod contracts;
 mod counterexample;
 mod graph;

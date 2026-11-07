@@ -383,6 +383,20 @@ impl Engine<'_, '_> {
                     .map(|((field, a), (_, b))| Ok((field.clone(), self.merge(condition, a, b)?)))
                     .collect::<Result<_>>()?,
             ),
+            (Value::Enum(name, a_tag, a), Value::Enum(_, b_tag, b)) => {
+                let tag = self.circuit.select(condition, a_tag, b_tag)?;
+                let mut payloads = Vec::with_capacity(a.len());
+                for (a, b) in a.iter().zip(b) {
+                    payloads.push(match (a, b) {
+                        (Some(a), Some(b)) => Some(self.merge(condition, a, b)?),
+                        // A missing payload is inactive on that side. The
+                        // selected discriminant controls whether it is read.
+                        (Some(value), None) | (None, Some(value)) => Some(value.clone()),
+                        (None, None) => None,
+                    });
+                }
+                Value::Enum(name.clone(), tag, payloads)
+            }
             _ => {
                 return Err(Error::unsupported(
                     "conditional reference or enum storage requires path splitting",
@@ -464,7 +478,12 @@ impl Engine<'_, '_> {
         };
         self.read_path(next, rest)
     }
-    fn write(&mut self, state: &mut State, place: &Location, value: Value) -> Result<()> {
+    pub(super) fn write(
+        &mut self,
+        state: &mut State,
+        place: &Location,
+        value: Value,
+    ) -> Result<()> {
         self.invalidate_validations(state, place)?;
         let previous = state
             .heap
@@ -1372,7 +1391,7 @@ impl Engine<'_, '_> {
         }
         if self.summary_depth == 0 {
             if let Some(contract) = self.summaries.get(&function.name).cloned() {
-                return self.apply_contract(state, function, arguments, &contract);
+                return self.apply_contract(state, function, arguments, &contract, spec);
             }
         }
         let validating = self.validation_argument(&function.name, &arguments)?;

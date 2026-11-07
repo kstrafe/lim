@@ -27,13 +27,15 @@ program-shape dependent; this list is not a claim of completeness.
   relations, but arbitrary quantified formulas, unbounded domains, and every
   Lim type are not supported.
 - **Explicit contract reuse.** `#proof-using` selects separately verified
-  direct contract theorems for calls in its body. The initial frame rule covers
-  reference-free inputs/results and functions without global access or unsafe,
-  IO, allocation, external or assembly effects. Owned local mutation is allowed.
+  direct contract theorems for calls in its body. Results and reference targets
+  must be reference-free; inputs may contain references inside owned aggregates.
+  Functions cannot implicitly access globals or perform unsafe, IO, allocation,
+  external or assembly operations. Owned local and borrowed-target mutation are
+  modeled without changing reference identities.
   The caller must establish the selected precondition on every feasible path;
   the postcondition constrains a fresh result. Contract dependencies are checked
   in topological order, including forward references, and cycles are rejected.
-  These summaries are not execution-trace or mutable-memory summaries.
+  These summaries describe results and borrowed state, not execution traces.
 - **Machine integer semantics.** Modeled bitvectors preserve width and
   signedness. Explicit wrapping and saturating arithmetic, comparisons, casts,
   and supported division are evaluated using machine behavior. Checks such as
@@ -146,13 +148,35 @@ for the entire theorem, so a later failed claim can also remain unproved after
 a summary was used. Strengthen the selected contract or inspect the actual
 callee body to obtain a concrete counterexample.
 
-Reference-bearing arguments/results, slices, raw pointers, global reads
-(including named global constants), and external effects are deliberately not
-covered by this initial frame rule. They remain supported only to the extent
-of ordinary symbolic execution without reusable summaries. Trace proofs must
-inspect bodies because result contracts do not specify call ordering. Writable
-reachable storage, returned-reference identity and environment summaries remain
-open work; a pure summary must never silently stand in for those mechanisms.
+Mutable references define the writable frame. For a call that may mutate,
+the checker replaces the contents of each active mutable argument target with
+fresh symbolic values, then constrains them with the verified postcondition.
+References inside owned records, tuples, arrays and active enum payloads also
+contribute targets. Reference handles retain their original locations; shared
+arguments and storage outside the writable targets retain their contents.
+Subobject and symbolic element borrows affect only those subobjects/elements,
+including element references obtained from modeled slices. Heap updates use
+the ordinary validation-invalidation path.
+
+A mutable reference to a whole array permits the whole array to change. A
+contract must therefore state any unchanged-element guarantees its callers
+need; the checker does not infer an exact body write set for the summary.
+Purely reading functions preserve all caller storage, including targets passed
+through mutable handles. Mutating summaries cannot be invoked from specification
+expressions. Trace proofs still inspect bodies to establish call ordering.
+[`examples/proof_borrowed_contracts.lim`](../examples/proof_borrowed_contracts.lim)
+proves a borrowed-field update and preservation of its sibling field while
+reusing a bounded-loop contract under a caller unroll limit of one.
+
+Write frames are bounded to 256 mutable locations per alternative, 256
+alternatives and 4096 total writable entries. Exceeding a bound remains an
+unproved resource-limit result, including under logical negation.
+
+Reference-bearing results or reference targets, direct slice parameters,
+raw pointers, implicit global access (including named global constants) and
+external effects remain outside reusable summaries. Ordinary symbolic execution
+supports some of these cases without summary reuse. Returned-reference identity,
+identity-changing writes and complete environment models remain open work.
 
 ## Reading counterexamples
 

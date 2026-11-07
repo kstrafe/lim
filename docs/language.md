@@ -1753,8 +1753,11 @@ bounds, and planned coverage.
 depend on explicitly named `#theorem` declarations. Every dependency is
 resolved and verified; aliases and imported file definitions refer to their
 canonical declarations. The dependency list adds no assumptions or bindings,
-and the proposition body retains its existing scope. Initially, only pure
-contracts with reference-free inputs and results are supported. Failed
+and the proposition body retains its existing scope. Reuse supports reference-free
+results and reference targets, including references inside owned input aggregates.
+Mutable argument targets define the writable frame; postconditions state their
+new contents and any unchanged parts that callers need. Implicit global access,
+unsafe operations and external effects are unsupported. Failed
 preconditions and insufficient postconditions remain unproved. No assumption
 is made when a dependency fails, is unsupported, or cannot be established.
 

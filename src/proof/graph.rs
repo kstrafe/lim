@@ -289,6 +289,7 @@ impl Graph {
             match &instruction.control {
                 Control::Assign(root, projection, _) => {
                     if matches!(root, PlaceRoot::Global(_)) {
+                        self.global_accesses.insert(function.into());
                         self.effect(function, "global-write", "#set-global");
                         if let PlaceRoot::Global(id) = root {
                             if self.statics.contains(id) {
