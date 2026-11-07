@@ -9,6 +9,7 @@ pub(crate) const TRUE: Bit = 1;
 const NODE_LIMIT: usize = 100_000;
 const WORK_LIMIT: usize = 2_000_000;
 const MAX_WIDTH: usize = 128;
+const OFFSET_LIMIT: usize = 4096;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Word {
@@ -25,6 +26,7 @@ enum Gate {
 pub(crate) struct Circuit {
     nodes: Vec<Gate>,
     table: HashMap<Gate, Bit>,
+    offsets: HashMap<(Vec<Bit>, bool), (Word, u128)>,
     // Shape errors and either resource limit poison every subsequent SAT query.
     exhausted: bool,
 }
@@ -33,6 +35,7 @@ impl Circuit {
         Self {
             nodes: Vec::new(),
             table: HashMap::new(),
+            offsets: HashMap::new(),
             exhausted: false,
         }
     }
@@ -355,6 +358,84 @@ impl Circuit {
         rem.truncate(n);
         (quotient, rem)
     }
+    fn literal(word: &Word) -> Option<u128> {
+        word.bits
+            .iter()
+            .enumerate()
+            .try_fold(0, |value, (index, &bit)| match bit {
+                FALSE => Some(value),
+                TRUE => Some(value | (1u128 << index)),
+                _ => None,
+            })
+    }
+
+    fn offset(&self, word: &Word) -> (Word, u128) {
+        if let Some(value) = Self::literal(word) {
+            (Self::constant(0, word.bits.len(), word.signed), value)
+        } else {
+            self.offsets
+                .get(&(word.bits.clone(), word.signed))
+                .cloned()
+                .unwrap_or_else(|| (word.clone(), 0))
+        }
+    }
+
+    fn wrapping_offsets(&mut self, op: &str, a: &Word, b: &Word) -> Option<Word> {
+        // This is an optional exact rewrite modulo 2^width. Saturation and
+        // overflow predicates retain the original arithmetic and grouping.
+        if self.offsets.len() >= OFFSET_LIMIT {
+            return None;
+        }
+        let (left, left_offset) = self.offset(a);
+        let (right, right_offset) = self.offset(b);
+        if left_offset == 0 && right_offset == 0 {
+            return None;
+        }
+        let width = a.bits.len();
+        let mask = if width == 128 {
+            u128::MAX
+        } else {
+            (1u128 << width) - 1
+        };
+        let delta = if op == "add" {
+            left_offset.wrapping_add(right_offset)
+        } else {
+            left_offset.wrapping_sub(right_offset)
+        } & mask;
+        let base = if Self::literal(&right) == Some(0) {
+            left
+        } else if op == "add" && Self::literal(&left) == Some(0) {
+            right
+        } else {
+            Word {
+                bits: self.arithmetic(op, &left, &right).0,
+                signed: a.signed,
+            }
+        };
+        if delta == 0 {
+            return Some(base);
+        }
+        let negative = delta & (1u128 << (width - 1)) != 0;
+        let magnitude = if negative {
+            0u128.wrapping_sub(delta) & mask
+        } else {
+            delta
+        };
+        let constant = Self::constant(magnitude, width, a.signed);
+        let result = Word {
+            bits: self
+                .arithmetic(if negative { "sub" } else { "add" }, &base, &constant)
+                .0,
+            signed: a.signed,
+        };
+        if Self::literal(&result).is_none() {
+            self.offsets
+                .entry((result.bits.clone(), result.signed))
+                .or_insert((base, delta));
+        }
+        Some(result)
+    }
+
     pub(crate) fn binary(
         &mut self,
         op: &str,
@@ -365,6 +446,11 @@ impl Circuit {
         self.check(a, b)?;
         if mode.is_some_and(|m| !matches!(m, "wrap" | "saturate")) {
             return Err("unknown arithmetic mode".into());
+        }
+        if mode == Some("wrap") && matches!(op, "add" | "sub") {
+            if let Some(result) = self.wrapping_offsets(op, a, b) {
+                return Ok((result, TRUE));
+            }
         }
         let n = a.bits.len();
         let mut valid = TRUE;
@@ -924,6 +1010,87 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapping_offsets_cancel_and_preserve_exhaustive_small_width_values() {
+        for width in 2..=5 {
+            let mask = (1u128 << width) - 1;
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let a = circuit.word(width, signed);
+                let b = circuit.word(width, signed);
+                let sum = circuit.binary("add", Some("wrap"), &a, &b).unwrap().0;
+                let difference = circuit.binary("sub", Some("wrap"), &a, &b).unwrap().0;
+                for offset in [0, 1, 3, mask] {
+                    let constant = Circuit::constant(offset, width, signed);
+                    let shifted_a = circuit
+                        .binary("add", Some("wrap"), &a, &constant)
+                        .unwrap()
+                        .0;
+                    let shifted_b = circuit
+                        .binary("sub", Some("wrap"), &b, &constant)
+                        .unwrap()
+                        .0;
+                    let canceled = circuit
+                        .binary("add", Some("wrap"), &shifted_a, &shifted_b)
+                        .unwrap()
+                        .0;
+                    assert_eq!(canceled.bits, sum.bits);
+                    let same_offset_b = circuit
+                        .binary("add", Some("wrap"), &b, &constant)
+                        .unwrap()
+                        .0;
+                    let canceled_difference = circuit
+                        .binary("sub", Some("wrap"), &shifted_a, &same_offset_b)
+                        .unwrap()
+                        .0;
+                    assert_eq!(canceled_difference.bits, difference.bits);
+                    for x in 0..1 << width {
+                        for y in 0..1 << width {
+                            let model = input_model(&circuit, &a, &b, x, y);
+                            assert_eq!(
+                                circuit.value(&canceled, &model),
+                                (x as u128 + y as u128) & mask
+                            );
+                            assert_eq!(
+                                circuit.value(&canceled_difference, &model),
+                                (x as u128).wrapping_sub(y as u128) & mask
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_offset_normalization_handles_full_width_carries() {
+        for width in [8, 16, 32, 64, 128] {
+            for signed in [false, true] {
+                let mut circuit = Circuit::new();
+                let a = circuit.word(width, signed);
+                let b = circuit.word(width, signed);
+                let sum = circuit.binary("add", Some("wrap"), &a, &b).unwrap().0;
+                for offset in [1, u128::MAX, 1u128 << (width - 1)] {
+                    let constant = Circuit::constant(offset, width, signed);
+                    let shifted_a = circuit
+                        .binary("add", Some("wrap"), &a, &constant)
+                        .unwrap()
+                        .0;
+                    let shifted_b = circuit
+                        .binary("sub", Some("wrap"), &b, &constant)
+                        .unwrap()
+                        .0;
+                    let canceled = circuit
+                        .binary("add", Some("wrap"), &shifted_a, &shifted_b)
+                        .unwrap()
+                        .0;
+                    assert_eq!(canceled.bits, sum.bits);
+                }
+                assert!(circuit.satisfy(FALSE).unwrap().is_none());
+            }
+        }
+    }
 
     #[test]
     fn watched_propagation_handles_reverse_order_implication_chains() {
