@@ -229,7 +229,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 }
                 let examples = self.render_inputs(0, &model);
                 if self.inductive_witness {
-                    return Err(format!("disproved: {explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}"));
+                    return Err(format!("unproved: {explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}"));
                 }
                 Err(format!(
                     "disproved: {explanation}; counterexample: {}",
@@ -274,9 +274,13 @@ impl<'a, 'p> Engine<'a, 'p> {
         }
         let value = if let Some(model) = &model {
             let inputs = self.render_inputs(input_start, model);
-            let example = if self.inductive_witness {
-                format!("inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")
-            } else if let Some(Trace::Validated(rule)) = &self.trace {
+            if self.inductive_witness {
+                // A model of an over-approximated loop state does not refute
+                // the program contract. In particular its negation must not
+                // turn an insufficient invariant into a proved theorem.
+                return Err(format!("unproved: supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}"));
+            }
+            let example = if let Some(Trace::Validated(rule)) = &self.trace {
                 let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));
                 if inputs.is_empty() {
                     explanation

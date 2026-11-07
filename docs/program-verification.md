@@ -126,12 +126,13 @@ claims may show several numbered witnesses, each establishing failure of one
 subclaim with its own storage identity scope; they need not be a single shared
 input assignment.
 
-Invariant induction introduces arbitrary loop-head values. Its failure report
-therefore labels an **inductive obligation witness** and explicitly says the
-initial inputs are not a concrete execution replay. Such a result can show
-that an invariant or rank is insufficient without establishing a reachable
-bug in the function. Unsupported semantics and solver exhaustion remain
-unproved results.
+Invariant induction introduces arbitrary loop-head values. A failed induction
+obligation is **unproved**, not a refutation of the function contract. Its
+report labels an **inductive obligation witness** and explicitly says the
+initial inputs are not a concrete execution replay. This result stays unproved
+under negation or other logical composition; it cannot certify the opposite
+contract. A sufficient invariant can still establish the contract. Unsupported
+semantics and solver exhaustion also remain unproved results.
 
 Rendering is bounded to 12 inputs, eight entries per aggregate, 12 nested
 levels, 256 visited values, eight compound witnesses and 8192 bytes per rendered

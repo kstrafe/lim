@@ -1943,11 +1943,11 @@ impl Engine<'_, '_> {
             collect_modified(std::slice::from_ref(step), &mut modified)?;
         }
         let entry = self.proposition(state.clone(), &invariant.predicate)?;
-        self.establish(entry, "loop invariant fails on entry")?;
         // Subsequent obligations may use an arbitrary loop-head state. Its
         // model is evidence about the induction obligation, not necessarily
         // an execution reachable from the original program inputs.
         self.inductive_witness = true;
+        self.establish(entry, "loop invariant fails on entry")?;
         for name in modified {
             let Some((place, ty)) = locals.get(&name).cloned() else {
                 if self.globals.contains_key(&name)

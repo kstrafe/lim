@@ -224,16 +224,17 @@ fn signed_and_character_inputs_keep_their_literal_spelling() {
 
 #[test]
 fn an_inductive_witness_is_not_advertised_as_a_concrete_execution() {
-    let error = counterexample(
-        "(#fn countdown (: count #u8) #u8
+    let source = "(#fn countdown (: count #u8) #u8
         (#let-mut remaining #u8 count)
         (#label again (#while (#u8::gt remaining 0u8)
           (#set remaining (#u8::sub-wrap remaining 1u8))))
         (#return remaining))
       (#theorem bad-rank
         (#proof-with-invariants ((countdown again true 0u8))
-          (#proof-contract countdown true true)))",
-    );
+          (#proof-contract countdown true true)))";
+    let error = lim::check_types(&lim::parse_program(source).unwrap()).unwrap_err();
+    assert!(error.starts_with("theorem '"), "{error}");
+    assert!(error.contains("unproved"), "{error}");
     assert!(error.contains("inductive obligation witness"), "{error}");
     assert!(error.contains("not a concrete execution replay"), "{error}");
 }

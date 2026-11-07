@@ -93,7 +93,7 @@ fn havocs_writes_nested_in_expression_blocks() {
         "(#u8::gt remaining 0u8)",
         "changed",
     );
-    rejected(&source, "disproved");
+    rejected(&source, "inductive obligation");
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn havocs_writes_in_array_index_expressions() {
         (#proof-with-invariants ((countdown again true remaining))
           (#proof-contract countdown true (#proof-eq (#proof-result) 0u8))))
     "#,
-        "disproved",
+        "inductive obligation",
     );
 }
 
