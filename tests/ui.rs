@@ -21,6 +21,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "proof-contract-precondition",
+            diagnostic_code: "E4407",
+            offending_line: "  (#proof-using (increment-contract)",
+            line_number: 7,
+        },
+        Case {
             name: "proof-induction-negation",
             diagnostic_code: "E4405",
             offending_line: "  (#proof-with-invariants",
@@ -1304,6 +1310,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "proof-contract-precondition" => Some("(#proof-using (increment-contract)"),
             "proof-induction-negation" => Some("(#proof-with-invariants"),
             "proof-mutated-reference" => Some("(#proof-contract overwrite"),
             "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),

@@ -25,6 +25,7 @@ pub(crate) struct Graph {
     builtins: BTreeMap<String, BTreeSet<String>>,
     unsafe_sites: BTreeMap<String, BTreeSet<String>>,
     statics: BTreeSet<crate::typed_ir::GlobalId>,
+    global_accesses: BTreeSet<String>,
 }
 
 impl Graph {
@@ -34,6 +35,7 @@ impl Graph {
             effects: BTreeMap::new(),
             builtins: BTreeMap::new(),
             unsafe_sites: BTreeMap::new(),
+            global_accesses: BTreeSet::new(),
             statics: program
                 .items
                 .iter()
@@ -112,6 +114,7 @@ impl Graph {
                             NodeKind::Declaration(DeclarationId::Global(id))
                                 if node.ty.is_some() =>
                             {
+                                graph.global_accesses.insert(name.clone());
                                 let global =
                                     declarations.declaration_name(DeclarationId::Global(*id));
                                 if statics.contains(global) {
@@ -358,6 +361,17 @@ impl Graph {
                     .map(|site| vec![site.clone()])
             },
         ))
+    }
+
+    pub(super) fn accesses_globals(&self, from: &str) -> Result<bool, String> {
+        self.require_function(from)?;
+        Ok(self
+            .search(
+                from,
+                |_| false,
+                |name| self.global_accesses.contains(name).then(Vec::new),
+            )
+            .is_some())
     }
 
     #[cfg(test)]

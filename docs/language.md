@@ -1749,6 +1749,15 @@ ownership, and unsafe checks still apply to the program. See the
 [program verification checklist](program-verification.md) for supported checks,
 bounds, and planned coverage.
 
+`(#proof-using (name ...) proposition)` lets a proposition
+depend on explicitly named `#theorem` declarations. Every dependency is
+resolved and verified; aliases and imported file definitions refer to their
+canonical declarations. The dependency list adds no assumptions or bindings,
+and the proposition body retains its existing scope. Initially, only pure
+contracts with reference-free inputs and results are supported. Failed
+preconditions and insufficient postconditions remain unproved. No assumption
+is made when a dependency fails, is unsupported, or cannot be established.
+
 ```lisp library
 (#fn identity ((value #u8)) #u8 (#return value))
 
@@ -1813,11 +1822,21 @@ It is available only within a contract.
 
 (#theorem identity-contract
   (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))
+
+(#theorem identity-caller
+  (#proof-using (identity-contract)
+    (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value)))))
 ```
 
+The second theorem explicitly reuses the verified direct contract. Its dependency
+list creates no proposition binding; names in the body keep their ordinary
+proof scope.
+
 Calls in specifications evaluate actual checked function bodies, including
-nested calls and applicable clone hooks; function names resolve to actual
-declarations. A specification call's transitive checked graph must have no
+nested calls and applicable clone hooks, unless `#proof-using` selects a verified
+contract for that call. Calls inside the selected contract's own pre/postconditions
+still execute their bodies. Function names resolve to actual declarations.
+A specification call's transitive checked graph must have no
 `global-write`, `io`, `allocation`, `external`, or `asm` effects. The engine also
 checks that the call preserves observable storage that existed before it;
 the graph restriction and the storage check both apply. Specification syntax
@@ -2910,6 +2929,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
+| `#proof-using` | `(#proof-using (theorem-name...) proposition)` | `(#proof-using (identity-contract) (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))` (proof proposition) | Adds explicit verified direct contract theorem dependencies; names resolve to theorem declarations, the list introduces no bindings, and an empty list selects no dependencies. |
 | `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |

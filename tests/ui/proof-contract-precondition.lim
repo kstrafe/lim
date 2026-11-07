@@ -1,0 +1,8 @@
+(#fn increment (: value #u8) #u8
+  (#return (#u8::add-wrap value 1u8)))
+(#theorem increment-contract
+  (#proof-contract increment (#u8::lt value 255u8)
+    (#proof-eq (#proof-result) (#u8::add-wrap value 1u8))))
+(#theorem selected
+  (#proof-using (increment-contract)
+    (#proof-contract increment true true)))

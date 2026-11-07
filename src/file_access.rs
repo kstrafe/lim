@@ -581,6 +581,31 @@ impl Resolver<'_> {
         if matches!(kind.as_str(), "#proof-for-all" | "#proof-with-invariants") {
             proof_children(node);
         }
+        if kind == "#proof-using" {
+            proof_children(node);
+            if let Some(list) = node.children.get_mut(1) {
+                proof_children(list);
+                for name in &mut list.children {
+                    if symbol(name).is_none() {
+                        return Err(SourceError::from(
+                            "#proof-using entries must name #theorem declarations",
+                        )
+                        .at(name.span));
+                    }
+                    // Use the ordinary resolver so aliases, canonical names,
+                    // and generated declaration provenance follow the same
+                    // access rules as references elsewhere in the program.
+                    // Leave unresolved spellings for the proof checker, which
+                    // reports unknown theorem names with its typed diagnostic.
+                    self.rewrite(name, file, &HashSet::new())?;
+                }
+                rebuild(list)?;
+            }
+            if let Some(proposition) = node.children.get_mut(2) {
+                self.rewrite(proposition, file, locals)?;
+            }
+            return rebuild(node);
+        }
         let mut inner = locals.clone();
         if kind == "#proof-for-all" {
             if let Some(parameters) = node.children.get_mut(1) {

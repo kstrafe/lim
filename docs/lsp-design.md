@@ -159,6 +159,12 @@ ordinary runtime expression resolver for Lim functions, locals, fields, and
 named arguments. Labels and loop invariant bindings remain scoped to their
 function. Proof operators and metadata do not fall back to global name lookup.
 
+`(#proof-using (name ...) proposition)` adds explicit,
+verified theorem dependencies to a proposition. Each listed name navigates to
+its `#theorem` declaration through canonical file and alias resolution. The
+body remains in the surrounding proposition scope; the list introduces no
+bindings.
+
 The supported proof forms and their current limits are documented in the
 [program verification checklist](program-verification.md). Navigation tests
 cover proof names, runtime operands, lexical scopes, and malformed forms.

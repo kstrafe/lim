@@ -195,6 +195,7 @@ pub enum DiagnosticCode {
     ProofInvalid = 4404,
     ProofInduction = 4405,
     ProofInternal = 4406,
+    ProofContract = 4407,
     Codegen = 5000,
     Link = 6000,
     Cli = 7000,
@@ -212,6 +213,7 @@ impl DiagnosticCode {
                 | Self::ProofInvalid
                 | Self::ProofInduction
                 | Self::ProofInternal
+                | Self::ProofContract
         )
     }
 
@@ -223,6 +225,7 @@ impl DiagnosticCode {
             Self::ProofInvalid => Some(ProofOutcome::Invalid),
             Self::ProofInduction => Some(ProofOutcome::InductionFailure),
             Self::ProofInternal => Some(ProofOutcome::CheckerError),
+            Self::ProofContract => Some(ProofOutcome::ContractFailure),
             _ => None,
         }
     }
@@ -408,6 +411,7 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
         4404 => DiagnosticCode::ProofInvalid,
         4405 => DiagnosticCode::ProofInduction,
         4406 => DiagnosticCode::ProofInternal,
+        4407 => DiagnosticCode::ProofContract,
         5000 => DiagnosticCode::Codegen,
         6000 => DiagnosticCode::Link,
         _ => DiagnosticCode::Type,
@@ -5071,6 +5075,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "proof-only-unsafe"
             | "proof-stack-at-most"
             | "proof-for-all"
+            | "proof-using"
             | "proof-eq"
             | "proof-contract"
             | "proof-result"

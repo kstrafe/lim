@@ -89,6 +89,7 @@ fn outcomes_are_structured_and_not_guessed_from_diagnostic_text() {
             ProofOutcome::InductionFailure,
         ),
         (DiagnosticCode::ProofInternal, ProofOutcome::CheckerError),
+        (DiagnosticCode::ProofContract, ProofOutcome::ContractFailure),
     ] {
         let error = Diagnostic::new(
             code,

@@ -213,6 +213,34 @@ fn validation_descriptors_resolve_function_and_parameter_roles() {
 }
 
 #[test]
+fn proof_using_navigates_contract_theorem_references_and_keeps_body_scope() {
+    run_files(
+        r#"
+      (#alias imported-law = ./contracts.lim::remote-law)
+      (#theorem [[local-declaration|local-law]] (#proof-eq true true))
+      (#theorem dependent
+        (#proof-using ([[imported-use|imported-law]] [[local-use|local-law]])
+          (#proof-for-all (: [[body-binder|x]] #u8)
+            (#proof-eq [[body-use|x]] [[body-again|x]]))))
+      (#theorem empty-dependencies
+        (#proof-using () (#proof-eq [[empty-body|unknown-empty-body]] true)))
+    "#,
+        &[(
+            "contracts.lim",
+            "(#theorem [[remote-declaration|remote-law]] (#proof-eq true true))",
+        )],
+        &[
+            ("imported-use", &["remote-declaration"]),
+            ("local-use", &["local-declaration"]),
+            ("body-binder", &["body-binder"]),
+            ("body-use", &["body-binder"]),
+            ("body-again", &["body-binder"]),
+            ("empty-body", &[]),
+        ],
+    );
+}
+
+#[test]
 fn validation_selector_markers_are_contextual_and_do_not_bind_parameters() {
     run(
         r#"

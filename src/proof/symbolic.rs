@@ -506,6 +506,9 @@ impl Engine<'_, '_> {
         self.require_unsat(bad, "an array index can be out of bounds")
     }
     pub(super) fn representation(&self, name: &str, spec: bool) -> Result<()> {
+        self.representation_at(name, spec, self.spec_span.unwrap_or(self.span))
+    }
+    pub(super) fn representation_at(&self, name: &str, spec: bool, span: Span) -> Result<()> {
         if !spec {
             return Ok(());
         }
@@ -518,7 +521,7 @@ impl Engine<'_, '_> {
         };
         let caller = program
             .source_files
-            .get(self.span.source_id as usize)
+            .get(span.source_id as usize)
             .ok_or("missing proof source")?;
         if self.opaque.contains(name) && source.path != caller.path {
             return Err(format!("proof cannot inspect opaque representation '{name}'").into());
@@ -1347,6 +1350,11 @@ impl Engine<'_, '_> {
         if state.guard == FALSE {
             let value = self.fresh_value(&mut state, &function.return_type, 0)?;
             return Ok(vec![(state, value)]);
+        }
+        if self.summary_depth == 0 {
+            if let Some(contract) = self.summaries.get(&function.name).cloned() {
+                return self.apply_contract(state, function, arguments, &contract);
+            }
         }
         let validating = self.validation_argument(&function.name, &arguments)?;
         if let Some(trace) = self.trace.clone() {

@@ -26,6 +26,14 @@ program-shape dependent; this list is not a claim of completeness.
   constrain which executions an obligation covers. Contracts can assert
   relations, but arbitrary quantified formulas, unbounded domains, and every
   Lim type are not supported.
+- **Explicit contract reuse.** `#proof-using` selects separately verified
+  direct contract theorems for calls in its body. The initial frame rule covers
+  reference-free inputs/results and functions without global access or unsafe,
+  IO, allocation, external or assembly effects. Owned local mutation is allowed.
+  The caller must establish the selected precondition on every feasible path;
+  the postcondition constrains a fresh result. Contract dependencies are checked
+  in topological order, including forward references, and cycles are rejected.
+  These summaries are not execution-trace or mutable-memory summaries.
 - **Machine integer semantics.** Modeled bitvectors preserve width and
   signedness. Explicit wrapping and saturating arithmetic, comparisons, casts,
   and supported division are evaluated using machine behavior. Checks such as
@@ -94,6 +102,53 @@ an implicit length bound. For old contents, put the entire read inside
 `#proof-old`, for example `(#proof-old (#index values 0usize))`; saving an old
 reference or slice handle alone does not snapshot its referent.
 
+## Reusing checked contracts
+
+[`examples/proof_contract_reuse.lim`](../examples/proof_contract_reuse.lim)
+proves a countdown helper using an invariant and reuses that contract to check
+its caller. The caller has an unroll limit of one, so it cannot prove the result
+by expanding the countdown loop for every input:
+
+```lisp
+(#theorem work-contract
+  (#proof-using (countdown-contract)
+    (#proof-loop-limit 1
+      (#proof-contract work true (#proof-eq (#proof-result) input)))))
+```
+
+Every selected theorem must first prove a direct `#proof-contract`, optionally
+wrapped in `#proof-using`, `#proof-with-invariants` or `#proof-loop-limit`.
+Negated contracts, implications, disjunctions and arbitrary Boolean theorems
+cannot become assumptions. Dependencies may be declared later in a file or
+referenced through file aliases. All program safety checks and all theorem
+dependencies still run when the command line selects a single theorem.
+
+The selected contract binds actual arguments to the callee's declared parameter
+names. Its pre/postconditions use the contract's definition context for private
+representations; they do not grant the caller permission to inspect those
+fields. `#proof-old` sees the state at that call, and a saved caller result is
+restored after checking the summary. Calls written inside the selected
+pre/postconditions execute normally, preventing a specification from assuming
+itself recursively. Other calls in the scope use the selected summaries.
+Only one contract per function may be selected in a scope; selections do not
+leak outside the `#proof-using` body. An empty selection list is allowed.
+
+A failed precondition or insufficient postcondition reports E4407
+`contract_failure`. An abstract summary result is not a concrete program
+counterexample: the checker cannot prove the negation of a contract merely
+because the selected summary is too weak. Abstraction tracking is conservative
+for the entire theorem, so a later failed claim can also remain unproved after
+a summary was used. Strengthen the selected contract or inspect the actual
+callee body to obtain a concrete counterexample.
+
+Reference-bearing arguments/results, slices, raw pointers, global reads
+(including named global constants), and external effects are deliberately not
+covered by this initial frame rule. They remain supported only to the extent
+of ordinary symbolic execution without reusable summaries. Trace proofs must
+inspect bodies because result contracts do not specify call ordering. Writable
+reachable storage, returned-reference identity and environment summaries remain
+open work; a pure summary must never silently stand in for those mechanisms.
+
 ## Reading counterexamples
 
 The checker freezes symbolic inputs before executing the function. For example,
@@ -157,10 +212,11 @@ context cannot change the classification.
 | `invalid` | E4404 | The proposition or theorem selection is invalid. |
 | `induction_failure` | E4405 | Supplied invariants or a rank do not establish the obligation. |
 | `checker_error` | E4406 | The checker encountered an internal inconsistency or invalid solver model. |
+| `contract_failure` | E4407 | Selected contract preconditions or postconditions do not establish the caller's obligation. |
 
-Unsupported operations, resource limits, invalid propositions, failed induction
-and checker errors are errors rather than false Boolean propositions. Logical
-negation cannot turn them into proofs. Concrete counterexamples can still
+Unsupported operations, resource limits, invalid propositions, failed induction,
+contract failures and checker errors are errors rather than false Boolean
+propositions. Logical negation cannot turn them into proofs. Concrete counterexamples can still
 refute a universally quantified assertion, including one explored through
 bounded execution. [`examples/proof_induction.lim`](../examples/proof_induction.lim)
 shows a sufficient sum invariant and a decreasing rank for every `#u8` input.

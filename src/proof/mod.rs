@@ -1,5 +1,6 @@
 //! Compile-time propositions checked against the validated, expanded program.
 //! No theorem is an assumption: unsupported semantics and exhausted budgets fail.
+mod contracts;
 mod counterexample;
 mod graph;
 #[cfg(test)]
@@ -66,6 +67,11 @@ struct Engine<'a, 'p> {
     inputs: Vec<(String, Value)>,
     input_state: Option<State>,
     inductive_witness: bool,
+    summary_witness: bool,
+    contracts: Option<&'a HashMap<String, contracts::Contract<'p>>>,
+    summaries: HashMap<String, contracts::Contract<'p>>,
+    summary_depth: usize,
+    spec_span: Option<Span>,
     old: Option<State>,
     steps: usize,
     loop_limit: usize,
@@ -92,10 +98,24 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
     }
     let _timing = crate::timing::stage("proof");
     let graph = Graph::new(checked.program(), checked.declarations());
-    for (name, proposition) in proofs {
+    let order = contracts::order(&proofs).map_err(|(name, error)| {
+        AnalysisError::from((
+            format!(
+                "theorem '{}': {error}",
+                crate::file_access::local_name(name)
+            ),
+            error.diagnostic_code(),
+            declaration_span(checked.program(), name),
+            Vec::new(),
+        ))
+    })?;
+    let mut verified = HashMap::new();
+    for index in order {
+        let (name, proposition) = proofs[index];
         let span =
             declaration_span(checked.program(), name).unwrap_or_else(|| Span::new(0, 0, 1, 1));
         let mut engine = Engine::new(checked, &graph, span);
+        engine.contracts = Some(&verified);
         let outcome = engine
             .proposition(State::new(), proposition)
             .and_then(|states| engine.establish(states, "the proposition is false"));
@@ -111,6 +131,9 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
                 Vec::new(),
             )
                 .into());
+        }
+        if let Some(contract) = engine.verified_contract(name, proposition, span) {
+            verified.insert(name.clone(), contract);
         }
     }
     Ok(())
@@ -133,6 +156,11 @@ impl<'a, 'p> Engine<'a, 'p> {
             inputs: Vec::new(),
             input_state: None,
             inductive_witness: false,
+            summary_witness: false,
+            contracts: None,
+            summaries: HashMap::new(),
+            summary_depth: 0,
+            spec_span: None,
             old: None,
             steps: 0,
             loop_limit: 32,
@@ -227,6 +255,9 @@ impl<'a, 'p> Engine<'a, 'p> {
         {
             None => Ok(()),
             Some(model) => {
+                if self.summary_witness {
+                    return Err(Error::contract(format!("{explanation}; selected contracts do not establish this obligation; an abstract result is not a concrete execution counterexample")));
+                }
                 if let Some(example) = value.and_then(|value| self.claim_evidence(value, &model)) {
                     return Err(Error::counterexample(format!(
                         "{explanation}; quantified counterexample: {example}"
@@ -278,6 +309,9 @@ impl<'a, 'p> Engine<'a, 'p> {
             }
         }
         let value = if let Some(model) = &model {
+            if self.summary_witness {
+                return Err(Error::contract("selected contracts do not establish the claim; an abstract result is not a concrete execution counterexample"));
+            }
             let inputs = self.render_inputs(input_start, model);
             if self.inductive_witness {
                 // A model of an over-approximated loop state does not refute
@@ -313,6 +347,8 @@ impl<'a, 'p> Engine<'a, 'p> {
         self.inputs.truncate(input_start);
         self.input_state = None;
         self.inductive_witness = false;
+        // Keep abstraction provenance for the entire theorem. A later logical
+        // subclaim may still carry a guard/result derived from an earlier call.
         Ok(vec![(original, value)])
     }
 
@@ -332,6 +368,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             return self.expr(state, expr, true);
         };
         match head {
+            "proof-using" => self.using_contracts(state, args),
             "proof-and" | "proof-or" => {
                 if args.is_empty() {
                     return Err(format!("#{head} requires at least one proposition").into());

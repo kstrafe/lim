@@ -10,6 +10,7 @@ pub enum ProofOutcome {
     ResourceLimit,
     Invalid,
     InductionFailure,
+    ContractFailure,
     CheckerError,
 }
 
@@ -22,6 +23,7 @@ impl ProofOutcome {
             Self::ResourceLimit => "resource_limit",
             Self::Invalid => "invalid",
             Self::InductionFailure => "induction_failure",
+            Self::ContractFailure => "contract_failure",
             Self::CheckerError => "checker_error",
         }
     }
@@ -40,6 +42,7 @@ enum Failure {
     ResourceLimit,
     Invalid,
     InductionFailure,
+    ContractFailure,
     CheckerError,
 }
 
@@ -80,6 +83,12 @@ impl Error {
             message: message.into(),
         }
     }
+    pub fn contract(message: impl Into<String>) -> Self {
+        Self {
+            kind: Failure::ContractFailure,
+            message: message.into(),
+        }
+    }
     pub fn context(mut self, context: impl AsRef<str>) -> Self {
         self.message.push_str("; ");
         self.message.push_str(context.as_ref());
@@ -92,6 +101,7 @@ impl Error {
             Failure::ResourceLimit => DiagnosticCode::ProofResourceLimit,
             Failure::Invalid => DiagnosticCode::ProofInvalid,
             Failure::InductionFailure => DiagnosticCode::ProofInduction,
+            Failure::ContractFailure => DiagnosticCode::ProofContract,
             Failure::CheckerError => DiagnosticCode::ProofInternal,
         }
     }
@@ -132,6 +142,7 @@ mod tests {
             (Error::limit(message), ProofOutcome::ResourceLimit),
             (Error::counterexample(message), ProofOutcome::Counterexample),
             (Error::induction(message), ProofOutcome::InductionFailure),
+            (Error::contract(message), ProofOutcome::ContractFailure),
             (Error::checker(message), ProofOutcome::CheckerError),
         ] {
             let error = error.context("while checking a different budget");

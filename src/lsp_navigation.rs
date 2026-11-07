@@ -862,6 +862,22 @@ impl<'a> Index<'a> {
                 .map(|body| self.walk(body, &mut scope.clone(), labels))
                 .unwrap_or_default();
         }
+        if form == "proof-using" {
+            if let Some(references) = xs.get(1) {
+                for reference in &references.children {
+                    if self.contains(reference) {
+                        let target = self.global(symbol(reference).unwrap_or_default());
+                        if !target.is_empty() {
+                            return target;
+                        }
+                    }
+                }
+            }
+            return xs
+                .get(2)
+                .map(|body| self.walk(body, &mut scope.clone(), labels))
+                .unwrap_or_default();
+        }
         let functions = match form {
             "proof-calls-directly" | "proof-calls-transitively" => 2,
             "proof-calls-before" | "proof-calls-when" => 3,
@@ -1005,6 +1021,7 @@ impl<'a> Index<'a> {
             | "proof-only-unsafe"
             | "proof-stack-at-most"
             | "proof-for-all"
+            | "proof-using"
             | "proof-eq"
             | "proof-requires-validation"
             | "proof-contract"

@@ -29,6 +29,7 @@ exit 42 internal_owner_entry_tags.lim - -
 exit 42 distributed_errors.lim - -
 exit 42 symbolic_slices.lim - -
 exit 42 proof_induction.lim - -
+exit 42 proof_contract_reuse.lim - -
 exit 42 future_registration.lim - -
 exit 42 future_registration_box.lim - -
 exit 42 static_table.lim - -

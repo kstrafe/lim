@@ -290,7 +290,11 @@ impl Rendering<'_, '_, '_> {
             Value::Record(name, fields) => {
                 self.output.push(crate::file_access::local_name(name));
                 self.output.push(" { ");
-                if self.engine.representation(name, true).is_err() {
+                if self
+                    .engine
+                    .representation_at(name, true, self.engine.span)
+                    .is_err()
+                {
                     self.output.push("<private representation>");
                 } else {
                     for (index, (field, value)) in fields.iter().take(ITEM_LIMIT).enumerate() {

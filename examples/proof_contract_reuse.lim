@@ -1,0 +1,26 @@
+; Prove the helper once, then reuse its contract without unrolling its loop.
+(#fn countdown (: count #u8) #u8
+  (#let-mut remaining #u8 count)
+  (#let-mut answer #u8 0u8)
+  (#label
+    again
+    (#while (#u8::gt remaining 0u8)
+      (#set answer (#u8::add-wrap answer 1u8))
+      (#set remaining (#u8::sub-wrap remaining 1u8))))
+  (#return answer))
+
+(#theorem countdown-contract
+  (#proof-with-invariants
+    ((countdown again (#u8::eq (#u8::add-wrap answer remaining) count) remaining))
+    (#proof-contract countdown true (#proof-eq (#proof-result) count))))
+
+(#fn work (: input #u8) #u8
+  (#return (#call countdown (: count input))))
+
+(#theorem work-contract
+  (#proof-using
+    (countdown-contract)
+    (#proof-loop-limit 1 (#proof-contract work true (#proof-eq (#proof-result) input)))))
+
+(#fn main () #u64
+  (#return (#as (#call work (: input 42u8)) #u64)))

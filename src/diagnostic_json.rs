@@ -43,7 +43,8 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         | DiagnosticCode::ProofResourceLimit
         | DiagnosticCode::ProofInvalid
         | DiagnosticCode::ProofInduction
-        | DiagnosticCode::ProofInternal => "proof",
+        | DiagnosticCode::ProofInternal
+        | DiagnosticCode::ProofContract => "proof",
         DiagnosticCode::Codegen => "codegen",
         DiagnosticCode::Link => "link",
         DiagnosticCode::Cli => "cli",
