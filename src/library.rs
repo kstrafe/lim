@@ -462,165 +462,27 @@ pub(crate) fn qualify(
         tree: &mut SpannedExpr,
         visibility: &Visibility,
         qualified: &mut std::collections::HashSet<Span>,
-        mathematical: bool,
-        global_reference: bool,
     ) -> Result<bool, SourceError> {
         if crate::generator_authority::is_header(&tree.expr) {
             return Err(SourceError::from("#generated-context is compiler-owned and cannot appear in source or generator input").at(tree.span));
         }
         let mut changed = false;
         if let Expr::Symbol(name) = &mut tree.expr {
-            if !mathematical || global_reference {
-                if let Some(absolute) = name.strip_prefix('@') {
-                    if absolute.is_empty() || absolute.starts_with('@') || absolute.contains("@@") {
-                        return Err(SourceError::from(
-                            "@ must prefix a non-empty context-relative identifier",
-                        )
-                        .at(tree.span));
-                    }
-                    visibility.qualified_access(absolute, tree.span)?;
-                    qualified.insert(tree.span);
-                    *name = absolute.to_owned();
-                    changed = true;
+            if let Some(absolute) = name.strip_prefix('@') {
+                if absolute.is_empty() || absolute.starts_with('@') || absolute.contains("@@") {
+                    return Err(SourceError::from(
+                        "@ must prefix a non-empty context-relative identifier",
+                    )
+                    .at(tree.span));
                 }
+                visibility.qualified_access(absolute, tree.span)?;
+                qualified.insert(tree.span);
+                *name = absolute.to_owned();
+                changed = true;
             }
         }
-        let selects_global = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(),
-                "#math-definition" | "#math-opaque" | "#math-inductive" | "#theorem" | "#pt-use"
-                | "#pt-program" | "#pt-certificate" | "#pt-construct" | "#pt-induct")));
-        let selects_project_family = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-project"))
-            && tree.children.len() == 4
-            && tree.children.get(2).is_some_and(|index| match &index.expr {
-                Expr::Integer(value) => *value >= 0 && usize::try_from(*value).is_ok(),
-                Expr::UnsignedInteger(value) => usize::try_from(*value).is_ok(),
-                _ => false,
-            });
-        let mutual_header = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#mutual"))
-            && (3..=17).contains(&tree.children.len())
-            && tree
-                .children
-                .iter()
-                .skip(1)
-                .all(|member| matches!(&member.expr, Expr::Symbol(_)))
-            && tree
-                .children
-                .iter()
-                .skip(1)
-                .filter_map(|member| match &member.expr {
-                    Expr::Symbol(name) => Some(name),
-                    _ => None,
-                })
-                .collect::<std::collections::HashSet<_>>()
-                .len()
-                + 1
-                == tree.children.len();
-        let mutual_recur = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-recur"))
-            && tree.children.len() == 3
-            && matches!(
-                tree.children.get(1).map(|node| &node.expr),
-                Some(Expr::Symbol(_))
-            )
-            && matches!(
-                tree.children.get(2).map(|node| &node.expr),
-                Some(Expr::List(_))
-            );
-        let mutual_induct = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-mutual-induct"))
-            && tree.children.len() == 7
-            && matches!(
-                tree.children.get(1).map(|node| &node.expr),
-                Some(Expr::Symbol(_))
-            )
-            && matches!(
-                tree.children.get(2).map(|node| &node.expr),
-                Some(Expr::List(_))
-            )
-            && matches!(tree.children.get(4).and_then(|node| match &node.expr {
-                Expr::List(items) => items.first(), _ => None
-            }), Some(Expr::Symbol(head)) if head == "#indices")
-            && tree.children.get(5).is_some_and(|bundles| {
-                matches!(&bundles.expr, Expr::List(_))
-                    && (2..=16).contains(&bundles.children.len())
-                    && bundles.children.iter().all(|bundle| {
-                        bundle.children.len() == 3
-                            && matches!(&bundle.children[0].expr, Expr::Symbol(_))
-                            && matches!(&bundle.children[2].expr, Expr::List(_))
-                    })
-            });
-        let nested_induct = matches!(&tree.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pt-nested-induct"))
-            && tree.children.len() == 8
-            && matches!(&tree.children[1].expr, Expr::Symbol(_))
-            && matches!(&tree.children[2].expr, Expr::List(_))
-            && matches!(&tree.children[3].expr, Expr::List(_))
-            && (matches!(&tree.children[4].expr, Expr::Integer(value) if *value >= 0 && usize::try_from(*value).is_ok())
-                || matches!(&tree.children[4].expr, Expr::UnsignedInteger(value) if usize::try_from(*value).is_ok()))
-            && matches!(&tree.children[5].expr, Expr::List(parts)
-                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#indices")
-                    && parts.len() <= 65)
-            && matches!(&tree.children[6].expr, Expr::List(_))
-            && (2..=16).contains(&tree.children[6].children.len())
-            && tree.children[6].children.iter().all(|bundle| {
-                bundle.children.len() == 4
-                    && matches!(&bundle.children[0].expr, Expr::Symbol(head) if head == "#pt-case")
-                    && matches!(&bundle.children[3].expr, Expr::List(_))
-            });
-        for (index, child) in tree.children.iter_mut().enumerate() {
-            if mutual_induct && index == 5 {
-                for bundle in &mut child.children {
-                    changed |= walk(
-                        &mut bundle.children[0],
-                        visibility,
-                        qualified,
-                        mathematical,
-                        true,
-                    )?;
-                    changed |= walk(
-                        &mut bundle.children[1],
-                        visibility,
-                        qualified,
-                        mathematical,
-                        false,
-                    )?;
-                    for branch in &mut bundle.children[2].children {
-                        changed |= walk(branch, visibility, qualified, mathematical, false)?;
-                    }
-                    let branches = &mut bundle.children[2];
-                    if let Expr::List(items) = &mut branches.expr {
-                        for (item, branch) in items.iter_mut().zip(&branches.children) {
-                            *item = branch.expr.clone();
-                        }
-                    }
-                    if let Expr::List(items) = &mut bundle.expr {
-                        for (item, part) in items.iter_mut().zip(&bundle.children) {
-                            *item = part.expr.clone();
-                        }
-                    }
-                }
-                if let Expr::List(items) = &mut child.expr {
-                    for (item, bundle) in items.iter_mut().zip(&child.children) {
-                        *item = bundle.expr.clone();
-                    }
-                }
-                continue;
-            }
-            changed |= walk(
-                child,
-                visibility,
-                qualified,
-                mathematical,
-                (selects_global
-                    || selects_project_family
-                    || mutual_recur
-                    || mutual_induct
-                    || nested_induct)
-                    && index == 1
-                    || mutual_header && index > 0,
-            )?;
+        for child in &mut tree.children {
+            changed |= walk(child, visibility, qualified)?;
         }
         if changed {
             match &mut tree.expr {
@@ -644,16 +506,7 @@ pub(crate) fn qualify(
     }
     let mut qualified = std::collections::HashSet::new();
     for form in forms {
-        let mathematical = matches!(&form.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#math-definition" | "#math-opaque" | "#math-inductive")
-                || head == "#theorem" && items.len() != 3));
-        // Mathematical names are global only in explicit global-reference
-        // operands. Preserve @ on binders, levels and labels so their grammar
-        // rejects it instead of silently capturing a local name. Generator
-        // inputs/templates still use the ordinary eager qualification pass.
-        walk(form, visibility, &mut qualified, mathematical, false)
-            .map_err(|error| error.attach(files))?;
+        walk(form, visibility, &mut qualified).map_err(|error| error.attach(files))?;
     }
     Ok(qualified)
 }

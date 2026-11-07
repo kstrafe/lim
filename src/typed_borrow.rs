@@ -37,12 +37,12 @@ enum AccessKind {
 /// accesses through a reference are rebased onto the original referent so a
 /// live child reborrow conflicts with parent access while disjoint fields stay
 /// independent.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     check_live_direct_loans_with_types(body, flow, &LinearTypes::default())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans_with_types(
     body: &Body,
     flow: &FlowGraph,
@@ -51,7 +51,7 @@ pub(crate) fn check_live_direct_loans_with_types(
     check_live_direct_loans_cached(body, flow, types, &OnceCell::new())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans_cached(
     body: &Body,
     flow: &FlowGraph,
@@ -1492,7 +1492,7 @@ fn is_value_constructor(body: &Body, kind: &NodeKind) -> bool {
             Some(NodeKind::Declaration(DeclarationId::Variant(_) | DeclarationId::Aggregate(_)))))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     check_call_arguments_cached(body, flow, &OnceCell::new())
 }
@@ -1815,7 +1815,7 @@ fn check_argument_writes(
 /// roots always name this function's storage, including by-value parameter
 /// slots: their addresses cannot outlive the body. Loading a reference stored in
 /// a parameter must preserve its incoming referent, not the slot's address.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_return_escapes(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     check_return_escapes_cached(body, flow, &OnceCell::new())
 }
@@ -1853,7 +1853,7 @@ pub(crate) fn check_return_escapes_cached(
 /// owns one of their referents. The source value may be nested in a block,
 /// branch, match arm, or aggregate; typed loan origins resolve those forms
 /// without reconstructing ownership from syntax names.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn check_scope_escapes(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     check_scope_escapes_cached(body, flow, &OnceCell::new())
 }
@@ -2891,7 +2891,7 @@ fn distribute_pattern_borrows(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::{
         bounded, check_call_arguments, check_live_direct_loans, check_scope_escapes, combine,

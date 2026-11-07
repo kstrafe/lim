@@ -146,7 +146,7 @@ pub fn locate_generated_details(
     Ok(details)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::{

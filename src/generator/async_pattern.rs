@@ -427,7 +427,7 @@ fn needs_lender(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

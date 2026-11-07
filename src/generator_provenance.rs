@@ -42,9 +42,6 @@ pub(crate) fn declared_names(expr: &Expr) -> Vec<&str> {
     if matches!(
         head.as_str(),
         "#theorem"
-            | "#math-definition"
-            | "#math-opaque"
-            | "#math-inductive"
             | "#fn"
             | "#unsafe-fn"
             | "#extern-fn"
@@ -308,7 +305,7 @@ pub(crate) fn extract(
     Ok((remaining, requirements))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1119,7 +1119,7 @@ fn validation_program(
     Ok(std::sync::Arc::new(analysis))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

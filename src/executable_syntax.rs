@@ -111,7 +111,7 @@ pub(crate) fn detach(program: &Program, selected: Option<&HashSet<String>>) -> P
     detached
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

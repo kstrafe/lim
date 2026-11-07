@@ -3,7 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1455,13 +1455,13 @@ impl EmissionTypes {
             .or_else(|| self.synthesized_by_address.get(&address))
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn insert_synthesized(&mut self, expression: &Expr, node: EmissionNode) {
         self.synthesized_by_address
             .insert(std::ptr::from_ref(expression) as usize, node);
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn get_mut_synthesized(&mut self, expression: &Expr) -> Option<&mut EmissionNode> {
         self.synthesized_by_address
             .get_mut(&(std::ptr::from_ref(expression) as usize))

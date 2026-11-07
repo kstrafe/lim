@@ -527,7 +527,7 @@ fn specialize_impl(
     Some(result)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -13,7 +13,7 @@ mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 mod borrow_case;
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod borrowcheck;
 mod cache_report;
 mod call_graph;
@@ -25,6 +25,8 @@ mod distributed_enum;
 mod editor;
 mod elf_object;
 mod elf_writer;
+mod executable_syntax;
+mod expr_list;
 mod file_access;
 mod generated_lookup;
 mod generated_validation;
@@ -46,10 +48,6 @@ mod output;
 mod pin_access;
 mod pin_ownership;
 mod proof;
-mod proof_budget;
-pub use proof_budget::ProofBudget;
-mod executable_syntax;
-mod expr_list;
 mod reachability;
 mod semantic_cache;
 pub use expr_list::ExprList;
@@ -59,15 +57,13 @@ mod source_expression;
 pub(crate) use source_expression::SourceExpression;
 mod source_error;
 mod source_forms;
-mod source_reader;
 mod stack_usage;
 mod standard_library;
 mod syntax_bundle;
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[path = "../tests/support/process.rs"]
 mod test_process;
 mod theorem;
-mod theorem_surface;
 pub use theorem::{
     check_theorem_details_from_file_with_config, check_theorem_details_from_path_with_config,
     check_theorem_from_path_with_config, CheckedTheorem, TheoremFileError,
@@ -94,19 +90,6 @@ pub use diagnostic_json::render_diagnostic_json;
 pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
-pub use proof::{
-    check_lean_export, check_lean_export_receipt_with_budget,
-    check_lean_export_receipt_with_limits, check_lean_export_with_budget,
-    check_lean_export_with_limits, check_lean_export_with_policy, check_proof_artifact_from_path,
-    translate_lean_export, translate_lean_export_artifact_with_budget,
-    translate_lean_export_artifact_with_limits, translate_lean_export_artifact_with_profiles,
-    translate_lean_export_receipt_with_budget, translate_lean_export_receipt_with_limits,
-    translate_lean_export_receipt_with_profiles, translate_lean_export_with_budget,
-    translate_lean_export_with_limits, translate_lean_export_with_policy,
-    translate_lean_export_with_profiles, LeanDeclarationReport, LeanExportArtifactTranslation,
-    LeanExportError, LeanExportLimits, LeanExportReceipt, LeanExportReceiptTranslation,
-    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy, NativeProofLimits,
-};
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
@@ -1550,9 +1533,6 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
     match head.as_str() {
         "#fn" | "#unsafe-fn" => Some(4),
         "#theorem" => Some(2),
-        "#math-definition" | "#math-opaque" | "#math-inductive" => Some(3),
-        "#parameters" => Some(1),
-        "#parameter" => Some(3),
         "#gn" | "#gn-fn" => Some(3),
         "#for" | "#for-range" => Some(4),
         "#while" | "#if" | "#match" | "#gn-if" => Some(2),
@@ -1902,7 +1882,6 @@ pub enum Item {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
-    pub(crate) proof_budget: ProofBudget,
     pub items: Vec<Item>,
     pub(crate) source: Option<String>,
     pub(crate) source_files: Vec<SourceFile>,
@@ -1939,7 +1918,6 @@ pub(crate) struct SourceFile {
 /// Compile-time key/value settings used by `#cfg-*` forms.
 #[derive(Clone, Debug)]
 pub struct CompileConfig {
-    proof_budget: ProofBudget,
     values: HashMap<String, String>,
     module_paths: Vec<PathBuf>,
     explicit_keys: HashSet<String>,
@@ -1948,9 +1926,7 @@ pub struct CompileConfig {
 
 impl PartialEq for CompileConfig {
     fn eq(&self, other: &Self) -> bool {
-        self.values == other.values
-            && self.module_paths == other.module_paths
-            && self.proof_budget == other.proof_budget
+        self.values == other.values && self.module_paths == other.module_paths
     }
 }
 impl Eq for CompileConfig {}
@@ -2113,7 +2089,6 @@ impl Default for CompileConfig {
             _ => "unknown",
         };
         Self {
-            proof_budget: ProofBudget::default(),
             values: HashMap::from([
                 ("platform".into(), platform.into()),
                 ("os".into(), platform.into()),
@@ -2128,14 +2103,6 @@ impl Default for CompileConfig {
 }
 
 impl CompileConfig {
-    /// Set accounting limits for mathematical checking, separately from cfgs.
-    pub fn set_proof_budget(&mut self, budget: ProofBudget) {
-        self.proof_budget = budget;
-    }
-    pub fn proof_budget(&self) -> ProofBudget {
-        self.proof_budget
-    }
-
     /// Set or override a configuration key, such as `feature=sorting` or
     /// `platform=linux`.
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
@@ -2691,7 +2658,7 @@ pub fn locate_link_diagnostic(mut diagnostic: Diagnostic, source: &str) -> Diagn
     diagnostic
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod link_location_tests {
     use super::*;
 
@@ -3117,7 +3084,7 @@ fn normalize_function_calls(
 /// Find a value use, excluding declarations, types, field names, and argument
 /// labels. Async branch-scope diagnostics must underline the escaped use,
 /// not its earlier declaration or an unrelated same-spelled field.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
     if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
         return Some(expression.span);
@@ -4153,7 +4120,7 @@ pub(crate) fn function_shadowing_span(
     sequence(source.children.get(4..)?, name, &mut bound)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn function_shadowing(
     expression: &Expr,
 ) -> Result<Option<(String, Option<usize>)>, String> {
@@ -4581,8 +4548,9 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     };
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
-        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#theorem"
-        | "#math-definition" | "#math-opaque" | "#math-inductive" => name(items.get(1))?,
+        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#theorem" => {
+            name(items.get(1))?
+        }
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
         | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
@@ -4655,13 +4623,6 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     let Expr::List(items) = expression else {
         return Ok(());
     };
-    // Mathematical terms have their own context-sensitive grammar. Keep them
-    // intact for the kernel adapter, which checks every keyword, binder, level,
-    // and metadata list without treating a binder called `index` as #index.
-    if matches!(items.first(),Some(Expr::Symbol(head)) if matches!(head.as_str(),"#math-definition"|"#math-opaque"|"#math-inductive") || head=="#theorem" && items.len()!=3)
-    {
-        return Ok(());
-    }
     if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#struct" | "#enum"))
     {
         if let Some(Expr::List(properties)) = items.get(2) {
@@ -4853,20 +4814,7 @@ fn validate_primitive_spelling(expression: &SpannedExpr) -> Result<(), (String, 
     Ok(())
 }
 
-fn is_proof_source_declaration(expression: &Expr) -> bool {
-    matches!(expression, Expr::List(items)
-        if matches!(items.first(), Some(Expr::Symbol(head))
-            if matches!(head.strip_prefix('#').unwrap_or(head),
-                "math-definition" | "math-opaque" | "math-inductive")
-                || head.strip_prefix('#').unwrap_or(head) == "theorem" && items.len() != 3))
-}
-
 fn normalize_match_cases_expr(expression: &mut Expr) {
-    // Proof terms have their own grammar. A mutable walk would also detach
-    // every shared list even though none contains a runtime match arm.
-    if is_proof_source_declaration(expression) {
-        return;
-    }
     let Expr::List(items) = expression else {
         match expression {
             Expr::Labeled { expression, .. }
@@ -4919,9 +4867,6 @@ fn normalize_match_cases_expr(expression: &mut Expr) {
 }
 
 fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (String, Span)> {
-    if is_proof_source_declaration(&expression.expr) {
-        return Ok(());
-    }
     let Expr::List(items) = &mut expression.expr else {
         for child in &mut expression.children {
             normalize_match_case_forms(child)?;
@@ -5068,60 +5013,7 @@ fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
         "theorem"
-            | "universes"
-            | "parameters"
-            | "parameter"
             | "parameter-of"
-            | "statement"
-            | "proof"
-            | "math-definition"
-            | "math-opaque"
-            | "math-inductive"
-            | "mutual"
-            | "indices"
-            | "pt-self-at"
-            | "pt-prop"
-            | "pt-type"
-            | "pt-sort"
-            | "pt-pi"
-            | "pt-lambda"
-            | "pt-let"
-            | "pt-sigma"
-            | "pt-app"
-            | "pt-use"
-            | "pt-level-succ"
-            | "pt-level-max"
-            | "pt-level-imax"
-            | "pt-nat"
-            | "pt-false"
-            | "pt-foundation-choice"
-            | "pt-foundation-propext"
-            | "pt-foundation-quot-sound"
-            | "pt-self"
-            | "pt-zero"
-            | "pt-succ"
-            | "pt-numeral"
-            | "pt-nat-literal"
-            | "pt-construct"
-            | "pt-project"
-            | "pt-induct"
-            | "pt-recur"
-            | "pt-mutual-induct"
-            | "pt-nested-induct"
-            | "pt-case"
-            | "pt-nat-induct"
-            | "pt-eq"
-            | "pt-refl"
-            | "pt-eq-elim"
-            | "pt-pair"
-            | "pt-first"
-            | "pt-second"
-            | "pt-quot"
-            | "pt-quot-make"
-            | "pt-quot-lift"
-            | "pt-quot-induct"
-            | "pt-program"
-            | "pt-certificate"
             | "proof-and"
             | "proof-or"
             | "proof-not"
@@ -5450,8 +5342,7 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
             // runtime bodies they are checked by the proof evaluator, which
             // must distinguish keywords from ordinary identifiers and reject
             // legacy operator spellings rather than accepting internal IR.
-            if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#theorem"|"#math-definition"|"#math-opaque"|"#math-inductive"))
-            {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#theorem") {
                 return Expr::List(
                     items
                         .into_iter()
@@ -7108,8 +6999,16 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     }
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
-        "theorem" | "math-definition" | "math-opaque" | "math-inductive" => {
-            theorem_surface::parse(items)
+        "theorem" => {
+            if items.len() != 3 {
+                return Err("#theorem requires a name and a program proposition".into());
+            }
+            let name = expect_symbol(items.get(1), "theorem name")?;
+            names::require(name, "value")?;
+            Ok(Item::Proof {
+                name: name.to_owned(),
+                proposition: items[2].clone(),
+            })
         }
         "type" => {
             let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
@@ -9421,7 +9320,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1,4 +1,4 @@
-use crate::{Lexer, Parser, Span, SpannedExpr, Token, TokenKind};
+use crate::{Lexer, Parser, SpannedExpr, Token, TokenKind};
 
 /// Preserve the ordinary lex-before-parse error order without retaining tokens.
 pub(crate) fn validate_lexically(source: &str) -> Result<(), String> {
@@ -91,58 +91,7 @@ fn parse_one(tokens: &[Token]) -> Result<SpannedExpr, String> {
     Ok(forms.remove(0))
 }
 
-pub(crate) fn parse_at(source: &str, span: Span) -> Result<SpannedExpr, String> {
-    if span.start > span.end
-        || span.end > source.len()
-        || !source.is_char_boundary(span.start)
-        || !source.is_char_boundary(span.end)
-    {
-        return Err("expression span is outside the source or not on UTF-8 boundaries".into());
-    }
-    let mut lexer = Lexer::new(source);
-    lexer.source = &source.as_bytes()[..span.end];
-    lexer.offset = span.start;
-    lexer.line = span.line;
-    lexer.column = span.column;
-    let mut tokens = Vec::new();
-    while lexer.offset < span.end {
-        let Some(token) = lexer.next_token().map_err(|error| error.to_string())? else {
-            break;
-        };
-        if token.span.end > span.end {
-            return Err("expression token exceeds requested span".into());
-        }
-        tokens.push(token);
-    }
-    let expression = parse_one(&tokens)?;
-    if expression.span.start != span.start || expression.span.end != span.end {
-        return Err("requested span does not contain exactly one expression".into());
-    }
-    Ok(expression)
-}
-
-/// Parse a complete saved form with its original global coordinates.
-pub(crate) fn parse_fragment(source: &str, span: Span) -> Result<SpannedExpr, String> {
-    if span.start.checked_add(source.len()) != Some(span.end) {
-        return Err("proof fragment length differs from its source span".into());
-    }
-    let mut lexer = Lexer::new(source);
-    lexer.line = span.line;
-    lexer.column = span.column;
-    let mut tokens = Vec::new();
-    while let Some(mut token) = lexer.next_token().map_err(|error| error.to_string())? {
-        token.span.start += span.start;
-        token.span.end += span.start;
-        tokens.push(token);
-    }
-    let expression = parse_one(&tokens)?;
-    if expression.span != span {
-        return Err("proof fragment does not contain exactly its saved form".into());
-    }
-    Ok(expression)
-}
-
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -156,21 +105,6 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn parse_at_preserves_global_offsets_and_rejects_wrong_bounds() {
-        let source = "; λ\n  '(a :b) trailing";
-        let expected = crate::parse(source).unwrap()[0].clone();
-        assert_eq!(parse_at(source, expected.span).unwrap(), expected);
-        assert!(parse_at(
-            source,
-            Span {
-                end: expected.span.end + 1,
-                ..expected.span
-            }
-        )
-        .is_err());
     }
 
     #[test]

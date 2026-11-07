@@ -162,7 +162,7 @@ pub fn render(events: &[TimingEvent], json: bool) -> String {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

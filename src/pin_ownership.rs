@@ -397,7 +397,7 @@ fn check_stack(
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     fn check(source: &str) -> Result<(), String> {
         crate::check_types(&crate::parse_program(source)?)

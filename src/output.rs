@@ -90,7 +90,7 @@ pub fn reject_source_output_collision(source: &Path, output: &Path) -> io::Resul
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

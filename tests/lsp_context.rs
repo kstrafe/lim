@@ -322,6 +322,9 @@ fn relative_paths_quoted_values_and_invalid_settings() {
         "cfg = \"=x\"",
         "command = \"shell\"",
         "module-path = 42",
+        "proof-work = \"100\"",
+        "proof-phase-bytes = \"4096\"",
+        "proof-total-bytes = \"8192\"",
     ] {
         fs::write(&path, format!("{valid}{suffix}\n")).unwrap();
         assert!(LspContext::read(&path).is_err(), "{suffix}");

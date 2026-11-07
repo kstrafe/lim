@@ -1,7 +1,7 @@
 //! Select a theorem only after the complete source graph has been checked.
 use std::path::Path;
 
-use crate::{CompileConfig, Diagnostic, DiagnosticCode, Expr, Item, Program};
+use crate::{CompileConfig, Diagnostic, DiagnosticCode, Item, Program};
 
 /// A file check can retain a bounded rendered excerpt without cloning the
 /// entire proof source. Structured positions still refer to the authored file.
@@ -40,22 +40,12 @@ impl std::fmt::Display for TheoremFileError {
 }
 impl std::error::Error for TheoremFileError {}
 
-/// Check a theorem from a file without retaining all mathematical source text.
-/// Contextual source uses the ordinary frontend and keeps its existing rules.
+/// Check a theorem from a file using the ordinary program frontend.
 pub fn check_theorem_details_from_file_with_config(
     path: &Path,
     config: &CompileConfig,
     name: &str,
 ) -> Result<CheckedTheorem, TheoremFileError> {
-    if config
-        .values
-        .get("async-lowering")
-        .is_none_or(|value| value == "graph")
-    {
-        if let Some(checked) = crate::proof::check_standalone_theorem_file(path, config, name) {
-            return checked;
-        }
-    }
     let _input = crate::timing::stage("input_read");
     let source = std::fs::read_to_string(path)
         .map_err(|error| TheoremFileError::input(error.to_string()))?;
@@ -64,11 +54,9 @@ pub fn check_theorem_details_from_file_with_config(
         .map_err(|diagnostic| TheoremFileError::from_diagnostic(diagnostic, &source, path))
 }
 
-/// Check every ordinary and mathematical obligation in the source graph, then
-/// resolve a root-file theorem name or alias. Returns its canonical identity.
+/// Check the complete program source graph, then resolve a root-file theorem
+/// name or alias. Returns its canonical identity.
 /// Does not emit native artifacts or invoke an external prover.
-/// Returning an identity does not claim an axiom-free proof. Use the details
-/// variant to inspect the selected theorem's logical foundation inventory.
 pub fn check_theorem_from_path_with_config(
     source: &str,
     path: &Path,
@@ -79,37 +67,18 @@ pub fn check_theorem_from_path_with_config(
         .map(|checked| checked.name)
 }
 
-/// A checked target with its transitive logical assumptions. An empty basis
-/// means none of the explicit classical foundation constants is reachable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckedTheorem {
-    pub budget: crate::ProofBudget,
     pub name: String,
-    pub foundations: Vec<String>,
 }
 
-/// Validate the complete program, select a theorem, and audit types and bodies
-/// reachable from it for the fixed logical foundation constants.
+/// Validate the complete program, then select a root-file theorem.
 pub fn check_theorem_details_from_path_with_config(
     source: &str,
     path: &Path,
     config: &CompileConfig,
     name: &str,
 ) -> Result<CheckedTheorem, Diagnostic> {
-    // Invalid global settings still receive the general frontend's diagnostics.
-    // All contextual source forms likewise fall back; this probe grants no
-    // import, generator, private-name, or authored-gensym authority.
-    if config
-        .values
-        .get("async-lowering")
-        .is_none_or(|value| value == "graph")
-    {
-        if let Some(checked) =
-            crate::proof::check_standalone_theorem(source, path, config.proof_budget, name)
-        {
-            return checked;
-        }
-    }
     check_general(source, path, config, name)
 }
 
@@ -133,7 +102,7 @@ pub(crate) fn check_general(
     let (mut owned, _) = crate::expand_prepared_owned_program(&prepared, config, "check-theorem")
         .map_err(|error| crate::generator_diagnostic(error, path, source))?;
     // Expansion owns its syntax and source locations. Release the preparation
-    // graph before proof checking allocates its independent kernel terms.
+    // graph before semantic validation.
     drop(prepared);
     drop(expansion);
     let validation = crate::timing::stage("semantic_validate");
@@ -151,7 +120,7 @@ pub(crate) fn check_general(
         Item::Proof { name, proposition } if name == canonical => Some(proposition),
         _ => None,
     });
-    let Some(proposition) = proposition else {
+    let Some(_) = proposition else {
         return Err(selection_error(
             program,
             canonical,
@@ -161,37 +130,9 @@ pub(crate) fn check_general(
             source,
         ));
     };
-    if matches!(proposition, Expr::List(parts)
-        if matches!(parts.first(), Some(Expr::Symbol(head))
-            if matches!(head.as_str(), "#proof-definition" | "proof-definition"
-                | "#proof-opaque" | "proof-opaque"
-                | "#proof-inductive" | "proof-inductive")))
-    {
-        return Err(selection_error(
-            program,
-            canonical,
-            name,
-            "is a mathematical definition, not a theorem",
-            path,
-            source,
-        ));
-    }
     crate::warnings::record_program(program);
-    let _audit = crate::timing::stage("proof_foundation_audit");
-    let foundations =
-        crate::proof::checked_theorem_foundations(program, canonical).map_err(|message| {
-            crate::analysis_diagnostic(
-                message,
-                DiagnosticCode::Proof,
-                crate::proof::declaration_span(program, canonical),
-                Vec::new(),
-                program,
-            )
-        })?;
     Ok(CheckedTheorem {
-        budget: program.proof_budget,
         name: canonical.to_owned(),
-        foundations,
     })
 }
 

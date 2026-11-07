@@ -53,7 +53,7 @@ pub(crate) struct ExpressionId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct StatementId(pub usize);
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, ExpressionId> {
     expression_ids_selected(program, None)
         .expect("test syntax contains aliased executable occurrences")
@@ -212,7 +212,7 @@ pub(crate) fn expression_ids_selected(
     (!shared).then_some(ids)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn statement_ids(program: &crate::Program) -> HashMap<usize, StatementId> {
     statement_ids_selected(program, None)
 }
@@ -1038,7 +1038,7 @@ impl Declarations {
 
     /// Staged ownership summaries over the complete acyclic body call graph.
     /// Opaque checked-reference-bearing external bodies remain unresolved.
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_referent_function_effects(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1047,7 +1047,7 @@ impl Declarations {
             .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_validate_referent_replacements(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1056,7 +1056,7 @@ impl Declarations {
             .map(|_| ())
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_validate_referent_uses_and_replacements(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1067,7 +1067,7 @@ impl Declarations {
 
     /// Infer initializer entry requirements bottom-up. This staging API does
     /// not establish owned exits or initialized escaping-reference contracts.
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_referent_entry_contracts(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1093,7 +1093,7 @@ impl Declarations {
         self.staged_referent_analysis(types, false, false, true, None)
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_contents_referent_entry_contracts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
@@ -1107,7 +1107,7 @@ impl Declarations {
     /// callers must still enforce the ordinary ownership and borrowing gates.
     /// Collect only requested bodies, avoiding a new per-body storage solve
     /// for unrelated imports or compilation without capture queries.
-    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))] // General frame emission will consume these facts.
+    #[cfg_attr(not(test), allow(dead_code))] // General frame emission will consume these facts.
     pub fn suspension_storage_facts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
@@ -1593,7 +1593,7 @@ impl Declarations {
 
     /// Test entry point for recomputing actual parameter-content summaries
     /// independently of the production initialization/restoration gate.
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_parameter_contents_summaries(&mut self) {
         self.summarize_parameter_loans_with_contents(true);
     }
@@ -2460,7 +2460,7 @@ impl Declarations {
         }
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn staged_captured_thread_worker_contract(
         &self,
         task: &str,
@@ -2895,7 +2895,7 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
     resolve(ty, aliases, &mut HashSet::new())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

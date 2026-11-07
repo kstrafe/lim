@@ -681,7 +681,7 @@ fn type_expr(ty: &Type) -> Result<Expr, NodeError> {
     Ok(parsed.remove(0).expr)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

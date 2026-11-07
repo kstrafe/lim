@@ -310,7 +310,7 @@ fn index_segment(body: &Body, id: NodeId) -> Segment {
     literal_index(body, id).map_or(Segment::DynamicIndex, Segment::Index)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

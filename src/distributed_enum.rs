@@ -176,7 +176,7 @@ pub(crate) fn merge(forms: Vec<SpannedExpr>) -> Result<Vec<SpannedExpr>, SourceE
     Ok(output)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

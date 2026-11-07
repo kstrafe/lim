@@ -163,7 +163,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
     Ok(Expr::List(normalized.into()))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1744,10 +1744,10 @@ and [the runnable printing example](../examples/heap_string.lim).
 `(#theorem name proposition)` declares a procedural compile-time obligation over the checked,
 expanded program. The name follows value-identifier rules. Validation rejects a
 false or unproved obligation; a procedural proof emits no runtime assertion and
-supplies no unchecked assumptions to other proofs. The mathematical kernel can
-reuse an accepted procedural obligation through the explicit `#pt-program` and
-`#pt-certificate` bridge described below. Ordinary type, ownership, and unsafe
-checks still apply to the program.
+supplies no unchecked assumptions to other program obligations. Ordinary type,
+ownership, and unsafe checks still apply to the program. See the
+[program verification checklist](program-verification.md) for supported checks,
+bounds, and planned coverage.
 
 ```lisp library
 (#fn identity ((value #u8)) #u8 (#return value))
@@ -2017,368 +2017,9 @@ typed literals and `#array-of`; context-dependent `#array-repeat`, slices,
 arbitrary ownership/runtime facilities, and unsupported operations are not
 made provable by increasing the loop limit.
 
-### Constructive mathematical proofs
-
-Mathematical theorems use `#theorem` with explicit clauses; transparent
-definitions use `#math-definition`, and regular inductive datatypes use
-`#math-inductive`. These use a constructive dependent kernel distinct from the procedural bitvector checker. See the detailed
-[kernel user guide](kernel.md) for examples, binder rules, equality transport,
-natural induction, and the procedural-certificate bridge.
-
-```text
-(#theorem NAME
-  (#universes u...)
-  (#parameters (#parameter name TYPE)...)
-  (#statement CLAIM)
-  (#proof EVIDENCE))
-(#theorem NAME PROCEDURAL-CLAIM)
-(#math-definition NAME (u...) TYPE VALUE)
-(#math-opaque NAME (u...) TYPE VALUE)
-(#math-inductive NAME (u...) ((parameter Type)...) SORT
-  ((constructor ((field Type)...))...))
-(#math-inductive NAME (u...) ((parameter Type)...)
-  (#indices (#parameter index TYPE)...) SORT
-  ((constructor ((field TYPE)...) (result-index...))...))
-```
-
-`#universes` and `#parameters` are explicit clauses, including empty clauses.
-The mathematical parameter list uses `#parameter` entries. `#proof` is only the
-evidence clause within a mathematical `#theorem`, not a top-level declaration.
-Private kernel wrappers are not public source syntax. The procedural shorthand
-retains the existing procedural claim forms. Parameter clauses lower to closed
-Pi/lambda terms that the kernel checks independently.
-
-The theorem's type must inhabit `#pt-prop`. Definitions are transparent to
-conversion; checked theorem bodies are opaque. `(#pt-sort LEVEL)` is
-`Sort LEVEL`, `#pt-prop` is `Sort 0`, and `(#pt-type LEVEL)` is
-`Sort (LEVEL + 1)`, equivalently Sort at the explicit successor level. A sort
-inhabits its successor sort, not itself. Universe levels are explicit
-nonnegative integers, declared universe parameters, successors, maxima, or
-`(#pt-level-imax LEFT RIGHT)`. The latter is zero if RIGHT is zero and otherwise
-`max(LEFT, RIGHT)`. There is no implicit sort or universe inference.
-
-For a Pi with domain type in `Sort u` and result type in `Sort v`, its sort is
-`Sort (imax(u, v))`; proposition-valued functions therefore stay in Prop.
-Symbolic level relationships are checked exactly for all nonnegative universe
-assignments, retaining correlations between repeated variables. A level that
-could be zero or positive is not rejected merely for that ambiguity. Bounded
-term, guard-analysis, comparison, and execution budgets fail with errors rather
-than treating sampled or unfinished checks as universal evidence.
-`(#pt-use proof-name (levels...))` requires its level list, including `()`.
-Pi and lambda use explicit typed binder lists; Sigma requires exactly one
-binder. Application, equality, reflexivity, equality elimination, dependent
-pairs, projections, and inductive eliminators are explicit `#pt-` terms.
-
-Three reserved global logical foundations are available by explicit reference:
-`#pt-foundation-propext`, `#pt-foundation-choice`, and
-`#pt-foundation-quot-sound`. They are axioms, not proved facts, and source opts
-in by using them with `#pt-use` and explicit universe lists. Their premises
-still pass ordinary application type checking. Choice uses propositional
-nonemptiness evidence and returns a selected value; it does not expose a data
-witness from that evidence, and the choice constant is opaque with no
-computational rule. Quotient soundness is also opaque and does not make quotient
-representatives definitionally equal. These foundations are the pinned FLT
-logical foundation basis; their availability does not mean Lim contains the
-FLT proof or an axioms-free result. Raw Lean imports continue to reject axioms
-by default.
-
-`#pt-nat` and `#pt-zero` are symbols. `#pt-succ` constructs a successor, and
-`#pt-numeral` abbreviates a bounded source integer as a natural value. For larger
-values, `(#pt-nat-literal FAMILY "CANONICAL-DECIMAL")` checks a decimal string
-(up to 4,096 digits) into a checked, parameterless, indexless Nat-shaped family
-with zero and successor constructors. For example, `(#math-definition huge ()
-#pt-nat (#pt-nat-literal #pt-nat "184467440737095516160"))`. The family
-is an explicit global proof reference, including when imported under an alias;
-the string is data, not a binding. Mathematical natural numbers and Pi quantification over them are unbounded; they are not
-machine integers or bounded symbolic samples. There is no automatic coercion
-from a native integer to mathematical Nat. Explicit universe polymorphism is
-compile-time mathematical generic reasoning, not native generics.
-
-User inductives retain the regular parameterized form and also support indexed
-families. Indexed declarations require a nonempty `#indices` clause after the
-parameters:
-
-```lisp syntax
-(#math-inductive NAME (u...)
-  ((parameter Type)...)
-  (#indices (#parameter index TYPE)...)
-  SORT
-  ((constructor ((field TYPE)...) (result-index...))...))
-```
-
-Index types may refer to parameters and earlier indices. Constructor fields
-may refer to parameters and earlier fields; each constructor gives exactly one
-result index per family index, with result terms allowed to refer to all
-fields. Types and indices are checked at exact arity and universe. Indexed
-recursive fields use `(#pt-self-at (index-terms...))`; parameters are inherited
-from the declaration. `#pt-self` and `#pt-self-at` may be terminal codomains
-beneath zero or more `#pt-pi` binders, enabling strictly positive function
-fields and dependent telescopes. The current family cannot occur in any
-function domain, including double-negative positions. Occurrences in current-family indices and direct recursion under primitive
-`#pt-sigma` remain unsupported. Previously checked nominal containers can
-contain explicit, uniformly applied family references, as described below. Explicit mutual groups use the forms described below.
-
-A typed `#pt-let` may wrap a Pi codomain when neither its annotation nor its
-value contains the current family. The checker verifies the annotation's sort
-and the value's type before zeta substitution, then continues the positivity
-check in the instantiated body. Recursive aliases in definitions and
-recursion hidden in primitive Sigma types or arbitrary type functions remains unsupported.
-
-Mathematical mutual groups keep separate declarations with an identical
-`(#mutual FAMILY...)` clause after the parameter list and before `#indices`.
-The 2 through 16 distinct members share explicit universe parameters,
-uniform parameter types and result sort; indices and constructors belong to
-each member. The compiler checks and installs the group atomically.
-`(#pt-recur FAMILY (indices...))` selects a recursive sibling, inheriting
-group parameters and levels, and may terminate a strictly positive function
-field. Positivity checks cover every member, including occurrences in
-function domains, parameter/index types and constructor result indices.
-
-`(#pt-mutual-induct FAMILY (levels...) (parameters...) (#indices values...)
-((FAMILY motive (branches...))...) subject)` supplies a complete ordered set
-of family motives and branch lists. The explicit `#indices` clause may be
-empty. Every motive binds its own fresh indices and subject; every branch
-is checked. Each recursive field is followed immediately by its child's
-family-specific IH, pointwise for function fields. Ordinary `#pt-induct`
-rejects mutual members. Mutual propositions eliminate only into Prop;
-Sort-polymorphic cases satisfy the corresponding guarded implication.
-Record/unit/K shortcuts do not apply to components of a mutual group.
-See [mutual examples](../examples/proof_mutual.lim) and the
-[kernel guide](kernel.md#mutual-inductive-groups). These forms add no native
-recursion, automatic proof search, axioms or admissions.
-
-Nested containers use the same checked group machinery. A field such as
-`(#pt-app (#pt-use seq ()) (#pt-use tree ()))` derives a scoped recursion
-case for `seq tree` from the previously checked `seq` constructor types.
-`(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX (#indices values...)
-((#pt-case FamilyType motive (branches...))...) subject)` names every case
-by its physical type. The explicit untyped zero-based `CASE-INDEX` selects a
-root or container case; subject and index types follow that case, and invalid
-ordinals fail. Selectors apply parameters but not indices. The order is
-all root families, then specialized containers in breadth-first derivation
-order, sharing repeated structural specializations. Every selector is inferred
-before definitional comparison; all motives and branch lists are checked.
-Selectors bind no names; each motive/branch has its own ordinary term scope.
-Private case identifiers never become global constants or constructors.
-Captured constructor locals, nonuniform parameters/universes, recursive indices,
-negative specialized fields and unfinished-family elimination remain rejected.
-See the [nested example](../examples/proof_nested.lim) and
-[kernel guide](kernel.md#nested-inductive-groups).
-
-Regular `#pt-induct` keeps its existing syntax. Indexed `#pt-induct` adds an
-explicit index clause after parameters:
-
-```lisp syntax
-(#pt-induct family (levels...) (parameters...) (#indices index-terms...)
-  motive (branches...) subject)
-```
-
-The motive binds all generic indices freshly, then the subject at the family
-applied to those indices. This prevents a motive from capturing or freezing
-the subject's indices. Branches follow constructor and field order; each
-recursive child is followed immediately by its induction hypothesis at the
-child's indices. The branch result is checked at the constructor's declared
-result indices. A complete vector and Prop-valued identity example appears in
-the [kernel guide](kernel.md#user-inductives-constructors-and-branches).
-
-Elimination of inductive propositions into data-type universes is allowed for
-empty families or single-constructor families whose non-proof fields each occur
-directly as a bare field variable among the constructor's result indices. A
-computed index such as `succ field`, or partial exposure of a field, does not
-qualify. Fields whose type has sort zero satisfy the proof-field condition
-without index exposure. Multiple constructors remain restricted even when
-their fields expose data. For every field, `imax(fieldSort, familySort) <=
-familySort` must hold. Unless the empty or singleton recoverable-field
-exception applies, whenever a symbolic family sort could be zero the motive
-sort must also be zero. Correlated family and motive sorts using the same `u`
-can satisfy this condition; an independent data universe allowing a positive
-motive sort when the family is Prop cannot. `#pt-false` is an empty proposition.
-For example, a hidden `Nat` field blocks large elimination. A field
-`P : #pt-prop` is also data (its type has sort 1), and must itself occur directly
-among the result indices to be recoverable; exposing only part of a field or
-using a computed index such as `succ field` does not qualify. This matches
-Lean 4.33.1's [universe-zero elimination rule](https://raw.githubusercontent.com/leanprover/lean4/v4.33.1/src/kernel/inductive.cpp#L483-L536).
-Indexed data families do not receive unit or K optimization: fieldless unit
-conversion and neutral recursor reduction are limited to unindexed families
-because indexed families have distinct fibres. General Sort and guarded
-elimination do not add cumulativity or type-in-type,
-and do not complete the FLT proof port. Proof irrelevance is the separate typed
-conversion rule described below.
-
-The recoverable-field exception supports Type-valued accessibility recursion:
-the point field is exposed as the constructor's result index, while its
-recursive functional field is proof-valued. The concrete [accessibility
-example](../examples/proof_accessibility.lim) defines
-`well-founded-recursion (u v)`, proves its generic equation theorem
-`well-founded-recursion-unfolds`, constructs `no-predecessors (u)` without an
-axiom, and proves `empty-relation-recursion-computes` for every Nat. The
-focused 11-test suite passes with the complete example; a negative poison case
-that mis-types the pointwise induction hypothesis for `lower` as data is
-rejected with a type mismatch. This focused evidence does not establish full
-Lean parity or formal verification of Lim's kernel.
-
-`(#pt-program procedural-proof-name)` is a proposition atom;
-`(#pt-certificate procedural-proof-name)` is its evidence only after the existing
-procedural checker has passed. Procedural obligations are checked first, then
-mathematical declarations in topological dependency order; cycles are rejected.
-All proofs are rechecked on warm-cache validation and have zero native emission.
-Conversion supports beta, transparent delta, typed-local-let zeta, and
-constructor/eliminator iota computation, including pair projections and
-equality elimination J at reflexivity, with opaque theorems. J checks its
-motive at a fresh generic endpoint and equality, not only at the supplied
-endpoint. There is no cumulativity or external quotient replay, `admit`, general
-recursion, or metavariable hole. The three explicit opaque logical foundations
-are described above; they are axioms, not derived by this conversion system.
-
-`(#pt-let (#parameter NAME TYPE) VALUE BODY)` binds an explicitly typed local
-name only in `BODY`. `TYPE` and `VALUE` use the outer scope. Locals and universe
-parameters cannot be shadowed, and there is no implicit typing or recursion.
-The checker verifies that `TYPE` has a sort and that `VALUE` matches it, then
-substitutes the value before inferring the body. This is a genuine let with
-zeta reduction in weak-head normalization, not merely a lambda application:
-
-```lisp library
-(#theorem zero-via-alias
-  (#universes)
-  (#parameters)
-  (#statement (#pt-eq #pt-nat #pt-zero #pt-zero))
-  (#proof
-    (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat
-      (#pt-refl Alias #pt-zero))))
-```
-
-The alias is known to be Nat when the body is checked. An unused bad value or
-annotation still fails, as do source errors and exhausted budgets; reduction
-cannot hide these failures. No full Lean term importer or FLT proof is supplied
-by this binding form.
-
-Typed function eta identifies `f` with `lambda x. f x` at the same checked
-function type. Primitive dependent Sigma pair eta identifies `p` with
-`(#pt-pair S (#pt-first p) (#pt-second p))` at its checked Sigma type `S`.
-Both rules compare any two terms at a shared Pi or primitive Sigma type;
-neither side must be an explicit lambda or pair. Functions compare fresh
-applications, and pairs compare their dependent projections. Rigid neutral
-heads and subjects are compared without repeated eta expansion. This makes
-neutral Sigma values containing only proof fields convertible consistently
-with proof irrelevance, without collapsing distinct data components.
-
-The comparisons are symmetric, shift terms and contexts correctly under
-binders, and fully infer source evidence before eta reduction. They do not
-hide ill-typed components or unfold opaque theorem bodies. Arbitrary pointwise
-equality proofs are insufficient for function conversion: the fresh applications
-must definitionally compare. The eta and context regression suites cover
-symmetry, dependent indices, capture avoidance, and ill-typed negative cases.
-Unindexed, single-constructor, nonrecursive mathematical records also support
-typed eta through all their field projections. Full Lean eta is not claimed.
-
-A unit-like data rule also identifies well-typed values of the same fully
-applied, unindexed user datatype when it has exactly one zero-field
-constructor. Indexed families are excluded because their indices identify
-distinct fibres. Neutral variables, function results, and constructor values are included, with checked
-matching nominal family, parameters, and universe levels. The rule is
-universe-polymorphic and concerns values, not equality of datatype types.
-It does not identify different nominal types or parameter/level instantiations,
-and does not apply to constructors with data or recursive fields, Nat, or False.
-A recursor over such unindexed fieldless data reduces to its sole branch for a
-neutral subject, consistently with the existing fieldless singleton-Prop
-computation; indexed data families receive no such optimization.
-An indexed proposition with exactly one zero-field constructor also permits
-neutral recursor computation when all supplied indices convert to the
-constructor's specialized result indices. Generic or mismatching fibres and
-fielded propositions remain stuck. Parameters, universes, motives, branches,
-and subjects still undergo complete typing before reduction.
-Pi/Sigma eta can compose with this rule and proof irrelevance through proof or
-qualifying unit-like fields. Source evidence and the shared type remain fully
-checked, and opaque theorem bodies stay opaque. This does not establish full
-Lean parity.
-
-`(#pt-project FAMILY INDEX SUBJECT)` projects a field from a checked mathematical
-record. `INDEX` is an explicit zero-based untyped ordinal. `FAMILY` must match
-the subject's unindexed, single-constructor, nonrecursive inductive type;
-parameters and universes come from that type. Later field types substitute
-earlier projections of the same subject. Constructor projections compute to
-their fields, and reconstructing all fields converts to the original record
-by typed eta. Any two same-typed records compare through their projections,
-preserving proof irrelevance without identifying different data fields.
-Eligible neutral record recursors also compute through this reconstruction.
-
-Projections cannot extract non-proof data from a proposition, even indirectly
-through an earlier field required by a later field's type. Universe-polymorphic
-cases must satisfy the corresponding guarded implication. A syntactically
-unused predecessor can be skipped. All source evidence is checked before
-reduction; wrong families, ordinals, recursive/indexed types and ill-typed
-fields fail. The ordinal has no definition lookup; family and subject do.
-See [the record example](../examples/proof_records.lim) and the
-[kernel guide](kernel.md#mathematical-record-projections-and-eta).
-
-Definitional proof irrelevance identifies any two well-typed proofs of the same
-proposition. Typed conversion carries the local context through Pi, lambda, and
-Sigma binders and verifies the shared proposition type there; syntactic
-resemblance is insufficient. Proposition types themselves are not collapsed,
-and distinct native-program facts remain separate opaque atoms. Data values
-and generic `Sort u` values are not identified unless their type's sort is
-provably zero. Opaque theorem bodies remain opaque.
-
-```lisp library
-(#theorem proof-irrelevance
-  (#universes)
-  (#parameters (#parameter P #pt-prop) (#parameter p P) (#parameter q P))
-  (#statement (#pt-eq P p q))
-  (#proof (#pt-refl P p)))
-```
-
-Here existing reflexivity checks against equality of `p` and `q` because both
-are proofs of `P`. No new keywords, axiom, admit, or tactic is needed. See the
-[kernel guide](kernel.md#equality-and-dependent-transport) for the typed rule and
-its pinned Lean reference. This capability does not establish full Lean
-conversion parity, formal verification of the kernel, or a completed FLT port.
-
-Kernel checking allows 200,000 core steps per declaration and recursive depth
-96, with 64 MiB of accounted transformation allocations per core budget;
-mathematical parsing allows 50,000 nodes per declaration and depth 64.
-Other limits are 32 universe parameters, constant universe levels at most 65,535,
-64 inductive parameters, 64 constructors per datatype, 64 fields per constructor,
-and 4,096 mathematical declarations. `#pt-numeral` accepts source integers from
-0 through 128; Nat and natural-number quantification remain unbounded. Limits
-fail closed and are separate from the procedural symbolic checker's budgets.
-
-Universe normalization permits at most 256 normalized monomials and 64 nonzero
-guard variables per term. Constants and normalized affine offsets are bounded
-by 65,535. Normalization has a 200,000-work budget per operation; comparison has
-a 50,000-work budget per inequality. These are separate from the existing
-200,000-step core budget per term declaration and the 32-source-universe-parameter
-limit. Exhaustion returns an error and establishes no theorem. Level variables
-retain unbounded natural-number semantics: source and work limits do not turn
-symbolic order checking into a finite model or sampling procedure.
-
-The kernel is inspired by Lean 4 but is not full Lean 4, does not include mathlib,
-and claims neither feature parity nor formal verification. Acceptance trusts
-the implementation of parsing, scoping, universes, checking, and conversion.
-Native certificates additionally trust the existing procedural checker and its
-program model; the adapter is not a proof of compiler correctness or a native
-executable's entire behavior. The user guide links to primary Lean references for the background concepts; Lim's rules govern the
-accepted subset. See also the [Lean compatibility and FLT roadmap](lean-compatibility.md)
-for the pinned upstream source and missing features.
-[theorems/fermat_statement.lim](../theorems/fermat_statement.lim) defines Nat
-arithmetic and the closed, unbounded positive-natural FLT proposition
-`fermats-last-theorem-statement` with exponent `n + 3`. It is a
-proposition-valued `#math-definition`, not a proof, certificate, or theorem
-target. The full FLT proof remains unimplemented.
-
-`lim --check-theorem INPUT NAME` resolves imports and cfg, performs normal
-validation of all obligations, and requires the target to be a theorem
-declaration. A mathematical definition is not a theorem target, even when it
-defines a proposition. Missing or cfg-excluded targets, false or unproved
-obligations, and other validation failures cause failure. The command emits no
-native outputs. See the [kernel guide](kernel.md#check-a-named-theorem-from-the-cli)
-for usage and the distinction between a statement and evidence.
-
-`lim --check-lean-export INPUT TARGET [--report PATH] [--timings]` replays a
-bounded, version-pinned subset of lean4export NDJSON through the same kernel.
-It requires a theorem target and validates the entire stream before success;
-it does not invoke Lean or trust prior receipts. See the
-[export guide](lean-export.md) for exact pins, supported forms, hashes and
-limits. Native `.lim` proof translation and the full FLT port remain open.
+The former dependent mathematical proof subsystem is no longer part of Lim.
+Program-level symbolic obligations are described in the
+[program verification checklist](program-verification.md).
 
 ### Functions
 
@@ -3193,7 +2834,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
-| `#indices` | Declarations: `(#indices (#parameter index TYPE)...)`; eliminators: `(#indices value...)` | `(#indices (#parameter n #pt-nat))` (indexed mathematical inductive declaration) | A declaration's telescope is nonempty and sequentially dependent. Eliminators provide index terms; #pt-mutual-induct requires the clause even for an unindexed selected family, using (#indices). |
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
@@ -3204,24 +2844,18 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#literal` | `(#literal NumericType literal)` | `(#let n #u16 (#literal #u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value arms...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive match. Borrowed and pinned enum references use their corresponding `#case-ref`, `#case-ref-mut`, `#case-pin`, or `#case-pin-mut` arms; ordinary `#case` is allowed only as `(#case _ body)` fallback. |
-| `#math-definition` | `(#math-definition NAME (u...) TYPE VALUE)` | `(#math-definition identity-nat () (#pt-pi ((n #pt-nat)) #pt-nat) (#pt-lambda ((n #pt-nat)) n))` (top level) | Explicitly typed mathematical definition with universe parameters; transparent to conversion. A proposition-valued definition is a statement, not a certified theorem. |
-| `#math-inductive` | Regular: `(#math-inductive NAME (u...) ((parameter Type)...) SORT ((constructor ((field TYPE)...))...))`; indexed: `(#math-inductive NAME (u...) ((parameter Type)...) (#indices (#parameter index TYPE)...) SORT ((constructor ((field TYPE)...) (result-index...))...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (top level) | Declares a regular or indexed mathematical inductive. Recursive markers may be terminal codomains under zero or more `#pt-pi` binders, but the family cannot occur in function domains. Indexed constructors give exact result indices. Both forms may insert an explicit #mutual group clause after parameters. Nested occurrences use explicit family applications through checked nominal containers; primitive #pt-sigma nesting and arbitrary type functions remain unsupported. |
-| `#math-opaque` | `(#math-opaque NAME (u...) TYPE VALUE)` | `(#math-opaque checked-zero () #pt-nat #pt-zero)` (top level) | Checks the explicit type and value normally, then hides the value from conversion. Use for already checked opaque data definitions; it adds no axiom or admission. Proposition-valued declarations are not theorem targets. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
 | `#memory-release` | `#memory-release` | `(#atomic-store r 1u64 #memory-release)` (ordering operand) | Selects release ordering where permitted. |
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
 | `#mut` | `(#mut parameter Type)` | `(#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count))` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
-| `#mutual` | `(#mutual FAMILY...)` after mathematical inductive parameters | `(#math-inductive left () () (#mutual left right) (#pt-type 0) ((make ((child (#pt-recur right ()))))))` (mathematical declaration; right repeats the same group clause) | Declares an ordered group of 2 through 16 distinct inductive families with common universes, uniform parameters and sort. The entire group is independently checked and installed atomically. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
 | `#opaque` | `(#opaque StructName)` | `(#struct Token () ((slot #u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
-| `#parameter` | `(#parameter name TYPE)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit typed binder in #parameters or #pt-let. Theorem parameters bind in the statement and evidence; a let name binds only its BODY, after its annotation and value are checked in the outer scope. |
 | `#parameter-of` | `(#parameter-of FUNCTION PARAMETER-NAME)` inside #proof-requires-validation | `(#theorem safe (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))` (procedural theorem declaration) | Selects an existing parameter of the named function; introduces no theorem binding. Accepted only as a validation descriptor; old bare pairs are rejected. Unlike #parameter, this is a reference rather than a binder. |
-| `#parameters` | `(#parameters (#parameter name TYPE)...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit theorem parameter clause; use (#parameters) for no term parameters. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
@@ -3248,7 +2882,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
-| `#proof` | `(#proof EVIDENCE) inside a mathematical #theorem` | `(#theorem zero-refl (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))` (mathematical theorem declaration) | Evidence clause checked against the theorem statement; not a top-level declaration or unchecked assumption. |
 | `#proof-allocation` | `#proof-allocation in an effect list` | `(#proof-no-effects helper (#proof-allocation))` (proof proposition) | Conservative allocation effect; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-and` | `(#proof-and proposition...)` | `(#proof-and true (#proof-eq 1u8 1u8))` (proof proposition) | Conjunction of one or more propositions; unsupported operands still fail. |
 | `#proof-asm` | `#proof-asm in an effect list` | `(#proof-no-effects helper (#proof-asm))` (proof proposition) | Inline assembly or conservatively unknown assembly effects; a tag for #proof-no-effects, not a standalone proposition. |
@@ -3278,49 +2911,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
-| `#pt-app` | `(#pt-app function argument...)` | `(#pt-app (#pt-use identity (0)) #pt-nat #pt-zero)` (mathematical term) | Explicit term application after universe instantiation, substituting arguments into dependent result types. |
-| `#pt-case` | `(#pt-case FamilyType motive (branches...))` | `(#pt-case (#pt-use tree ()) (#pt-lambda ((subject (#pt-use tree ()))) #pt-nat) (leaf-branch node-branch))` (case inside #pt-nested-induct; schematic) | Supplies an explicit physical family type and its motive and complete constructor branches. Applies uniform parameters but leaves indices unapplied; introduces no binding and is invalid as a standalone term. |
-| `#pt-certificate` | `(#pt-certificate procedural-proof-name)` | `(#pt-certificate identity-native-law)` (mathematical evidence) | Evidence of the corresponding program atom only after that procedural proof has passed its existing checker; not an unchecked assumption. |
-| `#pt-construct` | `(#pt-construct datatype (levels...) (parameters...) constructor-label (fields...))` | `(#pt-construct ticks () () tick-zero ())` (mathematical term) | Constructs a user-inductive value with explicit universe, parameter, constructor, and field arguments, including empty lists. |
-| `#pt-eq` | `(#pt-eq Type lhs rhs)` | `(#pt-eq #pt-nat #pt-zero #pt-zero)` (mathematical proposition) | Propositional equality between two terms of the stated type; its type is Prop. |
-| `#pt-eq-elim` | `(#pt-eq-elim Type lhs motive base rhs equality)` | `(#pt-eq-elim #pt-nat a (#pt-lambda ((x #pt-nat) (h (#pt-eq #pt-nat a x))) (#pt-eq #pt-nat x x)) (#pt-refl #pt-nat a) b e)` (mathematical term) | Dependent equality elimination; motive takes x and evidence of Eq(lhs,x), and base supplies its value at reflexivity. |
-| `#pt-false` | `#pt-false` | `(#pt-pi ((h #pt-false)) #pt-false)` (mathematical proposition) | Empty proposition with no introduction constructor; no admit or unchecked axiom creates an inhabitant. |
-| `#pt-first` | `(#pt-first pair)` | `(#pt-first (#pt-use zero-with-evidence ()))` (mathematical term) | First projection of a dependent pair; computes on an explicit pair constructor. |
-| `#pt-foundation-choice` | `(#pt-use #pt-foundation-choice (u))` | `(#pt-use #pt-foundation-choice (0))` (mathematical term) | Opaque Church-encoded choice: `forall (A : Sort u) (inhabited : forall (P : Prop) (continue : A -> P), P), A`. Evidence is propositional nonemptiness, not a data witness or implicit elimination; no computation selects a particular supplied witness. |
-| `#pt-foundation-propext` | `(#pt-use #pt-foundation-propext ())` | `(#pt-use #pt-foundation-propext ())` (mathematical term) | Propositional extensionality: `forall (P Q : Prop) (forward : P -> Q) (backward : Q -> P), builtinEq Prop P Q`. All premises are checked by ordinary application. |
-| `#pt-foundation-quot-sound` | `(#pt-use #pt-foundation-quot-sound (u))` | `(#pt-use #pt-foundation-quot-sound (0))` (mathematical term) | Opaque quotient soundness: `forall (A : Sort u) (r : A -> A -> Prop) (x y : A) (related : r x y), builtinEq (nativeQuot A r) (nativeQuotMake x) (nativeQuotMake y)`. It adds no definitional equality between representatives. |
-| `#pt-induct` | Regular: `(#pt-induct datatype (levels...) (parameters...) motive (branches...) subject)`; indexed: `(#pt-induct family (levels...) (parameters...) (#indices index-terms...) motive (branches...) subject)` | `(#pt-induct vector (0) (#pt-nat) (#indices (#pt-numeral 2)) motive (nil-branch cons-branch) v)` (mathematical term; schematic) | Eliminates a user inductive in constructor order. Indexed motives bind fresh generic indices before the subject; each recursive field is followed by an IH at the child's indices. Prop-to-Type elimination is restricted. |
-| `#pt-lambda` | `(#pt-lambda ((name Type)...) Body)` | `(#pt-lambda ((n #pt-nat)) n)` (mathematical term) | Introduces a dependent function or proof with explicit typed binders; no implicit arguments or proof holes. |
-| `#pt-let` | `(#pt-let (#parameter NAME TYPE) VALUE BODY)` | `(#theorem zero-via-alias (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-let (#parameter Alias (#pt-type 0)) #pt-nat (#pt-refl Alias #pt-zero))))` (mathematical theorem declaration) | Typed local binding with TYPE and VALUE in the outer scope and NAME only in BODY. Checks the annotation sort and value type before substitution and body inference; supports true aliases and zeta reduction. No local/universe shadowing, implicit typing, or recursion; unused bad values and exhausted budgets still fail. |
-| `#pt-level-imax` | `(#pt-level-imax LEFT RIGHT)` | `(#math-definition prop-imax () (#pt-type 0) (#pt-sort (#pt-level-imax 2 0)))` (mathematical definition) | Explicit two-operand universe operation: zero if RIGHT is zero, otherwise max(LEFT, RIGHT). Pi sorts use imax(domainLevel, rangeLevel); symbolic relationships are checked for all nonnegative assignments within resource budgets. |
-| `#pt-level-max` | `(#pt-level-max LEVEL...)` | `(#pt-type (#pt-level-max u v))` (mathematical universe) | Maximum of explicit universe levels; does not infer missing universe arguments. |
-| `#pt-level-succ` | `(#pt-level-succ LEVEL)` | `(#pt-type (#pt-level-succ u))` (mathematical universe) | Successor of an explicit universe level; this is level syntax, not term arithmetic. |
-| `#pt-mutual-induct` | `(#pt-mutual-induct FAMILY (levels...) (parameters...) (#indices values...) ((FAMILY motive (branches...))...) subject)` | `(#pt-mutual-induct left () () (#indices) ((left (#pt-lambda ((x (#pt-use left ()))) #pt-nat) (#pt-zero)) (right (#pt-lambda ((x (#pt-use right ()))) #pt-nat) (#pt-zero))) value)` (mathematical term; two zero-field data families) | Checks every group motive and branch set in declaration order; recursive IHs and computation select each child's own family and indices. The selected indices clause is explicit even when empty. |
-| `#pt-nat` | `#pt-nat` | `(#pt-pi ((n #pt-nat)) #pt-nat)` (mathematical type) | Unbounded Peano natural-number type, distinct from native machine integers; symbol, not an empty application. |
-| `#pt-nat-induct` | `(#pt-nat-induct motive zeroCase stepCase n)` | `(#pt-nat-induct (#pt-lambda ((k #pt-nat)) #pt-nat) #pt-zero (#pt-lambda ((k #pt-nat) (ih #pt-nat)) (#pt-succ ih)) n)` (mathematical term) | Natural induction or recursion using a zero case and a successor case taking the predecessor and induction hypothesis. |
-| `#pt-nat-literal` | `(#pt-nat-literal FAMILY "CANONICAL-DECIMAL")` | `(#math-definition huge () #pt-nat (#pt-nat-literal #pt-nat "184467440737095516160"))` (mathematical term) | Checks a canonical unsigned decimal string of at most 4,096 digits into a checked parameterless, indexless Type 0 zero/successor family; values are arbitrary precision within finite work budgets. FAMILY is an explicit global proof reference. |
-| `#pt-nested-induct` | `(#pt-nested-induct FAMILY (levels...) (parameters...) CASE-INDEX (#indices values...) ((#pt-case FamilyType motive (branches...))...) subject)` | `(#pt-nested-induct tree () () 0 (#indices) ((#pt-case (#pt-use tree ()) tree-motive (leaf-branch node-branch)) (#pt-case (#pt-app (#pt-use seq ()) (#pt-use tree ())) seq-motive (nil-branch cons-branch))) value)` (mathematical term; schematic) | Selects an explicit zero-based case ordinal and checks every root and specialized container case in derivation order, comparing checked type selectors and preserving original constructors. Uses the same typed motives, family-specific IHs, computation and Prop guards as group induction. |
-| `#pt-numeral` | `(#pt-numeral nonnegative-source-integer)` | `(#pt-numeral 3)` (mathematical term) | Source integers from 0 through 128 abbreviate zero/successor values compactly; this abbreviation limit does not bound Nat or its quantifiers. |
-| `#pt-pair` | `(#pt-pair SigmaType first second)` | `(#pt-pair (#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n)) #pt-zero (#pt-refl #pt-nat #pt-zero))` (mathematical term) | Constructs a dependent pair with its full Sigma type stated explicitly. |
-| `#pt-pi` | `(#pt-pi ((name Type)...) Body)` | `(#pt-pi ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent function type; later binder types and the result may depend on earlier explicit binders. |
-| `#pt-program` | `(#pt-program procedural-proof-name)` | `(#pt-program identity-native-law)` (mathematical proposition) | Proposition atom identifying an existing procedural obligation; does not coerce native values into mathematical values. |
-| `#pt-project` | `(#pt-project FAMILY INDEX SUBJECT)` | `(#pt-project package 1 value)` (mathematical term; package is an unindexed nonrecursive record, value has its type) | Checked zero-based projection with dependent field types; parameters and universes come from the subject. Rejects hidden data extraction from Prop, wrong families or ordinals, and indexed or recursive records. |
-| `#pt-prop` | `#pt-prop` | `(#pt-pi ((P #pt-prop) (p P)) P)` (mathematical type) | The sort of propositions, Sort 0; distinct from the first data-type universe. |
-| `#pt-quot` | `(#pt-quot LEVEL TYPE RELATION)` | `(#pt-quot 1 #pt-nat relation)` (mathematical type) | Immutable quotient of TYPE by an arbitrary binary relation TYPE → TYPE → Prop; the relation need not be an equivalence. LEVEL is explicit universe syntax. Quotient soundness is not introduced. |
-| `#pt-quot-induct` | `(#pt-quot-induct LEVEL TYPE RELATION MOTIVE CONSTRUCTOR-PROOF SUBJECT)` | `(#pt-quot-induct u α relation motive constructor-proof subject)` (mathematical term; schematic) | Eliminates into Prop from a motive and constructor proof; computes on quotient constructors. Quotient soundness requires the explicit `#pt-foundation-quot-sound` reference; no choice or propext axiom is implicit. |
-| `#pt-quot-lift` | `(#pt-quot-lift (SOURCE-LEVEL TARGET-LEVEL) TYPE RELATION TARGET-TYPE FUNCTION RESPECT-PROOF SUBJECT)` | `(#pt-quot-lift (u v) α relation β f respects subject)` (mathematical term; schematic) | Checks the respect proof and every operand before lifting; computes on constructors. The two explicit levels form a list of exactly two universe expressions; levels are never inferred. |
-| `#pt-quot-make` | `(#pt-quot-make LEVEL TYPE RELATION VALUE)` | `(#pt-quot-make 1 #pt-nat relation value)` (mathematical term) | Constructs a quotient class from a value of TYPE; LEVEL is explicit and never inferred. |
-| `#pt-recur` | `(#pt-recur FAMILY (indices...))` | `(#math-inductive left () () (#mutual left right) (#pt-type 0) ((make ((child (#pt-recur right ()))))))` (mathematical declaration; right belongs to the same group) | Recursive field marker for an explicitly selected group family. Inherits uniform parameters and universes and supplies child indices; strictly positive Pi codomains are allowed. |
-| `#pt-refl` | `(#pt-refl Type value)` | `(#pt-refl #pt-nat #pt-zero)` (mathematical evidence) | Reflexivity evidence for equality of the value with itself, checked using typed definitional conversion; well-typed proofs of the same proposition convert by proof irrelevance, while data values and proposition types are not collapsed. |
-| `#pt-second` | `(#pt-second pair)` | `(#pt-second (#pt-use zero-with-evidence ()))` (mathematical term) | Second projection, whose type substitutes the first projection into the dependent component type. |
-| `#pt-self` | `#pt-self as a recursive field type` | `(#math-inductive ticks () () (#pt-type 0) ((tick-zero ()) (tick-next ((previous #pt-self)))))` (mathematical inductive declaration) | Recursive field marker for regular inductives; may also be a terminal codomain beneath zero or more `#pt-pi` binders. Function domains cannot contain the family, including double-negative positions. |
-| `#pt-self-at` | `(#pt-self-at (index-terms...))` | `(#math-inductive vector (u) ((A (#pt-type u))) (#indices (#parameter n #pt-nat)) (#pt-type u) ((nil () (#pt-zero)) (cons ((k #pt-nat) (head A) (tail (#pt-self-at (k)))) ((#pt-succ k)))))` (indexed mathematical inductive declaration) | Recursive field marker for indexed families; supplies child indices explicitly and inherits datatype parameters. It may be a terminal codomain beneath zero or more `#pt-pi` binders. Nested occurrences use explicit family applications through checked nominal containers; primitive #pt-sigma nesting and arbitrary type functions remain unsupported. |
-| `#pt-sigma` | `(#pt-sigma ((name Type)) Body)` | `(#pt-sigma ((n #pt-nat)) (#pt-eq #pt-nat n n))` (mathematical type) | Dependent pair type with exactly one binder in its binder list; nest Sigma types for additional components. |
-| `#pt-sort` | `(#pt-sort LEVEL)` | `(#math-definition prop-sort () (#pt-type 0) (#pt-sort 0))` (mathematical definition) | General Sort LEVEL with an explicit universe expression; level zero is Prop and Type u is Sort (succ u). A sort inhabits its successor sort, without inference, cumulativity, or type-in-type. |
-| `#pt-succ` | `(#pt-succ n)` | `(#pt-succ #pt-zero)` (mathematical term) | Successor constructor of mathematical Nat, without machine-width overflow. |
-| `#pt-type` | `(#pt-type LEVEL)` | `(#pt-type 0)` (mathematical sort) | Sort (LEVEL + 1), with an explicit nonnegative universe expression; no cumulativity or native generic instantiation. |
-| `#pt-use` | `(#pt-use global-proof-name (LEVEL...))` | `(#pt-use nat-reflexive ())` (mathematical term) | References a global mathematical declaration at explicit universe arguments; the list is required even when empty. |
-| `#pt-zero` | `#pt-zero` | `(#pt-refl #pt-nat #pt-zero)` (mathematical term) | Zero constructor of mathematical Nat; symbol, not an empty application. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
@@ -3355,7 +2945,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-mut-split` | `(#slice-mut-split slice usize-index)` | `(#let pair (#tuple (#slice-mut #u8) (#slice-mut #u8)) (#slice-mut-split view 2usize))` (expression) | Consumes a mutable slice and returns two disjoint mutable slices. |
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
-| `#statement` | `(#statement CLAIM)` | `(#theorem zero-refl (#universes) (#parameters) (#statement (#pt-eq #pt-nat #pt-zero #pt-zero)) (#proof (#pt-refl #pt-nat #pt-zero)))` (mathematical theorem declaration) | Explicit proposition of a mathematical theorem; the claim must inhabit Prop and requires separately checked evidence. |
 | `#static` | `(#static name Type value)` | `(#static answer #u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
 | `#std` | `(#std)` | `(#std)` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
 | `#struct` | `(#struct Name (properties...) ((field Type)...))` | `(#struct Point () ((x #u64) (y #u64)))` (top level) | Declares a concrete struct; properties may include `#linear` and `#repr-c`. |
@@ -3364,7 +2953,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
-| `#theorem` | `(#theorem NAME (#universes u...) (#parameters (#parameter name TYPE)...) (#statement CLAIM) (#proof EVIDENCE)); or (#theorem NAME PROCEDURAL-CLAIM)` | `(#theorem reflexive (#proof-eq 1u8 1u8))` (top level) | Declares a checked mathematical theorem with opaque evidence or a procedural obligation using shorthand. Normal validation checks obligations; --check-theorem requires an actual theorem declaration and produces no native outputs. |
+| `#theorem` | `(#theorem name proposition)` | `(#theorem add-zero (#proof-for-all ((value #u8)) (#proof-eq (#u8::add-wrap value 0u8) value)))` (top level) | Checks a symbolic program proposition after expansion and ordinary safety validation. Quantified claims cover every modeled input and feasible path; unsupported semantics and exhausted verification budgets fail. Emits no runtime code. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
 | `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask::join ((task ReadTask)) ReadTask::JoinResult)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |
 | `#thread-task-spawn` | `(#thread-task-spawn FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-spawn ReadTask::spawn ((input #u64)) ReadTask::SpawnResult)` (generated signature) | Internal generated function signature for creating a worker task. |
@@ -3375,7 +2964,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#u32` | `#u32` | `(#fn identity ((value #u32)) #u32 (#return value))` (function signature) | Unsigned 32-bit integer scalar type. |
 | `#u64` | `#u64` | `(#fn identity ((value #u64)) #u64 (#return value))` (function signature) | Unsigned 64-bit integer scalar type. |
 | `#u8` | `#u8` | `(#fn identity ((value #u8)) #u8 (#return value))` (function signature) | Unsigned 8-bit integer scalar type. |
-| `#universes` | `(#universes u...)` | `(#theorem nat-refl (#universes) (#parameters (#parameter n #pt-nat)) (#statement (#pt-eq #pt-nat n n)) (#proof (#pt-refl #pt-nat n)))` (mathematical theorem declaration) | Explicit universe-parameter clause; use (#universes) for a monomorphic theorem. Universe instantiation remains explicit through #pt-use. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
 | `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, raw syscalls, and `#unsafe-call`; does not permit unsafe callees through `#call`. |
 | `#unsafe-call` | `(#unsafe-call function (: name value : ...))` | `(#unsafe (#unsafe-call read-byte (: pointer p)))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |

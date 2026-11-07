@@ -111,7 +111,7 @@ pub(crate) fn restore(expressions: Vec<Expr>) -> Vec<Syntax> {
         .collect()
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn without_header(source: &str) -> String {
     crate::parse(source)
         .unwrap()
@@ -133,7 +133,7 @@ pub(crate) fn transfer_builtin(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

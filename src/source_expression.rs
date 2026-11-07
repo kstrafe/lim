@@ -42,7 +42,7 @@ impl From<SourceExpression> for SpannedExpr {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::SourceExpression;
     use crate::{Expr, SourceChildren, Span, SpannedExpr};

@@ -264,14 +264,14 @@ impl Plan {
         Self::solve(graph, types, retirement, lending, false)
     }
 
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub(crate) fn cancellation(
         graph: &Graph,
         types: &LinearTypes,
         retirement: Option<&crate::generator::async_retire::Plan>,
         lending: Option<&crate::generator::async_lend::Plan>,
     ) -> Option<Self> {
-        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+        #[cfg(test)]
         CANCELLATION_SOLVES.with(|count| count.set(count.get() + 1));
         Self::solve(graph, types, retirement, lending, true)
     }
@@ -456,12 +456,12 @@ impl Plan {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 thread_local! {
     pub(crate) static CANCELLATION_SOLVES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

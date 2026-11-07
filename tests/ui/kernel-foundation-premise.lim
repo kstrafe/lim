@@ -1,2 +1,0 @@
-(#math-definition bad () #pt-nat (#pt-app (#pt-use #pt-foundation-choice (1)) #pt-nat #pt-zero))
-(#fn main () #u64 (#return 0u64))

@@ -3,7 +3,6 @@
 mod graph;
 #[cfg(test)]
 mod induction_tests;
-mod kernel;
 mod logic;
 mod symbolic;
 mod validation;
@@ -12,33 +11,9 @@ use crate::typecheck::{AnalysisError, CheckedProgram};
 use crate::{Expr, Function, Item, Span, Type};
 use graph::Graph;
 use logic::{Bit, Circuit, Word, FALSE, TRUE};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use symbolic::{State, Value};
 use validation::ValidationRule;
-
-pub use kernel::{
-    check_lean_export, check_lean_export_receipt_with_budget,
-    check_lean_export_receipt_with_limits, check_lean_export_with_budget,
-    check_lean_export_with_limits, check_lean_export_with_policy, check_proof_artifact_from_path,
-    translate_lean_export, translate_lean_export_artifact_with_budget,
-    translate_lean_export_artifact_with_limits, translate_lean_export_artifact_with_profiles,
-    translate_lean_export_receipt_with_budget, translate_lean_export_receipt_with_limits,
-    translate_lean_export_receipt_with_profiles, translate_lean_export_with_budget,
-    translate_lean_export_with_limits, translate_lean_export_with_policy,
-    translate_lean_export_with_profiles, LeanDeclarationReport, LeanExportArtifactTranslation,
-    LeanExportError, LeanExportLimits, LeanExportReceipt, LeanExportReceiptTranslation,
-    LeanExportReport, LeanExportTranslation, LeanFoundationPolicy, NativeProofLimits,
-};
-
-pub(crate) fn checked_theorem_foundations(
-    program: &crate::Program,
-    target: &str,
-) -> Result<Vec<String>> {
-    kernel::foundation_dependencies(program, target)
-}
-
-pub(crate) use kernel::check_standalone_theorem;
-pub(crate) use kernel::check_standalone_theorem_file;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -111,11 +86,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
     }
     let _timing = crate::timing::stage("proof");
     let graph = Graph::new(checked.program(), checked.declarations());
-    let mut verified_program_proofs = HashSet::new();
     for (name, proposition) in proofs {
-        if kernel::is_declaration(proposition) {
-            continue;
-        }
         let span =
             declaration_span(checked.program(), name).unwrap_or_else(|| Span::new(0, 0, 1, 1));
         let mut engine = Engine::new(checked, &graph, span);
@@ -133,20 +104,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
                 Vec::new(),
             ));
         }
-        verified_program_proofs.insert(name.clone());
     }
-    kernel::check(checked.program(), &verified_program_proofs).map_err(|(name, message)| {
-        let span = declaration_span(checked.program(), &name);
-        (
-            format!(
-                "theorem '{}': {message}",
-                crate::file_access::local_name(&name)
-            ),
-            crate::DiagnosticCode::Proof,
-            span,
-            Vec::new(),
-        )
-    })?;
     Ok(())
 }
 

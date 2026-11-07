@@ -480,7 +480,7 @@ fn with_compilation_context<T>(
     operation(&entry_source, &entry, &config, context.is_some())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -619,7 +619,7 @@ fn guarded_writes(
     Ok(output)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn check_calls(
     body: &Body,
     flow: &FlowGraph,
@@ -1286,7 +1286,7 @@ impl Plan {
     /// reborrow. In particular it does not waive existing direct/call checks.
     /// Callee entry seeds are may-aliases; definite replacement may retire them,
     /// but a branch-only clear must not erase a retained child.
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub fn check_owner_accesses(
         &self,
         declarations: &Declarations,
@@ -1677,7 +1677,7 @@ impl Plan {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::typed_flow::FlowAction;

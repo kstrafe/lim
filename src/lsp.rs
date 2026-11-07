@@ -1514,7 +1514,7 @@ pub fn path_to_uri(path: &Path) -> Option<String> {
     Some(uri)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     #[test]
     fn distributed_enum_declarations_and_payloads_are_indexed() {

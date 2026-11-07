@@ -155,7 +155,6 @@ pub(crate) fn record(
 fn context_key(program: &Program, config: &CompileConfig, target: &str) -> Vec<u8> {
     fn program_key(program: &Program, bytes: &mut Vec<u8>) {
         put_bytes(bytes, format!("{:?}", program.items).as_bytes());
-        put_bytes(bytes, program.proof_budget.json().render().as_bytes());
         put_bytes(bytes, program.source.as_deref().unwrap_or("").as_bytes());
         put_usize(bytes, program.source_files.len());
         for file in &program.source_files {
@@ -583,7 +582,7 @@ record_codec!(
     output_clears
 );
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -832,20 +831,4 @@ mod tests {
         )));
         assert_ne!(before_witness, context_key(&program, &a, "target"));
     }
-}
-
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
-#[test]
-fn proof_budgets_are_part_of_the_semantic_validation_context() {
-    let source = "(#fn main () #u64 (#return 0u64))";
-    let default = CompileConfig::default();
-    let mut selected = default.clone();
-    selected.set_proof_budget(crate::ProofBudget::new(1_000_000, 128 << 20, 1 << 30).unwrap());
-    let first = crate::parse_program_with_config(source, &default).unwrap();
-    let second = crate::parse_program_with_config(source, &selected).unwrap();
-    assert_ne!(default, selected);
-    assert_ne!(
-        context_key(&first, &default, "test"),
-        context_key(&second, &selected, "test")
-    );
 }

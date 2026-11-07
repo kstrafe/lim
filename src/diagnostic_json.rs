@@ -70,7 +70,7 @@ pub fn render_diagnostic_json(diagnostic: &Diagnostic, default_path: &str) -> St
         labels.join(","), expansion, diagnostic.notes.iter().map(|note| quoted(note)).collect::<Vec<_>>().join(","))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

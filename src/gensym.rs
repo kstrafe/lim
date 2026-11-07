@@ -94,7 +94,7 @@ impl Registry {
 
     // Cached output can reuse inherited symbols, or restore symbols belonging
     // to precisely this invocation. A foreign namespace never gains authority.
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     pub(crate) fn restore(&mut self, forms: &[Expr], scope: &Scope) -> bool {
         self.restore_refs(forms.iter(), scope)
     }
@@ -139,7 +139,7 @@ fn collect<'a>(expression: &'a Expr, names: &mut Vec<&'a String>) {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

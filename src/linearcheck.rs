@@ -1709,7 +1709,7 @@ fn check_expr_with_place(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use crate::{check_types, parse_program};
 

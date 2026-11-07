@@ -2944,7 +2944,7 @@ impl Graph {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::generator::async_source::{self, Lowered};

@@ -47,7 +47,7 @@ impl<'a> VariableTypes<'a> {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn variable_type_branches_share_globals_and_isolate_locals() {
     let globals = (0..512)
@@ -105,7 +105,7 @@ impl SemanticError {
 }
 impl From<String> for SemanticError {
     fn from(message: String) -> Self {
-        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+        #[cfg(test)]
         let message = if REWORD_ERRORS.with(|flag| flag.get()) {
             "wording deliberately replaced".into()
         } else {
@@ -121,7 +121,7 @@ impl From<String> for SemanticError {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 thread_local! { static REWORD_ERRORS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 impl From<&str> for SemanticError {
     fn from(message: &str) -> Self {
@@ -298,7 +298,7 @@ impl<'a> CheckedProgram<'a> {
     /// Suspension planning may query ordinary staged ownership facts only
     /// after this program has passed the same validation as emitted code.
     /// Updating analysis caches cannot alter its declarations or source body.
-    #[cfg_attr(any(not(test), feature = "proof-kernel-tests"), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn suspension_storage_facts(
         &mut self,
         names: &std::collections::HashSet<String>,
@@ -347,12 +347,12 @@ impl<'a> CheckedProgram<'a> {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 thread_local! {
     pub(crate) static SEMANTIC_PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod checked_program_tests {
     use super::*;
 
@@ -923,7 +923,7 @@ pub(crate) fn check_resolved_proofs(
 /// Build checked typed bodies and CFG liveness before ownership enforcement.
 /// This is for compiler staging analyses (such as generated frame capture
 /// discovery); it is not a successful program-validation boundary.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn typed_live_parameters(
     program: &Program,
 ) -> Result<HashMap<String, HashSet<usize>>, AnalysisError> {
@@ -945,7 +945,7 @@ pub(crate) fn typed_live_parameters(
 /// Generated-code capture discovery also retains owned cleanup obligations
 /// and held loans. Restrict analysis to actual generated helpers: solving storage for
 /// unrelated imported functions would be needless whole-program work.
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 pub(crate) fn typed_capture_requirements(
     program: &Program,
     prefixes: &[String],
@@ -1371,7 +1371,7 @@ fn check_types_inner(
         None => crate::typed_ir::expression_ids_selected(program, selected)
             .ok_or_else(|| "executable expression occurrences could not be separated".to_owned())?,
     };
-    #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+    #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
     if let Some(planning) = planning {
         for item in &program.items {
@@ -11413,7 +11413,7 @@ fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
     value <= maximum
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod generation_planning_tests {
     use super::*;
 
@@ -11553,7 +11553,7 @@ mod generation_planning_tests {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod typed_ownership_tests {
     use super::*;
 

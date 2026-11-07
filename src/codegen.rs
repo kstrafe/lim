@@ -251,7 +251,7 @@ fn aggregate_call_abi<'a>(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     let program = crate::parse_program(
@@ -297,7 +297,7 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     let program = crate::parse_program(
@@ -444,7 +444,7 @@ fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
     let open = operator.find('<')?;
     if !operator.ends_with('>') || open == 0 {
@@ -458,7 +458,7 @@ fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
     Some((base, arguments.split(',').map(str::trim).collect()))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn specialized_type_name(ty: &Type) -> String {
     match ty {
         Type::Unit => "unit".into(),
@@ -514,7 +514,7 @@ fn specialized_type_name(ty: &Type) -> String {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
     match ty {
         Type::Generic(name) => substitutions
@@ -539,7 +539,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> Expr {
     match expression {
         Expr::List(items) => Expr::List(
@@ -576,7 +576,7 @@ fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> 
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, Type>) -> Statement {
     match statement {
         Statement::Let {
@@ -698,7 +698,7 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) -> Expr {
     match expression {
         Expr::List(items) => Expr::List(
@@ -738,7 +738,7 @@ fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) ->
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn rewrite_statement(
     statement: &Statement,
     specializations: &HashMap<String, String>,
@@ -861,7 +861,7 @@ fn rewrite_statement(
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
     match expression {
         Expr::List(items) => {
@@ -893,7 +893,7 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String>) {
     match statement {
         Statement::Let { value, .. }
@@ -953,7 +953,7 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
     }
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 fn monomorphize_program<'a>(
     program: &'a Program,
     aliases: &HashMap<String, Type>,
@@ -1056,7 +1056,6 @@ fn monomorphize_program<'a>(
         }
     }
     Ok(std::borrow::Cow::Owned(Program {
-        proof_budget: program.proof_budget,
         generated_definition_contexts: program.generated_definition_contexts.clone(),
         items,
         source: program.source.clone(),
@@ -1072,7 +1071,7 @@ fn monomorphize_program<'a>(
     }))
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn non_generic_program_does_not_copy_for_monomorphization() {
     let program = crate::parse_program("(#fn main () #u64 (#return 42u64))").unwrap();
@@ -1214,7 +1213,6 @@ fn prepare_checked_program(
         }
     }
     let mut result = Program {
-        proof_budget: program.proof_budget,
         generated_definition_contexts: program.generated_definition_contexts.clone(),
         items: program
             .items
@@ -5790,7 +5788,7 @@ fn validate_checked_call_result(
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_scalar_arguments_require_retained_types() {
     let program = crate::parse_program(
@@ -5829,7 +5827,7 @@ fn checked_scalar_arguments_require_retained_types() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming() {
     // Generated ordinary declarations also enter via parse_item, without
@@ -5864,7 +5862,7 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
     assert!(assembly.contains("main:"));
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn unsafe_wrapper_lowering_preserves_native_output() {
     let plain = crate::parse_program("(#fn main () #u64 (#return 1u64))").unwrap();
@@ -5875,7 +5873,7 @@ fn unsafe_wrapper_lowering_preserves_native_output() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_local_symbols_require_retained_types() {
     let legacy_type = Type::U64;
@@ -5902,7 +5900,7 @@ fn checked_local_symbols_require_retained_types() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_local_symbols_cannot_fall_back_to_name_based_binding_lookup() {
     let expression = Expr::Symbol("value".into());
@@ -5935,7 +5933,7 @@ fn checked_local_symbols_cannot_fall_back_to_name_based_binding_lookup() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_call_results_require_retained_abi_type() {
     let aliases = HashMap::new();
@@ -5958,7 +5956,7 @@ fn checked_call_results_require_retained_abi_type() {
     validate_checked_call_result(&node, &Type::Tuple(vec![Type::U64]), &aliases).unwrap();
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_calls_require_retained_function_identity() {
     let node = crate::typed_body::EmissionNode::default();
@@ -5984,7 +5982,7 @@ fn checked_calls_require_retained_function_identity() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_expression_metadata_cannot_fall_back_to_syntax() {
     let expression = Expr::List(vec![Expr::Symbol("u64.+.wrap".into())].into());
@@ -6014,7 +6012,7 @@ fn checked_expression_metadata_cannot_fall_back_to_syntax() {
         .is_some());
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_scalar_literals_require_and_use_retained_values() {
     let expression = Expr::Integer(41);
@@ -6071,7 +6069,7 @@ fn checked_scalar_literals_require_and_use_retained_values() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_numeric_expressions_require_retained_operations() {
     let head = Expr::Symbol("u64.+.wrap".into());
@@ -6102,7 +6100,7 @@ fn checked_numeric_expressions_require_retained_operations() {
     );
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_numeric_result_types_agree_with_opcodes() {
     let head = Expr::Symbol("u32.+.wrap".into());
@@ -6134,7 +6132,7 @@ fn checked_numeric_result_types_agree_with_opcodes() {
     checked_numeric_metadata(Some(&node), Some(&Expr::Symbol("u32.!".into()))).unwrap();
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 #[test]
 fn checked_numeric_operands_require_retained_opcode_types() {
     let items = vec![

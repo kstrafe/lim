@@ -315,7 +315,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
     Ok(planning)
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::generator::async_exec::Terminator;

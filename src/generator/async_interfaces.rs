@@ -121,7 +121,7 @@ pub(crate) fn poll_pattern_declaration(invocation: &Expr) -> Result<Item, String
     })
 }
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod protocol_tests {
     use super::*;
 

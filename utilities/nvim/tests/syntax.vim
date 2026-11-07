@@ -60,17 +60,8 @@ endfor
 
 " Canonical proof forms use exact tokens; similar names remain generic keywords.
 call s:check('#theorem', 'limDeclaration')
-call s:check('#math-definition', 'limDeclaration')
-call s:check('#math-opaque', 'limDeclaration')
-call s:check('#math-inductive', 'limDeclaration')
 for s:proof in [
-      \ 'universes', 'parameters', 'parameter', 'parameter-of', 'indices', 'mutual', 'statement', 'proof',
-      \ 'pt-prop', 'pt-sort', 'pt-type', 'pt-pi', 'pt-lambda', 'pt-let', 'pt-sigma', 'pt-app', 'pt-use', 'pt-self-at',
-      \ 'pt-level-succ', 'pt-level-max', 'pt-level-imax', 'pt-nat', 'pt-false', 'pt-self', 'pt-zero',
-      \ 'pt-succ', 'pt-nat-literal', 'pt-numeral', 'pt-construct', 'pt-project', 'pt-induct', 'pt-recur', 'pt-mutual-induct', 'pt-nested-induct', 'pt-case', 'pt-nat-induct',
-      \ 'pt-foundation-choice', 'pt-foundation-propext', 'pt-foundation-quot-sound',
-      \ 'pt-eq', 'pt-refl', 'pt-eq-elim', 'pt-pair', 'pt-first', 'pt-second', 'pt-quot', 'pt-quot-make', 'pt-quot-lift', 'pt-quot-induct',
-      \ 'pt-program', 'pt-certificate',
+      \ 'parameter-of',
       \ 'proof-and',
       \ 'proof-or',
       \ 'proof-not',
@@ -109,7 +100,7 @@ call s:check('proof', '')
 for s:legacy in ['proof-definition', 'proof-theorem', 'proof-inductive']
   call s:check('#' . s:legacy, 'limKeyword')
 endfor
-for s:declaration in ['theorem', 'math-definition', 'math-opaque', 'math-inductive']
+for s:declaration in ['theorem']
   call s:check(s:declaration, '')
   call s:check('#' . s:declaration . '-custom', 'limKeyword')
 endfor
@@ -127,8 +118,6 @@ for [s:token, s:group] in [['#theorem', 'limDeclaration'],
 endfor
 call s:check('#proof-requires-validation-unknown', 'limKeyword')
 call s:check('#parameter-of-unknown', 'limKeyword')
-call s:check('#pt-sort-unknown', 'limKeyword')
-call s:check('#pt-level-imax-unknown', 'limKeyword')
 
 call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64::add-wrap value 1)))')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],

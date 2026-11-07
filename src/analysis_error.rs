@@ -13,7 +13,7 @@ pub(crate) struct Site {
     pub child: Option<usize>,
 }
 thread_local! { static CURRENT: Cell<Option<Site>> = const { Cell::new(None) }; }
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 thread_local! { static REWORD: Cell<bool> = const { Cell::new(false) }; }
 pub(crate) struct Enter(Option<Site>);
 impl Drop for Enter {
@@ -103,7 +103,7 @@ impl Error {
 }
 impl From<String> for Error {
     fn from(message: String) -> Self {
-        #[cfg(all(test, not(feature = "proof-kernel-tests")))]
+        #[cfg(test)]
         let message = if REWORD.with(Cell::get) {
             "diagnostic wording replaced".to_owned()
         } else {
@@ -134,7 +134,7 @@ impl From<Error> for String {
 macro_rules! failure { ($($arg:tt)*) => { $crate::analysis_error::Error::from(format!($($arg)*)) }; }
 pub(crate) use failure;
 
-#[cfg(all(test, not(feature = "proof-kernel-tests")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
