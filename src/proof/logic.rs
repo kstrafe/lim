@@ -10,6 +10,7 @@ pub(crate) const FALSE: Bit = 0;
 pub(crate) const TRUE: Bit = 1;
 const NODE_LIMIT: usize = 100_000;
 const WORK_LIMIT: usize = 2_000_000;
+const TOTAL_SAT_WORK_LIMIT: usize = 64_000_000;
 const MAX_WIDTH: usize = 128;
 const OFFSET_LIMIT: usize = 4096;
 
@@ -31,6 +32,7 @@ pub(crate) struct Circuit {
     offsets: HashMap<(Vec<Bit>, bool), (Word, u128)>,
     // Shape errors and either resource limit poison every subsequent SAT query.
     failure: Option<Error>,
+    sat_work: usize,
 }
 impl Circuit {
     pub(crate) fn new() -> Self {
@@ -39,6 +41,7 @@ impl Circuit {
             table: HashMap::new(),
             offsets: HashMap::new(),
             failure: None,
+            sat_work: 0,
         }
     }
     pub(crate) fn fresh(&mut self) -> Bit {
@@ -172,6 +175,15 @@ impl Circuit {
         if self.failure.is_none() {
             self.failure = Some(error);
         }
+    }
+    fn charge_sat_work(&mut self, amount: usize) -> Result<()> {
+        self.sat_work = self.sat_work.saturating_add(amount);
+        if self.sat_work > TOTAL_SAT_WORK_LIMIT {
+            let error = Error::limit("cumulative SAT search work budget exhausted");
+            self.poison(error.clone());
+            return Err(error);
+        }
+        Ok(())
     }
     pub(crate) fn and(&mut self, a: Bit, b: Bit) -> Bit {
         if !self.valid_bits(&[a, b]) || self.failure.is_some() {
@@ -818,6 +830,10 @@ impl Circuit {
         if condition == FALSE {
             return Ok(None);
         }
+        // Charge query preparation/model traversal as well as search. This
+        // budget belongs to the circuit, so successful queries and alias
+        // retries cannot replenish it. Individual searches retain their cap.
+        self.charge_sat_work(self.nodes.len().saturating_add(1))?;
         // Earlier obligations may leave unrelated arithmetic in this circuit.
         // Only the transitive inputs of this query constrain its result.
         // Exhaustion is checked above: pruning cannot erase a previous error.
@@ -891,10 +907,19 @@ impl Circuit {
                 (needed[index + 1] && matches!(gate, Gate::Input)).then_some(index + 1)
             })
             .collect::<Vec<_>>();
-        match solver
-            .search_with_inputs(self.nodes.len(), &inputs, original.clone())
-            .and_then(|result| result.checked(self.nodes.len(), &original))
-        {
+        let searched = solver.search_with_inputs(self.nodes.len(), &inputs, original.clone());
+        let searched = match searched {
+            Ok(result) => {
+                self.charge_sat_work(solver.work)?;
+                result
+            }
+            Err(error) => {
+                self.sat_work = self.sat_work.saturating_add(solver.work);
+                self.poison(error.clone());
+                return Err(error);
+            }
+        };
+        match searched.checked(self.nodes.len(), &original) {
             Ok(Some(assignment)) => {
                 let inputs: Vec<_> = assignment.iter().map(|&v| v == 1).collect();
                 let model = self.evaluate(&inputs);
@@ -1432,6 +1457,24 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn successful_queries_share_a_sticky_cumulative_search_budget() {
+        let mut circuit = Circuit::new();
+        let input = circuit.fresh();
+        assert!(circuit.satisfy(input).unwrap().is_some());
+        let spent = circuit.sat_work;
+        assert!(spent > 0);
+        circuit.sat_work = TOTAL_SAT_WORK_LIMIT - spent;
+        assert!(circuit.satisfy(input).unwrap().is_some());
+        assert_eq!(circuit.sat_work, TOTAL_SAT_WORK_LIMIT);
+        let error = circuit.satisfy(input).unwrap_err();
+        assert_eq!(
+            error.diagnostic_code().proof_outcome(),
+            Some(crate::ProofOutcome::ResourceLimit)
+        );
+        assert!(circuit.satisfy(FALSE).is_err());
+    }
 
     #[test]
     fn history_projection_covers_every_assignment_and_forgets_later_inputs() {
