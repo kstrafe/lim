@@ -77,7 +77,9 @@ program-shape dependent; this list is not a claim of completeness.
   the loop body or for-step can use explicitly selected, verified contracts,
   including borrowed inputs and reference results. Argument expressions still
   contribute their writes to the loop's abstract state. Borrowed data is
-  abstracted while existing reference identities remain unchanged.
+  abstracted while stable reference identities remain unchanged. When a loop
+  changes handles, a bounded graph abstraction covers existing reference
+  locations, reference-bearing enum variants and slice geometries instead.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness and permutation within a limit. Indexing and
@@ -261,7 +263,7 @@ preserves a sibling field while the helper's postcondition establishes decrease
 of the borrowed counter. The proof covers every byte input with one abstract
 iteration; native replay checks all byte values as well.
 
-Induction separates stored reference handles from their numeric data. Possibly
+The stable induction path separates stored reference handles from numeric data. Possibly
 written owned roots and targets reachable through mutable handles receive fresh
 symbolic contents. Handles keep their original locations, including references
 inside records, arrays, tuples and active enum payloads. A mutable borrow created
@@ -272,10 +274,47 @@ affected validation facts. Readonly loops retain their borrowed contents.
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are
 unchanged. Slice handles also retain their backing location, start and length.
-Unsupported graph changes remain unproved even if the pointed-to values are
-equal, and negation cannot turn them into a proof. Frame discovery is bounded
+Changes leave this stable path and trigger the bounded graph model described
+below. Frame discovery is bounded
 to 256 writable regions, 4096 visited values and nesting depth 32. These are conservative
 frames: an invariant must state any unchanged sibling data needed after the loop.
+
+[`examples/proof_reference_induction.lim`](../examples/proof_reference_induction.lim)
+proves a loop that replaces a reference stored in a borrowed struct. A zero
+count preserves the original contents; every positive count selects the
+alternate reference's contents. Native replay checks all 65,536 combinations
+of byte seeds and counts. Related tests prove clearing and populating enums
+with reference payloads, including their pointed-to contents, and shrinking a
+slice stored in a borrowed struct until it is empty.
+
+For changing graphs, candidates come from existing handles, their projected
+storage and explicitly borrowed sources. Shared sources do not grant mutable
+access. Abstract references select those locations; fresh unrelated referents
+are never allocated. Enum alternatives include absent and present payloads.
+Slice alternatives retain array backing and enumerate bounded valid ranges.
+All potential mutable targets contribute to every loop head's write frame,
+including targets written by earlier iterations and later lost by retargeting.
+Conditional payload writes and symbolic indices conservatively widen to
+enclosing initialized storage.
+
+The checker verifies graph coverage on entry, continuing steps and forwarded
+exits, then checks the supplied invariant and decreasing rank. Equal contents
+do not establish reference identity. A reference to storage outside the
+catalog, an insufficient invariant or exhausted budgets leaves the theorem
+unproved, including under negation. Reference choices and widened frames are
+conservative; some valid programs need stronger invariants or remain outside
+this model. General heap allocation and environmental references are not
+inferred from this bounded storage model.
+
+Graph catalogs are limited to 4,096 locations and 4,096 existing handles;
+write frames to 256 regions; graph combinations to 256; and type/layout nesting
+to 32. Catalogs and retained combinations also have separate 64 MiB charged
+representation budgets, checked before cloning combinations. Large type names,
+potential enum payloads and source-frame metadata contribute to those budgets.
+Readonly enum matches in invariants use the ordinary `#match`/`#case` syntax,
+with scoped payload bindings, no shadowing, one pure value per case and at
+most 256 cases. Blocks, user calls and effects remain unsupported there. LSP
+navigation retains the usual variant and payload-binding scopes.
 
 [`examples/proof_slice_induction.lim`](../examples/proof_slice_induction.lim)
 proves that a slice loop completes, sets every selected byte to zero and

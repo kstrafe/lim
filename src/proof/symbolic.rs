@@ -4,6 +4,8 @@ use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
+#[path = "induction_graph.rs"]
+mod induction_graph;
 #[path = "induction_memory.rs"]
 mod induction_memory;
 #[path = "slices.rs"]
@@ -1916,13 +1918,39 @@ impl Engine<'_, '_> {
         step: Option<&Statement>,
         invariant: &Invariant,
     ) -> Result<Vec<(State, Value)>> {
-        // Specification evaluation must not run ordinary statements, introduce
-        // bindings, call user code, or alter guards except by pure branching.
+        if let Some(output) = self.inductive_loop_attempt(
+            state.clone(),
+            label,
+            condition,
+            body,
+            step,
+            invariant,
+            false,
+        )? {
+            return Ok(output);
+        }
+        self.inductive_loop_attempt(state, label, condition, body, step, invariant, true)?
+            .ok_or_else(|| Error::checker("dynamic induction did not check graph closure"))
+    }
+
+    fn inductive_loop_attempt(
+        &mut self,
+        state: State,
+        label: Option<&str>,
+        condition: Option<&Expr>,
+        body: &[Statement],
+        step: Option<&Statement>,
+        invariant: &Invariant,
+        changing: bool,
+    ) -> Result<Option<Vec<(State, Value)>>> {
+        // Specification evaluation permits scoped enum-pattern bindings and
+        // pure branching, but no ordinary statements or user calls.
         // In particular Expr::Block bypasses expr's `spec` flag today.
         fn pure(
             expr: &Expr,
             locals: &BTreeMap<String, (Location, Type)>,
             depth: usize,
+            variants: &BTreeSet<String>,
         ) -> Result<()> {
             if depth > 64 {
                 return Err(Error::limit("induction expression nesting exceeds 64"));
@@ -1935,12 +1963,36 @@ impl Engine<'_, '_> {
                 Expr::List(_)=>{
                     let(head,args)=form(expr).ok_or_else(|| Error::unsupported("induction specifications cannot call user functions"))?;
                     if numeric(head).is_some()||matches!(head,"proof-and"|"proof-or"|"proof-not"|"proof-implies"|"proof-eq"|"if"|"index"|"deref"|"slice-len"|"slice-mut-len"|"slice-idx"|"slice-mut-idx") {
-                        for arg in args{pure(arg,locals,depth+1)?;}return Ok(());
+                        for arg in args{pure(arg,locals,depth+1,variants)?;}return Ok(());
                     }
                     match head {
+                        "match"=>{
+                            if args.len()<2{return Err(Error::invalid("induction match requires a value and cases"));}
+                            if args.len()>257{return Err(Error::limit("induction matches are limited to 256 cases"));}
+                            pure(&args[0],locals,depth+1,variants)?;
+                            for arm in &args[1..]{
+                                let Some(("case", parts))=form(arm) else{return Err(Error::unsupported("induction matches require explicit #case arms"));};
+                                if parts.len()!=2{return Err(Error::unsupported("induction cases require a pattern and one pure value"));}
+                                let mut scoped=locals.clone();
+                                match &parts[0]{
+                                    Expr::Symbol(name) if name=="_"||variants.contains(name)=>{},
+                                    Expr::List(items) if items.len()==2 && symbol(&items[0]).is_ok_and(|name|variants.contains(name))=>{
+                                        let name=symbol(&items[1])?;
+                                        if name!="_"{
+                                            crate::names::require(name,"value").map_err(Error::invalid)?;
+                                            if scoped.contains_key(name){return Err(Error::invalid("induction pattern bindings cannot shadow locals"));}
+                                            scoped.insert(name.into(),(Location{root:0,path:Vec::new()},Type::Unit));
+                                        }
+                                    },
+                                    _=>return Err(Error::unsupported("induction matches require simple enum patterns")),
+                                }
+                                pure(&parts[1],&scoped,depth+1,variants)?;
+                            }
+                            Ok(())
+                        },
                         "literal"=>{arity(head,args,2)?;if !matches!(args[1],Expr::Integer(_)|Expr::UnsignedInteger(_)){return Err(Error::invalid("nonliteral induction literal"));}Ok(())},
-                        "as"|"get"=>{arity(head,args,2)?;pure(&args[0],locals,depth+1)},
-                        "proof-no-overflow"=>{arity(head,args,3)?;numeric(symbol(&args[0])?).ok_or_else(|| Error::invalid("invalid induction overflow operation"))?;pure(&args[1],locals,depth+1)?;pure(&args[2],locals,depth+1)},
+                        "as"|"get"|"variant-is"=>{arity(head,args,2)?;pure(&args[0],locals,depth+1,variants)},
+                        "proof-no-overflow"=>{arity(head,args,3)?;numeric(symbol(&args[0])?).ok_or_else(|| Error::invalid("invalid induction overflow operation"))?;pure(&args[1],locals,depth+1,variants)?;pure(&args[2],locals,depth+1,variants)},
                         _=>Err(Error::unsupported(format!("#{head} is not a supported pure induction expression"))),
                     }
                 }
@@ -2029,18 +2081,29 @@ impl Engine<'_, '_> {
                 },
             }
         }
-        pure(&invariant.predicate, &locals, 0)?;
-        pure(&invariant.rank, &locals, 0)?;
+        let variants = self
+            .enums
+            .values()
+            .flatten()
+            .map(|variant| variant.name.clone())
+            .collect::<BTreeSet<_>>();
+        pure(&invariant.predicate, &locals, 0, &variants)?;
+        pure(&invariant.rank, &locals, 0, &variants)?;
         // Keep the loop test pure too: otherwise a terminating test can mutate
         // untracked storage, transfer control, or invalidate the loop-head rank.
         if let Some(condition) = condition {
-            pure(condition, &locals, 0)?;
+            pure(condition, &locals, 0, &variants)?;
         }
         let mut modified = induction_memory::Changes::default();
         let contracts = self.induction_contracts()?;
-        collect_modified(body, &mut modified, &contracts)?;
+        collect_modified(body, &mut modified, &contracts, &variants)?;
         if let Some(step) = step {
-            collect_modified(std::slice::from_ref(step), &mut modified, &contracts)?;
+            collect_modified(
+                std::slice::from_ref(step),
+                &mut modified,
+                &contracts,
+                &variants,
+            )?;
         }
         let entry = self.proposition(state.clone(), &invariant.predicate)?;
         // Subsequent obligations may use an arbitrary loop-head state. Its
@@ -2050,7 +2113,15 @@ impl Engine<'_, '_> {
         self.establish(entry, "loop invariant fails on entry")?;
         let reference_entry = state.clone();
         let mut output = Vec::new();
-        for state in self.induction_memory_states(state, &locals, &modified)? {
+        let heads = if changing {
+            self.induction_graph_states(state, &locals, &modified)?
+        } else {
+            self.induction_memory_states(state, &locals, &modified)?
+        };
+        if changing {
+            self.induction_graph_covers(&heads, &reference_entry)?;
+        }
+        for state in heads.iter().cloned() {
             for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
                 if state.flow != Flow::Normal {
                     return Err(Error::unsupported("invariant transfers control"));
@@ -2107,7 +2178,13 @@ impl Engine<'_, '_> {
                                         ));
                                     }
                                     state.frames.last_mut().unwrap().locals = locals.clone();
-                                    self.induction_reference_shape(&reference_entry, &state)?;
+                                    if changing {
+                                        self.induction_graph_covers(&heads, &state)?;
+                                    } else if !self
+                                        .induction_shape_fits(&reference_entry, &state)?
+                                    {
+                                        return Ok(None);
+                                    }
                                     let preserved =
                                         self.proposition(state.clone(), &invariant.predicate)?;
                                     self.establish(preserved, "loop invariant is not preserved")?;
@@ -2136,7 +2213,11 @@ impl Engine<'_, '_> {
                                     }
                                 }
                             } else {
-                                self.induction_reference_shape(&reference_entry, &state)?;
+                                if changing {
+                                    self.induction_graph_covers(&heads, &state)?;
+                                } else if !self.induction_shape_fits(&reference_entry, &state)? {
+                                    return Ok(None);
+                                }
                                 if matches!(&state.flow,Flow::Break(target)if target.is_none()||target.as_deref()==label)
                                 {
                                     state.flow = Flow::Normal;
@@ -2151,7 +2232,7 @@ impl Engine<'_, '_> {
                 }
             }
         }
-        Ok(output)
+        Ok(Some(output))
     }
     fn variant(&self, name: &str) -> Option<(String, usize)> {
         self.enums.iter().find_map(|(owner, variants)| {
@@ -2648,17 +2729,26 @@ fn collect_modified(
     body: &[Statement],
     names: &mut induction_memory::Changes,
     contracts: &BTreeMap<String, bool>,
+    variants: &BTreeSet<String>,
 ) -> Result<()> {
     fn borrowed_root(
         expr: &Expr,
         names: &mut induction_memory::Changes,
         depth: usize,
+        write: bool,
     ) -> Result<()> {
         if depth > 64 {
             return Err(Error::limit("induction borrow nesting exceeds 64"));
         }
         if let Expr::Symbol(name) = expr {
-            names.locals.insert(name.clone());
+            names
+                .borrowed
+                .entry(name.clone())
+                .and_modify(|mutable| *mutable |= write)
+                .or_insert(write);
+            if write {
+                names.locals.insert(name.clone());
+            }
             return Ok(());
         }
         let (head, args) = form(expr)
@@ -2668,8 +2758,11 @@ fn collect_modified(
             "deref" | "get" | "index" | "slice-idx" | "slice-mut-idx"
         ) && !args.is_empty()
         {
-            borrowed_root(&args[0], names, depth + 1)
+            borrowed_root(&args[0], names, depth + 1, write)
         } else {
+            if !write {
+                return Ok(());
+            }
             Err(Error::unsupported(
                 "induction borrow requires a modeled place",
             ))
@@ -2679,16 +2772,19 @@ fn collect_modified(
         expr: &Expr,
         names: &mut induction_memory::Changes,
         contracts: &BTreeMap<String, bool>,
+        variants: &BTreeSet<String>,
         depth: usize,
     ) -> Result<()> {
         if depth > 64 {
             return Err(Error::limit("induction effect nesting exceeds 64"));
         }
         match expr {
-            Expr::Block(body) | Expr::Loop(body) => statements(body, names, contracts, depth + 1),
+            Expr::Block(body) | Expr::Loop(body) => {
+                statements(body, names, contracts, variants, depth + 1)
+            }
             Expr::Labeled {
                 expression: inner, ..
-            } => expression(inner, names, contracts, depth + 1),
+            } => expression(inner, names, contracts, variants, depth + 1),
             Expr::Function(_) => Err(Error::unsupported(
                 "induction cannot summarize user-call effects",
             )),
@@ -2705,7 +2801,7 @@ fn collect_modified(
                 // Arguments execute in the caller. Their nested statements must
                 // contribute to the havoc set even though the callee is opaque.
                 for argument in &items[1..] {
-                    expression(argument, names, contracts, depth + 1)?;
+                    expression(argument, names, contracts, variants, depth + 1)?;
                 }
                 Ok(())
             }
@@ -2719,11 +2815,12 @@ fn collect_modified(
                         .iter()
                         .map(|expression| crate::parse_statement(expression).map_err(Error::from))
                         .collect::<Result<Vec<_>>>()?;
-                    return statements(&body, names, contracts, depth + 1);
+                    return statements(&body, names, contracts, variants, depth + 1);
                 }
                 // Fail closed on new builtins, unselected calls (including clone hooks),
                 // mutable borrowing, raw/atomic/pinned writes and unsafe code.
                 if numeric(head).is_none()
+                    && !variants.contains(head)
                     && !matches!(
                         head,
                         "if" | "literal"
@@ -2769,33 +2866,42 @@ fn collect_modified(
                         if !matches!(args.len(), 1 | 3) {
                             return Err(Error::invalid("invalid mutable slice borrow"));
                         }
-                        borrowed_root(&args[0], names, depth + 1)?;
+                        borrowed_root(&args[0], names, depth + 1, true)?;
                         for arg in args {
-                            expression(arg, names, contracts, depth + 1)?;
+                            expression(arg, names, contracts, variants, depth + 1)?;
                         }
                         Ok(())
                     }
                     "borrow-mut" | "pin-borrow-mut" => {
                         arity(head, args, 1)?;
-                        borrowed_root(&args[0], names, depth + 1)?;
-                        expression(&args[0], names, contracts, depth + 1)
+                        borrowed_root(&args[0], names, depth + 1, true)?;
+                        expression(&args[0], names, contracts, variants, depth + 1)
                     }
                     "deref-set" => {
                         arity(head, args, 2)?;
                         names.memory = true;
                         for arg in args {
-                            expression(arg, names, contracts, depth + 1)?;
+                            expression(arg, names, contracts, variants, depth + 1)?;
+                        }
+                        Ok(())
+                    }
+                    "borrow" | "pin-borrow" | "borrow-slice" => {
+                        if let Some(source) = args.first() {
+                            borrowed_root(source, names, depth + 1, false)?;
+                        }
+                        for arg in args {
+                            expression(arg, names, contracts, variants, depth + 1)?;
                         }
                         Ok(())
                     }
                     "literal" => Ok(()),
                     "as" | "get" | "variant-is" => {
                         arity(head, args, 2)?;
-                        expression(&args[0], names, contracts, depth + 1)
+                        expression(&args[0], names, contracts, variants, depth + 1)
                     }
                     "tuple-of" | "array-of" | "tuple" | "enum-literal" => {
                         for arg in args.iter().skip(1) {
-                            expression(arg, names, contracts, depth + 1)?;
+                            expression(arg, names, contracts, variants, depth + 1)?;
                         }
                         Ok(())
                     }
@@ -2806,13 +2912,13 @@ fn collect_modified(
                             if pair.len() != 2 {
                                 return Err("invalid induction record literal".into());
                             }
-                            expression(&pair[1], names, contracts, depth + 1)?;
+                            expression(&pair[1], names, contracts, variants, depth + 1)?;
                         }
                         Ok(())
                     }
                     _ => {
                         for arg in args {
-                            expression(arg, names, contracts, depth + 1)?;
+                            expression(arg, names, contracts, variants, depth + 1)?;
                         }
                         Ok(())
                     }
@@ -2826,6 +2932,7 @@ fn collect_modified(
         body: &[Statement],
         names: &mut induction_memory::Changes,
         contracts: &BTreeMap<String, bool>,
+        variants: &BTreeSet<String>,
         depth: usize,
     ) -> Result<()> {
         if depth > 64 {
@@ -2845,25 +2952,27 @@ fn collect_modified(
                 | Statement::FieldAssign { name, value, .. }
                 | Statement::TupleAssign { name, value, .. } => {
                     names.locals.insert(name.clone());
-                    expression(value, names, contracts, depth + 1)?;
+                    expression(value, names, contracts, variants, depth + 1)?;
                 }
                 Statement::ArrayAssign { name, index, value } => {
                     names.locals.insert(name.clone());
-                    expression(index, names, contracts, depth + 1)?;
-                    expression(value, names, contracts, depth + 1)?;
+                    expression(index, names, contracts, variants, depth + 1)?;
+                    expression(value, names, contracts, variants, depth + 1)?;
                 }
                 Statement::Let { value, .. }
                 | Statement::Expr(value)
                 | Statement::Return(Some(value))
                 | Statement::BreakValue(value)
                 | Statement::BreakToValue { value, .. } => {
-                    expression(value, names, contracts, depth + 1)?
+                    expression(value, names, contracts, variants, depth + 1)?
                 }
                 Statement::While { condition, body } => {
-                    expression(condition, names, contracts, depth + 1)?;
-                    statements(body, names, contracts, depth + 1)?;
+                    expression(condition, names, contracts, variants, depth + 1)?;
+                    statements(body, names, contracts, variants, depth + 1)?;
                 }
-                Statement::Loop { body } => statements(body, names, contracts, depth + 1)?,
+                Statement::Loop { body } => {
+                    statements(body, names, contracts, variants, depth + 1)?
+                }
                 Statement::For {
                     init,
                     condition,
@@ -2874,21 +2983,24 @@ fn collect_modified(
                         std::slice::from_ref(init.as_ref()),
                         names,
                         contracts,
+                        variants,
                         depth + 1,
                     )?;
-                    expression(condition, names, contracts, depth + 1)?;
+                    expression(condition, names, contracts, variants, depth + 1)?;
                     statements(
                         std::slice::from_ref(step.as_ref()),
                         names,
                         contracts,
+                        variants,
                         depth + 1,
                     )?;
-                    statements(body, names, contracts, depth + 1)?;
+                    statements(body, names, contracts, variants, depth + 1)?;
                 }
                 Statement::Labeled { statement, .. } => statements(
                     std::slice::from_ref(statement.as_ref()),
                     names,
                     contracts,
+                    variants,
                     depth + 1,
                 )?,
                 // Pattern evaluation and payload projections can introduce aliases
@@ -2909,7 +3021,7 @@ fn collect_modified(
         }
         Ok(())
     }
-    statements(body, names, contracts, 0)
+    statements(body, names, contracts, variants, 0)
 }
 
 fn validate_integer(value: u128, negative: bool, width: usize, signed: bool) -> Result<()> {

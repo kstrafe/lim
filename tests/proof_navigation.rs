@@ -644,6 +644,33 @@ fn contract_result_and_old_wrappers_preserve_member_types() {
 }
 
 #[test]
+fn enum_patterns_in_loop_invariants_keep_variant_and_payload_binding_scopes() {
+    run(
+        r#"
+      (#enum Maybe () (: [[none|Maybe.None]] : [[some|Maybe.Some]] (#ref #u8)))
+      (#fn populate (: [[target|target]] (#ref-mut Maybe) : alternate (#ref #u8) : count #u8) ()
+        (#let-mut remaining #u8 count)
+        (#label again (#while (#u8::gt remaining 0u8)
+          (#deref-set target (#enum-literal Maybe.Some alternate))
+          (#set remaining (#u8::sub-wrap remaining 1u8))))
+        (#return ()))
+      (#theorem claim (#proof-with-invariants
+        ((populate again
+          (#match (#deref [[receiver|target]])
+            (#case ([[variant|Maybe.Some]] [[binding|value]]) (#u8::eq (#deref [[use|value]]) (#deref value)))
+            (#case [[other|Maybe.None]] true)) remaining))
+        (#proof-contract populate true true)))
+    "#,
+        &[
+            ("receiver", &["target"]),
+            ("variant", &["some"]),
+            ("other", &["none"]),
+            ("use", &["binding"]),
+        ],
+    );
+}
+
+#[test]
 fn invariants_preserve_loop_body_and_branch_binding_lifetimes() {
     run(
         r#"

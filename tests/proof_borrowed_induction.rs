@@ -155,7 +155,7 @@ fn weak_borrowed_summary_and_its_negation_are_unproved() {
 }
 
 #[test]
-fn reference_retargeting_between_iterations_is_unsupported_even_under_negation() {
+fn reference_retargeting_still_requires_a_strictly_decreasing_rank_under_negation() {
     let source = r#"
       (#struct Holder () (: target (#ref #u8)))
       (#fn retarget (: holder (#ref-mut Holder) : alternate (#ref #u8)) ()
@@ -172,7 +172,7 @@ fn reference_retargeting_between_iterations_is_unsupported_even_under_negation()
         let theorem = format!(
             "{source} (#theorem retarget-contract (#proof-with-invariants ((retarget again true (#deref (#get (#deref holder) target)))) {claim}))"
         );
-        rejected(&theorem, "retarget-contract", ProofOutcome::Unsupported);
+        rejected(&theorem, "retarget-contract", ProofOutcome::InductionFailure);
     }
 }
 
@@ -215,7 +215,7 @@ fn a_temporary_borrow_cannot_hide_a_loop_carried_write() {
 }
 
 #[test]
-fn reference_bearing_enum_tags_cannot_change_during_induction() {
+fn reference_bearing_enum_tags_can_change_with_a_proved_countdown() {
     let body = r#"
       (#enum Maybe () (: Maybe.None : Maybe.Some (#ref #u8)))
       (#fn clear (: target (#ref-mut Maybe) : count #u8) ()
@@ -224,12 +224,19 @@ fn reference_bearing_enum_tags_cannot_change_during_induction() {
           (#deref-set target (#enum-literal Maybe.None))
           (#set remaining (#u8::sub-wrap remaining 1u8))))
         (#return ()))"#;
-    for claim in [
-        "(#proof-contract clear true true)",
-        "(#proof-not (#proof-contract clear true true))",
+    for (claim, expected) in [
+        ("(#proof-contract clear true true)", None),
+        (
+            "(#proof-not (#proof-contract clear true true))",
+            Some(ProofOutcome::Counterexample),
+        ),
     ] {
         let source = format!("{body} (#theorem claim (#proof-with-invariants ((clear again true remaining)) {claim}))");
-        rejected(&source, "claim", ProofOutcome::Unsupported);
+        if let Some(expected) = expected {
+            rejected(&source, "claim", expected);
+        } else {
+            proved(&source, "claim");
+        }
     }
 }
 

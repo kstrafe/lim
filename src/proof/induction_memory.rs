@@ -6,11 +6,12 @@ use super::*;
 pub(super) struct Changes {
     pub locals: BTreeSet<String>,
     pub memory: bool,
+    pub borrowed: BTreeMap<String, bool>,
 }
 
 #[derive(Default)]
-struct WriteFrame {
-    regions: Vec<(Location, Bit)>,
+pub(super) struct WriteFrame {
+    pub(super) regions: Vec<(Location, Bit)>,
     seen: Vec<(Location, Bit)>,
     visits: usize,
 }
@@ -354,7 +355,7 @@ impl Engine<'_, '_> {
         Ok(vec![state])
     }
 
-    fn induction_region(
+    pub(super) fn induction_region(
         &mut self,
         frame: &mut WriteFrame,
         place: &Location,
@@ -375,7 +376,7 @@ impl Engine<'_, '_> {
         Ok(())
     }
 
-    fn induction_reachable(
+    pub(super) fn induction_reachable(
         &mut self,
         state: &State,
         value: &Value,
@@ -569,7 +570,27 @@ impl Engine<'_, '_> {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn induction_reference_shape(&mut self, entry: &State, state: &State) -> Result<()> {
+        if !self.induction_shape_fits(entry, state)? {
+            return Err(Error::unsupported(
+                "induction cannot change reference identities or reference-bearing enum tags",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn induction_shape_fits(&mut self, entry: &State, state: &State) -> Result<bool> {
+        let covered = self.induction_reference_relation(entry, state)?;
+        let bad = self.circuit.and(state.guard, self.circuit.not(covered));
+        Ok(self.circuit.satisfy(bad)?.is_none())
+    }
+
+    pub(super) fn induction_reference_relation(
+        &mut self,
+        entry: &State,
+        state: &State,
+    ) -> Result<Bit> {
         if state.heap.len() < entry.heap.len() {
             return Err(Error::checker("induction lost existing symbolic storage"));
         }
@@ -578,16 +599,10 @@ impl Engine<'_, '_> {
             let valid = self.induction_same_references(previous, current, 0)?;
             covered = self.circuit.and(covered, valid);
         }
-        let bad = self.circuit.and(state.guard, self.circuit.not(covered));
-        if self.circuit.satisfy(bad)?.is_some() {
-            return Err(Error::unsupported(
-                "induction cannot change reference identities or reference-bearing enum tags",
-            ));
-        }
-        Ok(())
+        Ok(covered)
     }
 
-    fn induction_same_references(
+    pub(super) fn induction_same_references(
         &mut self,
         previous: &Value,
         current: &Value,

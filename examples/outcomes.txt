@@ -467,3 +467,4 @@ module library_boundary.lim encapsulation/storage.lim - -
 exit 42 encapsulation/test.lim - -
 exit 42 proofs.lim - -
 exit 42 validated_user.lim - -
+exit 42 proof_reference_induction.lim - -
