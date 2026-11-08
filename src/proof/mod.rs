@@ -16,6 +16,7 @@ mod outcome;
 mod sat_certificate;
 mod symbolic;
 mod validation;
+mod validation_aliases;
 
 use crate::typecheck::{AnalysisError, CheckedProgram};
 use crate::{Expr, Function, Item, Span, Type};

@@ -377,13 +377,26 @@ impl<'a, 'p> Engine<'a, 'p> {
         } else {
             state.possibly_aliasing_roots(subject.root)
         };
-        for fact in &mut state.validations {
+        let mut contents = vec![FALSE; state.validations.len()];
+        if succeeded != TRUE && !aliases.is_empty() {
+            let current = self.read(state, subject)?;
+            for (index, fact) in state.validations.iter().enumerate() {
+                if fact.valid != FALSE && aliases.contains(&fact.subject.root) {
+                    let previous = self.read(state, &fact.subject)?;
+                    contents[index] = self.validation_contents_may_equal(&previous, &current, 0)?;
+                }
+            }
+        }
+        for (fact, contents) in state.validations.iter_mut().zip(contents) {
             self.tick()?;
             if aliases.contains(&fact.subject.root) {
                 // A true result cannot revoke an existing success, whether
                 // these roots alias or not. A failure may revoke it. Keep a
                 // lower bound without granting authorization through may-alias.
-                let valid = self.circuit.and(fact.valid, succeeded);
+                // Different immutable contents exclude same-object identity;
+                // equal contents still do not establish it.
+                let keep = self.circuit.or(succeeded, contents ^ 1);
+                let valid = self.circuit.and(fact.valid, keep);
                 self.alias_witness |= valid != fact.valid;
                 fact.valid = valid;
             } else {

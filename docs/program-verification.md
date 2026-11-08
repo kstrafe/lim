@@ -351,6 +351,25 @@ An explicit caller passing the same object supplies a known identity and can
 produce a concrete counterexample. General alias enumeration and conditional
 identity relations remain open.
 
+The checker can exclude same-object identity when modeled immutable contents
+differ. Failed revalidation is therefore guarded by a necessary equality of
+scalar fields, arrays, tuples, enum tags and active payloads. Reference fields
+contribute no address or pointee comparisons, and slices contribute only their
+stored length: modeled backing roots and relative offsets do not establish
+distinct addresses. Equal contents never establish identity or authorize an
+action on an unvalidated object. Writes retain the broader conservative
+dependency invalidation described above.
+
+[`examples/proof_distinct_validation.lim`](../examples/proof_distinct_validation.lim)
+demonstrates a useful consequence without extra source annotations. A pure
+validator checks a user's immutable ID. Rechecking one input preserves earlier
+success for the other: if the objects alias, their contents
+and check results agree; if results differ, their contents distinguish them.
+The invariant connects the cached success to that same user across iterations.
+Native replay covers all byte counts with both validation outcomes, including
+explicitly aliased inputs. The bounded symbolic proof covers all modeled input
+values, rather than only those native samples.
+
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are
 unchanged. Slice handles also retain their backing location, start and length.
