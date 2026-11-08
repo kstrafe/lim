@@ -1,0 +1,21 @@
+; A negative theorem proves that an aliased caller can violate this protocol.
+; The checker prints a concrete shared ref# identity if #proof-not is removed.
+(#fn validate (: user (#ref #u8) : accepted #bool) #bool
+  (#return accepted))
+
+(#fn perform (: user (#ref #u8)) #u8
+  (#return (#deref user)))
+
+(#fn entry (: first (#ref #u8) : second (#ref #u8)) #u8
+  (#let valid #bool (#call validate (: user second : accepted true)))
+  (#let failed #bool (#call validate (: user first : accepted false)))
+  (#return (#call perform (: user second))))
+
+(#theorem alias-can-break-protocol
+  (#proof-not
+    (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))))
+
+(#fn main () #u64
+  (#let user #u8 42u8)
+  (#let answer #u8 (#call entry (: first (#borrow user) : second (#borrow user))))
+  (#return (#as answer #u64)))

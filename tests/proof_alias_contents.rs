@@ -46,17 +46,13 @@ fn different_scalar_contents_preserve_the_other_inputs_evidence() {
     }
 }
 #[test]
-fn equal_scalar_contents_remain_ambiguous_under_negation() {
+fn equal_scalar_contents_allow_a_concrete_alias_counterexample() {
     let source = inputs(
         "#u8",
         "(#if (#u8::ne (#deref first) (#deref second)) (#block (#return ())))",
     );
-    check(&source, CLAIM, Some(ProofOutcome::Unsupported));
-    check(
-        &source,
-        &format!("(#proof-not {CLAIM})"),
-        Some(ProofOutcome::Unsupported),
-    );
+    check(&source, CLAIM, Some(ProofOutcome::Counterexample));
+    check(&source, &format!("(#proof-not {CLAIM})"), None);
 }
 #[test]
 fn whole_record_array_and_tuple_values_can_exclude_identity() {

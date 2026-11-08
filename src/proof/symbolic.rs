@@ -12,6 +12,10 @@ mod induction_invariants;
 mod induction_memory;
 #[path = "induction_trace.rs"]
 mod induction_trace;
+#[path = "input_aliases.rs"]
+mod input_aliases;
+#[path = "input_storage.rs"]
+mod input_storage;
 #[path = "slices.rs"]
 mod slices;
 
@@ -135,6 +139,10 @@ pub(super) struct State {
     required: Bit,
     pub validations: Vec<ValidationFact>,
     abstract_referents: BTreeSet<usize>,
+    disjoint_inputs: BTreeSet<(usize, usize)>,
+    input_referents: BTreeSet<usize>,
+    input_parents: BTreeSet<usize>,
+    input_parent_aliases: BTreeSet<(usize, usize)>,
     revision: u64,
 }
 impl State {
@@ -149,11 +157,36 @@ impl State {
             BTreeSet::new()
         };
         roots.remove(&root);
+        for &(a, b) in &self.input_parent_aliases {
+            if a == root {
+                roots.insert(b);
+            }
+            if b == root {
+                roots.insert(a);
+            }
+        }
+        roots.retain(|&other| {
+            let pair = (root.min(other), root.max(other));
+            !self.disjoint_inputs.contains(&pair) || self.input_parent_aliases.contains(&pair)
+        });
         roots
     }
 
     pub(super) fn abstract_referent_count(&self) -> usize {
         self.abstract_referents.len()
+    }
+    pub(super) fn disjoint_input_pair_count(&self) -> usize {
+        self.disjoint_inputs.len()
+    }
+    pub(super) fn input_storage_metadata_bytes(&self) -> usize {
+        self.input_referents
+            .len()
+            .saturating_add(self.input_parents.len())
+            .saturating_add(self.input_parent_aliases.len())
+            .saturating_mul(64)
+    }
+    pub(in crate::proof) fn heap_len(&self) -> usize {
+        self.heap.len()
     }
 
     pub(super) fn revision(&self) -> u64 {
@@ -179,6 +212,10 @@ impl State {
             required: FALSE,
             validations: Vec::new(),
             abstract_referents: BTreeSet::new(),
+            disjoint_inputs: BTreeSet::new(),
+            input_referents: BTreeSet::new(),
+            input_parents: BTreeSet::new(),
+            input_parent_aliases: BTreeSet::new(),
             revision: 0,
         }
     }
@@ -278,6 +315,13 @@ impl Engine<'_, '_> {
                 self.fresh_under_shared = previous;
                 let value = value?;
                 let place = self.allocate(state, value)?;
+                if matches!(self.trace, Some(Trace::Validated(_))) {
+                    self.register_input_storage(
+                        state,
+                        place.root,
+                        matches!(ty, Type::PinnedReference { mutable: true, .. }),
+                    )?;
+                }
                 // Separate fresh roots overapproximate referent contents, but
                 // do not establish distinct identities for shared inputs.
                 // An exclusive reference is disjoint unless reached through

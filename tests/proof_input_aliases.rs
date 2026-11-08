@@ -42,15 +42,24 @@ fn shared_inputs_cover_the_same_object_as_well_as_distinct_objects() {
         ),
         ProofOutcome::Counterexample,
     );
-    for claim in [
-        body.replace("ENTRY", "entry"),
-        format!("(#proof-not {})", body.replace("ENTRY", "entry")),
-    ] {
-        check(
-            &format!("{PROGRAM} (#theorem claim {claim})"),
-            ProofOutcome::Unsupported,
-        );
-    }
+    check(
+        &format!(
+            "{PROGRAM} (#theorem claim {})",
+            body.replace("ENTRY", "entry")
+        ),
+        ProofOutcome::Counterexample,
+    );
+    let negated = format!(
+        "{PROGRAM} (#theorem claim (#proof-not {}))",
+        body.replace("ENTRY", "entry")
+    );
+    lim::check_theorem_details_from_path_with_config(
+        &negated,
+        std::path::Path::new("input-aliases.lim"),
+        &CompileConfig::default(),
+        "claim",
+    )
+    .unwrap();
 }
 
 #[test]

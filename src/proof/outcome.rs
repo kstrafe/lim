@@ -33,6 +33,7 @@ impl ProofOutcome {
 pub(super) struct Error {
     kind: Failure,
     message: String,
+    input_aliases: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,43 +52,57 @@ impl Error {
         Self {
             kind: Failure::Invalid,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::Unsupported,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn limit(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::ResourceLimit,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn counterexample(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::Counterexample,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn induction(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::InductionFailure,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn checker(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::CheckerError,
             message: message.into(),
+            input_aliases: false,
         }
     }
     pub fn contract(message: impl Into<String>) -> Self {
         Self {
             kind: Failure::ContractFailure,
             message: message.into(),
+            input_aliases: false,
         }
+    }
+    pub fn with_input_aliases(mut self, uncertain: bool) -> Self {
+        self.input_aliases |= uncertain;
+        self
+    }
+    pub fn has_input_alias_uncertainty(&self) -> bool {
+        self.input_aliases
     }
     pub fn context(mut self, context: impl AsRef<str>) -> Self {
         self.message.push_str("; ");
@@ -149,5 +164,20 @@ mod tests {
             assert_eq!(error.diagnostic_code().proof_outcome(), Some(outcome));
             assert!(error.to_string().contains(message));
         }
+    }
+
+    #[test]
+    fn alias_retry_cause_is_typed_and_survives_context_without_changing_outcome() {
+        let text = "possible aliases between symbolic input references";
+        assert!(!Error::unsupported(text).has_input_alias_uncertainty());
+        let error = Error::unsupported(text)
+            .with_input_aliases(true)
+            .context("while checking another expression");
+        assert!(error.has_input_alias_uncertainty());
+        assert_eq!(
+            error.diagnostic_code().proof_outcome(),
+            Some(ProofOutcome::Unsupported)
+        );
+        assert!(!Error::limit(text).has_input_alias_uncertainty());
     }
 }

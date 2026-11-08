@@ -15,6 +15,7 @@ mod observations;
 mod outcome;
 mod sat_certificate;
 mod symbolic;
+mod trace_inputs;
 mod validation;
 mod validation_aliases;
 
@@ -303,7 +304,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                     return Err(Error::contract(format!("{explanation}; selected contracts do not establish this obligation; an abstract result is not a concrete execution counterexample")));
                 }
                 if self.alias_witness && !self.inductive_witness {
-                    return Err(Error::unsupported(format!("{explanation}; possible aliases between symbolic input references leave this obligation unproved; the abstract witness is not a concrete execution replay")));
+                    return Err(Error::unsupported(format!("{explanation}; possible aliases between symbolic input references leave this obligation unproved; the abstract witness is not a concrete execution replay")).with_input_aliases(true));
                 }
                 if let Some(example) = value.and_then(|value| self.claim_evidence(value, &model)) {
                     return Err(Error::counterexample(format!(
@@ -312,7 +313,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 }
                 let examples = self.render_inputs(0, &model);
                 if self.inductive_witness {
-                    return Err(Error::induction(format!("{explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}")));
+                    return Err(Error::induction(format!("{explanation}; inductive obligation witness (initial inputs are not a concrete execution replay): {examples}")).with_input_aliases(self.alias_witness));
                 }
                 Err(Error::counterexample(format!(
                     "{explanation}; counterexample: {}",
@@ -364,10 +365,10 @@ impl<'a, 'p> Engine<'a, 'p> {
                 // A model of an over-approximated loop state does not refute
                 // the program contract. In particular its negation must not
                 // turn an insufficient invariant into a proved theorem.
-                return Err(Error::induction(format!("supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")));
+                return Err(Error::induction(format!("supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")).with_input_aliases(self.alias_witness));
             }
             if self.alias_witness {
-                return Err(Error::unsupported("possible aliases between symbolic input references leave the claim unproved; the abstract witness is not a concrete execution replay"));
+                return Err(Error::unsupported("possible aliases between symbolic input references leave the claim unproved; the abstract witness is not a concrete execution replay").with_input_aliases(true));
             }
             let example = if let Some(Trace::Validated(rule)) = &self.trace {
                 let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));
@@ -547,8 +548,6 @@ impl<'a, 'p> Engine<'a, 'p> {
                 if self.quantified {
                     return Err("trace claims quantify their own function inputs; put them outside #proof-for-all".into());
                 }
-                let original = state.clone();
-                let input_start = self.inputs.len();
                 if self.trace.is_some() {
                     return Err(Error::unsupported(
                         "nested execution-trace claims are unsupported",
@@ -589,28 +588,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                 if let Trace::Before { required, .. } = &trace {
                     self.function(required)?;
                 }
-                self.trace = Some(trace);
-                self.trace_violation = FALSE;
-                let mut state = state;
-                state.validations.clear();
-                let mut arguments = Vec::new();
-                for parameter in &function.parameters {
-                    let value = self.fresh_value(&mut state, &parameter.ty, 0)?;
-                    self.inputs.push((parameter.name.clone(), value.clone()));
-                    arguments.push(value);
-                }
-                self.input_state = Some(state.clone());
-                let runs = self.call(state.clone(), function, arguments, false)?;
-                // At least one trace must be analysed; nontermination is never
-                // silently treated as evidence that an operation cannot run.
-                if runs.is_empty() {
-                    return Err(Error::unsupported("no complete execution trace"));
-                }
-                let safe = self.circuit.not(self.trace_violation);
-                let result =
-                    self.close_claim(original, vec![(state, Value::Bool(safe))], input_start);
-                self.trace = None;
-                result
+                self.trace_claim(state, function, trace)
             }
             "proof-no-overflow" => {
                 arity(head, args, 3)?;

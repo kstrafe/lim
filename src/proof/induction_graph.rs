@@ -660,23 +660,30 @@ impl Engine<'_, '_> {
             .collect())
     }
 
+    pub(super) fn induction_value_bytes(&mut self, value: &Value) -> Result<usize> {
+        let mut bytes = self.graph_type_bytes(&value.ty(), true, 0)?;
+        if let Value::Claim(evidence) = value {
+            for witness in &evidence.witnesses {
+                bytes = bytes.saturating_add(witness.text.len());
+            }
+        }
+        Ok(bytes)
+    }
+
     pub(super) fn induction_state_bytes(&mut self, state: &State) -> Result<usize> {
         // Include B-tree storage for input referent provenance in clone budgets.
         let mut state_bytes =
             1usize.saturating_add(state.abstract_referent_count().saturating_mul(64));
+        state_bytes =
+            state_bytes.saturating_add(state.disjoint_input_pair_count().saturating_mul(64));
+        state_bytes = state_bytes.saturating_add(state.input_storage_metadata_bytes());
         for value in state
             .heap
             .iter()
             .chain(std::iter::once(&state.value))
             .chain(state.result.iter())
         {
-            state_bytes =
-                state_bytes.saturating_add(self.graph_type_bytes(&value.ty(), true, 0)?);
-            if let Value::Claim(evidence) = value {
-                for witness in &evidence.witnesses {
-                    state_bytes = state_bytes.saturating_add(witness.text.len());
-                }
-            }
+            state_bytes = state_bytes.saturating_add(self.induction_value_bytes(value)?);
         }
         for frame in &state.frames {
             state_bytes = state_bytes.saturating_add(frame.function.len());

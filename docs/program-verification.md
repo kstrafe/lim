@@ -348,8 +348,38 @@ This guard does not enumerate every input alias relationship. A failed claim
 that depends on those conservative revocations is reported as unproved, not a
 concrete execution counterexample, and negation cannot turn it into a proof.
 An explicit caller passing the same object supplies a known identity and can
-produce a concrete counterexample. General alias enumeration and conditional
-identity relations remain open.
+produce a concrete counterexample.
+
+For ambiguous validation claims over shared Boolean, character and integer
+referents, the checker can now enumerate the possible scalar input identities.
+The conservative check remains the fast path. Only a typed input-alias failure
+triggers this refinement; unrelated unsupported operations and resource errors
+never do. Each partition maps references to canonical storage, constrains
+aliased input values to agree, and records which remaining scalar roots are
+distinct. Owned records and tuples may carry those shared scalar references.
+If any new referent is a parent aggregate, reference, slice, raw pointer
+or zero-sized object, scalar enumeration alone is incomplete and the
+conservative guard remains in force. This includes exclusive pinned parents:
+retained references can point to their own fields. Typed in-place projections
+preserve these possible internal aliases during the conservative check, too.
+Globals and earlier origins also retain their uncertainty.
+
+[`examples/proof_input_aliases.lim`](../examples/proof_input_aliases.lim)
+proves a negative theorem: some caller can invalidate validation of `second`
+through `first`, then call the action. The concrete witness gives both inputs
+the same `ref#` identity. Negating the universal protocol claim asserts that
+such a counterexample exists; it does not assert that every caller fails.
+Equal-valued, distinct objects and actual aliases remain separate cases.
+
+All enumerated cases are checked, with existing invariant, unsupported-operation
+and solver failures still propagating. Partial exploration cannot establish a
+claim or its negation. Limits are 64 relevant scalar roots, 256 cases and 64 MiB
+of retained cases including argument values. Work and circuit budgets remain
+cumulative across the conservative attempt and refinement. SAT search and
+query preparation have a cumulative 64-million-work-unit limit per circuit;
+individual searches and certificate production/checking retain their separate
+phase limits. Resource exhaustion is sticky, including for subsequent trivial
+queries. General aggregate, subobject and heap alias enumeration remains open.
 
 The checker can exclude same-object identity when modeled immutable contents
 differ. Failed revalidation is therefore guarded by a necessary equality of
