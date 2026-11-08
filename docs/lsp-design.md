@@ -172,6 +172,11 @@ function has the same unprefixed spelling. Array and slice operands to
 projection and range-expression roles. The second `#proof-sorted` operand
 resolves only to a function declaration; it is not a lexical value use.
 Malformed forms must not make a builtin keyword navigate to a user symbol.
+These roles also apply inside loop invariant predicates. Collection operands
+and slice range bounds resolve in the selected function's scope at its label;
+the comparator resolves to a function even if a local has the same spelling.
+No collection predicate introduces a binding or leaks the loop's locals into
+the surrounding theorem.
 
 The supported proof forms and their current limits are documented in the
 [program verification checklist](program-verification.md). Navigation tests

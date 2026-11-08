@@ -265,3 +265,18 @@ fn collection_limits_and_malformed_unique_remain_errors_under_negation() {
           (#proof-unique values))))";
     outcome(source, ProofOutcome::Unsupported);
 }
+
+#[test]
+fn unsafe_and_external_comparators_are_rejected_even_for_empty_arrays() {
+    for declaration in [
+        "(#unsafe-fn compare (: left #u8 : right #u8) #bool (#return (#u8::lt left right)))",
+        "(#extern-fn #abi-c compare (: left #u8 : right #u8) #bool)",
+    ] {
+        for length in [0, 2] {
+            let elements = if length == 0 { "" } else { "1u8 2u8" };
+            let source = format!("{declaration} (#theorem claim (#proof-not (#proof-sorted (#array-of (#array #u8 {length}) {elements}) compare)))");
+            let message = outcome(&source, ProofOutcome::Unsupported);
+            assert!(message.contains("safe checked implementation"), "{message}");
+        }
+    }
+}

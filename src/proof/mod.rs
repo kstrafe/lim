@@ -95,6 +95,7 @@ struct Engine<'a, 'p> {
     depth: usize,
     quantified: bool,
     evaluation_depth: usize,
+    specification_comparators: Vec<String>,
     coverage: coverage::Coverage,
 }
 
@@ -214,6 +215,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             depth: 0,
             quantified: false,
             evaluation_depth: 0,
+            specification_comparators: Vec::new(),
             coverage: coverage::Coverage::default(),
         };
         for item in &checked.program().items {

@@ -28,6 +28,44 @@ pub(super) fn pure(
                 return Ok(());
             }
             match head {
+                "proof-unique" => {
+                    arity(head, args, 1)?;
+                    pure(&args[0], locals, depth + 1, variants, false)
+                }
+                "array-of" => {
+                    if args.is_empty() {
+                        return Err(Error::invalid("induction #array-of requires an explicit array type"));
+                    }
+                    // The type is metadata, checked by the evaluator. Only
+                    // element expressions can execute or use loop locals.
+                    for arg in &args[1..] { pure(arg, locals, depth + 1, variants, false)?; }
+                    Ok(())
+                }
+                "proof-permutation" => {
+                    arity(head, args, 2)?;
+                    for arg in args { pure(arg, locals, depth + 1, variants, false)?; }
+                    Ok(())
+                }
+                "proof-sorted" => {
+                    arity(head, args, 2)?;
+                    // The comparator is a named function, not a value use or
+                    // an arbitrary executable expression. Collection checks
+                    // apply specification-call rules and suppress trace events.
+                    symbol(&args[1])?;
+                    pure(&args[0], locals, depth + 1, variants, false)
+                }
+                "borrow-slice" => {
+                    if !matches!(args.len(), 1 | 3) {
+                        return Err(Error::invalid("induction #borrow-slice requires an array place and optional start/end bounds"));
+                    }
+                    for arg in args { pure(arg, locals, depth + 1, variants, false)?; }
+                    Ok(())
+                }
+                "slice-of" | "slice-mut-of" | "slice-range" | "slice-mut-range" => {
+                    arity(head, args, if head.ends_with("-range") { 3 } else { 1 })?;
+                    for arg in args { pure(arg, locals, depth + 1, variants, false)?; }
+                    Ok(())
+                }
                 "proof-validated" => {
                     if !positive {
                         return Err(Error::unsupported("#proof-validated must occur positively in a loop invariant; it cannot be negated, compared, or used as a condition or rank"));

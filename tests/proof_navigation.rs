@@ -506,6 +506,42 @@ fn trace_claims_inside_invariants_keep_function_parameter_and_loop_roles() {
 }
 
 #[test]
+fn collection_invariants_resolve_views_bounds_and_comparator_metadata() {
+    run(
+        r#"
+      (#fn [[comparator|less]] (: left #u8 : right #u8) #bool (#return (#u8::lt left right)))
+      (#fn [[entry|work]] (: [[source|values]] (#ref-mut (#array #u8 3)) : [[bound|end]] #usize) ()
+        (#let [[original|original]] (#array #u8 3) (#deref values))
+        (#let [[collision|less]] #u8 0u8)
+        (#let-mut [[remaining|remaining]] #usize end)
+        (#label [[label|again]] (#while (#usize::gt remaining 0usize)
+          (#set remaining (#usize::sub-wrap remaining 1usize))))
+        (#return ()))
+      (#theorem claim (#proof-with-invariants
+        (([[function-use|work]] [[label-use|again]]
+          (#proof-and
+            (#proof-unique (#borrow-slice (#deref [[unique-source|values]]) 0usize [[range-end|end]]))
+            (#proof-permutation (#deref [[left-source|values]]) [[right-source|original]])
+            (#proof-sorted (#deref [[sorted-source|values]]) [[comparator-use|less]]))
+          [[rank|remaining]]))
+        (#proof-eq [[leaked|remaining]] 0usize)))
+    "#,
+        &[
+            ("function-use", &["entry"]),
+            ("label-use", &["label"]),
+            ("unique-source", &["source"]),
+            ("range-end", &["bound"]),
+            ("left-source", &["source"]),
+            ("right-source", &["original"]),
+            ("sorted-source", &["source"]),
+            ("comparator-use", &["comparator"]),
+            ("rank", &["remaining"]),
+            ("leaked", &[]),
+        ],
+    );
+}
+
+#[test]
 fn proof_validated_resolves_descriptor_and_invariant_scope_without_leaks() {
     run(
         r#"

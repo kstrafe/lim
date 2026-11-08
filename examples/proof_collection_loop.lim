@@ -1,0 +1,49 @@
+; One checked iteration proves the properties for every byte-sized count.
+(#fn less (: left #u8 : right #u8) #bool
+  (#return (#u8::lt left right)))
+
+(#fn sort-pair-repeat (: values (#ref-mut (#array #u8 2)) : count #u8) ()
+  (#let original (#array #u8 2) (#deref values))
+  (#let-mut remaining #u8 count)
+  (#label
+    again
+    (#while (#u8::gt remaining 0u8)
+      (#let first #u8 (#index values 0usize))
+      (#let second #u8 (#index values 1usize))
+      (#if (#u8::lt second first)
+        (#block
+          (#deref-set (#borrow-mut (#index (#deref values) 0usize)) second)
+          (#deref-set (#borrow-mut (#index (#deref values) 1usize)) first)))
+      (#set remaining (#u8::sub-wrap remaining 1u8))))
+  (#return ()))
+
+(#theorem repeated-sort-contract
+  (#proof-loop-limit
+    1
+    (#proof-with-invariants
+      (
+        (sort-pair-repeat
+          again
+          (#proof-and
+            (#u8::le remaining count)
+            (#proof-permutation (#deref values) original)
+            (#proof-implies (#u8::ne remaining count) (#proof-sorted (#deref values) less))
+            (#proof-implies (#proof-unique original) (#proof-unique (#deref values))))
+          remaining))
+      (#proof-contract
+        sort-pair-repeat
+        true
+        (#proof-and
+          (#proof-permutation (#deref values) (#proof-old (#deref values)))
+          (#proof-implies (#u8::gt count 0u8) (#proof-sorted (#deref values) less))
+          (#proof-implies
+            (#proof-old (#proof-unique (#deref values)))
+            (#proof-unique (#deref values))))))))
+
+(#fn main () #u64
+  (#let-mut values (#array #u8 2) (#array-of (#array #u8 2) 9u8 2u8))
+  (#call sort-pair-repeat (: values (#borrow-mut values) : count 200u8))
+  (#return
+    (#u64::add-wrap
+      (#u64::mul-wrap (#as (#index values 0usize) #u64) 10u64)
+      (#as (#index values 1usize) #u64))))

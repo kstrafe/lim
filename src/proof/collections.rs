@@ -14,7 +14,8 @@ mod tests {
 
     fn with_engine(test: impl FnOnce(&mut Engine<'_, '_>)) {
         let program = crate::parse_program(
-            "(#fn less (: left #u8 : right #u8) #bool (#return (#u8::lt left right)))",
+            "(#fn less (: left #u8 : right #u8) #bool (#return (#u8::lt left right)))\n\
+             (#fn fail (: left #u8 : right #u8) #bool (#return (#unreachable)))",
         )
         .unwrap();
         let checked = CheckedProgram::validate(&program).unwrap();
@@ -148,6 +149,42 @@ mod tests {
                 assert_eq!(
                     engine.circuit.eval(unique, &model),
                     expected_left.windows(2).all(|pair| pair[0] != pair[1])
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn specification_comparisons_restore_trace_context_on_success_and_error() {
+        with_engine(|engine| {
+            let state = State::new();
+            let collection = Collection {
+                element: Type::U8,
+                len: Circuit::constant(2, 64, false),
+                entries: [1, 2]
+                    .into_iter()
+                    .map(|value| {
+                        (
+                            TRUE,
+                            Value::Bits(Circuit::constant(value, 8, false), Type::U8),
+                        )
+                    })
+                    .collect(),
+            };
+            for (name, succeeds) in [("less", true), ("fail", false)] {
+                engine.trace = Some(Trace::Before {
+                    required: name.into(),
+                    action: name.into(),
+                });
+                let prefix = engine.circuit.fresh();
+                engine.trace_violation = prefix;
+                let comparator = engine.function(name).unwrap();
+                let result = engine.collection_sorted(&state, &collection, comparator);
+                assert_eq!(result.is_ok(), succeeds);
+                assert_eq!(engine.trace_violation, prefix);
+                assert!(engine.specification_comparators.is_empty());
+                assert!(
+                    matches!(&engine.trace, Some(Trace::Before { required, action }) if required == name && action == name)
                 );
             }
         });
@@ -295,6 +332,11 @@ impl Engine<'_, '_> {
         values: &Collection,
         comparator: &Function,
     ) -> Result<Bit> {
+        if comparator.unsafe_call || comparator.external {
+            return Err(Error::unsupported(
+                "a sort comparator requires a safe checked implementation",
+            ));
+        }
         if self.resolve_type(&comparator.return_type)? != Type::Bool
             || comparator.parameters.len() != 2
         {
@@ -320,12 +362,35 @@ impl Engine<'_, '_> {
             if self.circuit.satisfy(selected.guard)?.is_none() {
                 continue;
             }
+            // Comparator calls evaluate a logical specification, including
+            // when this predicate is an invariant of a trace claim. They are
+            // not program events and cannot establish or violate call order.
+            if self.specification_comparators.contains(&comparator.name) {
+                return Err(Error::limit(
+                    "recursive sortedness comparator specifications are unsupported",
+                ));
+            }
+            // Each nested comparator can enter another loop-invariant check.
+            // Bound this independently of ordinary expression/call depth so
+            // adversarial specification chains do not exhaust the host stack.
+            if self.specification_comparators.len() >= 4 {
+                return Err(Error::limit(
+                    "sortedness comparator specification nesting exceeds 4",
+                ));
+            }
+            self.specification_comparators.push(comparator.name.clone());
+            let trace = self.trace.take();
+            let violation = self.trace_violation;
             let calls = self.call(
                 selected,
                 comparator,
                 vec![pair[1].1.clone(), pair[0].1.clone()],
                 true,
-            )?;
+            );
+            self.trace = trace;
+            self.trace_violation = violation;
+            self.specification_comparators.pop();
+            let calls = calls?;
             for (run, value) in calls {
                 let valid = self.circuit.or(run.guard ^ 1, value.boolean()? ^ 1);
                 result = self.circuit.and(result, valid);

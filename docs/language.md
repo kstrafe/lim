@@ -1856,7 +1856,8 @@ them. Proof-side representation inspection respects opaque and library-private
 boundaries. Fresh reference inputs have separately allocated symbolic referents;
 this does not quantify every possible alias relationship between inputs.
 
-`#proof-sorted` takes a fixed array or modeled slice and a named two-argument Boolean comparator.
+`#proof-sorted` takes a fixed array or modeled slice and a named, safe,
+two-argument Boolean comparator with a checked implementation.
 It checks that the comparator is false for each adjacent pair in reverse order
 `(later, earlier)`. It does not prove comparator transitivity, totality, or sort
 stability. `#proof-permutation` compares equal-length arrays or modeled slices by element
@@ -1877,6 +1878,11 @@ type to be Boolean. These type checks apply even to empty arrays; emptiness
 does not excuse an incompatible element type or comparator signature.
 Comparator execution retains ordinary checked-call, trap and budget rules;
 unsupported comparator execution remains unproved, including under negation.
+Unsafe and external comparator declarations are rejected even for empty ranges.
+Comparator specifications reject active call cycles and allow at most four
+simultaneously active comparator calls. Sequential comparisons reuse that
+allowance; recursive or deeper specifications report a resource-limit error,
+including under negation. Ordinary call, evaluation and solver limits also apply.
 Uniqueness and permutation require modeled equality for each comparison.
 
 Modeled guarded matches accept only supported pure builtin guard expressions.
@@ -2043,16 +2049,26 @@ locations. Empty end-boundary ranges permit no writes. Bounds obligations still
 apply to every access, including those used in invariants and ranks. Direct
 unbounded symbolic slice inputs remain unsupported; construct a bounded view in
 the proved wrapper or quantified call.
-Global write destinations, changing reference graphs or slice geometry, and
-trace claims remain unsupported. A valid invariant/rank can avoid fully unrolling
-a supported loop; it does not enable arbitrary hidden execution.
+Global write destinations and arbitrary allocation remain unsupported.
+Bounded changing reference graphs, slice geometry and execution-trace monitors
+have additional coverage and closure checks described in the
+[program verification model](program-verification.md). A valid invariant/rank
+can avoid fully unrolling a supported loop; it does not enable arbitrary hidden execution.
 Loop-body and for-step calls may use direct contracts explicitly selected by
 `#proof-using`, including contracts over borrowed state. The selected contracts
 retain their effect restrictions, and every helper precondition must follow
 from the loop-head invariant and current path guard. Call-argument writes
 contribute to the modified-variable set. Invariants, ranks and loop conditions
-remain pure and call-free; selecting a contract does not permit hidden
-global/environment access or unchecked changes to reference identity.
+remain pure; general user-call expressions, statement blocks and lazy global
+reads remain forbidden. Invariants can use `#proof-unique`,
+`#proof-permutation` and `#proof-sorted` over bounded arrays and slice views.
+Read-only range construction and explicit `#array-of` values are permitted;
+range/index bounds must hold wherever those expressions are evaluated.
+The named sortedness comparator uses ordinary specification-call checks,
+including observable-storage preservation, effect restrictions and resource
+limits. Its calls evaluate the specification and do not contribute program
+events to call-order or validation traces. Selecting a contract does not
+permit hidden global/environment access or unchecked changes to reference identity.
 
 Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
 path-budget checks, 4,096 symbolic storage slots, call depth 128, combined
@@ -2962,7 +2978,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-permutation` | `(#proof-permutation left right)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and selected element multiplicities of fixed arrays or modeled slices, including mixed array/slice operands. Backing arrays are limited to 64 elements; matching element types are required even for empty ranges, and equality must be modeled. |
 | `#proof-requires-validation` | `(#proof-requires-validation entry (#parameter-of validator parameter) (#parameter-of action parameter))` | `(#theorem safe (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Explicit #parameter-of selectors reference existing function parameters with matching resolved referent types and introduce no binding; unsupported execution and exhausted budgets are unproved. |
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
-| `#proof-sorted` | `(#proof-sorted collection comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays or modeled slices over backing arrays of at most 64 elements; requires a named Boolean comparator with two parameters matching the element type even for empty ranges, and checks it is false on selected reversed adjacent pairs. Ordinary call, trap and budget checks still apply. Does not establish comparator laws or stability. |
+| `#proof-sorted` | `(#proof-sorted collection comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays or modeled slices over backing arrays of at most 64 elements; requires a named, safe checked Boolean comparator with two parameters matching the element type even for empty ranges, and checks it is false on selected reversed adjacent pairs. Ordinary call, trap and budget checks still apply. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
 | `#proof-unique` | `(#proof-unique collection)` | `(#theorem distinct (#proof-unique (#array-of (#array #u8 2) 1u8 2u8)))` (top-level theorem) | Checks pairwise inequality of selected fixed-array or modeled-slice elements using modeled equality. Empty and singleton ranges are unique. Backing arrays are limited to 64 elements; this is proof-only and does not mutate or deduplicate the collection. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |

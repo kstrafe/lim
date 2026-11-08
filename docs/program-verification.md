@@ -84,6 +84,10 @@ program-shape dependent; this list is not a claim of completeness.
   locations, reference-bearing enum variants and slice geometries instead.
   Trace claims can combine these invariants with finite call-history monitors,
   preserving call order and same-object validation across modeled loops.
+  Collection predicates may describe the arbitrary loop-head state: entry and
+  every continuing iteration must establish their sortedness, multiplicity or
+  uniqueness requirements. Specification comparator calls are isolated from
+  runtime trace monitors and retain ordinary specification-call restrictions.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness, permutation and uniqueness within a limit. These
@@ -142,6 +146,20 @@ Sortedness calls the named comparator only on selected reversed adjacent
 pairs. Empty and singleton ranges need no calls, but the comparator signature
 is still checked. These properties do not establish comparator laws or model
 unbounded collection storage.
+Comparator specifications reject active cycles and have a nesting limit of
+four active comparator calls. This bound covers nested specification loops
+independently of ordinary call/expression limits. Sequential comparisons do
+not accumulate nesting depth. Cycle/depth errors remain resource-limited
+results under negation; the checker does not substitute a Boolean result.
+
+[`examples/proof_collection_loop.lim`](../examples/proof_collection_loop.lim)
+uses these predicates in a checked loop invariant. Each iteration conditionally
+sorts a pair, preserves its multiset and preserves uniqueness. With an unroll
+limit of one, the invariant and decreasing unsigned rank prove the contract
+for every byte-sized repetition count, including zero. A nonzero count yields
+a sorted pair; zero repetitions preserve the original contents. The comparator
+is part of the specification, so calls inside it cannot satisfy or violate a
+claim about calls made by the program being checked.
 
 ## Contract coverage
 
@@ -484,8 +502,12 @@ merge updates against current storage rather than restoring old snapshot data.
 Native replay checks all valid ranges of the example's array and every byte
 seed, including the actual clearing behavior.
 
-Invariant predicates, ranks and loop conditions remain restricted to pure,
-call-free expressions; modeled slice lengths and element reads are permitted.
+Invariant predicates, ranks and loop conditions remain restricted to pure
+expressions; general user-call expressions, bindings and statement blocks are
+not permitted. Modeled slice views, lengths and element reads, explicit array
+values, and collection predicates are permitted. The named sortedness
+comparator retains specification-call checks and does not record program
+trace events. Its own calls and execution still consume proof budgets.
 Direct unbounded slice inputs remain unsupported: construct a view from a
 bounded array in the proved wrapper or quantified call. Selecting a reusable
 contract still does not provide an implicit slice bound. Changing reference

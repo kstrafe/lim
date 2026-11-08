@@ -1,6 +1,7 @@
 //! Regression coverage for mutable slice clearing invariants.
 
 use lim::{CompileConfig, Diagnostic, ProofOutcome};
+mod support;
 
 fn check(source: &str, theorem: &str) -> Result<lim::CheckedTheorem, Diagnostic> {
     lim::check_theorem_details_from_path_with_config(
@@ -93,4 +94,62 @@ fn missing_processed_cell_invariant_is_induction_failure_under_negation() {
     let negated = format!("{negated})");
     induction_failure(&source, "claim");
     induction_failure(&negated, "claim");
+}
+
+#[test]
+fn repeated_sort_matches_native_for_every_byte_pair_and_representative_counts() {
+    use std::{fs, process::Command, time::Duration};
+    let scratch = support::Scratch::new("proof-collection-loop-native");
+    let mut source = include_str!("../examples/proof_collection_loop.lim").to_owned();
+    source.truncate(source.find("(#fn main ").unwrap());
+    source.push_str(r#"
+      (#fn main () #u64
+        (#let counts (#array #u8 4) (#array-of (#array #u8 4) 0u8 1u8 2u8 255u8))
+        (#let-mut left-index #u16 0u16)
+        (#while (#u16::lt left-index 256u16)
+          (#let left #u8 (#as left-index #u8))
+          (#let-mut right-index #u16 0u16)
+          (#while (#u16::lt right-index 256u16)
+            (#let right #u8 (#as right-index #u8))
+            (#let-mut count-index #usize 0usize)
+            (#while (#usize::lt count-index 4usize)
+              (#let count #u8 (#index counts count-index))
+              (#let-mut pair (#array #u8 2) (#array-of (#array #u8 2) left right))
+              (#call sort-pair-repeat (: values (#borrow-mut pair) : count count))
+              (#let preserve #bool (#bool::or (#u8::eq count 0u8) (#u16::le left-index right-index)))
+              (#let expected-first #u8 (#if preserve left right))
+              (#let expected-second #u8 (#if preserve right left))
+              (#if (#u8::ne (#index pair 0usize) expected-first) (#block (#return 1u64)))
+              (#if (#u8::ne (#index pair 1usize) expected-second) (#block (#return 2u64)))
+              (#set count-index (#usize::add-wrap count-index 1usize)))
+            (#set right-index (#u16::add-wrap right-index 1u16)))
+          (#set left-index (#u16::add-wrap left-index 1u16)))
+        (#return 42u64))
+    "#);
+    let path = scratch.path().join("main.lim");
+    let binary = scratch.path().join("main");
+    fs::write(&path, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&path)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", ""),
+        Duration::from_secs(20),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) = support::run(
+        Command::new(&binary).env("PATH", ""),
+        Duration::from_secs(15),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&stderr)
+    );
 }
