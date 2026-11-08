@@ -164,6 +164,29 @@ struct Dependency {
     active: Bit,
 }
 
+impl ValidationFact {
+    pub(super) fn retained_bytes(&self) -> usize {
+        fn location(place: &Location) -> usize {
+            let mut bytes = std::mem::size_of::<Location>()
+                + place.path.capacity() * std::mem::size_of::<Segment>();
+            for segment in &place.path {
+                bytes = bytes.saturating_add(match segment {
+                    Segment::Field(_) => 0,
+                    Segment::Index(word) => word.bits.capacity() * std::mem::size_of::<Bit>(),
+                    Segment::Payload(_) => 0,
+                });
+            }
+            bytes
+        }
+        let mut bytes = location(&self.subject)
+            .saturating_add(self.dependencies.capacity() * std::mem::size_of::<Dependency>());
+        for dependency in &self.dependencies {
+            bytes = bytes.saturating_add(location(&dependency.place));
+        }
+        bytes
+    }
+}
+
 impl<'a, 'p> Engine<'a, 'p> {
     pub(super) fn validation_rule(&self, args: &[Expr]) -> Result<(&'p Function, Trace)> {
         arity("proof-requires-validation", args, 3)?;

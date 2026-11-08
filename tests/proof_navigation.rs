@@ -469,6 +469,41 @@ fn invariants_use_only_the_selected_functions_scope_at_its_label() {
 }
 
 #[test]
+fn trace_claims_inside_invariants_keep_function_parameter_and_loop_roles() {
+    run(
+        r#"
+      (#fn [[validator|validate]] (: [[subject|user]] (#ref #u8)) #bool (#return true))
+      (#fn [[action|perform]] (: [[argument|input]] (#ref #u8)) () (#return ()))
+      (#fn [[entry|process]] (: [[count|count]] #u8 : user (#ref #u8)) ()
+        (#let-mut [[remaining|remaining]] #u8 count)
+        (#label [[label|again]] (#while (#u8::gt remaining 0u8)
+          (#if (#call validate (: user user)) (#call perform (: input user)))
+          (#set remaining (#u8::sub-wrap remaining 1u8))))
+        (#return ()))
+      (#theorem claim (#proof-loop-limit 1
+        (#proof-with-invariants
+          (([[loop-function|process]] [[loop-label|again]]
+            (#u8::le [[predicate|remaining]] [[bound|count]]) [[rank|remaining]]))
+          (#proof-requires-validation [[trace-entry|process]]
+            (#parameter-of [[trace-validator|validate]] [[trace-subject|user]])
+            (#parameter-of [[trace-action|perform]] [[trace-argument|input]])))))
+    "#,
+        &[
+            ("loop-function", &["entry"]),
+            ("loop-label", &["label"]),
+            ("predicate", &["remaining"]),
+            ("bound", &["count"]),
+            ("rank", &["remaining"]),
+            ("trace-entry", &["entry"]),
+            ("trace-validator", &["validator"]),
+            ("trace-subject", &["subject"]),
+            ("trace-action", &["action"]),
+            ("trace-argument", &["argument"]),
+        ],
+    );
+}
+
+#[test]
 fn proof_metadata_never_becomes_a_global_reference() {
     let forms = [
         "proof-and",

@@ -269,8 +269,8 @@ fn result_contracts_cannot_suppress_execution_trace_obligations() {
       (#theorem selected (#proof-using (identity-contract)
         (#proof-calls-before caller identity identity)))"#,
         "selected",
-        ProofOutcome::Unsupported,
-        "execution traces",
+        ProofOutcome::Counterexample,
+        "disproved",
     );
 }
 

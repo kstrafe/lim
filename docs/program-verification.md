@@ -41,6 +41,8 @@ program-shape dependent; this list is not a claim of completeness.
   the postcondition constrains a fresh result. Contract dependencies are checked
   in topological order, including forward references, and cycles are rejected.
   These summaries describe results and borrowed state, not execution traces.
+  Trace claims inspect actual callee bodies even when result/state contracts
+  are selected; those contracts cannot hide observed calls.
 - **Machine integer semantics.** Modeled bitvectors preserve width and
   signedness. Explicit wrapping and saturating arithmetic, comparisons, casts,
   and supported division are evaluated using machine behavior. Checks such as
@@ -80,6 +82,8 @@ program-shape dependent; this list is not a claim of completeness.
   abstracted while stable reference identities remain unchanged. When a loop
   changes handles, a bounded graph abstraction covers existing reference
   locations, reference-bearing enum variants and slice geometries instead.
+  Trace claims can combine these invariants with finite call-history monitors,
+  preserving call order and same-object validation across modeled loops.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
   be checked for sortedness and permutation within a limit. Indexing and
@@ -270,6 +274,33 @@ inside records, arrays, tuples and active enum payloads. A mutable borrow create
 inside the loop contributes its source root to the write frame; an alias cannot
 hide a loop-carried update. Updates use ordinary heap writes and invalidate
 affected validation facts. Readonly loops retain their borrowed contents.
+
+[`examples/proof_trace_induction.lim`](../examples/proof_trace_induction.lim)
+checks three execution properties for every byte count with an unroll limit of
+one: each action has a successful validation of that same object, validation
+completes before the action, and a failed validation excludes actions. Trace
+proofs execute the actual bodies of checked helpers, including calls in a
+for-step. Helpers must have modeled effects; implicit globals, unsafe code, IO,
+allocation, external calls and assembly remain unsupported in induction.
+
+The trace analysis computes a fixed point of call-history states under the
+supplied invariant. Backedge guards retain entry-input conditions and forget
+arbitrary values introduced for an iteration. The checker verifies that this
+abstraction does not omit any transition. Exact zero-iteration exits and
+post-iteration exits preserve the call history and validation facts needed by
+later code. Entry/preservation and unsigned strictly decreasing rank checks
+remain mandatory for continuing paths.
+
+Validation within an iteration tracks storage identity and write dependencies.
+New validation facts are conservatively discarded on backedges. Prefix facts
+can survive readonly loops that never call the validator; they are discarded
+at abstract heads if a loop may call it, since a later failure could revoke an
+earlier success. Protocols relying on a validation from a previous iteration
+may therefore remain unproved. This is a conservative model, not a general
+temporal logic. Abstract violations are induction failures, including under
+negation, rather than claimed concrete executions. The history analysis is
+bounded to 64 fixed-point waves, 256 retained exit paths and 64 MiB of retained
+exit states, in addition to the existing graph, circuit and evaluator limits.
 
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are

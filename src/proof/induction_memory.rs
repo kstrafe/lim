@@ -7,6 +7,7 @@ pub(super) struct Changes {
     pub locals: BTreeSet<String>,
     pub memory: bool,
     pub borrowed: BTreeMap<String, bool>,
+    pub calls: BTreeSet<String>,
 }
 
 #[derive(Default)]

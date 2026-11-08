@@ -101,6 +101,28 @@ impl<'a, 'p> Engine<'a, 'p> {
     /// Their mutation flag determines whether loop induction needs a write frame.
     pub(super) fn induction_contracts(&mut self) -> Result<BTreeMap<String, bool>> {
         let mut allowed = BTreeMap::new();
+        if self.trace.is_some() {
+            // Trace proofs execute actual bodies, including selected contracts.
+            // The graph is used only to find the conservative write frame.
+            for name in self.functions.keys().cloned().collect::<Vec<_>>() {
+                self.tick()?;
+                if self.graph.accesses_globals(&name)? {
+                    continue;
+                }
+                let mut supported = true;
+                for effect in ["unsafe", "io", "allocation", "external", "asm"] {
+                    if self.graph.forbidden_effect(&name, effect)?.is_some() {
+                        supported = false;
+                        break;
+                    }
+                }
+                if supported {
+                    let mutates = self.graph.forbidden_effect(&name, "mutation")?.is_some();
+                    allowed.insert(name, mutates);
+                }
+            }
+            return Ok(allowed);
+        }
         if self.summary_depth != 0 {
             return Ok(allowed);
         }

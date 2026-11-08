@@ -49,6 +49,98 @@ impl Circuit {
         self.nodes.push(Gate::Input);
         (self.nodes.len() as Bit) << 1
     }
+    /// Inputs at or before this boundary can be retained by loop-history
+    /// abstraction. Later inputs describe one arbitrary iteration, not all of
+    /// them, and must not accidentally constrain a subsequent iteration.
+    pub(crate) fn input_boundary(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Forget iteration-local inputs with a Boolean interval abstraction.
+    /// The result contains every satisfying assignment of `condition`, while
+    /// depending only on inputs that existed at `boundary`. Both properties
+    /// are checked before the result can participate in a loop fixed point.
+    pub(crate) fn project_upper(&mut self, condition: Bit, boundary: usize) -> Result<Bit> {
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
+        }
+        if boundary > self.nodes.len() || !self.valid_bits(&[condition]) {
+            let error = Error::checker("invalid loop-history projection boundary");
+            self.poison(error.clone());
+            return Err(error);
+        }
+        let count = self.nodes.len();
+        let mut needed = vec![false; count + 1];
+        needed[(condition >> 1) as usize] = true;
+        for id in (1..=count).rev() {
+            if needed[id] {
+                if let Gate::And(a, b) | Gate::Xor(a, b) = self.nodes[id - 1] {
+                    needed[(a >> 1) as usize] = true;
+                    needed[(b >> 1) as usize] = true;
+                }
+            }
+        }
+        fn interval(bounds: &[(Bit, Bit)], bit: Bit) -> (Bit, Bit) {
+            let (low, high) = bounds[(bit >> 1) as usize];
+            if bit & 1 == 0 {
+                (low, high)
+            } else {
+                (high ^ 1, low ^ 1)
+            }
+        }
+        let mut bounds = vec![(FALSE, TRUE); count + 1];
+        bounds[0] = (FALSE, FALSE);
+        for id in 1..=count {
+            if !needed[id] {
+                continue;
+            }
+            bounds[id] = match self.nodes[id - 1] {
+                Gate::Input if id <= boundary => ((id as Bit) << 1, (id as Bit) << 1),
+                Gate::Input => (FALSE, TRUE),
+                Gate::And(a, b) => {
+                    let (al, ah) = interval(&bounds, a);
+                    let (bl, bh) = interval(&bounds, b);
+                    (self.and(al, bl), self.and(ah, bh))
+                }
+                Gate::Xor(a, b) => {
+                    let (al, ah) = interval(&bounds, a);
+                    let (bl, bh) = interval(&bounds, b);
+                    let lo_yes = self.and(al, bh ^ 1);
+                    let lo_no = self.and(ah ^ 1, bl);
+                    let hi_yes = self.and(ah, bl ^ 1);
+                    let hi_no = self.and(al ^ 1, bh);
+                    (self.or(lo_yes, lo_no), self.or(hi_yes, hi_no))
+                }
+            };
+        }
+        let upper = interval(&bounds, condition).1;
+        // Check the abstraction vocabulary independently of its construction.
+        let mut seen = vec![false; self.nodes.len() + 1];
+        let mut pending = vec![upper];
+        while let Some(bit) = pending.pop() {
+            let id = (bit >> 1) as usize;
+            if id == 0 || seen[id] {
+                continue;
+            }
+            seen[id] = true;
+            match self.nodes[id - 1] {
+                Gate::Input if id > boundary => {
+                    let error = Error::checker("loop history retained an iteration-local input");
+                    self.poison(error.clone());
+                    return Err(error);
+                }
+                Gate::Input => {}
+                Gate::And(a, b) | Gate::Xor(a, b) => pending.extend([a, b]),
+            }
+        }
+        let omitted = self.and(condition, upper ^ 1);
+        if self.satisfy(omitted)?.is_some() {
+            let error = Error::checker("loop-history projection omitted a transition");
+            self.poison(error.clone());
+            return Err(error);
+        }
+        Ok(upper)
+    }
     fn valid_bits(&mut self, bits: &[Bit]) -> bool {
         let ok = bits.iter().all(|&b| (b >> 1) as usize <= self.nodes.len());
         if !ok {
@@ -1340,6 +1432,71 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_projection_covers_every_assignment_and_forgets_later_inputs() {
+        let mut circuit = Circuit::new();
+        let fixed = [circuit.fresh(), circuit.fresh()];
+        let boundary = circuit.input_boundary();
+        let local = [circuit.fresh(), circuit.fresh()];
+        let mut bits = vec![FALSE, TRUE, fixed[0], fixed[1], local[0], local[1]];
+        let mut seed = 937u64;
+        for _ in 0..128 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let a = bits[seed as usize % bits.len()] ^ ((seed >> 32) as Bit & 1);
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let b = bits[seed as usize % bits.len()] ^ ((seed >> 32) as Bit & 1);
+            let bit = match seed % 3 {
+                0 => circuit.and(a, b),
+                1 => circuit.or(a, b),
+                _ => circuit.xor(a, b),
+            };
+            let upper = circuit.project_upper(bit, boundary).unwrap();
+            let mut results = [None; 4];
+            for assignment in 0..16 {
+                let mut inputs = vec![false; circuit.nodes.len() + 1];
+                for (index, input) in fixed.iter().chain(local.iter()).enumerate() {
+                    inputs[(input >> 1) as usize] = assignment & (1 << index) != 0;
+                }
+                let model = circuit.evaluate(&inputs);
+                let projected = circuit.eval(upper, &model);
+                assert!(!circuit.eval(bit, &model) || projected);
+                let result = &mut results[assignment & 3];
+                if let Some(previous) = *result {
+                    assert_eq!(previous, projected);
+                }
+                *result = Some(projected);
+            }
+            bits.push(bit);
+        }
+    }
+
+    #[test]
+    fn history_projection_preserves_entry_guards_and_poison() {
+        let mut circuit = Circuit::new();
+        let entry = circuit.fresh();
+        let boundary = circuit.input_boundary();
+        let iteration = circuit.fresh();
+        let transition = circuit.and(entry, iteration);
+        assert_eq!(circuit.project_upper(transition, boundary).unwrap(), entry);
+        let error = circuit.project_upper(transition, usize::MAX).unwrap_err();
+        assert_eq!(
+            error.diagnostic_code().proof_outcome(),
+            Some(crate::ProofOutcome::CheckerError)
+        );
+        assert!(circuit.project_upper(FALSE, boundary).is_err());
+        assert!(circuit.satisfy(FALSE).is_err());
+        let mut exhausted = Circuit::new();
+        exhausted.poison(Error::limit("test exhausted projection"));
+        assert_eq!(
+            exhausted
+                .project_upper(TRUE, 0)
+                .unwrap_err()
+                .diagnostic_code()
+                .proof_outcome(),
+            Some(crate::ProofOutcome::ResourceLimit)
+        );
+    }
 
     #[test]
     fn unsatisfiable_search_results_require_a_checked_refutation() {

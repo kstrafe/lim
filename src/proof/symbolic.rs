@@ -8,6 +8,8 @@ use crate::Statement;
 mod induction_graph;
 #[path = "induction_memory.rs"]
 mod induction_memory;
+#[path = "induction_trace.rs"]
+mod induction_trace;
 #[path = "slices.rs"]
 mod slices;
 
@@ -1417,7 +1419,7 @@ impl Engine<'_, '_> {
             let value = self.fresh_value(&mut state, &function.return_type, 0)?;
             return Ok(vec![(state, value)]);
         }
-        if self.summary_depth == 0 {
+        if self.summary_depth == 0 && self.trace.is_none() {
             if let Some(contract) = self.summaries.get(&function.name).cloned() {
                 return self.apply_contract(state, function, arguments, &contract, spec);
             }
@@ -1918,6 +1920,7 @@ impl Engine<'_, '_> {
         step: Option<&Statement>,
         invariant: &Invariant,
     ) -> Result<Vec<(State, Value)>> {
+        let trace_violation = self.trace_violation;
         if let Some(output) = self.inductive_loop_attempt(
             state.clone(),
             label,
@@ -1929,6 +1932,8 @@ impl Engine<'_, '_> {
         )? {
             return Ok(output);
         }
+        // Discard the abandoned stable-shape attempt's abstract trace events.
+        self.trace_violation = trace_violation;
         self.inductive_loop_attempt(state, label, condition, body, step, invariant, true)?
             .ok_or_else(|| Error::checker("dynamic induction did not check graph closure"))
     }
@@ -1998,11 +2003,6 @@ impl Engine<'_, '_> {
                 }
                 _=>Err(Error::unsupported("induction expressions require pure local values; blocks, calls, bindings and global initializers are unsupported")),
             }
-        }
-        if self.trace.is_some() {
-            return Err(Error::unsupported(
-                "trace claims require complete loop exploration",
-            ));
         }
         let locals = state.frames.last().unwrap().locals.clone();
         // Lazy lookup of a global/constant can execute an initializer and can
@@ -2112,14 +2112,48 @@ impl Engine<'_, '_> {
         self.inductive_witness = true;
         self.establish(entry, "loop invariant fails on entry")?;
         let reference_entry = state.clone();
+        let boundary = self.circuit.input_boundary();
         let mut output = Vec::new();
-        let heads = if changing {
+        let mut heads = if changing {
             self.induction_graph_states(state, &locals, &modified)?
         } else {
             self.induction_memory_states(state, &locals, &modified)?
         };
         if changing {
             self.induction_graph_covers(&heads, &reference_entry)?;
+        }
+        if self.trace.is_some() {
+            if let Some(Trace::Validated(rule)) = &self.trace {
+                let mut revalidates = false;
+                for name in &modified.calls {
+                    if name == &rule.validator
+                        || self.graph.path(name, &rule.validator, false)?.is_some()
+                    {
+                        revalidates = true;
+                        break;
+                    }
+                }
+                if revalidates {
+                    // A failed later validation revokes a prefix success. Do
+                    // not restore such facts at arbitrary iteration heads.
+                    // Successful checks within this iteration remain precise.
+                    for head in &mut heads {
+                        head.validations.clear();
+                    }
+                }
+            }
+            return self.inductive_trace_loop(
+                reference_entry,
+                heads,
+                &locals,
+                label,
+                condition,
+                body,
+                step,
+                invariant,
+                changing,
+                boundary,
+            );
         }
         for state in heads.iter().cloned() {
             for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
@@ -2797,6 +2831,7 @@ fn collect_modified(
                         "induction cannot summarize user-call effects for {name:?}; select a verified contract with #proof-using"
                     )));
                 };
+                names.calls.insert(name.clone());
                 names.memory |= mutates;
                 // Arguments execute in the caller. Their nested statements must
                 // contribute to the havoc set even though the callee is opaque.

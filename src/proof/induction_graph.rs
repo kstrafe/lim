@@ -66,6 +66,7 @@ mod tests {
             locals: BTreeSet::from(["current".into()]),
             borrowed: BTreeMap::from([("right".into(), true)]),
             memory: true,
+            ..Changes::default()
         };
         (state, changes, current, left, right)
     }
@@ -659,14 +660,14 @@ impl Engine<'_, '_> {
             .collect())
     }
 
-    pub(super) fn induction_graph_states(
-        &mut self,
-        state: State,
-        locals: &BTreeMap<String, (Location, Type)>,
-        changes: &Changes,
-    ) -> Result<Vec<State>> {
+    pub(super) fn induction_state_bytes(&mut self, state: &State) -> Result<usize> {
         let mut state_bytes = 1usize;
-        for value in &state.heap {
+        for value in state
+            .heap
+            .iter()
+            .chain(std::iter::once(&state.value))
+            .chain(state.result.iter())
+        {
             state_bytes =
                 state_bytes.saturating_add(self.graph_type_bytes(&value.ty(), true, 0)?);
             if let Value::Claim(evidence) = value {
@@ -689,6 +690,19 @@ impl Engine<'_, '_> {
                 .saturating_add(name.len())
                 .saturating_add(LOCATION_BYTES);
         }
+        for fact in &state.validations {
+            state_bytes = state_bytes.saturating_add(fact.retained_bytes());
+        }
+        Ok(state_bytes)
+    }
+
+    pub(super) fn induction_graph_states(
+        &mut self,
+        state: State,
+        locals: &BTreeMap<String, (Location, Type)>,
+        changes: &Changes,
+    ) -> Result<Vec<State>> {
+        let state_bytes = self.induction_state_bytes(&state)?;
         if state_bytes > GRAPH_BYTES {
             return Err(Error::limit(
                 "induction graph retained states exceed 64 MiB",
