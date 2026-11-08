@@ -12,6 +12,7 @@ pub(super) struct ReferenceModel<'a> {
     pub(super) origins: Vec<ParameterLoanSummary>,
     pub(super) bounds: Bounds,
     pub(super) source: Option<&'a State>,
+    pub(super) guards: Option<&'a guarded_returns::Guards>,
 }
 
 #[derive(Clone)]
@@ -43,6 +44,7 @@ impl Engine<'_, '_> {
             .ok_or_else(|| Error::unsupported("contract has no checked return body"))?;
         let entry = self.old.clone();
         let returns = ReferenceModel {
+            guards: None,
             source: entry.as_ref(),
             arguments,
             origins: body
@@ -196,6 +198,7 @@ impl Engine<'_, '_> {
         state: State,
         function: &Function,
         arguments: &[Value],
+        guards: Option<&guarded_returns::Guards>,
     ) -> Result<Vec<(State, Value)>> {
         if !self.reference_type(&function.return_type, 0)? {
             let mut state = state;
@@ -212,6 +215,7 @@ impl Engine<'_, '_> {
             .ok_or_else(|| Error::unsupported("reference contract has no checked body"))?;
         let entry = self.old.clone();
         let returns = ReferenceModel {
+            guards,
             source: entry.as_ref(),
             arguments,
             origins: body
@@ -321,6 +325,17 @@ impl Engine<'_, '_> {
                 let variants = self.enums[name].clone();
                 let mut output = Vec::new();
                 for (index, variant) in variants.iter().enumerate() {
+                    let mut state = state.clone();
+                    if let Some(guards) = returns.guards {
+                        let guard = guards
+                            .get(&guarded_returns::Key::Variant(path.to_vec(), index))
+                            .copied()
+                            .unwrap_or(FALSE);
+                        state.guard = self.circuit.and(state.guard, guard);
+                        if self.circuit.satisfy(state.guard)?.is_none() {
+                            continue;
+                        }
+                    }
                     let id = self
                         .checked
                         .declarations()
@@ -390,7 +405,7 @@ impl Engine<'_, '_> {
         Ok(runs)
     }
 
-    fn return_references(
+    pub(super) fn return_references(
         &mut self,
         state: State,
         path: &[Path],
@@ -402,7 +417,8 @@ impl Engine<'_, '_> {
         let sources = returns
             .origins
             .iter()
-            .filter(|source| !source.lifetime_only && path_matches(&source.storage, path))
+            .enumerate()
+            .filter(|(_, source)| !source.lifetime_only && path_matches(&source.storage, path))
             .collect::<Vec<_>>();
         if sources.is_empty() {
             return Err(Error::unsupported(
@@ -410,8 +426,19 @@ impl Engine<'_, '_> {
             ));
         }
         let mut output = Vec::new();
-        for source in sources {
+        for (index, source) in sources {
             self.tick()?;
+            let mut state = state.clone();
+            if let Some(guards) = returns.guards {
+                let guard = guards
+                    .get(&guarded_returns::Key::Origin(path.to_vec(), index))
+                    .copied()
+                    .unwrap_or(FALSE);
+                state.guard = self.circuit.and(state.guard, guard);
+                if self.circuit.satisfy(state.guard)?.is_none() {
+                    continue;
+                }
+            }
             if source.global.is_some()
                 || source.fresh_allocation.is_some()
                 || source.owned_allocation
@@ -767,6 +794,7 @@ mod tests {
             origin.referent_projection = vec![Path::Field(wrong)];
         }
         let returns = ReferenceModel {
+            guards: None,
             source: None,
             arguments: &arguments,
             origins,
@@ -778,6 +806,7 @@ mod tests {
         let missing = engine.circuit.and(state.guard, engine.circuit.not(covered));
         assert!(engine.circuit.satisfy(missing).unwrap().is_some());
         let missing = ReferenceModel {
+            guards: None,
             source: None,
             arguments: &arguments,
             origins: Vec::new(),
@@ -817,6 +846,7 @@ mod tests {
             .variant_id(&Type::Named("Maybe".into()), "Maybe.Some")
             .unwrap();
         let returns = ReferenceModel {
+            guards: None,
             source: None,
             arguments: &[],
             origins: Vec::new(),

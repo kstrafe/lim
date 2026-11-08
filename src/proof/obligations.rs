@@ -73,6 +73,7 @@ impl Engine<'_, '_> {
         }
         self.old = Some(state.clone());
         self.input_state = Some(state.clone());
+        self.begin_return_guards(function)?;
         let mut output = Vec::new();
         let entered = state.guard;
         let mut admitted = FALSE;
@@ -88,6 +89,7 @@ impl Engine<'_, '_> {
                         .clone()
                         .ok_or_else(|| Error::checker("missing contract entry snapshot"))?;
                     self.verify_contract_stores(&entry, &state, function, &arguments)?;
+                    self.capture_return_guards(&state, function, &arguments, &result)?;
                 }
                 state.result = Some(result);
                 output.extend(self.proposition(state, &args[2])?);
@@ -101,7 +103,9 @@ impl Engine<'_, '_> {
             entered,
             admitted,
         )?;
-        self.old = None;
+        if let Some(entry) = self.old.take() {
+            self.finish_return_guards(function, &entry, &arguments)?;
+        }
         self.quantified = false;
         self.close_claim(original, output, input_start)
     }

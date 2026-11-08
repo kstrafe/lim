@@ -273,8 +273,35 @@ its actual returned values. Missing, unsupported or incomplete provenance cannot
 prove a contract by dropping an execution. Reference-free result data remains
 symbolic, including character validity constraints.
 
+Checked providers also retain the conditions selecting possible return origins
+and reference-bearing enum constructors. These conditions are captured during
+provider verification, checked by replay against the provider circuit, and
+published only after the contract succeeds. A compact Boolean template binds
+the caller's entry-state argument, aggregate and pointee data. Abstract choices
+and inactive input payloads receive fresh bits shared across that invocation's
+conditions, preserving correlations between returned components. Calls reuse
+the template and checked origin list; they do not re-execute the provider body.
+Numeric result fields still require explicit postconditions.
+
+[`examples/proof_guarded_returns.lim`](../examples/proof_guarded_returns.lim)
+uses a weak contract for a reference selector, then proves that writing its
+result changes the selected caller location and preserves its sibling. Native
+replay covers every byte pair with both selectors. A correlated tuple of nine
+references now keeps the two feasible combinations instead of inventing 512
+independent origin combinations.
+
+Refinement keeps conservative May-origins for mutating functions with
+reference-bearing pointees or exclusive pinned input handles. Fresh parent roots
+do not establish absence of internal aliases. Conditional stored-reference
+updates and precise dynamic subobject selection remain open. Templates are
+kept in RAM for the current checked program, not persisted as proof caches.
+Limits include 256 captured origin/constructor conditions per provider and
+64 MiB of retained templates/bindings across providers. Input binding storage
+is checked before retaining more descriptors. Replay consumes the existing
+evaluation and circuit budgets; exhausted or invalid replay remains unproved.
+
 Several possible origins remain separate alternatives, capped at 256. Unknown
-indices or range offsets remain conservative choices. Equal referent contents
+indices or range offsets within one checked origin remain conservative choices. Equal referent contents
 do not establish identity: a contract that only relates values may leave a
 caller's later write-through-reference property unproved when several locations
 remain possible. Negation cannot turn that uncertainty or a resource limit into
@@ -532,7 +559,7 @@ set remain conservative.
 Direct slice parameters/results, raw pointers, implicit global
 access (including named global constants) and external effects remain outside
 reusable summaries. Ordinary symbolic execution supports some of these cases
-without summary reuse. More precise conditional origin relationships, complete
+without summary reuse. More precise conditional store/subobject relationships, complete
 environment models and general counterexample replay remain open work.
 
 ## Reading counterexamples

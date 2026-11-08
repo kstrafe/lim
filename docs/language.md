@@ -2069,6 +2069,13 @@ including observable-storage preservation, effect restrictions and resource
 limits. Its calls evaluate the specification and do not contribute program
 events to call-order or validation traces. Selecting a contract does not
 permit hidden global/environment access or unchecked changes to reference identity.
+Checked return summaries retain provider-derived origin and reference-bearing
+constructor conditions, including correlations across result slots. Conditions
+bind to caller entry data before write-frame abstraction; numeric result fields
+still follow the selected postcondition. Mutating reference-bearing parents and
+exclusive pinned inputs retain conservative origins, as do unknown choices
+within a dynamic subobject origin. See the [verification model](program-verification.md)
+for the template, condition and retained-memory limits.
 
 Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
 path-budget checks, 4,096 symbolic storage slots, call depth 128, combined

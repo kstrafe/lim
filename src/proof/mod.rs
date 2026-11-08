@@ -7,6 +7,7 @@ mod contracts;
 mod counterexample;
 mod coverage;
 mod graph;
+mod guarded_returns;
 #[cfg(test)]
 mod induction_tests;
 mod logic;
@@ -85,6 +86,8 @@ struct Engine<'a, 'p> {
     spec_span: Option<Span>,
     checked_expression_depth: usize,
     verify_reference_origins: bool,
+    return_guard_capture: Option<guarded_returns::Capture>,
+    guarded_return_summary: Option<std::sync::Arc<guarded_returns::Summary>>,
     old: Option<State>,
     steps: usize,
     loop_limit: usize,
@@ -128,6 +131,7 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
     let mut verified = HashMap::new();
     let mut warnings = Vec::new();
     let mut warning_budget = coverage::ReportBudget::default();
+    let mut return_guard_bytes = 0usize;
     for index in order.sequence {
         let (name, proposition) = proofs[index];
         let span =
@@ -156,6 +160,15 @@ pub(crate) fn check(checked: &CheckedProgram<'_>) -> std::result::Result<(), Ana
                     name,
                     &mut warning_budget,
                 )?);
+                if let Some(summary) = &engine.guarded_return_summary {
+                    return_guard_bytes =
+                        return_guard_bytes.saturating_add(summary.retained_bytes());
+                    if return_guard_bytes > 64 * 1024 * 1024 {
+                        return Err(Error::limit(
+                            "guarded return summaries exceed 64 MiB across the program",
+                        ));
+                    }
+                }
                 Ok(())
             });
         if let Err(message) = outcome {
@@ -205,6 +218,8 @@ impl<'a, 'p> Engine<'a, 'p> {
             spec_span: None,
             checked_expression_depth: 0,
             verify_reference_origins: false,
+            return_guard_capture: None,
+            guarded_return_summary: None,
             old: None,
             steps: 0,
             loop_limit: 32,

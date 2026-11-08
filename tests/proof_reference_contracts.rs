@@ -129,7 +129,7 @@ fn pinned_reference_results_keep_the_stationary_caller_location() {
 }
 
 #[test]
-fn weak_conditional_reference_contract_does_not_choose_an_origin() {
+fn conditional_reference_summary_keeps_the_checked_selector_relation() {
     let source = r#"
       (#fn choose (: condition #bool : left (#ref-mut #u8) : right (#ref-mut #u8))
           (#ref-mut #u8)
@@ -151,12 +151,7 @@ fn weak_conditional_reference_contract_does_not_choose_an_origin() {
           (#proof-contract caller (#bool::and condition (#u8::eq left-input right-input))
             (#proof-eq (#proof-result) 9u8))))
     "#;
-    let error = rejected(source, "caller-contract");
-    assert_eq!(
-        error.proof_outcome(),
-        Some(ProofOutcome::ContractFailure),
-        "{error:?}"
-    );
+    proved(source, "caller-contract");
     proved(
         &source.replace("(#proof-using (weak)", "(#proof-using ()"),
         "caller-contract",
@@ -203,12 +198,23 @@ fn reference_result_alternative_limits_cannot_be_negated_into_a_proof() {
     ] {
         let source = format!(
             r#"
-          (#fn many (: condition #bool : left (#ref #u8) : right (#ref #u8)) {ty}
-            (#let selected (#ref #u8) (#if condition left right))
+          (#fn many ({parameters} : left (#ref #u8) : right (#ref #u8)) {ty}
+            {selections}
             (#return (#tuple {ty} {values})))
           (#theorem many-contract (#proof-contract many true true))
           (#theorem selected (#proof-using (many-contract) {claim}))"#,
-            values = vec!["selected"; 9].join(" ")
+            parameters = (0..9)
+                .map(|i| format!(": condition{i} #bool"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            selections = (0..9)
+                .map(|i| format!("(#let selected{i} (#ref #u8) (#if condition{i} left right))"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            values = (0..9)
+                .map(|i| format!("selected{i}"))
+                .collect::<Vec<_>>()
+                .join(" "),
         );
         let error = rejected(&source, "selected");
         assert_eq!(
@@ -217,11 +223,27 @@ fn reference_result_alternative_limits_cannot_be_negated_into_a_proof() {
             "{error:?}"
         );
         assert!(
-            error.message.contains("return alternatives"),
+            error.message.contains("budget") || error.message.contains("alternatives"),
             "{}",
             error.message
         );
     }
+}
+
+#[test]
+fn correlated_repeated_reference_slots_do_not_create_impossible_combinations() {
+    let ty = format!("(#tuple {})", vec!["(#ref #u8)"; 9].join(" "));
+    let source = format!(
+        r#"
+      (#fn many (: condition #bool : left (#ref #u8) : right (#ref #u8)) {ty}
+        (#let selected (#ref #u8) (#if condition left right))
+        (#return (#tuple {ty} {values})))
+      (#theorem many-contract (#proof-contract many true true))
+      (#theorem selected (#proof-using (many-contract) (#proof-contract many true true)))
+    "#,
+        values = vec!["selected"; 9].join(" ")
+    );
+    proved(&source, "selected");
 }
 
 #[test]

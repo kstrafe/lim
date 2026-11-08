@@ -199,6 +199,7 @@ impl Engine<'_, '_> {
             }
         }
         Ok(ReferenceModel {
+            guards: None,
             arguments,
             origins: originals,
             bounds,

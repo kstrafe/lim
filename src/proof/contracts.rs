@@ -11,6 +11,7 @@ pub(super) struct Contract<'p> {
     pre: &'p Expr,
     post: &'p Expr,
     span: Span,
+    return_guards: Option<std::sync::Arc<guarded_returns::Summary>>,
 }
 
 pub(super) struct Order {
@@ -156,6 +157,7 @@ impl<'a, 'p> Engine<'a, 'p> {
                         pre: &args[1],
                         post: &args[2],
                         span,
+                        return_guards: self.guarded_return_summary.clone(),
                     })
                 }
                 _ => return None,
@@ -309,6 +311,12 @@ impl<'a, 'p> Engine<'a, 'p> {
         self.summary_depth += 1;
         let output = (|| {
             let saved_result = state.result.take();
+            let return_guards = self.instantiate_return_guards(
+                contract.return_guards.as_deref(),
+                function,
+                &state,
+                &arguments,
+            )?;
             let mut output = Vec::new();
             for (mut state, pre) in self.proposition(state, contract.pre)? {
                 let condition = pre.boolean()?;
@@ -326,9 +334,12 @@ impl<'a, 'p> Engine<'a, 'p> {
                     vec![state]
                 };
                 for state in states {
-                    for (mut state, result) in
-                        self.contract_return_values(state, function, &arguments)?
-                    {
+                    for (mut state, result) in self.contract_return_values(
+                        state,
+                        function,
+                        &arguments,
+                        return_guards.as_ref(),
+                    )? {
                         state.result = Some(result.clone());
                         for (mut state, post) in self.proposition(state, contract.post)? {
                             state.guard = self.circuit.and(state.guard, post.boolean()?);

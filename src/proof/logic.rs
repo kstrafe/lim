@@ -5,6 +5,10 @@ use super::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[path = "logic_templates.rs"]
+mod templates;
+pub(super) use templates::Template;
+
 pub(crate) type Bit = u32;
 pub(crate) const FALSE: Bit = 0;
 pub(crate) const TRUE: Bit = 1;
@@ -19,7 +23,7 @@ pub(crate) struct Word {
     pub bits: Vec<Bit>,
     pub signed: bool,
 }
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Gate {
     Input,
     And(Bit, Bit),
