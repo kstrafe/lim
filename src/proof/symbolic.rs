@@ -188,6 +188,9 @@ impl State {
             .saturating_add(self.input_parent_aliases.len())
             .saturating_mul(64)
     }
+    pub(super) fn has_input_parent_aliases(&self) -> bool {
+        !self.input_parent_aliases.is_empty()
+    }
     pub(in crate::proof) fn heap_len(&self) -> usize {
         self.heap.len()
     }

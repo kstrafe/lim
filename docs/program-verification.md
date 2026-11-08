@@ -290,10 +290,20 @@ replay covers every byte pair with both selectors. A correlated tuple of nine
 references now keeps the two feasible combinations instead of inventing 512
 independent origin combinations.
 
-Refinement keeps conservative May-origins for mutating functions with
-reference-bearing pointees or exclusive pinned input handles. Fresh parent roots
-do not establish absence of internal aliases. Conditional stored-reference
-updates and precise dynamic subobject selection remain open. Templates are
+The same template retains conditions selecting stored reference origins and
+reference-bearing constructors, including branches that keep an entry reference.
+Stored and returned components share the invocation's abstract choices. Sources
+and conditions are bound before any caller memory is freshened, preserving swaps
+and references returned from overwritten fields.
+
+Refinement keeps conservative May-origins for mutating functions with exclusive
+pinned inputs or possible typed overlap between a parent and an input referent.
+The overlap check walks storage physically contained in records, arrays, tuples
+and enum payloads, stopping at reference handles. Thus a record containing only
+reference handles can be refined, but an inline byte plus a reference to a byte
+can conceal a self-alias and retains the conservative model. Fresh roots alone
+never establish absence of internal aliases. Precise dynamic subobject selection
+and writes through symbolic indices into reference-bearing arrays remain open. Templates are
 kept in RAM for the current checked program, not persisted as proof caches.
 Limits include 256 captured origin/constructor conditions per provider and
 64 MiB of retained templates/bindings across providers. Input binding storage
@@ -550,16 +560,30 @@ the summaries cover the actual stored reference identities. Equal referent
 contents do not justify substituting a different location. Missing origins and
 unsupported destinations remain unproved.
 
+For eligible providers, guarded store conditions refine the possible-source set.
+The conditions come from checked provider execution, not declarations trusted
+from the caller. A no-write branch selects the entry source; a replacement
+selects the checked new source; enum constructors and payload identities retain
+their shared condition. The same substitution preserves correlations through
+explicitly selected transitive contracts.
+
+[`examples/proof_guarded_stores.lim`](../examples/proof_guarded_stores.lim)
+proves that a conditional replacement returns either the new referent's byte or
+the preserved entry byte, reusing a provider with a `true` postcondition. Its
+native replay checks every byte pair with both branches. The test suite also
+covers swaps, enum payloads, returned retired references, aliased caller inputs,
+wrong claims, negation, and unsupported dynamic reference-bearing array writes.
+
 Postconditions must still specify numerical contents and unchanged sibling data
 that a caller needs. Store provenance describes locations, not arbitrary scalar
 relations. Composed store alternatives are capped at 256 paths and 4096 prepared
-replacements. Conditional origin correlations beyond the checked possible-source
-set remain conservative.
+replacements. Providers excluded by the parent-alias or pinned-input guard retain
+the checked possible-source set without conditional refinement.
 
 Direct slice parameters/results, raw pointers, implicit global
 access (including named global constants) and external effects remain outside
 reusable summaries. Ordinary symbolic execution supports some of these cases
-without summary reuse. More precise conditional store/subobject relationships, complete
+without summary reuse. More precise dynamic store/subobject relationships, complete
 environment models and general counterexample replay remain open work.
 
 ## Reading counterexamples

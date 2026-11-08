@@ -14,12 +14,35 @@ impl Engine<'_, '_> {
         function: &Function,
         arguments: &[Value],
         target: &Target,
+        guards: Option<&guarded_returns::Guards>,
     ) -> Result<Vec<(State, Value)>> {
         if !self.reference_type(&target.ty, 0)? {
             let value = self.fresh_value(&mut state, &target.ty, 0)?;
             return Ok(vec![(state, value)]);
         }
-        let model = self.store_model(entry, function, arguments, target)?;
+        let local_guards = guards.map(|guards| {
+            let scope = guarded_returns::StoreScope {
+                parameter: target.parameter,
+                storage: target.storage.clone(),
+            };
+            guards
+                .iter()
+                .filter_map(|(key, guard)| {
+                    use guarded_returns::Key;
+                    match key {
+                        Key::StoreOrigin(found, path, index) if found == &scope => {
+                            Some((Key::Origin(path.clone(), *index), *guard))
+                        }
+                        Key::StoreVariant(found, path, index) if found == &scope => {
+                            Some((Key::Variant(path.clone(), *index), *guard))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<guarded_returns::Guards>()
+        });
+        let mut model = self.store_model(entry, function, arguments, target)?;
+        model.guards = local_guards.as_ref();
         let guard = state.guard;
         let values = self.reference_value(state, &target.ty, &[], &model, 0)?;
         if values.is_empty() && self.circuit.satisfy(guard)?.is_some() {
@@ -68,12 +91,28 @@ impl Engine<'_, '_> {
                 if self.circuit.satisfy(missing)?.is_some() {
                     return Err(Error::unsupported("checked store-origin summary does not cover the symbolically executed reference assignment"));
                 }
+                if self.return_guard_capture.is_some() {
+                    let scope = guarded_returns::StoreScope {
+                        parameter: target.parameter,
+                        storage: target.storage.clone(),
+                    };
+                    self.capture_return_value(
+                        &state,
+                        entry,
+                        arguments,
+                        &value,
+                        &[],
+                        &model.origins,
+                        Some(&scope),
+                        0,
+                    )?;
+                }
             }
         }
         Ok(())
     }
 
-    fn stores_references(&mut self, ty: &Type, depth: usize) -> Result<bool> {
+    pub(super) fn stores_references(&mut self, ty: &Type, depth: usize) -> Result<bool> {
         self.tick()?;
         if depth > 32 {
             return Err(Error::limit("stored-reference target nesting exceeds 32"));

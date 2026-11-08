@@ -71,9 +71,9 @@ impl Engine<'_, '_> {
             )?;
             arguments.push(value);
         }
+        self.begin_return_guards(function, &mut state, &arguments)?;
         self.old = Some(state.clone());
         self.input_state = Some(state.clone());
-        self.begin_return_guards(function)?;
         let mut output = Vec::new();
         let entered = state.guard;
         let mut admitted = FALSE;

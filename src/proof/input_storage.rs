@@ -6,6 +6,67 @@ use super::*;
 const PAIR_LIMIT: usize = 4096;
 
 impl Engine<'_, '_> {
+    pub(in crate::proof) fn register_contract_input_storage(
+        &mut self,
+        state: &mut State,
+        arguments: &[Value],
+    ) -> Result<()> {
+        let mut visited = BTreeSet::new();
+        for argument in arguments {
+            self.register_contract_input_value(state, argument, &mut visited, 0)?;
+        }
+        Ok(())
+    }
+
+    fn register_contract_input_value(
+        &mut self,
+        state: &mut State,
+        value: &Value,
+        visited: &mut BTreeSet<usize>,
+        depth: usize,
+    ) -> Result<()> {
+        self.tick()?;
+        if depth > 32 {
+            return Err(Error::limit("contract input storage nesting exceeds 32"));
+        }
+        match value {
+            Value::Ref {
+                place,
+                pinned,
+                mutable,
+                ..
+            } => {
+                if !place.path.is_empty() {
+                    return Err(Error::checker(
+                        "fresh contract input is not a root reference",
+                    ));
+                }
+                if visited.insert(place.root) {
+                    let referent = self.read(state, place)?;
+                    self.register_contract_input_value(state, &referent, visited, depth + 1)?;
+                    self.register_input_storage(state, place.root, *pinned && *mutable)?;
+                }
+            }
+            Value::Record(_, fields) => {
+                for (_, value) in fields {
+                    self.register_contract_input_value(state, value, visited, depth + 1)?;
+                }
+            }
+            Value::Array(_, values) | Value::Tuple(values) => {
+                for value in values {
+                    self.register_contract_input_value(state, value, visited, depth + 1)?;
+                }
+            }
+            Value::Enum(_, _, values) => {
+                for value in values.iter().flatten() {
+                    self.register_contract_input_value(state, value, visited, depth + 1)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn input_storage_contains(
         &mut self,
         value: &Value,

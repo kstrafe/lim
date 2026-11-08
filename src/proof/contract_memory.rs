@@ -21,6 +21,7 @@ impl Engine<'_, '_> {
         state: State,
         function: &Function,
         arguments: &[Value],
+        guards: Option<&guarded_returns::Guards>,
     ) -> Result<Vec<State>> {
         let entry = state.clone();
         let runs = self.contract_targets(state, arguments)?;
@@ -30,9 +31,9 @@ impl Engine<'_, '_> {
             for target in writes.iter().filter(|target| target.mutable) {
                 let mut next = Vec::new();
                 for (state, replacements) in prepared {
-                    for (state, value) in
-                        self.contract_stored_values(state, &entry, function, arguments, target)?
-                    {
+                    for (state, value) in self.contract_stored_values(
+                        state, &entry, function, arguments, target, guards,
+                    )? {
                         let mut replacements = replacements.clone();
                         replacements.push((target.place.clone(), value));
                         next.push((state, replacements));

@@ -329,7 +329,12 @@ impl<'a, 'p> Engine<'a, 'p> {
                 }
                 state.guard = self.circuit.and(state.guard, condition);
                 let states = if mutates {
-                    self.contract_memory_states(state, function, &arguments)?
+                    self.contract_memory_states(
+                        state,
+                        function,
+                        &arguments,
+                        return_guards.as_ref(),
+                    )?
                 } else {
                     vec![state]
                 };

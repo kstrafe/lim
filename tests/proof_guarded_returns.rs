@@ -453,13 +453,13 @@ fn numeric_output_fields_still_require_an_explicit_contract_postcondition() {
 #[test]
 fn mutating_reference_bearing_parents_keep_the_conservative_origin_model() {
     let source = r#"
-      (#struct Holder () (: flag #bool : retained (#ref #u8)))
+      (#struct Holder () (: value #u8 : retained (#ref #u8)))
       (#fn choose (: holder (#ref-mut Holder) : condition #bool : left (#ref #u8) : right (#ref #u8)) (#ref #u8)
-        (#deref-set (#borrow-mut (#get (#deref holder) flag)) false)
+        (#deref-set (#borrow-mut (#get (#deref holder) value)) 1u8)
         (#return (#if condition left right)))
       (#theorem choose-contract (#proof-contract choose true true))
       (#fn caller (: condition #bool : left #u8 : right #u8) #u8
-        (#let-mut holder Holder (#struct-literal Holder (: flag true : retained (#borrow left))))
+        (#let-mut holder Holder (#struct-literal Holder (: value 0u8 : retained (#borrow left))))
         (#let selected (#ref #u8) (#call choose (: holder (#borrow-mut holder) : condition condition : left (#borrow left) : right (#borrow right))))
         (#let answer #u8 (#deref selected))
         (#forget selected)

@@ -1,0 +1,31 @@
+; Reusing the weak contract preserves both the write and no-write origins.
+(#struct Slot () (: reference (#ref #u8)))
+
+(#fn replace-if (: slot (#ref-mut Slot) : replace #bool : next (#ref #u8)) ()
+  (#if replace
+    (#deref-set slot (#struct-literal Slot (: reference next)))
+    ())
+  (#return ()))
+
+(#theorem replace-origins
+  (#proof-contract replace-if true true))
+
+(#fn read-updated (: replace #bool : previous #u8 : next #u8) #u8
+  (#let-mut slot Slot (#struct-literal Slot (: reference (#borrow previous))))
+  (#call replace-if (: slot (#borrow-mut slot) : replace replace : next (#borrow next)))
+  (#return (#deref (#get slot reference))))
+
+(#theorem conditional-read
+  (#proof-using
+    (replace-origins)
+    (#proof-contract
+      read-updated
+      true
+      (#proof-eq
+        (#proof-result)
+        (#if replace
+          next
+          previous)))))
+
+(#fn main () #u64
+  (#return (#as (#call read-updated (: replace true : previous 4u8 : next 42u8)) #u64)))

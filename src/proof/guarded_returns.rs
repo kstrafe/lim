@@ -1,5 +1,5 @@
-//! Guarded refinements of checked May-origins, captured during provider
-//! verification. Conditions contain input data and fresh abstract choices,
+//! Guarded refinements of checked return and store May-origins, captured during
+//! provider verification. Conditions contain input data and fresh abstract choices,
 //! never physical provider heap IDs or assumptions supplied by the caller.
 use super::*;
 use crate::typed_place::Segment as Path;
@@ -10,9 +10,17 @@ const BYTE_LIMIT: usize = 64 * 1024 * 1024;
 const KEY_LIMIT: usize = 256;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(super) struct StoreScope {
+    pub parameter: usize,
+    pub storage: Vec<Path>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(super) enum Key {
     Origin(Vec<Path>, usize),
     Variant(Vec<Path>, usize),
+    StoreOrigin(StoreScope, Vec<Path>, usize),
+    StoreVariant(StoreScope, Vec<Path>, usize),
 }
 
 #[cfg(test)]
@@ -41,9 +49,54 @@ mod tests {
                 .forbidden_effect("choose", "mutation")
                 .unwrap()
                 .is_some());
-            engine.begin_return_guards(function).unwrap();
+            let mut state = State::new();
+            let arguments = function
+                .parameters
+                .iter()
+                .map(|parameter| engine.fresh_value(&mut state, &parameter.ty, 0))
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
+            engine
+                .begin_return_guards(function, &mut state, &arguments)
+                .unwrap();
             assert!(engine.return_guard_capture.is_none());
         });
+    }
+
+    #[test]
+    fn typed_parent_overlap_disables_refinement_but_plain_handles_do_not() {
+        let program = crate::parse_program(
+            r#"
+          (#struct Slot () (: reference (#ref #u8)))
+          (#struct Holder () (: value #u8 : reference (#ref #u8)))
+          (#fn slot-update (: slot (#ref-mut Slot) : next (#ref #u8)) ()
+            (#deref-set slot (#struct-literal Slot (: reference next)))
+            (#return ()))
+          (#fn holder-update (: holder (#ref-mut Holder) : next (#ref #u8)) ()
+            (#deref-set holder (#struct-literal Holder (: value 0u8 : reference next)))
+            (#return ()))
+        "#,
+        )
+        .unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let graph = Graph::new(checked.program(), checked.declarations());
+        for (name, guarded) in [("slot-update", true), ("holder-update", false)] {
+            let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
+            engine.verify_reference_origins = true;
+            let function = engine.function(name).unwrap();
+            let mut state = State::new();
+            let arguments = function
+                .parameters
+                .iter()
+                .map(|parameter| engine.fresh_value(&mut state, &parameter.ty, 0))
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
+            engine
+                .begin_return_guards(function, &mut state, &arguments)
+                .unwrap();
+            assert_eq!(engine.return_guard_capture.is_some(), guarded, "{name}");
+            assert_eq!(state.has_input_parent_aliases(), !guarded, "{name}");
+        }
     }
 
     #[test]
@@ -144,21 +197,34 @@ impl Summary {
 }
 
 impl Engine<'_, '_> {
-    pub(super) fn begin_return_guards(&mut self, function: &Function) -> Result<()> {
-        if self.verify_reference_origins && self.reference_type(&function.return_type, 0)? {
-            if self
+    pub(super) fn begin_return_guards(
+        &mut self,
+        function: &Function,
+        state: &mut State,
+        arguments: &[Value],
+    ) -> Result<()> {
+        if self.verify_reference_origins {
+            let mutates = self
                 .graph
                 .forbidden_effect(&function.name, "mutation")?
-                .is_some()
-            {
+                .is_some();
+            let mut needed = self.reference_type(&function.return_type, 0)?;
+            if mutates {
                 for parameter in &function.parameters {
+                    needed |= self.stores_references(&parameter.ty, 0)?;
                     if self.guarded_alias_risk(&parameter.ty, 0)? {
-                        // Fresh parent/referent roots do not enumerate possible
-                        // internal aliases. Keep checked May-origins until the
-                        // mutation model can preserve those relationships.
                         return Ok(());
                     }
                 }
+                self.register_contract_input_storage(state, arguments)?;
+                if state.has_input_parent_aliases() {
+                    // In-place typed overlap can conceal internal aliases.
+                    // Independent fresh roots cannot refine these May-origins.
+                    return Ok(());
+                }
+            }
+            if !needed {
+                return Ok(());
             }
             self.return_guard_capture = Some(Capture {
                 function: function.name.clone(),
@@ -171,12 +237,12 @@ impl Engine<'_, '_> {
     fn guarded_alias_risk(&mut self, ty: &Type, depth: usize) -> Result<bool> {
         self.tick()?;
         if depth > 32 {
-            return Err(Error::limit("guarded return alias nesting exceeds 32"));
+            return Err(Error::limit("guarded reference alias nesting exceeds 32"));
         }
         Ok(match self.resolve_type(ty)? {
             Type::PinnedReference { mutable: true, .. } => true,
             Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
-                self.reference_type(&target, 0)?
+                self.guarded_alias_risk(&target, depth + 1)?
             }
             Type::Array(element, _) => self.guarded_alias_risk(&element, depth + 1)?,
             Type::Tuple(types) => {
@@ -215,7 +281,7 @@ impl Engine<'_, '_> {
         };
         if capture.guards.len() >= KEY_LIMIT && !capture.guards.contains_key(&key) {
             return Err(Error::limit(
-                "guarded return summaries exceed 256 conditions",
+                "guarded reference summaries exceed 256 conditions",
             ));
         }
         let old = capture.guards.get(&key).copied().unwrap_or(FALSE);
@@ -241,7 +307,7 @@ impl Engine<'_, '_> {
             .checked
             .declarations()
             .function_id(&function.name)
-            .ok_or_else(|| Error::checker("missing guarded return function identity"))?;
+            .ok_or_else(|| Error::checker("missing guarded reference function identity"))?;
         let origins = self.checked.declarations().bodies[&function.name]
             .call_return_origins
             .get(&id)
@@ -250,11 +316,11 @@ impl Engine<'_, '_> {
         let entry = self
             .old
             .clone()
-            .ok_or_else(|| Error::checker("guarded returns need their entry snapshot"))?;
-        self.capture_return_value(state, &entry, arguments, value, &[], &origins, 0)
+            .ok_or_else(|| Error::checker("guarded references need their entry snapshot"))?;
+        self.capture_return_value(state, &entry, arguments, value, &[], &origins, None, 0)
     }
 
-    fn capture_return_value(
+    pub(super) fn capture_return_value(
         &mut self,
         state: &State,
         entry: &State,
@@ -262,11 +328,12 @@ impl Engine<'_, '_> {
         value: &Value,
         path: &[Path],
         origins: &[crate::typed_body::ParameterLoanSummary],
+        scope: Option<&StoreScope>,
         depth: usize,
     ) -> Result<()> {
         self.tick()?;
         if depth > 32 {
-            return Err(Error::limit("guarded return nesting exceeds 32"));
+            return Err(Error::limit("guarded reference nesting exceeds 32"));
         }
         if self.circuit.satisfy(state.guard)?.is_none() {
             return Ok(());
@@ -302,14 +369,18 @@ impl Engine<'_, '_> {
                     )? {
                         let Value::Ref { place: origin, .. } = reference else {
                             return Err(Error::checker(
-                                "guarded return candidate is not a reference",
+                                "guarded reference candidate is not a reference",
                             ));
                         };
                         let same = self.same_location(place, &origin);
                         let selected = self.circuit.and(candidate.guard, same);
                         guard = self.circuit.or(guard, selected);
                     }
-                    self.add_return_guard(Key::Origin(path.to_vec(), index), guard)?;
+                    let key = match scope {
+                        Some(scope) => Key::StoreOrigin(scope.clone(), path.to_vec(), index),
+                        None => Key::Origin(path.to_vec(), index),
+                    };
+                    self.add_return_guard(key, guard)?;
                 }
             }
             Value::Record(name, fields) => {
@@ -318,7 +389,7 @@ impl Engine<'_, '_> {
                         .checked
                         .declarations()
                         .field_id(&Type::Named(name.clone()), field)
-                        .ok_or_else(|| Error::checker("missing guarded return field"))?;
+                        .ok_or_else(|| Error::checker("missing guarded reference field"))?;
                     let mut nested = path.to_vec();
                     nested.push(Path::Field(id));
                     self.capture_return_value(
@@ -328,6 +399,7 @@ impl Engine<'_, '_> {
                         value,
                         &nested,
                         origins,
+                        scope,
                         depth + 1,
                     )?;
                 }
@@ -348,6 +420,7 @@ impl Engine<'_, '_> {
                         value,
                         &nested,
                         origins,
+                        scope,
                         depth + 1,
                     )?;
                 }
@@ -360,13 +433,17 @@ impl Engine<'_, '_> {
                         .eq_word(tag, &Circuit::constant(index as u128, 64, false));
                     let mut branch = state.clone();
                     branch.guard = self.circuit.and(branch.guard, selected);
-                    self.add_return_guard(Key::Variant(path.to_vec(), index), branch.guard)?;
+                    let key = match scope {
+                        Some(scope) => Key::StoreVariant(scope.clone(), path.to_vec(), index),
+                        None => Key::Variant(path.to_vec(), index),
+                    };
+                    self.add_return_guard(key, branch.guard)?;
                     if let Some(payload) = payload {
                         let id = self
                             .checked
                             .declarations()
                             .variant_id(&Type::Named(name.clone()), &self.enums[name][index].name)
-                            .ok_or_else(|| Error::checker("missing guarded return variant"))?;
+                            .ok_or_else(|| Error::checker("missing guarded reference variant"))?;
                         let mut nested = path.to_vec();
                         nested.push(Path::Payload(id, 0));
                         self.capture_return_value(
@@ -376,6 +453,7 @@ impl Engine<'_, '_> {
                             payload,
                             &nested,
                             origins,
+                            scope,
                             depth + 1,
                         )?;
                     }
@@ -396,7 +474,7 @@ impl Engine<'_, '_> {
             return Ok(());
         };
         if capture.function != function.name {
-            return Err(Error::checker("guarded return capture changed function"));
+            return Err(Error::checker("guarded reference capture changed function"));
         }
         let keys = capture.guards.keys().cloned().collect::<Vec<_>>();
         let roots = capture.guards.values().copied().collect::<Vec<_>>();
@@ -419,6 +497,11 @@ impl Engine<'_, '_> {
         for key in &keys {
             let path = match key {
                 Key::Origin(path, _) | Key::Variant(path, _) => path,
+                Key::StoreOrigin(scope, path, _) | Key::StoreVariant(scope, path, _) => {
+                    bytes = bytes
+                        .saturating_add(scope.storage.capacity() * std::mem::size_of::<Path>());
+                    path
+                }
             };
             bytes = bytes.saturating_add(
                 std::mem::size_of::<Key>() + path.capacity() * std::mem::size_of::<Path>(),
@@ -431,7 +514,7 @@ impl Engine<'_, '_> {
             }
         }
         if bytes > BYTE_LIMIT {
-            return Err(Error::limit("guarded return summary exceeds 64 MiB"));
+            return Err(Error::limit("guarded reference summary exceeds 64 MiB"));
         }
         let summary = Summary {
             function: capture.function,
@@ -447,11 +530,11 @@ impl Engine<'_, '_> {
             let replayed = actual
                 .get(&key)
                 .copied()
-                .ok_or_else(|| Error::checker("guarded return replay omitted a condition"))?;
+                .ok_or_else(|| Error::checker("guarded reference replay omitted a condition"))?;
             let different = self.circuit.xor(expected, replayed);
             if self.circuit.satisfy(different)?.is_some() {
                 return Err(Error::checker(
-                    "guarded return replay changed a provider condition",
+                    "guarded reference replay changed a provider condition",
                 ));
             }
         }
@@ -471,7 +554,7 @@ impl Engine<'_, '_> {
     ) -> Result<()> {
         self.tick()?;
         if depth > 32 {
-            return Err(Error::limit("guarded return input nesting exceeds 32"));
+            return Err(Error::limit("guarded reference input nesting exceeds 32"));
         }
         let leaf = match value {
             Value::Bool(bit) => Some((Leaf::Bool, vec![*bit])),
@@ -492,7 +575,9 @@ impl Engine<'_, '_> {
                             + path.len().saturating_mul(std::mem::size_of::<Step>()),
                     );
                     if found.bytes > BYTE_LIMIT {
-                        return Err(Error::limit("guarded return input bindings exceed 64 MiB"));
+                        return Err(Error::limit(
+                            "guarded reference input bindings exceed 64 MiB",
+                        ));
                     }
                     let binding = Binding {
                         parameter,
@@ -573,28 +658,30 @@ impl Engine<'_, '_> {
         let mut value = arguments
             .get(binding.parameter)
             .cloned()
-            .ok_or_else(|| Error::checker("guarded return parameter is missing"))?;
+            .ok_or_else(|| Error::checker("guarded reference parameter is missing"))?;
         for step in &binding.path {
             self.tick()?;
             value = match (step, value) {
                 (Step::Dereference, Value::Ref { place, .. }) => self.read(state, &place)?,
                 (Step::Field(index), Value::Record(_, fields)) => fields
                     .get(*index)
-                    .ok_or_else(|| Error::checker("guarded return input field is missing"))?
+                    .ok_or_else(|| Error::checker("guarded reference input field is missing"))?
                     .1
                     .clone(),
                 (Step::Element(index), Value::Tuple(values) | Value::Array(_, values)) => values
                     .get(*index)
                     .cloned()
-                    .ok_or_else(|| Error::checker("guarded return input element is missing"))?,
+                    .ok_or_else(|| Error::checker("guarded reference input element is missing"))?,
                 (Step::Payload(index), Value::Enum(_, _, values)) => match values.get(*index) {
                     Some(Some(value)) => value.clone(),
                     Some(None) => return Ok(None),
-                    None => return Err(Error::checker("guarded return input variant is missing")),
+                    None => {
+                        return Err(Error::checker("guarded reference input variant is missing"))
+                    }
                 },
                 _ => {
                     return Err(Error::checker(
-                        "guarded return input projection has incompatible storage",
+                        "guarded reference input projection has incompatible storage",
                     ))
                 }
             };
@@ -613,12 +700,12 @@ impl Engine<'_, '_> {
             }
             _ => {
                 return Err(Error::checker(
-                    "guarded return input scalar has incompatible type",
+                    "guarded reference input scalar has incompatible type",
                 ))
             }
         };
         Ok(Some(*bits.get(binding.bit).ok_or_else(|| {
-            Error::checker("guarded return input bit is missing")
+            Error::checker("guarded reference input bit is missing")
         })?))
     }
 
@@ -651,7 +738,7 @@ impl Engine<'_, '_> {
             .instantiate_template(&summary.template, &inputs)?;
         if roots.len() != summary.keys.len() {
             return Err(Error::checker(
-                "guarded return roots have incompatible shape",
+                "guarded reference roots have incompatible shape",
             ));
         }
         Ok(summary.keys.iter().cloned().zip(roots).collect())
@@ -669,7 +756,7 @@ impl Engine<'_, '_> {
         };
         if summary.function != function.name {
             return Err(Error::checker(
-                "guarded return summary belongs to another function",
+                "guarded reference summary belongs to another function",
             ));
         }
         self.replay_return_guards(summary, state, arguments, false)
