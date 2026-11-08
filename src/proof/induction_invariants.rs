@@ -142,6 +142,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn input_alias_provenance_preserves_exclusivity_and_shared_ancestry() {
+        let program = crate::parse_program(
+            "(#struct Holder () (: loan (#ref-mut #u8))) (#fn entry () () (#return ()))",
+        )
+        .unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let graph = Graph::new(checked.program(), checked.declarations());
+        let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
+        let mut state = State::new();
+        let reference = |target, mutable| Type::Reference {
+            mutable,
+            target: Box::new(target),
+        };
+        let shared = engine
+            .fresh_value(&mut state, &reference(Type::U8, false), 0)
+            .unwrap();
+        let unique = engine
+            .fresh_value(&mut state, &reference(Type::U8, true), 0)
+            .unwrap();
+        let holder = engine
+            .fresh_value(
+                &mut state,
+                &reference(Type::Named("Holder".into()), false),
+                0,
+            )
+            .unwrap();
+        let Value::Ref { place: shared, .. } = shared else {
+            panic!("shared")
+        };
+        let Value::Ref { place: unique, .. } = unique else {
+            panic!("unique")
+        };
+        let Value::Ref { place: holder, .. } = holder else {
+            panic!("holder")
+        };
+        let Value::Record(_, fields) = engine.read(&state, &holder).unwrap() else {
+            panic!("record")
+        };
+        let Value::Ref { place: nested, .. } = &fields[0].1 else {
+            panic!("nested")
+        };
+        let aliases = state.possibly_aliasing_roots(shared.root);
+        assert!(aliases.contains(&holder.root));
+        assert!(aliases.contains(&nested.root));
+        assert!(!aliases.contains(&unique.root));
+        let local = engine
+            .allocate(
+                &mut state,
+                Value::Bits(Circuit::constant(0, 8, false), Type::U8),
+            )
+            .unwrap();
+        assert!(!state
+            .possibly_aliasing_roots(shared.root)
+            .contains(&local.root));
+        state.globals.insert("global".into(), local.clone());
+        assert!(state
+            .possibly_aliasing_roots(shared.root)
+            .contains(&local.root));
+        assert!(state
+            .possibly_aliasing_roots(local.root)
+            .contains(&shared.root));
+        assert!(!engine.fresh_under_shared);
+        let bad = reference(Type::Named("Missing".into()), false);
+        assert!(engine.fresh_value(&mut state, &bad, 0).is_err());
+        assert!(!engine.fresh_under_shared);
+    }
+
+    #[test]
     fn assumed_evidence_queries_are_consistent_under_symbolic_aliases() {
         let program = crate::parse_program(
             "(#fn validate (: item (#ref #u8)) #bool (#return true))\n\

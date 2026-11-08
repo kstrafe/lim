@@ -335,6 +335,22 @@ Different queried locations may alias: seeding a later location excludes aliases
 already represented, and failed checks or writes revoke all matching evidence.
 The existing fact/dependency limits also apply to these symbolic requirements.
 
+Separate fresh referents model input contents; they do not prove that shared
+parameters denote different objects. Failed revalidation through another
+possibly aliased shared input conservatively revokes prior evidence, including
+for subobjects and references reached through shared parents. Writes revoke
+possibly overlapping dependencies too. Exclusive inputs retain the ordinary
+borrow checker's disjointness guarantees; a mutable reference stored behind a
+shared parent is still potentially aliased through that parent. Successful
+revalidation preserves prior evidence even when the objects might alias.
+
+This guard does not enumerate every input alias relationship. A failed claim
+that depends on those conservative revocations is reported as unproved, not a
+concrete execution counterexample, and negation cannot turn it into a proof.
+An explicit caller passing the same object supplies a known identity and can
+produce a concrete counterexample. General alias enumeration and conditional
+identity relations remain open.
+
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are
 unchanged. Slice handles also retain their backing location, start and length.

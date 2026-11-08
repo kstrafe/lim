@@ -75,6 +75,8 @@ struct Engine<'a, 'p> {
     input_state: Option<State>,
     inductive_witness: bool,
     summary_witness: bool,
+    alias_witness: bool,
+    fresh_under_shared: bool,
     contracts: Option<&'a HashMap<String, contracts::Contract<'p>>>,
     summaries: HashMap<String, contracts::Contract<'p>>,
     summary_depth: usize,
@@ -192,6 +194,8 @@ impl<'a, 'p> Engine<'a, 'p> {
             input_state: None,
             inductive_witness: false,
             summary_witness: false,
+            alias_witness: false,
+            fresh_under_shared: false,
             contracts: None,
             summaries: HashMap::new(),
             summary_depth: 0,
@@ -297,6 +301,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                 if self.summary_witness {
                     return Err(Error::contract(format!("{explanation}; selected contracts do not establish this obligation; an abstract result is not a concrete execution counterexample")));
                 }
+                if self.alias_witness && !self.inductive_witness {
+                    return Err(Error::unsupported(format!("{explanation}; possible aliases between symbolic input references leave this obligation unproved; the abstract witness is not a concrete execution replay")));
+                }
                 if let Some(example) = value.and_then(|value| self.claim_evidence(value, &model)) {
                     return Err(Error::counterexample(format!(
                         "{explanation}; quantified counterexample: {example}"
@@ -357,6 +364,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                 // the program contract. In particular its negation must not
                 // turn an insufficient invariant into a proved theorem.
                 return Err(Error::induction(format!("supplied invariants do not establish the claim; inductive obligation witness (initial inputs are not a concrete execution replay): {inputs}")));
+            }
+            if self.alias_witness {
+                return Err(Error::unsupported("possible aliases between symbolic input references leave the claim unproved; the abstract witness is not a concrete execution replay"));
             }
             let example = if let Some(Trace::Validated(rule)) = &self.trace {
                 let explanation = format!("'{}' can be called without completed successful '{}' validation of the same object (or after that validation was invalidated)", crate::file_access::local_name(&rule.action), crate::file_access::local_name(&rule.validator));

@@ -134,9 +134,28 @@ pub(super) struct State {
     acted: Bit,
     required: Bit,
     pub validations: Vec<ValidationFact>,
+    abstract_referents: BTreeSet<usize>,
     revision: u64,
 }
 impl State {
+    pub(super) fn possibly_aliasing_roots(&self, root: usize) -> BTreeSet<usize> {
+        let mut roots = if self.abstract_referents.contains(&root) {
+            let mut roots = self.abstract_referents.clone();
+            roots.extend(self.globals.values().map(|place| place.root));
+            roots
+        } else if self.globals.values().any(|place| place.root == root) {
+            self.abstract_referents.clone()
+        } else {
+            BTreeSet::new()
+        };
+        roots.remove(&root);
+        roots
+    }
+
+    pub(super) fn abstract_referent_count(&self) -> usize {
+        self.abstract_referents.len()
+    }
+
     pub(super) fn revision(&self) -> u64 {
         self.revision
     }
@@ -159,6 +178,7 @@ impl State {
             acted: FALSE,
             required: FALSE,
             validations: Vec::new(),
+            abstract_referents: BTreeSet::new(),
             revision: 0,
         }
     }
@@ -251,8 +271,20 @@ impl Engine<'_, '_> {
                 Ok(Value::Array((**element).clone(), values))
             }
             Type::Reference { target, mutable } | Type::PinnedReference { target, mutable } => {
-                let value = self.fresh_value(state, target, depth + 1)?;
+                let previous = self.fresh_under_shared;
+                self.fresh_under_shared |= !mutable;
+                let shared = self.fresh_under_shared;
+                let value = self.fresh_value(state, target, depth + 1);
+                self.fresh_under_shared = previous;
+                let value = value?;
                 let place = self.allocate(state, value)?;
+                // Separate fresh roots overapproximate referent contents, but
+                // do not establish distinct identities for shared inputs.
+                // An exclusive reference is disjoint unless reached through
+                // an enclosing shared reference, which can itself be aliased.
+                if shared {
+                    state.abstract_referents.insert(place.root);
+                }
                 Ok(Value::Ref {
                     place,
                     target: (**target).clone(),
@@ -1923,6 +1955,7 @@ impl Engine<'_, '_> {
         invariant: &Invariant,
     ) -> Result<Vec<(State, Value)>> {
         let trace_violation = self.trace_violation;
+        let alias_witness = self.alias_witness;
         if let Some(output) = self.inductive_loop_attempt(
             state.clone(),
             label,
@@ -1936,6 +1969,7 @@ impl Engine<'_, '_> {
         }
         // Discard the abandoned stable-shape attempt's abstract trace events.
         self.trace_violation = trace_violation;
+        self.alias_witness = alias_witness;
         self.inductive_loop_attempt(state, label, condition, body, step, invariant, true)?
             .ok_or_else(|| Error::checker("dynamic induction did not check graph closure"))
     }

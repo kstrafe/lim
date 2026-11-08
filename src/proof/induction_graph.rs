@@ -661,7 +661,9 @@ impl Engine<'_, '_> {
     }
 
     pub(super) fn induction_state_bytes(&mut self, state: &State) -> Result<usize> {
-        let mut state_bytes = 1usize;
+        // Include B-tree storage for input referent provenance in clone budgets.
+        let mut state_bytes =
+            1usize.saturating_add(state.abstract_referent_count().saturating_mul(64));
         for value in state
             .heap
             .iter()

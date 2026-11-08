@@ -37,19 +37,42 @@ mod tests {
         let graph = Graph::new(checked.program(), checked.declarations());
         let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
         let mut state = State::new();
-        let reference = engine
-            .fresh_value(
+        // This test isolates active-payload dependencies using definitely
+        // disjoint owned cells. Separate shared inputs may alias; that case
+        // has independent fail-closed integration coverage.
+        for name in ["left", "right"] {
+            let value = Value::Bits(engine.circuit.word(8, false), Type::U8);
+            engine
+                .bind(&mut state, name.into(), Type::U8, value)
+                .unwrap();
+        }
+        let mut payloads = Vec::new();
+        for name in ["left", "right"] {
+            let place = state.frames.last().unwrap().locals[name].0.clone();
+            payloads.push(Some(Value::Ref {
+                place,
+                target: Type::U8,
+                mutable: true,
+                pinned: false,
+            }));
+        }
+        let tag = engine.circuit.word(64, false);
+        state.guard = engine
+            .circuit
+            .lt_word(&tag, &Circuit::constant(2, 64, false));
+        let holder = Value::Record(
+            "Holder".into(),
+            vec![("choice".into(), Value::Enum("Choice".into(), tag, payloads))],
+        );
+        engine
+            .bind(
                 &mut state,
-                &Type::Reference {
-                    mutable: false,
-                    target: Box::new(Type::Named("Holder".into())),
-                },
-                0,
+                "holder".into(),
+                Type::Named("Holder".into()),
+                holder,
             )
             .unwrap();
-        let Value::Ref { place: subject, .. } = reference else {
-            panic!("holder reference")
-        };
+        let subject = state.frames.last().unwrap().locals["holder"].0.clone();
         let Value::Record(_, fields) = engine.read(&state, &subject).unwrap() else {
             panic!("holder")
         };
@@ -349,10 +372,24 @@ impl<'a, 'p> Engine<'a, 'p> {
     ) -> Result<()> {
         // A later failure revokes an earlier success, too. A validator may have
         // other parameters, so repeated calls need not return the same result.
+        let aliases = if state.validations.is_empty() {
+            BTreeSet::new()
+        } else {
+            state.possibly_aliasing_roots(subject.root)
+        };
         for fact in &mut state.validations {
             self.tick()?;
-            let same = self.same_location(&fact.subject, subject);
-            fact.valid = self.circuit.and(fact.valid, self.circuit.not(same));
+            if aliases.contains(&fact.subject.root) {
+                // A true result cannot revoke an existing success, whether
+                // these roots alias or not. A failure may revoke it. Keep a
+                // lower bound without granting authorization through may-alias.
+                let valid = self.circuit.and(fact.valid, succeeded);
+                self.alias_witness |= valid != fact.valid;
+                fact.valid = valid;
+            } else {
+                let same = self.same_location(&fact.subject, subject);
+                fact.valid = self.circuit.and(fact.valid, self.circuit.not(same));
+            }
         }
         state.validations.retain(|fact| fact.valid != FALSE);
         if succeeded == FALSE {
@@ -392,15 +429,27 @@ impl<'a, 'p> Engine<'a, 'p> {
         state: &mut State,
         written: &Location,
     ) -> Result<()> {
+        if state.validations.is_empty() {
+            return Ok(());
+        }
+        let aliases = state.possibly_aliasing_roots(written.root);
         for fact in &mut state.validations {
             let mut overlaps = FALSE;
+            let mut abstract_overlap = false;
             for dependency in &fact.dependencies {
                 self.tick()?;
-                let overlap = self.overlapping_locations(&dependency.place, written);
+                let overlap = if aliases.contains(&dependency.place.root) {
+                    abstract_overlap = true;
+                    TRUE
+                } else {
+                    self.overlapping_locations(&dependency.place, written)
+                };
                 let overlap = self.circuit.and(dependency.active, overlap);
                 overlaps = self.circuit.or(overlaps, overlap);
             }
-            fact.valid = self.circuit.and(fact.valid, self.circuit.not(overlaps));
+            let valid = self.circuit.and(fact.valid, self.circuit.not(overlaps));
+            self.alias_witness |= abstract_overlap && valid != fact.valid;
+            fact.valid = valid;
         }
         Ok(())
     }
