@@ -17,9 +17,9 @@ pub(super) struct StoreScope {
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(super) enum Key {
-    Origin(Vec<Path>, usize),
+    Origin(Vec<Path>, usize, Vec<usize>),
     Variant(Vec<Path>, usize),
-    StoreOrigin(StoreScope, Vec<Path>, usize),
+    StoreOrigin(StoreScope, Vec<Path>, usize, Vec<usize>),
     StoreVariant(StoreScope, Vec<Path>, usize),
 }
 
@@ -108,11 +108,14 @@ mod tests {
             });
             for index in 0..KEY_LIMIT {
                 engine
-                    .add_return_guard(Key::Origin(vec![Path::Tuple(index)], 0), TRUE)
+                    .add_return_guard(Key::Origin(vec![Path::Tuple(index)], 0, Vec::new()), TRUE)
                     .unwrap();
             }
             let error = engine
-                .add_return_guard(Key::Origin(vec![Path::Tuple(KEY_LIMIT)], 0), TRUE)
+                .add_return_guard(
+                    Key::Origin(vec![Path::Tuple(KEY_LIMIT)], 0, Vec::new()),
+                    TRUE,
+                )
                 .unwrap_err();
             assert_eq!(
                 error.diagnostic_code().proof_outcome(),
@@ -358,8 +361,7 @@ impl Engine<'_, '_> {
                         bounds: Default::default(),
                         guards: None,
                     };
-                    let mut guard = FALSE;
-                    for (candidate, reference) in self.return_references(
+                    for candidate in self.reference_candidates(
                         state.clone(),
                         path,
                         target,
@@ -367,20 +369,24 @@ impl Engine<'_, '_> {
                         *pinned,
                         &model,
                     )? {
-                        let Value::Ref { place: origin, .. } = reference else {
+                        let Value::Ref { place: origin, .. } = candidate.reference else {
                             return Err(Error::checker(
                                 "guarded reference candidate is not a reference",
                             ));
                         };
                         let same = self.same_location(place, &origin);
-                        let selected = self.circuit.and(candidate.guard, same);
-                        guard = self.circuit.or(guard, selected);
+                        let selected = self.circuit.and(candidate.state.guard, same);
+                        let key = match scope {
+                            Some(scope) => Key::StoreOrigin(
+                                scope.clone(),
+                                path.to_vec(),
+                                index,
+                                candidate.selection,
+                            ),
+                            None => Key::Origin(path.to_vec(), index, candidate.selection),
+                        };
+                        self.add_return_guard(key, selected)?;
                     }
-                    let key = match scope {
-                        Some(scope) => Key::StoreOrigin(scope.clone(), path.to_vec(), index),
-                        None => Key::Origin(path.to_vec(), index),
-                    };
-                    self.add_return_guard(key, guard)?;
                 }
             }
             Value::Record(name, fields) => {
@@ -496,8 +502,20 @@ impl Engine<'_, '_> {
             .saturating_add(capture.function.len());
         for key in &keys {
             let path = match key {
-                Key::Origin(path, _) | Key::Variant(path, _) => path,
-                Key::StoreOrigin(scope, path, _) | Key::StoreVariant(scope, path, _) => {
+                Key::Origin(path, _, selection) => {
+                    bytes =
+                        bytes.saturating_add(selection.capacity() * std::mem::size_of::<usize>());
+                    path
+                }
+                Key::Variant(path, _) => path,
+                Key::StoreOrigin(scope, path, _, selection) => {
+                    bytes =
+                        bytes.saturating_add(selection.capacity() * std::mem::size_of::<usize>());
+                    bytes = bytes
+                        .saturating_add(scope.storage.capacity() * std::mem::size_of::<Path>());
+                    path
+                }
+                Key::StoreVariant(scope, path, _) => {
                     bytes = bytes
                         .saturating_add(scope.storage.capacity() * std::mem::size_of::<Path>());
                     path

@@ -506,7 +506,7 @@ fn mutable_scalar_selectors_are_bound_before_the_caller_frame_is_freshened() {
 }
 
 #[test]
-fn equal_array_contents_do_not_determine_a_dynamic_subobject_origin() {
+fn equal_array_contents_do_not_erase_the_checked_dynamic_subobject_origin() {
     let source = r#"
       (#fn at (: values (#ref-mut (#array #u8 2)) : index #usize) (#ref-mut #u8)
         (#return (#borrow-mut (#index (#deref values) index))))
@@ -522,7 +522,7 @@ fn equal_array_contents_do_not_determine_a_dynamic_subobject_origin() {
           (#bool::and (#usize::lt index 2usize) (#u8::eq (#index values 0usize) (#index values 1usize)))
           (#proof-eq (#index values index) 9u8))))
     "#;
-    contract_failure(source, "selected-contract");
+    proved(source, "selected-contract");
     proved(
         &source.replace("(#proof-using (at-contract)", "(#proof-using ()"),
         "selected-contract",

@@ -30,8 +30,8 @@ impl Engine<'_, '_> {
                 .filter_map(|(key, guard)| {
                     use guarded_returns::Key;
                     match key {
-                        Key::StoreOrigin(found, path, index) if found == &scope => {
-                            Some((Key::Origin(path.clone(), *index), *guard))
+                        Key::StoreOrigin(found, path, index, selection) if found == &scope => {
+                            Some((Key::Origin(path.clone(), *index, selection.clone()), *guard))
                         }
                         Key::StoreVariant(found, path, index) if found == &scope => {
                             Some((Key::Variant(path.clone(), *index), *guard))

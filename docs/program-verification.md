@@ -283,6 +283,27 @@ conditions, preserving correlations between returned components. Calls reuse
 the template and checked origin list; they do not re-execute the provider body.
 Numeric result fields still require explicit postconditions.
 
+Conditions also distinguish physical subobjects within a single checked origin.
+Each array selection in its input-storage and referent projections contributes
+the concrete backing-array index to a stable projection sequence. Provider
+execution checks each candidate against the reference actually returned or
+stored, retaining a condition for that exact source and sequence. Replay resolves
+the same projections against caller storage and applies the matching condition.
+These indices are relative to the checked input projection, not provider heap
+IDs or enumeration ordinals; inactive payloads and aliased caller inputs do not
+rename candidates. Missing or invalid projection keys cannot fall back to some
+other candidate.
+
+This retains dynamic and computed indices, nested subobjects and physical offsets
+through modeled slice ranges. A weak contract can therefore preserve which
+location a later write changes even when sibling values happen to be equal.
+The same mechanism handles indexed input slots whose references are returned or
+stored, and composes through explicitly selected helper contracts.
+[`examples/proof_projected_origins.lim`](../examples/proof_projected_origins.lim)
+proves that a write through an indexed returned reference changes the selected
+byte and preserves its sibling. Native replay checks every byte pair, both
+indices and three replacement values, including zero and 255.
+
 [`examples/proof_guarded_returns.lim`](../examples/proof_guarded_returns.lim)
 uses a weak contract for a reference selector, then proves that writing its
 result changes the selected caller location and preserves its sibling. Native
@@ -302,8 +323,7 @@ The overlap check walks storage physically contained in records, arrays, tuples
 and enum payloads, stopping at reference handles. Thus a record containing only
 reference handles can be refined, but an inline byte plus a reference to a byte
 can conceal a self-alias and retains the conservative model. Fresh roots alone
-never establish absence of internal aliases. Choices within a single checked
-dynamic return origin remain conservative. Array accesses to reference-bearing
+never establish absence of internal aliases. Array accesses to reference-bearing
 element types use the guarded path splitting described below. Templates are
 kept in RAM for the current checked program, not persisted as proof caches.
 Limits include 256 captured origin/constructor conditions per provider and
@@ -311,11 +331,13 @@ Limits include 256 captured origin/constructor conditions per provider and
 is checked before retaining more descriptors. Replay consumes the existing
 evaluation and circuit budgets; exhausted or invalid replay remains unproved.
 
-Several possible origins remain separate alternatives, capped at 256. Unknown
-indices or range offsets within one checked origin remain conservative choices. Equal referent contents
-do not establish identity: a contract that only relates values may leave a
-caller's later write-through-reference property unproved when several locations
-remain possible. Negation cannot turn that uncertainty or a resource limit into
+Several possible origins and projection sequences remain separate alternatives,
+capped at 256, and each retained condition counts toward the provider's condition
+and byte limits. Providers without checked conditions retain conservative
+May-origins. Equal referent contents do not establish identity; location
+refinement comes from the verified provider's selection conditions. A caller's
+write-through-reference property remains unproved if those conditions or the
+modeled frame cannot establish it. Negation cannot turn uncertainty or a resource limit into
 a proof. [`examples/proof_reference_contracts.lim`](../examples/proof_reference_contracts.lim)
 demonstrates a projected mutable return updating its caller while preserving a
 sibling field; native replay tests every byte value, including wraparound.
@@ -610,8 +632,8 @@ the checked possible-source set without conditional refinement.
 Direct slice parameters/results, raw pointers, implicit global
 access (including named global constants) and external effects remain outside
 reusable summaries. Ordinary symbolic execution supports some of these cases
-without summary reuse. More precise within-origin subobject relationships, complete
-environment models and general counterexample replay remain open work.
+without summary reuse. General input-alias relationships, complete environment
+models and general counterexample replay remain open work.
 
 ## Reading counterexamples
 

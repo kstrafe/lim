@@ -21,6 +21,13 @@ struct Cursor {
     value: Value,
     place: Option<Location>,
     view: Option<(usize, usize, bool)>,
+    selection: Vec<usize>,
+}
+
+pub(super) struct ReferenceCandidate {
+    pub state: State,
+    pub reference: Value,
+    pub selection: Vec<usize>,
 }
 
 impl Engine<'_, '_> {
@@ -414,6 +421,22 @@ impl Engine<'_, '_> {
         pinned: bool,
         returns: &ReferenceModel<'_>,
     ) -> Result<Vec<(State, Value)>> {
+        Ok(self
+            .reference_candidates(state, path, target, mutable, pinned, returns)?
+            .into_iter()
+            .map(|candidate| (candidate.state, candidate.reference))
+            .collect())
+    }
+
+    pub(super) fn reference_candidates(
+        &mut self,
+        state: State,
+        path: &[Path],
+        target: &Type,
+        mutable: bool,
+        pinned: bool,
+        returns: &ReferenceModel<'_>,
+    ) -> Result<Vec<ReferenceCandidate>> {
         let sources = returns
             .origins
             .iter()
@@ -430,10 +453,17 @@ impl Engine<'_, '_> {
             self.tick()?;
             let mut state = state.clone();
             if let Some(guards) = returns.guards {
-                let guard = guards
-                    .get(&guarded_returns::Key::Origin(path.to_vec(), index))
-                    .copied()
-                    .unwrap_or(FALSE);
+                // Reject a wholly inactive origin before projecting input
+                // payloads. Exact physical choices are filtered below.
+                let mut guard = FALSE;
+                for (key, condition) in guards {
+                    self.tick()?;
+                    if let guarded_returns::Key::Origin(slot, source, _) = key {
+                        if slot == path && *source == index {
+                            guard = self.circuit.or(guard, *condition);
+                        }
+                    }
+                }
                 state.guard = self.circuit.and(state.guard, guard);
                 if self.circuit.satisfy(state.guard)?.is_none() {
                     continue;
@@ -467,6 +497,7 @@ impl Engine<'_, '_> {
                     value: argument.clone(),
                     place: None,
                     view: None,
+                    selection: Vec::new(),
                 }],
                 &input_path,
             )?;
@@ -484,6 +515,7 @@ impl Engine<'_, '_> {
                         value,
                         place: Some(place),
                         view: None,
+                        selection: input.selection,
                     }],
                     &source.referent_projection,
                 )?;
@@ -494,15 +526,28 @@ impl Engine<'_, '_> {
                     self.compatible(&projected.value, target)?;
                     let mut state = state.clone();
                     state.guard = projected.guard;
-                    output.push((
+                    if let Some(guards) = returns.guards {
+                        let key = guarded_returns::Key::Origin(
+                            path.to_vec(),
+                            index,
+                            projected.selection.clone(),
+                        );
+                        let selected = guards.get(&key).copied().unwrap_or(FALSE);
+                        state.guard = self.circuit.and(state.guard, selected);
+                        if self.circuit.satisfy(state.guard)?.is_none() {
+                            continue;
+                        }
+                    }
+                    output.push(ReferenceCandidate {
                         state,
-                        Value::Ref {
+                        reference: Value::Ref {
                             place,
                             target: target.clone(),
                             mutable,
                             pinned,
                         },
-                    ));
+                        selection: projected.selection,
+                    });
                     self.return_limit(output.len())?;
                 }
             }
@@ -628,6 +673,10 @@ impl Engine<'_, '_> {
                         };
                         for index in indices {
                             let mut branch = cursor.clone();
+                            // Indices are relative to the checked origin's
+                            // projection sequence, never provider heap IDs or
+                            // ordinals that change when a payload is inactive.
+                            branch.selection.push(index);
                             branch.value = values[index].clone();
                             branch.view = None;
                             if let Some(place) = &mut branch.place {
@@ -860,6 +909,101 @@ mod tests {
     }
 
     #[test]
+    fn absent_or_invalid_projection_keys_do_not_fall_back_to_other_candidates() {
+        let program = crate::parse_program(
+            r#"
+          (#fn at (: values (#ref (#array #u8 2)) : index #usize) (#ref #u8)
+            (#return (#borrow (#index (#deref values) index))))
+        "#,
+        )
+        .unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let graph = Graph::new(checked.program(), checked.declarations());
+        let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
+        let function = engine.function("at").unwrap();
+        let mut state = State::new();
+        let arguments = function
+            .parameters
+            .iter()
+            .map(|parameter| engine.fresh_value(&mut state, &parameter.ty, 0))
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        for guards in [
+            guarded_returns::Guards::new(),
+            guarded_returns::Guards::from([(
+                guarded_returns::Key::Origin(Vec::new(), 0, vec![99]),
+                TRUE,
+            )]),
+        ] {
+            let error = engine
+                .contract_return_values(state.clone(), function, &arguments, Some(&guards))
+                .err()
+                .unwrap();
+            assert_eq!(
+                error.diagnostic_code().proof_outcome(),
+                Some(crate::ProofOutcome::Unsupported)
+            );
+        }
+    }
+
+    #[test]
+    fn inactive_payloads_and_aliased_inputs_keep_stable_projection_choices() {
+        let program = crate::parse_program(
+            r#"
+          (#enum Maybe () (: Maybe.None : Maybe.Some (#ref #u8)))
+          (#fn unused () () (#return ()))
+        "#,
+        )
+        .unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let graph = Graph::new(checked.program(), checked.declarations());
+        let mut engine = Engine::new(&checked, &graph, Span::new(0, 0, 1, 1));
+        let mut state = State::new();
+        let reference = engine
+            .fresh_value(
+                &mut state,
+                &Type::Reference {
+                    mutable: false,
+                    target: Box::new(Type::U8),
+                },
+                0,
+            )
+            .unwrap();
+        let absent = engine.construct_enum("Maybe", 0, None).unwrap();
+        let present = engine.construct_enum("Maybe", 1, Some(reference)).unwrap();
+        let value = Value::Array(
+            Type::Named("Maybe".into()),
+            vec![absent, present.clone(), present],
+        );
+        let variant = checked
+            .declarations()
+            .variant_id(&Type::Named("Maybe".into()), "Maybe.Some")
+            .unwrap();
+        let projected = engine
+            .return_project(
+                &state,
+                vec![Cursor {
+                    guard: state.guard,
+                    value,
+                    place: None,
+                    view: None,
+                    selection: Vec::new(),
+                }],
+                &[Path::DynamicIndex, Path::Payload(variant, 0)],
+            )
+            .unwrap();
+        assert_eq!(projected.len(), 2);
+        assert_eq!(projected[0].selection, vec![1]);
+        assert_eq!(projected[1].selection, vec![2]);
+        let (Value::Ref { place: a, .. }, Value::Ref { place: b, .. }) =
+            (&projected[0].value, &projected[1].value)
+        else {
+            panic!("references expected")
+        };
+        assert_eq!(engine.same_location(a, b), TRUE);
+    }
+
+    #[test]
     fn a_fixed_subrange_after_an_unknown_offset_keeps_all_possible_origins() {
         let program = crate::parse_program("(#fn unused () () (#return ()))").unwrap();
         let checked = CheckedProgram::validate(&program).unwrap();
@@ -888,6 +1032,7 @@ mod tests {
                     value,
                     place: Some(place),
                     view: None,
+                    selection: Vec::new(),
                 }],
                 &[
                     Path::SliceRangeUnknown,
@@ -897,5 +1042,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cursors.len(), 4);
+        for (index, cursor) in cursors.iter().enumerate() {
+            assert_eq!(cursor.selection, vec![index]);
+        }
     }
 }

@@ -2075,8 +2075,12 @@ and returned slots and branches that leave an entry reference unchanged. Conditi
 bind to caller entry data before write-frame abstraction; numeric result fields
 still follow the selected postcondition. Mutating parents with possible typed
 in-place overlap against input referents and exclusive pinned inputs retain
-conservative origins. Unknown choices within a dynamic return origin remain
-conservative. Array indexing splits reference-bearing and slice-bearing element
+conservative origins. Checked conditions distinguish physical array choices
+within a return or store origin, retaining dynamic indices, nested projections
+and offsets through modeled slice ranges. The same projection sequence resolves
+against caller storage; equal referent data never establishes location identity.
+Projection choices count toward the existing condition and retained-memory
+limits. Array indexing splits reference-bearing and slice-bearing element
 types into feasible concrete indices after proving the original bounds obligation.
 This preserves physical identities for reads, writes and borrowed element targets;
 numeric arrays retain compact multiplexers. Nested indices and conditional
