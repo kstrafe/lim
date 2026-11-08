@@ -296,11 +296,44 @@ New validation facts are conservatively discarded on backedges. Prefix facts
 can survive readonly loops that never call the validator; they are discarded
 at abstract heads if a loop may call it, since a later failure could revoke an
 earlier success. Protocols relying on a validation from a previous iteration
-may therefore remain unproved. This is a conservative model, not a general
-temporal logic. Abstract violations are induction failures, including under
-negation, rather than claimed concrete executions. The history analysis is
+need an explicit evidence invariant, described below. This is a conservative
+model, not a general temporal logic. Abstract violations are induction failures,
+including under negation, rather than claimed concrete executions. The history analysis is
 bounded to 64 fixed-point waves, 256 retained exit paths and 64 MiB of retained
 exit states, in addition to the existing graph, circuit and evaluator limits.
+
+[`examples/proof_cached_validation.lim`](../examples/proof_cached_validation.lim)
+validates once and reuses that evidence on later iterations. Its invariant
+connects the program's cached Boolean to the object it describes:
+
+```lisp
+(#proof-with-invariants
+  ((process again
+    (#proof-implies checked
+      (#proof-validated (#parameter-of validate user) user))
+    remaining))
+  (#proof-requires-validation process
+    (#parameter-of validate user) (#parameter-of perform user)))
+```
+
+`#proof-validated` requires evidence for that same storage object from the
+claim's exact validator and parameter. It is checked against actual validation
+facts on loop entry and after each continuing iteration. At an arbitrary head,
+the checker introduces symbolic evidence and assumes the supplied predicate,
+then executes the body and proves preservation. No runtime fields or checks are
+added. Updating an object or a referenced dependency revokes its evidence;
+failed revalidation does too. A program must clear or reestablish any cached
+flag whose invariant would otherwise claim stale evidence.
+
+Evidence is a lower bound on successful validation, rather than an exhaustive
+history log. Requirements may occur positively under `#proof-and`, `#proof-or`,
+the consequent of `#proof-implies`, or branches of pure `#if`/`#match` forms.
+They cannot be negated, compared, placed in an implication's antecedent, used
+as conditions or ranks, or queried outside loop predicates. This restriction
+prevents omitted evidence from becoming a proof that validation never happened.
+Different queried locations may alias: seeding a later location excludes aliases
+already represented, and failed checks or writes revoke all matching evidence.
+The existing fact/dependency limits also apply to these symbolic requirements.
 
 Before establishing preservation or forwarding a loop exit, the checker verifies
 that existing reference identities and tags of reference-bearing enums are

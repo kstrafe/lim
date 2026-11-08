@@ -122,7 +122,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                     let mut state = head.clone();
                     state.guard = self.circuit.and(state.guard, guard);
                     self.set_trace_config(&mut state, config);
-                    for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
+                    for (mut state, predicate) in
+                        self.loop_predicate(state, &invariant.predicate, true)?
+                    {
                         if state.flow != Flow::Normal {
                             return Err(Error::unsupported("invariant transfers control"));
                         }
@@ -187,8 +189,11 @@ impl<'a, 'p> Engine<'a, 'p> {
                                         } else if !self.induction_shape_fits(&entry, &state)? {
                                             return Ok(None);
                                         }
-                                        let preserved =
-                                            self.proposition(state.clone(), &invariant.predicate)?;
+                                        let preserved = self.loop_predicate(
+                                            state.clone(),
+                                            &invariant.predicate,
+                                            false,
+                                        )?;
                                         self.establish(
                                             preserved,
                                             "loop invariant is not preserved",

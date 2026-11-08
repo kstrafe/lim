@@ -6,6 +6,8 @@ use crate::Statement;
 
 #[path = "induction_graph.rs"]
 mod induction_graph;
+#[path = "induction_invariants.rs"]
+mod induction_invariants;
 #[path = "induction_memory.rs"]
 mod induction_memory;
 #[path = "induction_trace.rs"]
@@ -1948,62 +1950,6 @@ impl Engine<'_, '_> {
         invariant: &Invariant,
         changing: bool,
     ) -> Result<Option<Vec<(State, Value)>>> {
-        // Specification evaluation permits scoped enum-pattern bindings and
-        // pure branching, but no ordinary statements or user calls.
-        // In particular Expr::Block bypasses expr's `spec` flag today.
-        fn pure(
-            expr: &Expr,
-            locals: &BTreeMap<String, (Location, Type)>,
-            depth: usize,
-            variants: &BTreeSet<String>,
-        ) -> Result<()> {
-            if depth > 64 {
-                return Err(Error::limit("induction expression nesting exceeds 64"));
-            }
-            match expr {
-                Expr::Symbol(name) if matches!(name.as_str(),"true"|"false")||locals.contains_key(name)=>Ok(()),
-                Expr::Integer(_)|Expr::UnsignedInteger(_)|Expr::Char(_)=>Ok(()),
-                Expr::List(items) if matches!(items.first(),Some(Expr::Function(_)))=>Err(Error::unsupported("induction specifications cannot call user functions")),
-                Expr::List(items) if items.is_empty()=>Ok(()),
-                Expr::List(_)=>{
-                    let(head,args)=form(expr).ok_or_else(|| Error::unsupported("induction specifications cannot call user functions"))?;
-                    if numeric(head).is_some()||matches!(head,"proof-and"|"proof-or"|"proof-not"|"proof-implies"|"proof-eq"|"if"|"index"|"deref"|"slice-len"|"slice-mut-len"|"slice-idx"|"slice-mut-idx") {
-                        for arg in args{pure(arg,locals,depth+1,variants)?;}return Ok(());
-                    }
-                    match head {
-                        "match"=>{
-                            if args.len()<2{return Err(Error::invalid("induction match requires a value and cases"));}
-                            if args.len()>257{return Err(Error::limit("induction matches are limited to 256 cases"));}
-                            pure(&args[0],locals,depth+1,variants)?;
-                            for arm in &args[1..]{
-                                let Some(("case", parts))=form(arm) else{return Err(Error::unsupported("induction matches require explicit #case arms"));};
-                                if parts.len()!=2{return Err(Error::unsupported("induction cases require a pattern and one pure value"));}
-                                let mut scoped=locals.clone();
-                                match &parts[0]{
-                                    Expr::Symbol(name) if name=="_"||variants.contains(name)=>{},
-                                    Expr::List(items) if items.len()==2 && symbol(&items[0]).is_ok_and(|name|variants.contains(name))=>{
-                                        let name=symbol(&items[1])?;
-                                        if name!="_"{
-                                            crate::names::require(name,"value").map_err(Error::invalid)?;
-                                            if scoped.contains_key(name){return Err(Error::invalid("induction pattern bindings cannot shadow locals"));}
-                                            scoped.insert(name.into(),(Location{root:0,path:Vec::new()},Type::Unit));
-                                        }
-                                    },
-                                    _=>return Err(Error::unsupported("induction matches require simple enum patterns")),
-                                }
-                                pure(&parts[1],&scoped,depth+1,variants)?;
-                            }
-                            Ok(())
-                        },
-                        "literal"=>{arity(head,args,2)?;if !matches!(args[1],Expr::Integer(_)|Expr::UnsignedInteger(_)){return Err(Error::invalid("nonliteral induction literal"));}Ok(())},
-                        "as"|"get"|"variant-is"=>{arity(head,args,2)?;pure(&args[0],locals,depth+1,variants)},
-                        "proof-no-overflow"=>{arity(head,args,3)?;numeric(symbol(&args[0])?).ok_or_else(|| Error::invalid("invalid induction overflow operation"))?;pure(&args[1],locals,depth+1,variants)?;pure(&args[2],locals,depth+1,variants)},
-                        _=>Err(Error::unsupported(format!("#{head} is not a supported pure induction expression"))),
-                    }
-                }
-                _=>Err(Error::unsupported("induction expressions require pure local values; blocks, calls, bindings and global initializers are unsupported")),
-            }
-        }
         let locals = state.frames.last().unwrap().locals.clone();
         // Lazy lookup of a global/constant can execute an initializer and can
         // introduce references not present in the entry heap. Reject such reads.
@@ -2087,12 +2033,12 @@ impl Engine<'_, '_> {
             .flatten()
             .map(|variant| variant.name.clone())
             .collect::<BTreeSet<_>>();
-        pure(&invariant.predicate, &locals, 0, &variants)?;
-        pure(&invariant.rank, &locals, 0, &variants)?;
+        induction_invariants::pure(&invariant.predicate, &locals, 0, &variants, true)?;
+        induction_invariants::pure(&invariant.rank, &locals, 0, &variants, false)?;
         // Keep the loop test pure too: otherwise a terminating test can mutate
         // untracked storage, transfer control, or invalidate the loop-head rank.
         if let Some(condition) = condition {
-            pure(condition, &locals, 0, &variants)?;
+            induction_invariants::pure(condition, &locals, 0, &variants, false)?;
         }
         let mut modified = induction_memory::Changes::default();
         let contracts = self.induction_contracts()?;
@@ -2105,7 +2051,7 @@ impl Engine<'_, '_> {
                 &variants,
             )?;
         }
-        let entry = self.proposition(state.clone(), &invariant.predicate)?;
+        let entry = self.loop_predicate(state.clone(), &invariant.predicate, false)?;
         // Subsequent obligations may use an arbitrary loop-head state. Its
         // model is evidence about the induction obligation, not necessarily
         // an execution reachable from the original program inputs.
@@ -2156,7 +2102,7 @@ impl Engine<'_, '_> {
             );
         }
         for state in heads.iter().cloned() {
-            for (mut state, predicate) in self.proposition(state, &invariant.predicate)? {
+            for (mut state, predicate) in self.loop_predicate(state, &invariant.predicate, true)? {
                 if state.flow != Flow::Normal {
                     return Err(Error::unsupported("invariant transfers control"));
                 }
@@ -2219,8 +2165,11 @@ impl Engine<'_, '_> {
                                     {
                                         return Ok(None);
                                     }
-                                    let preserved =
-                                        self.proposition(state.clone(), &invariant.predicate)?;
+                                    let preserved = self.loop_predicate(
+                                        state.clone(),
+                                        &invariant.predicate,
+                                        false,
+                                    )?;
                                     self.establish(preserved, "loop invariant is not preserved")?;
                                     for (state, rank) in self.expr(state, &invariant.rank, true)? {
                                         let Value::Bits(rank, ty) = rank else {
@@ -2851,6 +2800,54 @@ fn collect_modified(
                         .map(|expression| crate::parse_statement(expression).map_err(Error::from))
                         .collect::<Result<Vec<_>>>()?;
                     return statements(&body, names, contracts, variants, depth + 1);
+                }
+                if head == "match" {
+                    if args.len() < 2 || args.len() > 257 {
+                        return Err(Error::unsupported(
+                            "induction matches require 1 to 256 explicit cases",
+                        ));
+                    }
+                    expression(&args[0], names, contracts, variants, depth + 1)?;
+                    for arm in &args[1..] {
+                        // The checked body AST has already removed #case;
+                        // specification expressions retain the source marker.
+                        let parts = if let Some(("case", parts)) = form(arm) {
+                            parts
+                        } else {
+                            list(arm)?
+                        };
+                        if parts.len() < 2 {
+                            return Err(Error::invalid(
+                                "induction cases require a pattern and body",
+                            ));
+                        }
+                        match &parts[0] {
+                            Expr::Symbol(name) if name == "_" || variants.contains(name) => {}
+                            Expr::List(items)
+                                if items.len() == 2
+                                    && symbol(&items[0])
+                                        .is_ok_and(|name| variants.contains(name))
+                                    && matches!(&items[1], Expr::Symbol(_)) => {}
+                            _ => {
+                                return Err(Error::unsupported(
+                                    "induction matches require simple enum patterns",
+                                ))
+                            }
+                        }
+                        let mut start = 1;
+                        if let Some(("when", guard)) = form(&parts[1]) {
+                            arity("when", guard, 1)?;
+                            expression(&guard[0], names, contracts, variants, depth + 1)?;
+                            start = 2;
+                        }
+                        // Bindings are fresh iteration-local values. The
+                        // ordinary checker forbids shadowing; stored mutable
+                        // references remain in the conservative write frame.
+                        for body in &parts[start..] {
+                            expression(body, names, contracts, variants, depth + 1)?;
+                        }
+                    }
+                    return Ok(());
                 }
                 // Fail closed on new builtins, unselected calls (including clone hooks),
                 // mutable borrowing, raw/atomic/pinned writes and unsafe code.

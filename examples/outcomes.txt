@@ -469,3 +469,4 @@ exit 42 proofs.lim - -
 exit 42 validated_user.lim - -
 exit 42 proof_reference_induction.lim - -
 exit 42 proof_trace_induction.lim - -
+exit 42 proof_cached_validation.lim - -

@@ -26,7 +26,7 @@ use outcome::Error;
 pub use outcome::ProofOutcome;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use symbolic::{State, Value};
-use validation::ValidationRule;
+use validation::{ValidationMode, ValidationRule};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -87,6 +87,7 @@ struct Engine<'a, 'p> {
     invariants: HashMap<(String, String), Invariant>,
     trace: Option<Trace>,
     trace_violation: Bit,
+    validation_mode: ValidationMode,
     depth: usize,
     quantified: bool,
     evaluation_depth: usize,
@@ -203,6 +204,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             invariants: HashMap::new(),
             trace: None,
             trace_violation: FALSE,
+            validation_mode: ValidationMode::None,
             depth: 0,
             quantified: false,
             evaluation_depth: 0,
@@ -405,6 +407,7 @@ impl<'a, 'p> Engine<'a, 'p> {
             return self.expr(state, expr, true);
         };
         match head {
+            "proof-validated" => self.validation_query(state, args),
             "proof-using" => self.using_contracts(state, args),
             "proof-and" | "proof-or" => {
                 if args.is_empty() {

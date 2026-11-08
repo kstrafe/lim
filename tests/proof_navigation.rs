@@ -504,6 +504,57 @@ fn trace_claims_inside_invariants_keep_function_parameter_and_loop_roles() {
 }
 
 #[test]
+fn proof_validated_resolves_descriptor_and_invariant_scope_without_leaks() {
+    run(
+        r#"
+      (#fn [[validator|validate]] (: [[subject|user]] (#ref #u8)) #bool (#return true))
+      (#fn [[action|perform]] (: input (#ref #u8)) () (#return ()))
+      (#fn [[unrelated|absent]] () () (#return ()))
+      (#fn [[entry|process]] (: [[argument|user]] (#ref #u8) : count #u8) ()
+        (#let checked #bool false)
+        (#let-mut remaining #u8 count)
+        (#label [[label|again]] (#while (#u8::gt remaining 0u8)
+          (#set remaining (#u8::sub-wrap remaining 1u8))))
+        (#return ()))
+      (#theorem claim (#proof-with-invariants
+        ((process again (#proof-implies checked
+          (#proof-validated (#parameter-of [[descriptor-function|validate]] [[descriptor-parameter|user]]) [[object|user]])) remaining))
+        (#proof-requires-validation process
+          (#parameter-of validate user)
+          (#parameter-of perform input))))
+      (#theorem invalid (#proof-with-invariants
+        ((process again (#proof-validated ([[bad-marker|parameter-of]] validate user) [[malformed-object|user]]) remaining))
+        (#proof-requires-validation process
+          (#parameter-of missing user) (#parameter-of perform input))))
+      (#theorem unknown (#proof-with-invariants
+        ((process again (#proof-validated (#parameter-of validate [[unknown-parameter|absent]]) [[unknown-object|user]]) remaining))
+        (#proof-requires-validation process
+          (#parameter-of validate user) (#parameter-of perform input))))
+      (#theorem no-leak (#proof-eq [[leaked-object|user]] 0u8))
+      (#theorem qualified (#proof-with-invariants
+        ((process again (#proof-validated (#parameter-of [[qualified-function|@validate]] [[qualified-parameter|user]]) user) remaining))
+        (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform input))))
+      (#theorem bad-qualified (#proof-with-invariants
+        ((process again (#proof-validated (#parameter-of validate [[qualified-bad-parameter|@absent]]) user) remaining))
+        (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform input))))
+    "#,
+        &[
+            ("descriptor-function", &["validator"]),
+            ("descriptor-parameter", &["subject"]),
+            ("object", &["argument"]),
+            ("bad-marker", &[]),
+            ("malformed-object", &["argument"]),
+            ("unknown-parameter", &[]),
+            ("unknown-object", &["argument"]),
+            ("leaked-object", &[]),
+            ("qualified-function", &["validator"]),
+            ("qualified-parameter", &["subject"]),
+            ("qualified-bad-parameter", &[]),
+        ],
+    );
+}
+
+#[test]
 fn proof_metadata_never_becomes_a_global_reference() {
     let forms = [
         "proof-and",

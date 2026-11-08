@@ -5073,6 +5073,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "proof-calls-before"
             | "proof-calls-when"
             | "proof-requires-validation"
+            | "proof-validated"
             | "proof-no-effects"
             | "proof-only-unsafe"
             | "proof-stack-at-most"

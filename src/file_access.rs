@@ -642,6 +642,23 @@ impl Resolver<'_> {
             }
             return rebuild(node);
         }
+        if kind == "#proof-validated" {
+            if let Some(descriptor) = node.children.get_mut(1) {
+                proof_children(descriptor);
+                if head(descriptor) == "#parameter-of" {
+                    if let Some(function) = descriptor.children.get_mut(1) {
+                        self.rewrite(function, file, &HashSet::new())?;
+                    }
+                }
+                // A parameter selector is metadata from the validator's
+                // signature, independent of the selected loop's local scope.
+                rebuild(descriptor)?;
+            }
+            for argument in node.children.iter_mut().skip(2) {
+                self.rewrite(argument, file, locals)?;
+            }
+            return rebuild(node);
+        }
         if kind == "#proof-contract" {
             if let Some(function) = node.children.get_mut(1) {
                 self.rewrite(function, file, locals)?;

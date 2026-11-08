@@ -7,6 +7,13 @@ const FACT_LIMIT: usize = 64;
 const DEPENDENCY_LIMIT: usize = 128;
 const TOTAL_DEPENDENCY_LIMIT: usize = 256;
 
+#[derive(Clone, Copy)]
+pub(super) enum ValidationMode {
+    None,
+    Check,
+    Assume,
+}
+
 #[derive(Clone)]
 pub(super) struct ValidationRule {
     pub validator: String,
@@ -188,6 +195,66 @@ impl ValidationFact {
 }
 
 impl<'a, 'p> Engine<'a, 'p> {
+    pub(super) fn validation_query(
+        &mut self,
+        state: State,
+        args: &[Expr],
+    ) -> Result<Vec<(State, Value)>> {
+        arity("proof-validated", args, 2)?;
+        if matches!(self.validation_mode, ValidationMode::None) {
+            return Err(Error::invalid(
+                "#proof-validated is only a positive loop-invariant requirement",
+            ));
+        }
+        let Some(Trace::Validated(rule)) = &self.trace else {
+            return Err(Error::unsupported(
+                "#proof-validated requires a #proof-requires-validation claim",
+            ));
+        };
+        let (function, parameter, target) = self.validation_descriptor(&args[0])?;
+        if function.name != rule.validator || parameter != rule.validator_parameter {
+            return Err(Error::invalid(
+                "#proof-validated must select the claim's validator and parameter",
+            ));
+        }
+        let mut output = Vec::new();
+        for (mut state, argument) in self.expr(state, &args[1], true)? {
+            let Value::Ref {
+                place,
+                target: actual,
+                ..
+            } = &argument
+            else {
+                return Err(Error::invalid(
+                    "#proof-validated requires a reference to the validated object",
+                ));
+            };
+            if self.resolve_type(actual)? != target {
+                return Err(Error::invalid("#proof-validated reference does not match the validator parameter's target type"));
+            }
+            if matches!(self.validation_mode, ValidationMode::Assume) {
+                // Each unknown location receives an independent lower-bound
+                // fact. Excluding aliases of earlier subjects keeps repeated
+                // queries consistent and prevents later seeds changing them.
+                let mut known = FALSE;
+                for fact in &state.validations {
+                    self.tick()?;
+                    let same = self.same_location(&fact.subject, place);
+                    known = self.circuit.or(known, same);
+                }
+                if known != TRUE {
+                    let fresh = self.circuit.fresh();
+                    let valid = self.circuit.and(fresh, known ^ 1);
+                    self.add_validation_fact(&mut state, place, valid)?;
+                }
+            }
+            let valid = self.validated_argument(&state, &argument)?;
+            output.push((state, Value::Bool(valid)));
+        }
+        self.limit_paths(output.len())?;
+        Ok(output)
+    }
+
     pub(super) fn validation_rule(&self, args: &[Expr]) -> Result<(&'p Function, Trace)> {
         arity("proof-requires-validation", args, 3)?;
         let entry = self.function(symbol(&args[0])?)?;
@@ -291,6 +358,15 @@ impl<'a, 'p> Engine<'a, 'p> {
         if succeeded == FALSE {
             return Ok(());
         }
+        self.add_validation_fact(state, subject, succeeded)
+    }
+
+    fn add_validation_fact(
+        &mut self,
+        state: &mut State,
+        subject: &Location,
+        valid: Bit,
+    ) -> Result<()> {
         let mut dependencies = Vec::new();
         self.validation_dependencies(state, subject, TRUE, &mut dependencies, 0)?;
         let total = state
@@ -306,7 +382,7 @@ impl<'a, 'p> Engine<'a, 'p> {
         state.validations.push(ValidationFact {
             subject: subject.clone(),
             dependencies,
-            valid: succeeded,
+            valid,
         });
         Ok(())
     }

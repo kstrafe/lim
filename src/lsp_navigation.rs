@@ -919,6 +919,37 @@ impl<'a> Index<'a> {
             }
             return vec![];
         }
+        if form == "proof-validated" {
+            if let Some(object) = xs.get(2).filter(|node| self.contains(node)) {
+                return self.walk(object, &mut scope.clone(), labels);
+            }
+            let Some(descriptor) = xs.get(1) else {
+                return vec![];
+            };
+            if descriptor.children.len() != 3
+                || descriptor.children.first().and_then(symbol) != Some("#parameter-of")
+            {
+                return vec![];
+            }
+            let Some(function) = descriptor
+                .children
+                .get(1)
+                .and_then(|name| self.proof_function(name))
+            else {
+                return vec![];
+            };
+            if self.contains(&descriptor.children[1]) {
+                return vec![function.children[name_index(function)].span];
+            }
+            if self.contains(&descriptor.children[2]) {
+                let parameters = self.proof_parameters(function);
+                return symbol(&descriptor.children[2])
+                    .and_then(|name| parameters.get(name))
+                    .map(|binding| binding.spans.clone())
+                    .unwrap_or_default();
+            }
+            return vec![];
+        }
         // calls-when's observed boolean is between its second and third functions.
         for index in 1..=functions {
             let index = if form == "proof-calls-when" && index == 3 {
@@ -963,6 +994,7 @@ impl<'a> Index<'a> {
             | "proof-calls-before"
             | "proof-calls-when"
             | "proof-requires-validation"
+            | "proof-validated"
             | "proof-no-effects"
             | "proof-stack-at-most"
             | "proof-allocation"
@@ -1024,6 +1056,7 @@ impl<'a> Index<'a> {
             | "proof-using"
             | "proof-eq"
             | "proof-requires-validation"
+            | "proof-validated"
             | "proof-contract"
             | "proof-result"
             | "proof-old"
@@ -1739,7 +1772,7 @@ impl<'a> Index<'a> {
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
         fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
-            if head(node) == "proof-requires-validation" {
+            if matches!(head(node), "proof-requires-validation" | "proof-validated") {
                 // Validation selectors have exact contextual roles too. An
                 // @name inside a malformed selector must not bypass them.
                 return None;
