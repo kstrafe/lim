@@ -1065,6 +1065,7 @@ impl<'a> Index<'a> {
             | "proof-loop-limit"
             | "proof-sorted"
             | "proof-permutation"
+            | "proof-unique"
             | "proof-allocation"
             | "proof-io"
             | "proof-global-write"

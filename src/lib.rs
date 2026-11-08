@@ -5088,6 +5088,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "proof-loop-limit"
             | "proof-sorted"
             | "proof-permutation"
+            | "proof-unique"
             | "proof-allocation"
             | "proof-io"
             | "proof-global-write"

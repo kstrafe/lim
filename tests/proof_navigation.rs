@@ -372,7 +372,8 @@ fn quantifiers_bind_types_and_values_without_leaking_between_propositions() {
           (#proof-eq [[leaked|x]] [[nested-leak|z]])))
       (#theorem arrays (#proof-for-all (: [[array|items]] (#array #u64 2))
         (#proof-and (#proof-sorted [[sorted|items]] [[compare-use|compare]])
-          (#proof-permutation [[left|items]] [[right|items]]))))
+          (#proof-permutation [[left|items]] [[right|items]])
+          (#proof-unique [[unique|items]]))))
     "#,
         &[
             ("type", &["number"]),
@@ -391,6 +392,7 @@ fn quantifiers_bind_types_and_values_without_leaking_between_propositions() {
             ("operator", &[]),
             ("bound", &[]),
             ("sorted", &["array"]),
+            ("unique", &["array"]),
             ("compare-use", &["comparator"]),
             ("left", &["array"]),
             ("right", &["array"]),
@@ -578,6 +580,7 @@ fn proof_metadata_never_becomes_a_global_reference() {
         "proof-loop-limit",
         "proof-sorted",
         "proof-permutation",
+        "proof-unique",
         "proof-allocation",
         "proof-io",
         "proof-global-write",

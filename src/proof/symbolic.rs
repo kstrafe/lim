@@ -4,6 +4,9 @@ use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
+#[path = "collections.rs"]
+mod collections;
+
 #[path = "induction_graph.rs"]
 mod induction_graph;
 #[path = "induction_invariants.rs"]
@@ -2679,109 +2682,6 @@ impl Engine<'_, '_> {
             self.require_unsat(remaining, "a match can be nonexhaustive")?;
         }
         self.limit_paths(output.len())?;
-        Ok(output)
-    }
-
-    pub(super) fn array_property(
-        &mut self,
-        state: State,
-        head: &str,
-        args: &[Expr],
-    ) -> Result<Vec<(State, Value)>> {
-        arity(head, args, 2)?;
-        let mut output = Vec::new();
-        for (state, a) in self.expr(state, &args[0], true)? {
-            let Value::Array(element_type, a) = a else {
-                return Err("array theorem requires a fixed array value".into());
-            };
-            if a.len() > 64 {
-                return Err(Error::limit("array properties support at most 64 elements"));
-            }
-            if head == "proof-sorted" {
-                let comparator = self.function(symbol(&args[1])?)?;
-                if self.resolve_type(&comparator.return_type)? != Type::Bool
-                    || comparator.parameters.len() != 2
-                {
-                    return Err(
-                        "sort comparator must take two explicit values and return #bool".into(),
-                    );
-                }
-                for parameter in &comparator.parameters {
-                    if self.resolve_type(&parameter.ty)? != self.resolve_type(&element_type)? {
-                        return Err(
-                            "sort comparator parameter types must match the array element type"
-                                .into(),
-                        );
-                    }
-                }
-                let mut result = TRUE;
-                let mut state = state;
-                for pair in a.windows(2) {
-                    let calls = self.call(
-                        state.clone(),
-                        comparator,
-                        vec![pair[1].clone(), pair[0].clone()],
-                        true,
-                    )?;
-                    let mut pair_ok = TRUE;
-                    for (run, value) in calls {
-                        let condition = self.circuit.or(
-                            self.circuit.not(run.guard),
-                            self.circuit.not(value.boolean()?),
-                        );
-                        pair_ok = self.circuit.and(pair_ok, condition);
-                    }
-                    result = self.circuit.and(result, pair_ok);
-                    state.value = Value::Unit;
-                }
-                output.push((state, Value::Bool(result)));
-            } else {
-                for (state, b) in self.expr(state, &args[1], true)? {
-                    let Value::Array(other_type, b) = b else {
-                        return Err("permutation theorem requires two arrays".into());
-                    };
-                    if b.len() > 64 {
-                        return Err(Error::limit("array properties support at most 64 elements"));
-                    }
-                    if self.resolve_type(&element_type)? != self.resolve_type(&other_type)? {
-                        return Err("permutation arrays must have the same element type".into());
-                    }
-                    if a.len() != b.len() {
-                        output.push((state, Value::Bool(FALSE)));
-                        continue;
-                    }
-                    let mut equal = TRUE;
-                    let width = 8;
-                    for element in &a {
-                        let mut left = Circuit::constant(0, width, false);
-                        let mut right = Circuit::constant(0, width, false);
-                        for value in &a {
-                            let condition = self.equal(element, value)?;
-                            let add = Word {
-                                bits: std::iter::once(condition)
-                                    .chain(std::iter::repeat(FALSE).take(width - 1))
-                                    .collect(),
-                                signed: false,
-                            };
-                            left = self.circuit.binary("add", Some("wrap"), &left, &add)?.0;
-                        }
-                        for value in &b {
-                            let condition = self.equal(element, value)?;
-                            let add = Word {
-                                bits: std::iter::once(condition)
-                                    .chain(std::iter::repeat(FALSE).take(width - 1))
-                                    .collect(),
-                                signed: false,
-                            };
-                            right = self.circuit.binary("add", Some("wrap"), &right, &add)?.0;
-                        }
-                        let counts = self.circuit.eq_word(&left, &right);
-                        equal = self.circuit.and(equal, counts);
-                    }
-                    output.push((state, Value::Bool(equal)));
-                }
-            }
-        }
         Ok(output)
     }
 }

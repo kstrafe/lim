@@ -1,0 +1,36 @@
+; Prove properties of the selected range, independently of the outside values.
+(#fn less (: left #u8 : right #u8) #bool
+  (#return (#u8::lt left right)))
+
+(#fn sort-middle (: values (#ref-mut (#array #u8 4))) ()
+  (#let whole (#slice-mut #u8) (#slice-mut-of values))
+  (#let middle (#slice-mut #u8) (#slice-mut-range whole 1usize 3usize))
+  (#let first #u8 (#deref (#slice-mut-idx middle 0usize)))
+  (#let second #u8 (#deref (#slice-mut-idx middle 1usize)))
+  (#if (#u8::lt second first)
+    (#block
+      (#deref-set (#slice-mut-idx middle 0usize) second)
+      (#deref-set (#slice-mut-idx middle 1usize) first)))
+  (#forget middle)
+  (#forget whole)
+  (#return ()))
+
+(#theorem sort-middle-contract
+  (#proof-contract
+    sort-middle
+    true
+    (#proof-and
+      (#proof-sorted (#borrow-slice (#deref values) 1usize 3usize) less)
+      (#proof-permutation (#borrow-slice (#deref values)) (#proof-old (#deref values)))
+      (#proof-eq (#index values 0usize) (#proof-old (#index values 0usize)))
+      (#proof-eq (#index values 3usize) (#proof-old (#index values 3usize))))))
+(#theorem unequal-inputs-stay-unique
+  (#proof-contract
+    sort-middle
+    (#u8::ne (#index values 1usize) (#index values 2usize))
+    (#proof-unique (#borrow-slice (#deref values) 1usize 3usize))))
+
+(#fn main () #u64
+  (#let-mut values (#array #u8 4) (#array-of (#array #u8 4) 99u8 7u8 2u8 99u8))
+  (#call sort-middle (: values (#borrow-mut values)))
+  (#return (#as (#u8::add-wrap (#index values 1usize) (#index values 2usize)) #u64)))

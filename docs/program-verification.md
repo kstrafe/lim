@@ -86,7 +86,9 @@ program-shape dependent; this list is not a claim of completeness.
   preserving call order and same-object validation across modeled loops.
 - **Arrays and aggregates.** Small fixed arrays, tuples, records, enums, and
   modeled references can be symbolic values. Directly constructed arrays can
-  be checked for sortedness and permutation within a limit. Indexing and
+  be checked for sortedness, permutation and uniqueness within a limit. These
+  predicates also observe borrowed slices, using only selected elements even
+  when range bounds are symbolic. Indexing and
   supported projections carry path conditions, allowing bounds-related claims
   when the relevant conditions are modeled. Borrowed slices over modeled
   arrays preserve their backing storage, start, length and mutability. Array
@@ -130,6 +132,16 @@ of that array. A contract taking an arbitrary slice directly does not acquire
 an implicit length bound. For old contents, put the entire read inside
 `#proof-old`, for example `(#proof-old (#index values 0usize))`; saving an old
 reference or slice handle alone does not snapshot its referent.
+
+[`examples/proof_collection_views.lim`](../examples/proof_collection_views.lim)
+sorts the middle two elements through a mutable slice. Its contracts prove
+sortedness of that range, permutation of the old owned array, preservation of
+outside elements, and uniqueness when the two input values differ.
+`#proof-unique` uses modeled pairwise equality rather than a comparator.
+Sortedness calls the named comparator only on selected reversed adjacent
+pairs. Empty and singleton ranges need no calls, but the comparator signature
+is still checked. These properties do not establish comparator laws or model
+unbounded collection storage.
 
 ## Contract coverage
 

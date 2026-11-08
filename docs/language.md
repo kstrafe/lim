@@ -1856,18 +1856,28 @@ them. Proof-side representation inspection respects opaque and library-private
 boundaries. Fresh reference inputs have separately allocated symbolic referents;
 this does not quantify every possible alias relationship between inputs.
 
-`#proof-sorted` takes a fixed array and a named two-argument Boolean comparator.
+`#proof-sorted` takes a fixed array or modeled slice and a named two-argument Boolean comparator.
 It checks that the comparator is false for each adjacent pair in reverse order
 `(later, earlier)`. It does not prove comparator transitivity, totality, or sort
-stability. `#proof-permutation` compares equal-length fixed arrays by element
-multiplicities using modeled equality. Neither form implicitly runs a sorting
-algorithm. Both properties reject arrays longer than 64 elements, including
+stability. `#proof-permutation` compares equal-length arrays or modeled slices by element
+multiplicities using modeled equality; an array and slice may be compared.
+`#proof-unique` checks that no two selected elements compare equal. These
+properties observe only a slice's selected range, including symbolic ranges,
+and read its current backing storage. Use `#proof-old` around the entire
+predicate to check an old-state property. For old/new permutation comparisons,
+read an owned array inside `#proof-old`; saving an old slice handle alone does
+not snapshot its referent. An empty range is sorted and
+unique. None of these forms implicitly runs a sorting algorithm.
+All reject backing arrays longer than 64 elements, including
 directly constructed literal arrays, not just quantified inputs. This keeps
 permutation multiplicities within the implementation's eight-bit counters.
 Permutation operands must have matching element types. Sortedness requires
-both comparator parameter types to match the array element type and its return
+both comparator parameter types to match the collection element type and its return
 type to be Boolean. These type checks apply even to empty arrays; emptiness
 does not excuse an incompatible element type or comparator signature.
+Comparator execution retains ordinary checked-call, trap and budget rules;
+unsupported comparator execution remains unproved, including under negation.
+Uniqueness and permutation require modeled equality for each comparison.
 
 Modeled guarded matches accept only supported pure builtin guard expressions.
 Guard expressions cannot call functions, contain blocks, or access globals
@@ -2047,16 +2057,18 @@ global/environment access or unchecked changes to reference identity.
 Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
 path-budget checks, 4,096 symbolic storage slots, call depth 128, combined
 expression/proposition evaluation nesting 32, and symbolic
-type nesting depth 32. Fresh fixed-array inputs are limited to 64 elements; `#proof-sorted` and
-`#proof-permutation` also enforce that limit on directly constructed arrays.
-The solver also has a 100,000-node circuit limit and a 2,000,000-work SAT budget;
+type nesting depth 32. Fresh fixed-array inputs are limited to 64 elements;
+`#proof-sorted`, `#proof-permutation` and `#proof-unique` also enforce that limit
+on directly constructed arrays and modeled slice backing arrays.
+The solver also has a 100,000-node circuit limit, a 2,000,000-work per-query
+SAT search budget and a cumulative 64,000,000-work budget for search and query preparation;
 solver errors and exhaustion remain errors on later queries. These are resource
 limits, not a statement that every program below them is modeled. Supported
 inputs include unit, Boolean and integer values, characters restricted to
 Unicode scalar values, tuples, small fixed arrays, modeled records and enums,
 and ordinary or pinned references. Raw pointers can be represented as address
 bitvectors, but raw memory operations are not thereby supported. Use explicitly
-typed literals and `#array-of`; context-dependent `#array-repeat`, slices,
+typed literals and `#array-of`; context-dependent `#array-repeat`, arbitrary slice inputs,
 arbitrary ownership/runtime facilities, and unsupported operations are not
 made provable by increasing the loop limit.
 
@@ -2947,11 +2959,12 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#proof-old` | `(#proof-old expression)` | `(#proof-old (#deref value))` (contract expression) | Evaluates using the saved contract entry state, including entry referent contents; requires a contract. |
 | `#proof-only-unsafe` | `(#proof-only-unsafe entry (allowed...))` | `(#proof-only-unsafe main (trusted-helper #ptr-read))` (proof proposition) | Inspects unsafe primitives outside explicitly allowed function boundaries or builtin spellings; does not establish memory safety. |
 | `#proof-or` | `(#proof-or proposition...)` | `(#proof-or false true)` (proof proposition) | Disjunction of one or more propositions; unsupported operands still fail. |
-| `#proof-permutation` | `(#proof-permutation left-array right-array)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and element multiplicities of fixed arrays of at most 64 elements, including direct literals; matching element types are required even for empty arrays, and equality must be modeled. |
+| `#proof-permutation` | `(#proof-permutation left right)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and selected element multiplicities of fixed arrays or modeled slices, including mixed array/slice operands. Backing arrays are limited to 64 elements; matching element types are required even for empty ranges, and equality must be modeled. |
 | `#proof-requires-validation` | `(#proof-requires-validation entry (#parameter-of validator parameter) (#parameter-of action parameter))` | `(#theorem safe (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Explicit #parameter-of selectors reference existing function parameters with matching resolved referent types and introduce no binding; unsupported execution and exhausted budgets are unproved. |
 | `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
-| `#proof-sorted` | `(#proof-sorted array comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays of at most 64 elements, including direct literals; requires a named Boolean comparator with two parameters matching the element type even for empty arrays, and checks it is false on reversed adjacent pairs. Does not establish comparator laws or stability. |
+| `#proof-sorted` | `(#proof-sorted collection comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays or modeled slices over backing arrays of at most 64 elements; requires a named Boolean comparator with two parameters matching the element type even for empty ranges, and checks it is false on selected reversed adjacent pairs. Ordinary call, trap and budget checks still apply. Does not establish comparator laws or stability. |
 | `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
+| `#proof-unique` | `(#proof-unique collection)` | `(#theorem distinct (#proof-unique (#array-of (#array #u8 2) 1u8 2u8)))` (top-level theorem) | Checks pairwise inequality of selected fixed-array or modeled-slice elements using modeled equality. Empty and singleton ranges are unique. Backing arrays are limited to 64 elements; this is proof-only and does not mutate or deduplicate the collection. |
 | `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
 | `#proof-using` | `(#proof-using (theorem-name...) proposition)` | `(#proof-using (identity-contract) (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))` (proof proposition) | Adds explicit verified direct contract theorem dependencies; names resolve to theorem declarations, the list introduces no bindings, and an empty list selects no dependencies. |
 | `#proof-validated` | `(#proof-validated (#parameter-of validator parameter) object)` inside a loop invariant predicate | `(#theorem safe (#proof-with-invariants ((process again (#proof-implies checked (#proof-validated (#parameter-of validate user) user)) remaining)) (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user))))` (validation claim loop invariant) | Positively asserts lower-bound validation evidence for the current same-storage object. Accepted only in a positive loop-invariant predicate of `#proof-with-invariants` inside a `#proof-requires-validation` claim, and only for that claim's exact validator descriptor. Evidence must hold at loop entry and be preserved; writes to the object or its dependencies and a failing revalidation revoke it. This is proof-only metadata and has no runtime behavior. |

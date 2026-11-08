@@ -669,7 +669,9 @@ impl<'a, 'p> Engine<'a, 'p> {
                 self.invariants = previous;
                 output
             }
-            "proof-permutation" | "proof-sorted" => self.array_property(state, head, args),
+            "proof-permutation" | "proof-sorted" | "proof-unique" => {
+                self.collection_property(state, head, args)
+            }
             _ if head.starts_with("proof-") && !matches!(head, "proof-result" | "proof-old") => {
                 Err(format!("unknown or misplaced proof form '#{head}'").into())
             }

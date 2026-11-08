@@ -165,6 +165,14 @@ its `#theorem` declaration through canonical file and alias resolution. The
 body remains in the surrounding proposition scope; the list introduces no
 bindings.
 
+`#proof-unique` has one runtime collection-expression operand and introduces
+no bindings. Its keyword has no definition target, including when a user
+function has the same unprefixed spelling. Array and slice operands to
+`#proof-unique`, `#proof-permutation` and `#proof-sorted` retain ordinary value,
+projection and range-expression roles. The second `#proof-sorted` operand
+resolves only to a function declaration; it is not a lexical value use.
+Malformed forms must not make a builtin keyword navigate to a user symbol.
+
 The supported proof forms and their current limits are documented in the
 [program verification checklist](program-verification.md). Navigation tests
 cover proof names, runtime operands, lexical scopes, and malformed forms.
