@@ -4,6 +4,8 @@ use super::validation::ValidationFact;
 use super::*;
 use crate::Statement;
 
+#[path = "array_cases.rs"]
+mod array_cases;
 #[path = "collections.rs"]
 mod collections;
 
@@ -632,6 +634,9 @@ impl Engine<'_, '_> {
                 for (i, target) in values.iter_mut().enumerate() {
                     let selected = Circuit::constant(i as u128, index.bits.len(), false);
                     let selected = self.circuit.eq_word(index, &selected);
+                    if selected == FALSE {
+                        continue;
+                    }
                     let replacement = self.write_path(target.clone(), rest, value)?;
                     *target = self.merge(selected, &replacement, target)?;
                 }
@@ -755,15 +760,19 @@ impl Engine<'_, '_> {
                     place = referent;
                     base = self.read(&state, &place)?;
                 }
-                let Value::Array(_, values) = base else {
+                let Value::Array(element, values) = base else {
                     return Err("proof indexing requires an array".into());
                 };
                 for (state, index) in self.expr_as(state, &args[1], spec, &Type::Usize)? {
                     let index = self.word_of(&index, &Type::Usize)?;
-                    self.bounds(&state, &index, values.len())?;
-                    let mut place = place.clone();
-                    place.path.push(Segment::Index(index));
-                    output.push((state, place));
+                    for (state, index) in
+                        self.array_index_cases(state, &element, values.len(), &index)?
+                    {
+                        let mut place = place.clone();
+                        place.path.push(Segment::Index(index));
+                        output.push((state, place));
+                        self.limit_paths(output.len())?;
+                    }
                 }
             }
             return Ok(output);
@@ -1307,14 +1316,18 @@ impl Engine<'_, '_> {
                     if let Value::Ref { place, .. } = value {
                         value = self.read(&state, &place)?;
                     }
-                    let Value::Array(_, values) = value else {
+                    let Value::Array(element, values) = value else {
                         return Err("proof indexing requires fixed arrays".into());
                     };
                     for (state, index) in self.expr_as(state, &args[1], spec, &Type::Usize)? {
                         let index = self.word_of(&index, &Type::Usize)?;
-                        self.bounds(&state, &index, values.len())?;
-                        let value = self.select_array(&values, &index)?;
-                        output.push((state, value));
+                        for (state, index) in
+                            self.array_index_cases(state, &element, values.len(), &index)?
+                        {
+                            let value = self.select_array(&values, &index)?;
+                            output.push((state, value));
+                            self.limit_paths(output.len())?;
+                        }
                     }
                 }
                 Ok(output)

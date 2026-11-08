@@ -2075,9 +2075,14 @@ and returned slots and branches that leave an entry reference unchanged. Conditi
 bind to caller entry data before write-frame abstraction; numeric result fields
 still follow the selected postcondition. Mutating parents with possible typed
 in-place overlap against input referents and exclusive pinned inputs retain
-conservative origins. Unknown choices within a dynamic subobject origin remain
-conservative; symbolic-index writes of reference-bearing array elements require
-additional path splitting. See the [verification model](program-verification.md)
+conservative origins. Unknown choices within a dynamic return origin remain
+conservative. Array indexing splits reference-bearing and slice-bearing element
+types into feasible concrete indices after proving the original bounds obligation.
+This preserves physical identities for reads, writes and borrowed element targets;
+numeric arrays retain compact multiplexers. Nested indices and conditional
+stored-reference contracts retain the index guards. Handle-bearing arrays are
+limited to 64 elements, including directly constructed arrays.
+See the [verification model](program-verification.md)
 for the template, condition and retained-memory limits.
 
 Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at

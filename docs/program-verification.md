@@ -302,8 +302,9 @@ The overlap check walks storage physically contained in records, arrays, tuples
 and enum payloads, stopping at reference handles. Thus a record containing only
 reference handles can be refined, but an inline byte plus a reference to a byte
 can conceal a self-alias and retains the conservative model. Fresh roots alone
-never establish absence of internal aliases. Precise dynamic subobject selection
-and writes through symbolic indices into reference-bearing arrays remain open. Templates are
+never establish absence of internal aliases. Choices within a single checked
+dynamic return origin remain conservative. Array accesses to reference-bearing
+element types use the guarded path splitting described below. Templates are
 kept in RAM for the current checked program, not persisted as proof caches.
 Limits include 256 captured origin/constructor conditions per provider and
 64 MiB of retained templates/bindings across providers. Input binding storage
@@ -572,7 +573,33 @@ proves that a conditional replacement returns either the new referent's byte or
 the preserved entry byte, reusing a provider with a `true` postcondition. Its
 native replay checks every byte pair with both branches. The test suite also
 covers swaps, enum payloads, returned retired references, aliased caller inputs,
-wrong claims, negation, and unsupported dynamic reference-bearing array writes.
+wrong claims and negation.
+
+Array indexing splits handle-bearing element types into separate executions for
+each feasible concrete index. The test follows the declared element type,
+including reference-bearing aggregates, inactive enum payload types and slice
+handles. Every access first proves its full bounds obligation under the current
+path condition; enumerating valid elements cannot erase an out-of-bounds
+execution. Each resulting guard retains the original index equality, and the
+selected reference keeps its actual caller location. Numeric elements retain
+compact multiplexers instead of creating a path per element.
+
+This supports symbolic-index reads, direct writes, borrowed element targets and
+reused contracts that conditionally replace a selected reference-bearing slot.
+The selected slot changes while siblings retain their prior handles; repeated
+and independent indices preserve last-write ordering. Nested indices compose
+their guards. Concrete projection writes skip unselected array elements before
+descending into fields or payloads, so an unrelated absent enum payload is not
+inspected or modified. The existing evaluation, solver and path limits apply;
+handle-bearing arrays are capped at 64 elements, including directly constructed
+arrays. These are finite execution splits, not an unbounded array model.
+
+[`examples/proof_dynamic_reference_arrays.lim`](../examples/proof_dynamic_reference_arrays.lim)
+proves both selected and sibling values after a conditional indexed store,
+reusing a weak provider contract. Native replay checks all byte pairs with both
+indices and both store/no-store branches. Adversarial checks retain bounds and
+resource errors under negation, reject incorrect sibling claims, and exercise
+independent writes, nested indices, enum payloads and slice backing selection.
 
 Postconditions must still specify numerical contents and unchanged sibling data
 that a caller needs. Store provenance describes locations, not arbitrary scalar
@@ -583,7 +610,7 @@ the checked possible-source set without conditional refinement.
 Direct slice parameters/results, raw pointers, implicit global
 access (including named global constants) and external effects remain outside
 reusable summaries. Ordinary symbolic execution supports some of these cases
-without summary reuse. More precise dynamic store/subobject relationships, complete
+without summary reuse. More precise within-origin subobject relationships, complete
 environment models and general counterexample replay remain open work.
 
 ## Reading counterexamples

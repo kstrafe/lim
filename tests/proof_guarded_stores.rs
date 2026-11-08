@@ -207,7 +207,7 @@ fn constant_array_element_store_preserves_the_other_element() {
 }
 
 #[test]
-fn symbolic_array_element_store_remains_explicitly_unsupported() {
+fn symbolic_array_element_store_respects_bounds_and_preserves_siblings() {
     let source = r#"
       (#struct Slot () (: reference (#ref #u8)))
       (#fn update (: slot (#ref-mut Slot) : next (#ref #u8)) ()
@@ -228,21 +228,14 @@ fn symbolic_array_element_store_remains_explicitly_unsupported() {
               (#proof-eq (#deref (#get (#index (#deref slots) 1usize) reference))
                 (#proof-old (#deref (#get (#index (#deref slots) 1usize) reference)))))))))
     "#;
+    proved(source, "selected");
     let mut negated = source.replace(
         "(#proof-contract caller (#usize::lt index 2usize)",
         "(#proof-not (#proof-contract caller (#usize::lt index 2usize)",
     );
     let end = negated.rfind(')').unwrap();
     negated.insert(end, ')');
-    for source in [source, negated.as_str()] {
-        let error =
-            check(source, "selected").expect_err("dynamic handle stores require path splitting");
-        assert_eq!(
-            error.proof_outcome(),
-            Some(ProofOutcome::Unsupported),
-            "{error:?}"
-        );
-    }
+    contract_failure(&negated, "selected");
 }
 
 #[test]

@@ -476,3 +476,4 @@ exit 9 proof_collection_views.lim - -
 exit 29 proof_collection_loop.lim - -
 exit 49 proof_guarded_returns.lim - -
 exit 42 proof_guarded_stores.lim - -
+exit 82 proof_dynamic_reference_arrays.lim - -
