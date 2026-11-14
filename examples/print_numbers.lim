@@ -6,13 +6,13 @@
   #returns = ();
   #body:
     #let-mut divisor #u64 1;
-    #while [#u64 #wrap; [value / divisor] >= 10]
-      (#set divisor [#u64 #wrap; divisor * 10]);
-    #while [#u64; divisor > 0]
-      (#let digit #u8
-        (#as [#u64 #wrap; [value / divisor % 10] + 48] #u8))
-      (#assert [#i64; (write-byte { source = (#borrow digit); }) == 1])
-      (#set divisor [#u64 #wrap; divisor / 10]);
+    #while [#u64 #wrap; [value / divisor] >= 10]:
+      #set divisor [#u64 #wrap; divisor * 10];
+    #while [#u64; divisor > 0]:
+      #let digit #u8
+        (#as [#u64 #wrap; [value / divisor % 10] + 48] #u8);
+      #assert [#i64; (write-byte { source = (#borrow digit); }) == 1];
+      #set divisor [#u64 #wrap; divisor / 10];
     #let newline #u8 10;
     #assert [#i64; (write-byte { source = (#borrow newline); }) == 1];
     #return ();
@@ -23,7 +23,7 @@
   #returns = #u64;
   #body:
     // The end bound is exclusive: 1 through 10.
-    #for-range (number #u64) 1 11
-      (print-number { value = number; });
+    #for-range (number #u64) 1 11:
+      print-number { value = number; };
     #return 0;
 }

@@ -1,6 +1,37 @@
 mod support;
 
 #[test]
+fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
+    run(
+        "#fn [[function|identity]] {
+          #params = { [[parameter|value]] = #u64; };
+          #returns = #u64;
+          #body:
+            #return value;
+        }
+        #fn main {
+          #params = {}; #returns = #u64;
+          #body:
+            #let-mut [[total|total]] #u64 0;
+            #[[loop|for-range]] ([[index|index]] #u64) 1 11[[colon|:]]
+              #set [[set-use|total]] [#u64 #wrap; [[total-use|total]] +
+                ([[call|identity]] { [[label|value]] = [[argument|index]]; })];
+            #return [[after-loop|total]];
+        }",
+        &[
+            ("loop", &[]),
+            ("colon", &[]),
+            ("set-use", &["total"]),
+            ("total-use", &["total"]),
+            ("call", &["function"]),
+            ("label", &["parameter"]),
+            ("argument", &["index"]),
+            ("after-loop", &["total"]),
+        ],
+    );
+}
+
+#[test]
 fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
     run(
         "#fn [[function|identity]] {

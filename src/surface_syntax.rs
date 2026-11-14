@@ -41,10 +41,10 @@ fn callable(node: &Node) -> bool {
         || crate::names::numeric_operation(value).is_some()
 }
 
-// A trailing single colon is punctuation only in the record-key position.
+// A trailing single colon is punctuation in a record key or layout header.
 // Keep the lexer unchanged so ordinary symbols and qualified names retain
 // their spelling. Unquoted keys use the same rule inside generator templates.
-fn split_layout_key(key: &Node) -> Option<(Node, Span)> {
+fn split_layout_suffix(key: &Node) -> Option<(Node, Span)> {
     let (expr, children, colon) = match &key.expr {
         Expr::Symbol(value) => {
             let value = value.strip_suffix(':')?;
@@ -57,10 +57,18 @@ fn split_layout_key(key: &Node) -> Option<(Node, Span)> {
                 key.span.line,
                 key.span.column + value.chars().count(),
             );
-            (Expr::Symbol(value.into()), Vec::new(), colon)
+            // Decode the operand again without the colon: `11:` is an
+            // integer followed by punctuation, rather than a symbol `11`.
+            let mut tokens = crate::lex(value).ok()?;
+            if tokens.len() != 1 {
+                return None;
+            }
+            tokens[0].span = through(key.span, colon.start);
+            let node = Parser::new(&tokens).expression_application(false).ok()?;
+            (node.expr, node.children.to_vec(), colon)
         }
         Expr::Unquote(_) => {
-            let (child, colon) = split_layout_key(key.children.first()?)?;
+            let (child, colon) = split_layout_suffix(key.children.first()?)?;
             (
                 Expr::Unquote(Box::new(child.expr.clone())),
                 vec![child],
@@ -217,7 +225,7 @@ impl<'a> Parser<'a> {
                 None
             } else if self.kind() == Some(&T::Colon) {
                 None
-            } else if let Some((plain_key, colon)) = split_layout_key(&key) {
+            } else if let Some((plain_key, colon)) = split_layout_suffix(&key) {
                 key = plain_key;
                 Some(colon)
             } else {
@@ -226,6 +234,9 @@ impl<'a> Parser<'a> {
                     self.current_span(),
                 ));
             };
+            if !matches!(key.expr, Expr::Symbol(_) | Expr::Unquote(_)) {
+                return Err(self.error("record keys must be identifiers", key.span));
+            }
             let colon = if attached_colon.is_some() {
                 attached_colon
             } else if self.kind() == Some(&T::Colon) {
@@ -284,6 +295,11 @@ impl<'a> Parser<'a> {
                     groups.push(self.form_group(std::mem::take(&mut segment))?);
                     terminated = true;
                 }
+                Some(T::Colon) if !segment.is_empty() => {
+                    let colon = self.take(T::Colon, "expected ':'")?;
+                    groups.push(self.layout_form(std::mem::take(&mut segment), colon)?);
+                    terminated = true;
+                }
                 None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
                 _ => {
                     // Declaration names and explicit call targets are syntax,
@@ -305,7 +321,16 @@ impl<'a> Parser<'a> {
                                 segment.first().map(|n| &n.expr),
                                 Some(Expr::Generate)
                             )));
-                    segment.push(self.expression_application(!syntax_operand)?);
+                    let term = self.expression_application(!syntax_operand)?;
+                    if let Some((term, colon)) = split_layout_suffix(&term)
+                        .filter(|(_, colon)| self.current_span().line > colon.line)
+                    {
+                        segment.push(term);
+                        groups.push(self.layout_form(std::mem::take(&mut segment), colon)?);
+                        terminated = true;
+                    } else {
+                        segment.push(term);
+                    }
                 }
             }
         }
@@ -373,13 +398,31 @@ impl<'a> Parser<'a> {
             .map_or(span.column - 1, |token| token.span.column - 1))
     }
 
+    fn layout_form(&mut self, mut terms: Vec<Node>, colon: Span) -> Result<Node, ParseError> {
+        let body = self.layout(terms[0].span, colon)?;
+        terms.extend(body.children.iter().cloned());
+        let mut form = self.form_group(terms)?;
+        form.span.end = body.span.end;
+        Ok(form)
+    }
+
     fn layout(&mut self, key: Span, start: Span) -> Result<Node, ParseError> {
+        if self.depth >= crate::MAX_PARSE_NESTING {
+            return Err(self.error("expression nesting exceeds maximum", start));
+        }
+        self.depth += 1;
+        let result = self.layout_inner(key, start);
+        self.depth -= 1;
+        result
+    }
+
+    fn layout_inner(&mut self, key: Span, start: Span) -> Result<Node, ParseError> {
         let header = self.indentation(key)?;
         let first = self.current_span();
         let indent = self.indentation(first)?;
         if self.kind().is_none() || first.line <= start.line || indent <= header {
             return Err(self.error(
-                "a record-key ':' requires a nonempty indented list on the following line",
+                "':' requires a nonempty indented group on the following line",
                 first,
             ));
         }
@@ -421,11 +464,16 @@ impl<'a> Parser<'a> {
             }
             if terms.is_empty() && next_indent != indent {
                 return Err(self.error(
-                    "unexpected indentation; use 'key:' to open another group",
+                    "unexpected indentation; use ':' after a header to open another group",
                     next,
                 ));
             }
-            if self.kind() == Some(&T::Semicolon) {
+            if self.kind() == Some(&T::Colon) && !terms.is_empty() {
+                let colon = self.take(T::Colon, "expected ':'")?;
+                let form = self.layout_form(std::mem::take(&mut terms), colon)?;
+                end = form.span.end;
+                groups.push(form);
+            } else if self.kind() == Some(&T::Semicolon) {
                 end = self.current_span().end;
                 self.index += 1;
                 if terms.is_empty() {
@@ -433,7 +481,15 @@ impl<'a> Parser<'a> {
                 }
                 groups.push(self.form_group(std::mem::take(&mut terms))?);
             } else {
-                terms.push(self.expression()?);
+                let term = self.expression()?;
+                if let Some((term, colon)) = split_layout_suffix(&term) {
+                    terms.push(term);
+                    let form = self.layout_form(std::mem::take(&mut terms), colon)?;
+                    end = form.span.end;
+                    groups.push(form);
+                } else {
+                    terms.push(term);
+                }
             }
         }
         Ok(list(groups, through(start, end)))

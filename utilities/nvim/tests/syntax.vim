@@ -94,7 +94,8 @@ endfor
 for s:mode in ['wrap', 'saturate']
   call s:check('#' . s:mode, 'limOperator')
 endfor
-for [s:token, s:group] in [['#body', 'limSection'], ['#requires', 'limContract']]
+for [s:token, s:group] in [['#body', 'limSection'], ['#requires', 'limContract'],
+      \ ['#loop', 'limRepeat'], ['#for-range', 'limRepeat']]
   call setline(1, '{ ' . s:token . ':')
   for s:column in range(3, 2 + strlen(s:token))
     call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))

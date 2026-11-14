@@ -78,7 +78,7 @@ mod tests {
         "f64",
         "fn",
         "for",
-        "for-range",
+        "for-range", // Layout headers retain binder/body scopes; ':' has no target.
         "forget",
         "get",
         "generate",

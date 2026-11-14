@@ -157,6 +157,9 @@ Section markers, arithmetic mode markers, infix operators and punctuation have
 no user declaration target. Newlines and dedents introduce no bindings.
 For `key:` indentation entries, the trailing colon is excluded from the key's
 source range; `key:`, `key :` and `key =:` retain the same canonical roles.
+Statement-header colons append indented children without changing their roles:
+loop binders cover the loop body, and dedented forms retain the enclosing scope.
+The colon is punctuation, including when attached to a numeric bound.
 Infix headers never cross ordinary calls or argument records. This local syntax
 context introduces no name-resolution or proof inference. Navigation tests
 cover exact positive and negative ranges in declaration records and layout.

@@ -127,8 +127,15 @@ generated arrays, contracts, infix expressions and local indentation lists.
   own syntax. Blank/comment lines do not affect scope. Use spaces for layout
   indentation and return to an enclosing indentation level when dedenting.
   Inline entries retain `=`. A trailing single colon is recognized as this
-  separator only in record-key position; `::` names and symbols elsewhere
-  keep their spelling.
+  separator in record-key position; `::` names keep their spelling.
+- Within an indented list or parenthesized form sequence, `header:` opens an
+  indented group whose forms become trailing children of the header form.
+  Dedent closes the complete form without an extra semicolon. For example,
+  `#for-range (number #u64) 1 11:` appends its indented statements as the loop
+  body. This rule is independent of the header's name and requires no type or
+  arity inference. Statements in the body retain their final semicolons.
+  Explicit nested delimiters retain their own syntax. A colon must open a
+  nonempty group on a later, more indented line.
 - At module scope, `#fn`, `#unsafe-fn`, `#static`, `#const` and `#generate`
   accept an unparenthesized name and record. Its closing brace ends the form.
   Static and constant records require `#type` and `#value`.
@@ -3113,6 +3120,20 @@ See `examples/range_bounds_once.lim` and
 
 [examples/print_numbers.lim](../examples/print_numbers.lim) uses the surface
 syntax to print 1 through 10, one number per line, with a decimal output helper.
+
+Statement layout also permits nested loops without enclosing parentheses:
+
+```lisp run=55
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut total #u64 0;
+    #for-range (number #u64) 1 11:
+      #set total [#u64 #wrap; total + number];
+    #return total;
+}
+```
 
 Labels wrap statement loops with `#label`, and value-loop breaks can target an
 outer value loop:

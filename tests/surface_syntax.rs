@@ -241,6 +241,52 @@ fn indented_record_values_can_omit_equals_without_changing_symbols_or_key_spans(
     }
 }
 
+#[test]
+fn statement_headers_append_nested_indented_forms_and_end_on_dedent() {
+    let source = r#"#fn total {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut sum #u64 0;
+    #for-range (outer #u64) 1 4:
+      #for-range (inner #u64) 1 3 :
+        #set sum [#u64 #wrap; sum + outer * inner];
+    #while [#u64; sum < 20]:
+      #set sum [#u64 #wrap; sum + 1];
+    #loop:
+      #break;
+    #return sum;
+}
+"#;
+    let canonical = "(#fn total () #u64 (#let-mut sum #u64 0) (#for-range (outer #u64) 1 4 (#for-range (inner #u64) 1 3 (#set sum (#u64::add-wrap sum (#u64::mul-wrap outer inner))))) (#while (#u64::lt sum 20u64) (#set sum (#u64::add-wrap sum 1u64))) (#loop (#break)) (#return sum))";
+    assert_eq!(trees(source), trees(canonical));
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    assert_eq!(trees(source), trees(&lim::format_source(source).unwrap()));
+    assert_eq!(
+        trees("(\n  #loop:\n    #break;\n  #return 0;\n)"),
+        trees("((#loop (#break)) (#return 0))")
+    );
+    assert_eq!(
+        trees("`{ #body:\n  #for-range (i #u64) 0 ,end:\n    use { value = i; };\n}"),
+        trees("`{ #body = ((#for-range (i #u64) 0 ,end (#call use ((value i))))); }")
+    );
+    for source in [
+        "{ #body:\n  #loop: #break;\n}",
+        "{ #body:\n  #loop:\n  #break;\n}",
+        "{ #body:\n  #loop:\n    #break\n  #return 0;\n}",
+        "{ #body:\n  #loop:\n\t#break;\n}",
+        "{ #body:\n  #loop:\n      #break;\n    #return 0;\n}",
+    ] {
+        assert!(lim::parse(source).is_err(), "accepted {source}");
+    }
+    let mut nested = String::from("{ #body:\n");
+    for depth in 1..600 {
+        nested.push_str(&format!("{}#loop:\n", "  ".repeat(depth)));
+    }
+    nested.push_str(&format!("{}#break;\n}}", "  ".repeat(600)));
+    assert!(lim::parse(&nested).unwrap_err().contains("nesting"));
+}
+
 const PROGRAM: &str = include_str!("../examples/surface_syntax.lim");
 
 #[test]
