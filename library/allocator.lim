@@ -1,14 +1,14 @@
-; Shared allocator convention: layouts are byte counts and alignments are bytes.
-; Roots expose State, Error, Allocation, Allocated, AllocationFailed and the
-; explicitly selected operations. A full bundle selects (allocate grow deallocate);
-; providers without growth can select (allocate deallocate).
-; Successful allocate hooks must return fresh, valid storage for layout bytes,
-; aligned to alignment. Successful grow hooks must return valid, aligned storage
-; for the new layout, preserving the old contents up to the smaller layout size.
-; Failed growth must leave the old allocation and its contents unchanged.
-; Deallocate hooks must release the matching allocation. Unsafe callers retain
-; responsibility for pointer ownership and matching layouts and alignments.
-; These semantic obligations cannot be proven from the shape of the hooks.
+// Shared allocator convention: layouts are byte counts and alignments are bytes.
+// Roots expose State, Error, Allocation, Allocated, AllocationFailed and the
+// explicitly selected operations. A full bundle selects (allocate grow deallocate);
+// providers without growth can select (allocate deallocate).
+// Successful allocate hooks must return fresh, valid storage for layout bytes,
+// aligned to alignment. Successful grow hooks must return valid, aligned storage
+// for the new layout, preserving the old contents up to the smaller layout size.
+// Failed growth must leave the old allocation and its contents unchanged.
+// Deallocate hooks must release the matching allocation. Unsafe callers retain
+// responsibility for pointer ownership and matching layouts and alignments.
+// These semantic obligations cannot be proven from the shape of the hooks.
 (#gn-fn allocator-for-check (option keys)
   (#gn-if (#gn-equal (#gn-length option) 2)
     (#gn-if (#gn-equal

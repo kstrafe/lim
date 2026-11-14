@@ -1,4 +1,4 @@
-; Moving a call result preserves its conditional clearing contract.
+// Moving a call result preserves its conditional clearing contract.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 

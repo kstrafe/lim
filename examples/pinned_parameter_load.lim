@@ -1,4 +1,4 @@
-; Loaded reference fields retain their pointees, not the pinned holder address.
+// Loaded reference fields retain their pointees, not the pinned holder address.
 (#struct Views () (: left (#ref #u64) : right (#ref #u64)))
 
 (#fn load (: source (#pin-ref Views)) Views

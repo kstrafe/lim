@@ -39,7 +39,7 @@
     (#unsafe (#unsafe-call linux-truncate (: path path : length -1i64))))
   (#let mode-changed #i64
     (#unsafe (#unsafe-call linux-chmod (: path path : mode 256u32))))
-  ; The all-ones UID/GID sentinels leave ownership unchanged.
+  // The all-ones UID/GID sentinels leave ownership unchanged.
   (#let owner-unchanged #i64
     (#unsafe (#unsafe-call linux-chown (: path path : owner 4294967295u32 : group 4294967295u32))))
   (#let link-owner-unchanged #i64
@@ -53,7 +53,7 @@
     (#unsafe (#unsafe-call linux-futimesat (: directory -100i64 : path path : times null-times))))
   (#let stat-result #i64
     (#unsafe (#unsafe-call linux-stat (: path path : metadata metadata))))
-  ; x86-64 kernel stat: mode at byte 24, size at 48, mtime at 88.
+  // x86-64 kernel stat: mode at byte 24, size at 48, mtime at 88.
   (#let mode-word #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 3usize))))
   (#let file-size #u64

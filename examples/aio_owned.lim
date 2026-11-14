@@ -46,8 +46,8 @@
       (#case (AioOwnedContextCreate.AioOwnedContextCreateFailed error)
         (#block (#forget error) (#unreachable)))))
 
-  ;; A readiness operation is cancelled asynchronously; the wrapper waits for
-  ;; its completion acknowledgement before exposing a completed owner.
+  //; A readiness operation is cancelled asynchronously; the wrapper waits for
+  //; its completion acknowledgement before exposing a completed owner.
   (#let poll-fd #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 526336i32)))
   (#assert (#i64::ge poll-fd 0i64))
   (#let poll-submission AioOwnedSubmit

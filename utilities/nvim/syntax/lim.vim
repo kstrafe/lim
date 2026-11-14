@@ -5,8 +5,8 @@ endif
 
 syn case match
 
-" Comments: semicolon comments and bare hash comment lines.
-syn match limComment ";.*$" contains=@Spell
+" Comments: slash comments and legacy bare hash comment lines.
+syn match limComment "//.*$" contains=@Spell
 syn match limComment "^\s*#\s.*$" contains=@Spell
 
 " Strings and character literals. Hash-prefixed character names and Unicode

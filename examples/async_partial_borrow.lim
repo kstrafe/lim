@@ -1,5 +1,5 @@
-; An array element stays borrowed while a disjoint struct field is moved,
-; restored after StepPoll.Pending, and the original index variable is changed.
+// An array element stays borrowed while a disjoint struct field is moved,
+// restored after StepPoll.Pending, and the original index variable is changed.
 (#struct Resource (#linear) (: value #u64))
 
 (#struct Holder (#linear) (: data (#array #u64 2)))

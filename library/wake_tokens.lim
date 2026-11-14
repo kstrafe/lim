@@ -1,6 +1,6 @@
-;; Concrete four-slot wake-token authority. Tokens identify a slot and its
-;; generation; stale tokens are rejected after retirement and re-registration.
-;; This module does not own tasks, I/O operations, or a ready queue.
+//; Concrete four-slot wake-token authority. Tokens identify a slot and its
+//; generation; stale tokens are rejected after retirement and re-registration.
+//; This module does not own tasks, I/O operations, or a ready queue.
 (#struct WakeToken4 () ((slot #usize) (generation #u64)))
 (#opaque WakeToken4)
 (#struct WakeTable4 (#linear)
@@ -22,7 +22,7 @@
 (#fn wake-token4-slot ((token WakeToken4)) #usize
   (#return (#get token slot)))
 
-; A valid but exhausted table for deterministic protocol tests.
+// A valid but exhausted table for deterministic protocol tests.
 (#fn wake-table4-create-exhausted () WakeTable4
   (#return (#struct-literal WakeTable4
     ((generations (#array-of (#array #u64 4)

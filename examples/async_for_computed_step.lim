@@ -1,4 +1,4 @@
-; The condition and the expression used by the step both suspend.
+// The condition and the expression used by the step both suspend.
 (#enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64)))
 
 (#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))

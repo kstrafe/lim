@@ -14,7 +14,7 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  ; Anonymous memfd with empty name; no filesystem cleanup is needed.
+  // Anonymous memfd with empty name; no filesystem cleanup is needed.
   (#let fd #i64 (#unsafe (#unsafe-call linux-memfd-create (: name memory : flags 1u32))))
   (#assert (#i64::ge fd 0i64))
   (#let-mut context #usize 0usize)
@@ -28,19 +28,19 @@
     (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+192]")))
   (#let payload (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
   (#let received (#ptr-mut #u8) (#unsafe (#ptr-offset memory 272usize)))
-  ; iocb is 64 bytes: data@0, opcode@16, fd@20, buf@24, nbytes@32.
-  ; Offset and all flags are initially zero. Timeout is one second.
+  // iocb is 64 bytes: data@0, opcode@16, fd@20, buf@24, nbytes@32.
+  // Offset and all flags are initially zero. Timeout is one second.
   (#unsafe (#asm () ((rdi memory) (rsi fd) (rdx payload))
     "mov QWORD PTR [rdi], 41\nmov WORD PTR [rdi+16], 1\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], rdx\nmov QWORD PTR [rdi+32], 4\nmov QWORD PTR [rdi+64], rdi\nmov QWORD PTR [rdi+192], 1\nmov DWORD PTR [rdx], 0x0a434241"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-submit (: context context : count 1i64 : requests requests))) 1i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-getevents (: context context : minimum 1i64 : count 1i64 : events events : timeout timeout))) 1i64))
-  ; io_event: data, originating iocb pointer, result, secondary result.
+  // io_event: data, originating iocb pointer, result, secondary result.
   (#assert (#u64::eq (#unsafe (#asm #u64 ((rdi events)) "mov rax, [rdi]")) 41u64))
   (#assert (#unsafe (#asm #bool ((rdi events) (rsi request))
     "cmp QWORD PTR [rdi+8], rsi\nsete al\nmovzx eax, al")))
   (#assert (#i64::eq (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+16]")) 4i64))
   (#assert (#i64::eq (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+24]")) 0i64))
-  ; Reuse only after completion; submit a read into a different buffer.
+  // Reuse only after completion; submit a read into a different buffer.
   (#unsafe (#asm () ((rdi request) (rsi received))
     "mov QWORD PTR [rdi], 42\nmov WORD PTR [rdi+16], 0\nmov QWORD PTR [rdi+24], rsi"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-submit (: context context : count 1i64 : requests requests))) 1i64))
@@ -51,28 +51,28 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-submit (: context context : count -1i64 : requests requests))) -22i64))
   (#unsafe (#ptr-write timeout 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-getevents (: context context : minimum 1i64 : count 1i64 : events events : timeout timeout))) 0i64))
-  ; IOCB_CMD_POLL on an empty eventfd stays pending until explicitly cancelled.
+  // IOCB_CMD_POLL on an empty eventfd stays pending until explicitly cancelled.
   (#let polled #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 526336i32)))
   (#assert (#i64::ge polled 0i64))
   (#unsafe (#asm () ((rdi request) (rsi polled))
     "mov QWORD PTR [rdi], 43\nmov WORD PTR [rdi+16], 5\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], 1\nmov QWORD PTR [rdi+32], 0"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-submit (: context context : count 1i64 : requests requests))) 1i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-getevents (: context context : minimum 1i64 : count 1i64 : events events : timeout timeout))) 0i64))
-  ; Modern Linux accepts cancellation with -EINPROGRESS and posts the result
-  ; through the completion queue, not the legacy io_cancel result argument.
+  // Modern Linux accepts cancellation with -EINPROGRESS and posts the result
+  // through the completion queue, not the legacy io_cancel result argument.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-cancel (: context context : request request : event (#ptr-null (#ptr-mut #u8))))) -115i64))
   (#unsafe (#ptr-write timeout 1i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-getevents (: context context : minimum 1i64 : count 1i64 : events events : timeout timeout))) 1i64))
   (#assert (#u64::eq (#unsafe (#asm #u64 ((rdi events)) "mov rax, [rdi]")) 43u64))
   (#assert (#unsafe (#asm #bool ((rdi events) (rsi request))
     "cmp QWORD PTR [rdi+8], rsi\nsete al\nmovzx eax, al")))
-  ; A cancelled poll has no readiness bits, rather than a read/write errno.
+  // A cancelled poll has no readiness bits, rather than a read/write errno.
   (#assert (#i64::eq (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+16]")) 0i64))
   (#assert (#i64::eq (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+24]")) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-io-cancel (: context context : request request : event events))) -22i64))
   (#assert (#i64::eq (#call linux-close (: fd polled)) 0i64))
   (#unsafe (#ptr-write timeout 0i64))
-  ; Raw io_pgetevents packs a sigset pointer and byte size in its last argument.
+  // Raw io_pgetevents packs a sigset pointer and byte size in its last argument.
   (#let mask-argument (#ptr-mut #u8) (#unsafe (#ptr-offset memory 320usize)))
   (#let mask-before (#ptr-mut #u8) (#unsafe (#ptr-offset memory 352usize)))
   (#let mask-after (#ptr-mut #u8) (#unsafe (#ptr-offset memory 360usize)))

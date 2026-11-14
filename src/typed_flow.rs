@@ -9648,7 +9648,7 @@ impl FlowGraph {
                         if matches!(body.bindings[binding.0].ty,
                             Type::Reference { .. } | Type::PinnedReference { .. }))
             }) {
-                message.push_str("; reference handle was consumed earlier");
+                message.push_str("// reference handle was consumed earlier");
             }
             if matches!(place.root, PlaceRoot::Local(binding)
                 if matches!(body.bindings[binding.0].ty, Type::PinnedReference { .. }))

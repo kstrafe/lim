@@ -1,4 +1,4 @@
-; The step suspends for an effect, without producing a value to bind.
+// The step suspends for an effect, without producing a value to bind.
 (#enum StepTask (#linear) (StepTask.Start StepTask.Resume))
 
 (#enum StepPoll () ((StepPoll.StepPending StepTask) (StepPoll.StepReady ())))

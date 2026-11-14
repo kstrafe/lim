@@ -3,8 +3,8 @@
 (#fn read-input () #u64
   (#return 40u64))
 
-; The generated function can call both library@private-base and read-input.
-; Its .lim/generated artifact records both module contexts explicitly.
+// The generated function can call both library@private-base and read-input.
+// Its .lim/generated artifact records both module contexts explicitly.
 (#generate library@make-reader read-value @read-input)
 
 (#fn main () #u64

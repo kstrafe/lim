@@ -1,7 +1,7 @@
-;; A concrete linear slot for values held in stationary storage. The unsafe
-;; take operation reads the old value and replaces it with the empty variant
-;; without changing the slot's address. Callers must first end every loan into
-;; the stored value.
+//; A concrete linear slot for values held in stationary storage. The unsafe
+//; take operation reads the old value and replaces it with the empty variant
+//; without changing the slot's address. Callers must first end every loan into
+//; the stored value.
 (#gn-fn pin-slot-second (values) (#gn-first (#gn-rest values)))
 (#gn-fn pin-slot-third (values) (#gn-first (#gn-rest (#gn-rest values))))
 (#gn-fn pin-slot-fourth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest values)))))
@@ -24,8 +24,8 @@
         (#let previous ,(#gn-first names) (#unsafe (#pin-read slot)))
         (#unsafe (#pin-write slot (,(#gn-call pin-slot-second names))))
         (#return previous))
-      ;; Try to refill the stable slot. Taking first ensures the destination is
-      ;; Empty; an occupied value is restored before the caller gets its input.
+      //; Try to refill the stable slot. Taking first ensures the destination is
+      //; Empty; an occupied value is restored before the caller gets its input.
       (#enum ,(#gn-call pin-slot-sixth names) ()
         ((,(#gn-call pin-slot-seventh names))
          (,(#gn-call pin-slot-eighth names) ,element)))
@@ -34,8 +34,8 @@
         ,(#gn-call pin-slot-sixth names)
         (#let previous ,(#gn-first names)
           (#unsafe (#unsafe-call ,(#gn-call pin-slot-fifth names) (: slot slot))))
-        ;; take initialized the slot with Empty. Consume that linear shell
-        ;; explicitly before either branch writes its replacement in place.
+        //; take initialized the slot with Empty. Consume that linear shell
+        //; explicitly before either branch writes its replacement in place.
         (#unsafe (#forget (#pin-read slot)))
         (#return (#match previous
           (#case ,(#gn-call pin-slot-second names)

@@ -1,5 +1,5 @@
-; A partially moved owner must retain the address and provenance of its
-; reference-bearing sibling when the restored owner is viewed as a whole.
+// A partially moved owner must retain the address and provenance of its
+// reference-bearing sibling when the restored owner is viewed as a whole.
 (#struct Token (#linear) (: value #u64))
 
 (#struct Owner () (: kept (#ref #u64) : item Token))

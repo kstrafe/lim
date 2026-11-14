@@ -1,5 +1,5 @@
-; Each field has its own initialization state in the generated frame.
-; Left is moved out across StepPoll.Pending, then rebuilt without moving Right.
+// Each field has its own initialization state in the generated frame.
+// Left is moved out across StepPoll.Pending, then rebuilt without moving Right.
 (#struct Resource (#linear) (: value #u64))
 
 (#struct Pair () (: left Resource : right Resource))

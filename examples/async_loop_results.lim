@@ -1,5 +1,5 @@
-; A suspended value loop can break with ordinary expressions, including a
-; function call returning a linear struct. The struct is consumed explicitly.
+// A suspended value loop can break with ordinary expressions, including a
+// function call returning a linear struct. The struct is consumed explicitly.
 (#struct Token () ((value #u64)))
 (#fn make-token ((value #u64)) Token
   (#return (#struct-literal Token ((value value)))))

@@ -1,6 +1,6 @@
 (#alias lim-gen-allocator-for = /<lim-std>/allocator.lim::#allocator-for)
 
-;; Allocator owned stable storage exposed only through native pinned references.
+//; Allocator owned stable storage exposed only through native pinned references.
 
 (#gn-fn pin-box-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-box-check (option keys)

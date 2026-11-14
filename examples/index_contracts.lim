@@ -1,4 +1,4 @@
-; Claims are connected by an explicit helper call.
+// Claims are connected by an explicit helper call.
 (#fn under-two ((index #usize)) #bool
   (#return (#usize::lt index 2usize)))
 

@@ -1691,7 +1691,7 @@ mod tests {
         let input = directory.join("src/main.lim");
         fs::write(
             &input,
-            "(#alias Shared = //modules/shared.lim::Shared) (#fn main () #u64 (#return 0u64))",
+            "(#alias Shared = project::modules/shared.lim::Shared) (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
         let arguments = vec![input.to_string_lossy().into_owned()];

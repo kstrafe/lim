@@ -1,6 +1,6 @@
-; Native x86-64 syscall numbers from Linux arch/x86/entry/syscalls/syscall_64.tbl.
-; Includes the common and native 64-bit ABIs; x32 entries are intentionally excluded.
-; Snapshot source: torvalds/linux commit 6812ce4e4379ffc99c52401ec28f0d7ffbc36206.
+// Native x86-64 syscall numbers from Linux arch/x86/entry/syscalls/syscall_64.tbl.
+// Includes the common and native 64-bit ABIs; x32 entries are intentionally excluded.
+// Snapshot source: torvalds/linux commit 6812ce4e4379ffc99c52401ec28f0d7ffbc36206.
 (#const lINUX-SYS-READ #usize 0usize)
 (#const lINUX-SYS-WRITE #usize 1usize)
 (#const lINUX-SYS-OPEN #usize 2usize)

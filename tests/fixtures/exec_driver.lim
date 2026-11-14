@@ -8,10 +8,10 @@
 (#alias linux-munmap = ../../library/linux_x86_64.lim::linux-munmap)
 (#alias linux-openat = ../../library/linux_x86_64.lim::linux-openat)
 
-; The Rust harness builds exec_target.lim as ./target in a private directory.
+// The Rust harness builds exec_target.lim as ./target in a private directory.
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  ; "target\0", followed by argv {path, NULL}, empty envp and empty path.
+  // "target\0", followed by argv {path, NULL}, empty envp and empty path.
   (#unsafe (#asm () ((rdi memory))
     "mov DWORD PTR [rdi], 0x67726174\nmov WORD PTR [rdi+4], 0x7465\nmov QWORD PTR [rdi+16], rdi"))
   (#let arguments (#ptr-mut (#ptr-mut #u8))
@@ -33,7 +33,7 @@
           (#if (#u32::eq iteration 1u32)
             (#drop (#unsafe (#unsafe-call linux-execveat (: directory -100i64 : path memory : arguments arguments : environment environment : flags 0i32))))
             (#drop (#unsafe (#unsafe-call linux-execveat (: directory executable : path empty : arguments arguments : environment environment : flags 4096i32))))))
-        ; Reaching this means exec failed; do not continue the parent's loop.
+        // Reaching this means exec failed; do not continue the parent's loop.
         (#call linux-exit-group (: status 99i32))) ())
     (#let-mut status #i32 0i32)
     (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-WAIT4

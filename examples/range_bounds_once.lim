@@ -1,4 +1,4 @@
-; Range endpoints are evaluated once, start before end, even with continue.
+// Range endpoints are evaluated once, start before end, even with continue.
 (#fn bound (: order (#ref-mut #u64) : expected #u64 : value #u64) #u64
   (#assert (#u64::eq (#deref order) expected))
   (#deref-set order (#u64::add-wrap (#deref order) 1u64))

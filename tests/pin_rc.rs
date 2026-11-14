@@ -82,7 +82,7 @@ fn run(source: &str, label: &str) -> String {
             let path = entry.unwrap().path();
             assert_eq!(path.extension().unwrap(), "lim");
             let text = fs::read_to_string(path).unwrap();
-            assert!(text.starts_with("; Generated from:"));
+            assert!(text.starts_with("// Generated from:"));
             lim::parse(&text).expect("inspectable artifacts must be valid ordinary Lim syntax");
             text
         })

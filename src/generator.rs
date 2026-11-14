@@ -1659,7 +1659,7 @@ pub(crate) fn cached_generated_source_path(directory: &Path, key: &str) -> PathB
     generated_source_directory(directory).join(format!("generated-{digest:032x}.lim"))
 }
 
-const GENERATED_ORIGINS_HEADER: &str = "; Generated from:\n";
+const GENERATED_ORIGINS_HEADER: &str = "// Generated from:\n";
 
 fn recorded_generated_origins(source: &str) -> Vec<String> {
     source
@@ -1668,7 +1668,7 @@ fn recorded_generated_origins(source: &str) -> Vec<String> {
         .map_or_else(Vec::new, |(header, _)| {
             header
                 .lines()
-                .filter_map(|line| line.strip_prefix("; "))
+                .filter_map(|line| line.strip_prefix("// "))
                 .map(str::to_owned)
                 .collect()
         })
@@ -1694,7 +1694,7 @@ fn annotate_generated_source(source: &str, origins: &[String]) -> String {
     origins.dedup();
     let mut output = GENERATED_ORIGINS_HEADER.to_owned();
     for origin in origins {
-        output.push_str("; ");
+        output.push_str("// ");
         // A filename cannot inject source through the provenance comment.
         output.push_str(&origin);
         output.push('\n');
@@ -2982,7 +2982,7 @@ mod tests {
             || Ok("(#type Cached #u64)".into()),
         )
         .unwrap();
-        assert!(first.starts_with("; Generated from:\n; a.lim:3\n; z.lim:8\n\n"));
+        assert!(first.starts_with("// Generated from:\n// a.lim:3\n// z.lim:8\n\n"));
         let second = cached_generated_source_with_origins(
             &directory,
             "origins",
@@ -2990,7 +2990,7 @@ mod tests {
             || panic!("provenance changes must not rerun generation"),
         )
         .unwrap();
-        assert!(second.starts_with("; Generated from:\n; a.lim:3\n; new.lim:12\n; z.lim:8\n\n"));
+        assert!(second.starts_with("// Generated from:\n// a.lim:3\n// new.lim:12\n// z.lim:8\n\n"));
         assert_eq!(
             crate::parse(&first)
                 .unwrap()

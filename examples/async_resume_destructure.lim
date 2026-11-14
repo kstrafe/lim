@@ -1,4 +1,4 @@
-; Declare and update nested mutable locals in a resumed continuation.
+// Declare and update nested mutable locals in a resumed continuation.
 (#struct Values () ((z (#tuple #u16 #u16)) (a #u64)))
 (#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
 (#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))

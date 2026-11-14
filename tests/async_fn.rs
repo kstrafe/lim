@@ -305,7 +305,7 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
 
 #[test]
 fn async_protocols_cross_relative_and_project_root_references() {
-    for path in ["./child.lim", "//child.lim"] {
+    for path in ["./child.lim", "project::child.lim"] {
         let scratch = support::Scratch::new("async-protocol-import");
         fs::write(
             scratch.path().join("child.lim"),
@@ -5206,7 +5206,7 @@ fn async_block_owned_labeled_loop_keeps_its_scope_across_suspension() {
     let linear = format!("(#struct Counter (#linear) ((value #u64))) \n{}", outer_mutation
         .replace("(#let-mut total #u64 40u64)", "(#let-mut total Counter (#struct-literal Counter (: value 40u64)))")
         .replace("(#set total (#u64::add-wrap total value))", "(#set-field total value (#u64::add-wrap (#get total value) value))")
-        .replace("total))\n    ;", "(#get total value)))\n    ;")
+        .replace("total))\n    ;", "(#get total value)))\n    //")
         .replace("(#return (#u64::add-wrap result (#u64::sub-wrap total 40u64)))", "(#let answer #u64 (#u64::add-wrap result (#u64::sub-wrap (#get total value) 40u64))) (#forget total) (#return answer)"));
     build_and_run(&linear, 44);
     let scratch = support::Scratch::new("async-block-loop-scope");

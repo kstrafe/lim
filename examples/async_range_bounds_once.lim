@@ -1,4 +1,4 @@
-; The start and end factories run once, in order, despite suspension/continue.
+// The start and end factories run once, in order, despite suspension/continue.
 (#enum ChildTask (#linear) ((ChildTask.Start #u64) (ChildTask.Resume #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending ChildTask) (ChildPoll.ChildReady #u64)))

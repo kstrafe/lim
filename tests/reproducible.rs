@@ -59,8 +59,8 @@ fn snapshot(root: &Path, directory: &Path, output: &mut BTreeMap<String, Vec<u8>
             } else if path.extension().is_some_and(|extension| extension == "lim") {
                 // Normalize only provenance comments, never executable source.
                 let source = String::from_utf8(contents).unwrap();
-                let prefix = format!("; {}/", root.display());
-                contents = source.replace(&prefix, "; <workspace>/").into_bytes();
+                let prefix = format!("// {}/", root.display());
+                contents = source.replace(&prefix, "// <workspace>/").into_bytes();
             }
             output.insert(
                 path.strip_prefix(root)

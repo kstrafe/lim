@@ -219,7 +219,7 @@ fn fences(document: &str) -> Vec<(String, String)> {
 
 #[test]
 fn classification_uses_metadata_not_main_spelling() {
-    let examples = fences("```lisp library\n; (#fn main is only a comment\n(#type Byte #u8)\n```\n```lisp run=42\n(#fn\n main () #u64 (#return 42u64))\n```\n");
+    let examples = fences("```lisp library\n// (#fn main is only a comment\n(#type Byte #u8)\n```\n```lisp run=42\n(#fn\n main () #u64 (#return 42u64))\n```\n");
     assert_eq!(examples[0].0, "library");
     assert_eq!(examples[1].0, "run=42");
 }

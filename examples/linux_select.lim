@@ -22,9 +22,9 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-fcntl (: fd inotify : command 1i32 : argument 0usize))) 0i64))
   (#let memory (#ptr-mut #u8)
     (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  ; Zeroed mmap provides timeval/timespec {0,0} at offset zero, and an
-  ; empty kernel signal mask at offset 48. The pselect6 argument at offset
-  ; 32 is a pointer to that mask followed by its byte size (8 on x86-64).
+  // Zeroed mmap provides timeval/timespec {0,0} at offset zero, and an
+  // empty kernel signal mask at offset 48. The pselect6 argument at offset
+  // 32 is a pointer to that mask followed by its byte size (8 on x86-64).
   (#let timeout (#ptr-mut #i64)
     (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "mov rax, rdi")))
   (#let mask-argument (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))

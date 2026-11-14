@@ -1,4 +1,4 @@
-; Exported enums expose all cases. Exported structs expose only their type.
+// Exported enums expose all cases. Exported structs expose only their type.
 (#export Status Handle handle-create handle-status handle-close)
 
 (#enum InternalState (#linear)

@@ -1,6 +1,6 @@
-; Establish an internal field reference only after its owner is pinned.
-; Replacing the reference with an external one ends the self-loan before drop.
-; A later ordinary call may update disjoint storage, but not the borrowed value.
+// Establish an internal field reference only after its owner is pinned.
+// Replacing the reference with an external one ends the self-loan before drop.
+// A later ordinary call may update disjoint storage, but not the borrowed value.
 (#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
 
 (#fn install-view (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)

@@ -799,7 +799,7 @@ fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let source = "; 😀 UTF-16 position\n(#gn emit (name) `((#type ,name #u64)))\n(\n  #generate emit First\n)\n(#type Emoji😀 #u8) (#generate emit Second)";
+    let source = "// 😀 UTF-16 position\n(#gn emit (name) `((#type ,name #u64)))\n(\n  #generate emit First\n)\n(#type Emoji😀 #u8) (#generate emit Second)";
     std::fs::write(&path, source).unwrap();
     let updated = source.replace("#u64", "#u32");
     let mut messages = start();
@@ -950,7 +950,7 @@ fn generator_name_resolves_original_span_through_direct_file_identity() {
     .write(&base.join("lim.lsp"))
     .unwrap();
     let child_source =
-        "; unsaved generator\n(#gn emit (name) `((#type ,name #u64)))\n(#generate emit Number)";
+        "// unsaved generator\n(#gn emit (name) `((#type ,name #u64)))\n(#generate emit Number)";
     let uri = lsp::path_to_uri(&child).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, child_source));
@@ -1022,7 +1022,7 @@ fn imported_generator_name_navigation_needs_no_valid_expansion_or_artifacts() {
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     let generator_uri = lsp::path_to_uri(&base.join("generator.lim")).unwrap();
     let source = "(#alias emit = ./generator.lim::emit)\n(#generate emit)";
-    let generator = "; unsaved\n(#gn emit () (#gn-error \"not implemented\"))";
+    let generator = "// unsaved\n(#gn emit () (#gn-error \"not implemented\"))";
     let mut messages = start();
     messages.push(open(&generator_uri, 1, generator));
     messages.push(open(&uri, 1, source));
@@ -1576,12 +1576,12 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
         std::fs::metadata(&target).unwrap().modified().unwrap(),
         modified
     );
-    std::fs::write(&target, "; user-edited snapshot\n").unwrap();
+    std::fs::write(&target, "// user-edited snapshot\n").unwrap();
     let (_, corrupt) = session(messages);
     assert_eq!(reply(&corrupt, 2).get("result"), Some(&Json::Null));
     assert_eq!(
         std::fs::read_to_string(&target).unwrap(),
-        "; user-edited snapshot\n"
+        "// user-edited snapshot\n"
     );
     // Restore the fixture for repeatable reruns, not navigation publication.
     std::fs::write(&target, generated).unwrap();

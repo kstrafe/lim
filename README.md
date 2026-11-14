@@ -252,7 +252,7 @@ diagnostics for unsaved buffers and imports, formatting, document symbols,
 and source-role definitions across the selected dependency graph.
 Navigation on an alias target or direct file reference opens its declaration,
 including declarations in unsaved buffers. Relative `./` paths use the source
-file's directory; `//` paths use the entry point's nearest `lim.project`
+file's directory; `project::` paths use the entry point's nearest `lim.project`
 directory, or its own directory when no manifest exists. Ordinary declarations remain navigable despite unrelated
 type errors. Enum variants in `#case`, `#case-ref`, `#case-ref-mut`, `#case-pin`,
 and `#case-pin-mut` navigate to their exact declaration names, including

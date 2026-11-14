@@ -1,5 +1,5 @@
-; Warm::cache performance fixture, also run cold/warm and independently in the
-; graph-production suite. A rejected suspended guard retains its source loan.
+// Warm::cache performance fixture, also run cold/warm and independently in the
+// graph-production suite. A rejected suspended guard retains its source loan.
 (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll

@@ -1,4 +1,4 @@
-; Linear local pin loads transfer loans; pin writes explicitly restore storage.
+// Linear local pin loads transfer loans; pin writes explicitly restore storage.
 (#struct Owner () (: number #u64))
 (#struct View (#linear) (: item (#ref #u64)))
 
@@ -37,7 +37,7 @@
   (#drop target)
   (#let value #u64 (#deref (#get loaded item)))
   (#forget loaded)
-  ; The consumed holder no longer suspends this parent reference.
+  // The consumed holder no longer suspends this parent reference.
   (#drop parent)
   (#let alternative #u64 2u64)
   (#let selected View

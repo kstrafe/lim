@@ -1,4 +1,4 @@
-; Construct with #enum-literal; destructure with ordinary variant patterns.
+// Construct with #enum-literal; destructure with ordinary variant patterns.
 (#struct Reading () (: value #u64))
 (#enum Measurement () ((Measurement.Present Reading) Measurement.Absent))
 

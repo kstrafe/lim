@@ -14,8 +14,8 @@
 
 (#fn sum-pair (: pin PinnedPair) #u64
   (#let-mut parent PinnedPair pin)
-  ; Borrowing a child does not consume the parent handle. Disjoint children
-  ; can coexist; asking for left twice while it is borrowed would fail.
+  // Borrowing a child does not consume the parent handle. Disjoint children
+  // can coexist; asking for left twice while it is borrowed would fail.
   (#let-mut left PinnedNumber
     (#call PinnedPair::BorrowMut::left (: pin (#borrow-mut parent))))
   (#let-mut right PinnedNumber

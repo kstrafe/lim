@@ -10,8 +10,8 @@
   (#assert (#i64::eq (#call linux-semget (: key 0i32 : count 0i32 : flags 384i32)) -22i64))
   (#let memory (#ptr-mut #u8)
     (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  ; Each sembuf has #u16 number, #i16 operation, #i16 flags (six bytes).
-  ; Decrement semaphores 0 and 1 with IPC_NOWAIT.
+  // Each sembuf has #u16 number, #i16 operation, #i16 flags (six bytes).
+  // Decrement semaphores 0 and 1 with IPC_NOWAIT.
   (#unsafe (#asm () ((rdi memory))
     "mov WORD PTR [rdi], 0\nmov WORD PTR [rdi+2], -1\nmov WORD PTR [rdi+4], 2048\nmov WORD PTR [rdi+6], 1\nmov WORD PTR [rdi+8], -1\nmov WORD PTR [rdi+10], 2048"))
   (#let timeout (#ptr-mut #i64)
@@ -25,12 +25,12 @@
   (#let after-rejection #i64 (#unsafe (#unsafe-call linux-semctl (: set-id set-id : number 0i32 : command 12i32 : argument 0usize))))
   (#let decremented #i64 (#unsafe (#unsafe-call linux-semop (: set-id set-id : operations memory : count 1usize))))
   (#let after-decrement #i64 (#unsafe (#unsafe-call linux-semctl (: set-id set-id : number 0i32 : command 12i32 : argument 0usize))))
-  ; Disable IPC_NOWAIT to exercise the zero timespec timeout itself.
+  // Disable IPC_NOWAIT to exercise the zero timespec timeout itself.
   (#unsafe (#asm () ((rdi memory)) "mov WORD PTR [rdi+4], 0"))
   (#let timed-success #i64 (#unsafe (#unsafe-call linux-semtimedop (: set-id set-id : operations memory : count 1usize : timeout timeout))))
   (#let timed-out #i64 (#unsafe (#unsafe-call linux-semtimedop (: set-id set-id : operations memory : count 1usize : timeout timeout))))
   (#let final-value #i64 (#unsafe (#unsafe-call linux-semctl (: set-id set-id : number 0i32 : command 12i32 : argument 0usize))))
-  ; Remove the private set before checking saved results.
+  // Remove the private set before checking saved results.
   (#let removed #i64 (#unsafe (#unsafe-call linux-semctl (: set-id set-id : number 0i32 : command 0i32 : argument 0usize))))
   (#assert (#i64::eq removed 0i64))
   (#assert (#i64::eq initialized-first 0i64))

@@ -1,6 +1,6 @@
-; Compile with --cfg async-lowering=graph.
-; Access is explicit, source-named, and only available after completion or
-; cleanup. Replacement changes the same stationary frame, not a new future.
+// Compile with --cfg async-lowering=graph.
+// Access is explicit, source-named, and only available after completion or
+// cleanup. Replacement changes the same stationary frame, not a new future.
 (#generate
   #async-fn-pinned
   (: protocol WorkAwait : waker #u64

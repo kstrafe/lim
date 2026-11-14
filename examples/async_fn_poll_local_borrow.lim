@@ -1,4 +1,4 @@
-; References ending before an await do not require a stationary future.
+// References ending before an await do not require a stationary future.
 (#struct Counter (#linear) (: value #u64))
 
 (#fn increment (: target (#ref-mut #u64)) ()

@@ -2,8 +2,8 @@
 (#alias String::data-pointer = ./string.lim::String::data-pointer)
 (#alias String::len = ./string.lim::String::len)
 
-; UTF-8 stdout IO. Errors are returned as negative errno values; success is
-; 0i64. Printing borrows text, never consumes it or adds a heap allocation.
+// UTF-8 stdout IO. Errors are returned as negative errno values; success is
+// 0i64. Printing borrows text, never consumes it or adds a heap allocation.
 
 (
   #cfg-if
@@ -12,8 +12,8 @@
     (#cfg-is #os linux)
     (#cfg-is #arch x86_64)
   )
-  ; SAFETY: the caller retains readable storage for length bytes throughout the
-  ; call. Partial writes and EINTR are retried; zero progress becomes -EIO.
+  // SAFETY: the caller retains readable storage for length bytes throughout the
+  // call. Partial writes and EINTR are retried; zero progress becomes -EIO.
   (
     #unsafe-fn
     std-write-all
@@ -140,8 +140,8 @@
     std-print
     (: text (#ref String))
     #i64
-    ; String::data-pointer is unsafe: text's shared borrow keeps both the
-    ; owner and its allocation live and immutable until the write completes.
+    // String::data-pointer is unsafe: text's shared borrow keeps both the
+    // owner and its allocation live and immutable until the write completes.
     (
       #return
       (

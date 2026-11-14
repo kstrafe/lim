@@ -1,5 +1,5 @@
-; A selected reference can point into a pinned frame or directly into a static.
-; Neither path needs a synthetic external-reference parameter.
+// A selected reference can point into a pinned frame or directly into a static.
+// Neither path needs a synthetic external-reference parameter.
 (#static fallback #u64 40u64)
 (#enum Step (#linear) (: Step.Waiting #u64))
 (#enum StepPoll (#linear) (: StepPoll.Pending Step : StepPoll.Ready #u64))

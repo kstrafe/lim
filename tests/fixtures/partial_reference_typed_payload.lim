@@ -1,4 +1,4 @@
-; Ordinary pinned typed storage, with no async checker rules or field tags.
+// Ordinary pinned typed storage, with no async checker rules or field tags.
 (#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)
 (#struct Token (#linear) (: value #u64))
 

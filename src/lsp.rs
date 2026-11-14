@@ -560,7 +560,7 @@ impl Server<'_> {
                 return Ok(target
                     .and_then(|(path, source, span)| {
                         if crate::standard_library::source(&path) == Some(source.as_str()) {
-                            let header = format!("; Bundled source: {}\n", path.display());
+                            let header = format!("// Bundled source: {}\n", path.display());
                             return self.snapshot_location(
                                 doc,
                                 &format!("{header}{source}"),
@@ -994,14 +994,14 @@ pub(crate) fn generated_snapshot(
 ) -> Option<(String, usize)> {
     let file = program.source_files.get(source_id as usize)?;
     if crate::standard_library::source(&file.path) == Some(file.source.as_str()) {
-        let header = format!("; Bundled source: {}\n", file.path.display());
+        let header = format!("// Bundled source: {}\n", file.path.display());
         let prefix = header.len();
         return Some((format!("{header}{}", file.source), prefix));
     }
     let invocation = program.generated_source_invocations.get(&source_id)?;
     let origin = program.source_files.get(invocation.source_id as usize)?;
     let header = format!(
-        "; Generated definition invoked at {}:{}\n",
+        "// Generated definition invoked at {}:{}\n",
         origin
             .path
             .display()

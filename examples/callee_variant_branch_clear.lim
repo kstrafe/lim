@@ -1,4 +1,4 @@
-; Either result path clears the same holder. Exercise both branches at runtime.
+// Either result path clears the same holder. Exercise both branches at runtime.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 

@@ -35,10 +35,10 @@ mod tests {
     fn removes_multiline_header_and_preserves_comments_and_body_exactly() {
         let header = "(#generated-context\n  compiler-owned\n  provenance)";
         let artifact = format!(
-            "; generated file\n{header}\n; keep this comment\n(#fn generated () #u64 (#return 42u64))\n"
+            "// generated file\n{header}\n// keep this comment\n(#fn generated () #u64 (#return 42u64))\n"
         );
         let expected =
-            "; generated file\n\n; keep this comment\n(#fn generated () #u64 (#return 42u64))\n";
+            "// generated file\n\n// keep this comment\n(#fn generated () #u64 (#return 42u64))\n";
         assert_eq!(ordinary_source(&artifact), expected);
     }
 

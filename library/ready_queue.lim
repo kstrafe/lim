@@ -1,9 +1,9 @@
-;; A bounded FIFO of ready task IDs. All declared names are literal inputs so
-;; distinct concrete queues can coexist without generated symbol collisions.
-;; The literal slot list fixes capacity; its values are identity inputs, not
-;; runtime storage. IDs are #u64; generations and task ownership are separate.
-;; Operations write only Copy fields through derived references. The linear
-;; queue owner remains alive and must still be explicitly consumed by its user.
+//; A bounded FIFO of ready task IDs. All declared names are literal inputs so
+//; distinct concrete queues can coexist without generated symbol collisions.
+//; The literal slot list fixes capacity; its values are identity inputs, not
+//; runtime storage. IDs are #u64; generations and task ownership are separate.
+//; Operations write only Copy fields through derived references. The linear
+//; queue owner remains alive and must still be explicitly consumed by its user.
 (#gn #ready-queue
   (name enqueue-result dequeue-result create enqueue dequeue
     enqueued full item empty slots)

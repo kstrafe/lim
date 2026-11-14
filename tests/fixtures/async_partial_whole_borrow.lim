@@ -1,7 +1,7 @@
-; Positive contiguous async storage regression.
-; Its ordinary counterpart is partial_aggregate_whole_borrow.lim.
-; This returns 42 and
-; retain the exact address of the sibling across suspension and restoration.
+// Positive contiguous async storage regression.
+// Its ordinary counterpart is partial_aggregate_whole_borrow.lim.
+// This returns 42 and
+// retain the exact address of the sibling across suspension and restoration.
 (#struct Token (#linear) (: value #u64))
 
 (#struct Owner () (: kept #u64 : item Token))

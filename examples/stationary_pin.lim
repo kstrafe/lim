@@ -1,8 +1,8 @@
 (#alias lim-gen-pin = ../library/pin.lim::#pin)
 (#alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope)
 
-;; The generated scope privately owns the storage. User functions only see
-;; an opaque handle, never the movable Frame itself.
+//; The generated scope privately owns the storage. User functions only see
+//; an opaque handle, never the movable Frame itself.
 
 (#struct Frame (#linear) (: value #u64))
 
@@ -18,7 +18,7 @@
   (#return result))
 
 (#fn destroy-frame (: pin PinnedFrame) ()
-  ;; Release any resources in place here, before the scope retires storage.
+  //; Release any resources in place here, before the scope retires storage.
   (#forget pin)
   (#return ()))
 

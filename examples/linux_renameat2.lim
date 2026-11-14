@@ -133,7 +133,7 @@
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let at-stat-result #i64
     (#unsafe (#unsafe-call linux-stat (: path paths : metadata at-stat-memory))))
-  ; x86-64 kernel stat has st_mode at byte offset 24.
+  // x86-64 kernel stat has st_mode at byte offset 24.
   (#let at-mode-word #u64
     (#unsafe (#ptr-read (#ptr-offset at-stat-memory 3usize))))
   (#let at-owner-unchanged #i64

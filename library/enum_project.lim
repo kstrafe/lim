@@ -1,4 +1,4 @@
-; Fallible enum projection is ordinary safe Lim, specialized by reference mode.
+// Fallible enum projection is ordinary safe Lim, specialized by reference mode.
 (#gn-fn enum-project-case (mode)
   (#gn-if (#gn-equal mode #ref) #case-ref
     (#gn-if (#gn-equal mode #ref-mut) #case-ref-mut

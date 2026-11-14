@@ -1,4 +1,4 @@
-; A synchronous scrutinee runs once per iteration; only the body suspends.
+// A synchronous scrutinee runs once per iteration; only the body suspends.
 (#enum Value () ((Value.Some #u64) Value.None))
 
 (#fn next-value ((counter (#ref-mut #u64))) Value

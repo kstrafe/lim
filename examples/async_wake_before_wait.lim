@@ -11,8 +11,8 @@
 (#alias wake-ready4-register = ../library/wake_ready4.lim::wake-ready4-register)
 (#alias wake-ready4-retire = ../library/wake_ready4.lim::wake-ready4-retire)
 
-;; A pre-published local wake must make the blocking wait return immediately,
-;; even when the only descriptor is disabled and can never become ready.
+//; A pre-published local wake must make the blocking wait return immediately,
+//; even when the only descriptor is disabled and can never become ready.
 
 
 

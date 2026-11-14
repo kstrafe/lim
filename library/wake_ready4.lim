@@ -8,10 +8,10 @@
 (#alias wake-table4-valid = ./wake_tokens.lim::wake-table4-valid)
 (#alias wake-token4-slot = ./wake_tokens.lim::wake-token4-slot)
 
-;; A bounded, single-threaded ready set. Register before polling. A wake
-;; records one bit even if it occurs before the poll returns Pending; duplicate
-;; wakes coalesce. The raw-pointer marker prevents sharing the non-atomic
-;; read/modify/write protocol between threads.
+//; A bounded, single-threaded ready set. Register before polling. A wake
+//; records one bit even if it occurs before the poll returns Pending; duplicate
+//; wakes coalesce. The raw-pointer marker prevents sharing the non-atomic
+//; read/modify/write protocol between threads.
 
 
 (#struct WakeReady4 (#linear)

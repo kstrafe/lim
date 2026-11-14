@@ -3,12 +3,12 @@
 (#alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-;; Both participants must run: the worker announces readiness, and the parent
-;; releases it before joining. PID is shared; TID and stack are per-thread.
+//; Both participants must run: the worker announces readiness, and the parent
+//; releases it before joining. PID is shared; TID and stack are per-thread.
 (#fn kernel-worker ((pid #i64) (parent-tid #i64) (gate (#ref (#atomic #u64))) (round #u64)) #u64
   (#assert (#i64::eq (#call linux-getpid (:)) pid))
   (#assert (#i64::ne (#call linux-gettid (:)) parent-tid))
-  ;; Raw Lim workers have no libc TLS and must not inherit the parent's FS base.
+  //; Raw Lim workers have no libc TLS and must not inherit the parent's FS base.
   (#let-mut fs-base #usize 1usize)
   (#assert (#i64::eq (#unsafe (#asm #i64
     ((rax 158usize) (rdi 4099usize) (rsi (#addr-of-mut fs-base))) "syscall")) 0i64))

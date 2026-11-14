@@ -8,17 +8,17 @@
 (#alias linux-socketpair = ../library/linux_x86_64.lim::linux-socketpair)
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
-; Linux x86-64: msghdr is 56 bytes, followed by #u32 msg_len and padding
-; in a 64-byte mmsghdr. Each message here uses one 16-byte iovec.
-; SAFETY: header and vector are exclusive writable regions of those sizes.
-; payload must stay valid for the later send/receive using this descriptor.
+// Linux x86-64: msghdr is 56 bytes, followed by #u32 msg_len and padding
+// in a 64-byte mmsghdr. Each message here uses one 16-byte iovec.
+// SAFETY: header and vector are exclusive writable regions of those sizes.
+// payload must stay valid for the later send/receive using this descriptor.
 (#unsafe-fn initialize-message ((header (#ptr-mut #u8)) (vector (#ptr-mut #u8))
     (payload (#ptr-mut #u8))) ()
   (#unsafe (#asm () ((rdi header) (rsi vector) (rdx payload))
     "mov QWORD PTR [rdi], 0\nmov QWORD PTR [rdi+8], 0\nmov QWORD PTR [rdi+16], rsi\nmov QWORD PTR [rdi+24], 1\nmov QWORD PTR [rdi+32], 0\nmov QWORD PTR [rdi+40], 0\nmov QWORD PTR [rdi+48], 0\nmov QWORD PTR [rdi+56], 0\nmov QWORD PTR [rsi], rdx\nmov QWORD PTR [rsi+8], 1"))
   (#return ()))
 
-; SAFETY: header points to an initialized, readable 64-byte mmsghdr.
+// SAFETY: header points to an initialized, readable 64-byte mmsghdr.
 (#unsafe-fn message-length ((header (#ptr-mut #u8))) #u32
   (#return (#unsafe (#asm #u32 ((rdi header)) "mov eax, DWORD PTR [rdi+56]"))))
 

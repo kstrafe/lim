@@ -17,12 +17,12 @@
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-; SAFETY: memory is the initialized, shared 4096-byte mapping owned by main.
-; No unrelated task accesses its test slots; the process is single-threaded
-; before each fork, and the mapping remains alive until both children exit.
+// SAFETY: memory is the initialized, shared 4096-byte mapping owned by main.
+// No unrelated task accesses its test slots; the process is single-threaded
+// before each fork, and the mapping remains alive until both children exit.
 (#unsafe-fn check-waiter ((memory (#ptr-mut #u8)) (requeue #bool)) ()
-  ; Reuse the circular list at +0/+64. The controller observes the waiter
-  ; sleeping in /proc before allowing the owner to exit.
+  // Reuse the circular list at +0/+64. The controller observes the waiter
+  // sleeping in /proc before allowing the owner to exit.
   (#let owned (#ptr-mut #u32) (#unsafe (#asm (#ptr-mut #u32)
     ((rdi memory)) "lea rax, [rdi+72]")))
   (#let staging (#ptr-mut #u32) (#unsafe (#asm (#ptr-mut #u32)
@@ -42,14 +42,14 @@
     (#block
       (#assert (#i64::eq (#call linux-close (: fd write-fd)) 0i64))
       (#assert (#i64::eq (#unsafe (#unsafe-call linux-set-robust-list (: head memory : length 24usize))) 0i64))
-      ; The controller sends this byte only after observing a blocked waiter.
+      // The controller sends this byte only after observing a blocked waiter.
       (#assert (#i64::eq (#unsafe (#unsafe-call linux-read (: fd read-fd : destination message : count 1usize))) 1i64))
       (#assert (#i64::eq (#call linux-close (: fd read-fd)) 0i64))
       (#unsafe (#unsafe-call linux-exit (: status 37i32)))) ())
   (#assert (#i64::eq (#call linux-close (: fd read-fd)) 0i64))
   (#unsafe (#ptr-write owned (#u32::bit-or (#as owner #u32) 2147483648u32)))
-  ; ConditionTask.Check the count-valued requeue ABI on an empty staging queue, including
-  ; comparison failure. The blocked requeue path is tested below.
+  // ConditionTask.Check the count-valued requeue ABI on an empty staging queue, including
+  // comparison failure. The blocked requeue path is tested below.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-cmp-requeue (: address staging : wake-count 0u32 : requeue-count 1u32 : second-address owned : expected 1u32))) -11i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-cmp-requeue (: address staging : wake-count 0u32 : requeue-count 1u32 : second-address owned : expected 0u32))) 0i64))
   (#let waiter #i64 (#unsafe (#unsafe-call linux-fork (:))))
@@ -62,7 +62,7 @@
           (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex (: address staging : operation 0i32 : value 0u32 : timeout timeout : second-address (#ptr-null (#ptr-mut #u32)) : value3 0u32))) 0i64)))
         (#block
           (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex (: address owned : operation 0i32 : value (#u32::bit-or (#as owner #u32) 2147483648u32) : timeout timeout : second-address (#ptr-null (#ptr-mut #u32)) : value3 0u32))) 0i64))))
-      ; Require both OWNER_DIED and WAITERS, with the owner's TID cleared.
+      // Require both OWNER_DIED and WAITERS, with the owner's TID cleared.
       (#assert (#u32::eq (#unsafe (#ptr-read owned)) 3221225472u32))
       (#let letter #u8 87u8)
       (#let newline #u8 10u8)
@@ -71,7 +71,7 @@
       (#unsafe (#unsafe-call linux-exit (: status 38i32)))) ())
   (#let path (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
   (#let state (#ptr-mut #u8) (#unsafe (#ptr-offset memory 384usize)))
-  ; Construct /proc/<decimal child PID>/wchan, including the terminating NUL.
+  // Construct /proc/<decimal child PID>/wchan, including the terminating NUL.
   (#unsafe (#asm () ((rdi path) (rsi waiter))
     "mov DWORD PTR [rdi], 0x6f72702f\nmov WORD PTR [rdi+4], 0x2f63\nmov rax, rsi\nlea r8, [rdi+48]\nxor r9d, r9d\nmov ecx, 10\n1:\nxor edx, edx\ndiv rcx\nadd dl, 48\ndec r8\nmov bYTE PTR [r8], dl\ninc r9\ntest rax, rax\njnz 1b\nadd rdi, 6\n2:\nmov al, bYTE PTR [r8]\nmov bYTE PTR [rdi], al\ninc r8\ninc rdi\ndec r9\njnz 2b\nmov DWORD PTR [rdi], 0x6863772f\nmov WORD PTR [rdi+4], 0x6e61\nmov bYTE PTR [rdi+6], 0"))
   (#let state-fd #i64 (#unsafe (#unsafe-call linux-open (: path path : flags 0i32 : mode 0u32))))
@@ -81,7 +81,7 @@
   (#while (#bool::and (#bool::not sleeping) (#u32::lt attempts 100000u32))
     (#let count #i64 (#unsafe (#unsafe-call linux-pread64 (: fd state-fd : destination state : count 64usize : offset 0i64))))
     (#assert (#i64::ge count 0i64))
-    ; Kernel wait-function names begin with "futex". A running task reports 0.
+    // Kernel wait-function names begin with "futex". A running task reports 0.
     (#set sleeping (#bool::and (#i64::ge count 5i64)
       (#unsafe (#asm #bool ((rdi state))
         "cmp DWORD PTR [rdi], 0x65747566\nsete al\ncmp bYTE PTR [rdi+4], 120\nsete dl\nand al, dl\nmovzx eax, al"))))
@@ -91,8 +91,8 @@
   (#assert sleeping)
   (#if requeue
     (#block
-      ; The waiter is blocked on staging. Move exactly one waiter to the
-      ; registered robust word before permitting the owner to exit.
+      // The waiter is blocked on staging. Move exactly one waiter to the
+      // registered robust word before permitting the owner to exit.
       (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-cmp-requeue (: address staging : wake-count 0u32 : requeue-count 1u32 : second-address owned : expected 0u32))) 1i64))) ())
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-write (: fd write-fd : source message : count 1usize))) 1i64))
   (#assert (#i64::eq (#call linux-close (: fd write-fd)) 0i64))
@@ -106,14 +106,14 @@
   (#return ()))
 
 (#fn main () #u64
-  ; Shared anonymous memory lets the parent inspect kernel owner-death cleanup.
+  // Shared anonymous memory lets the parent inspect kernel owner-death cleanup.
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 33u32 : fd -1i64 : offset 0i64))))
   (#let-mut original (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
   (#let-mut original-size #usize 0usize)
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-get-robust-list (: thread 0i32 : head (#addr-of-mut original) : length (#addr-of-mut original-size)))) 0i64))
   (#assert (#usize::eq original-size 24usize))
-  ; robust_list_head: next pointer, signed futex offset, pending pointer.
-  ; An empty circular list points back to its own head.
+  // robust_list_head: next pointer, signed futex offset, pending pointer.
+  // An empty circular list points back to its own head.
   (#unsafe (#asm () ((rdi memory)) "mov QWORD PTR [rdi], rdi"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-set-robust-list (: head memory : length 24usize))) 0i64))
   (#let-mut observed (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
@@ -132,7 +132,7 @@
   (#assert (#unsafe (#asm #bool ((rdi original) (rsi observed))
     "cmp rdi, rsi\nsete al\nmovzx eax, al")))
   (#assert (#usize::eq observed-size original-size))
-  ; A node at +64 has its futex word eight bytes after its next pointer.
+  // A node at +64 has its futex word eight bytes after its next pointer.
   (#unsafe (#asm () ((rdi memory))
     "lea rax, [rdi+64]\nmov QWORD PTR [rdi], rax\nmov QWORD PTR [rdi+8], 8\nmov QWORD PTR [rdi+64], rdi"))
   (#let child #i64 (#unsafe (#unsafe-call linux-fork (:))))
@@ -147,7 +147,7 @@
   (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-WAIT4
     (child (#addr-of-mut status) 0i32 0usize))) child))
   (#assert (#i32::eq status 9472i32))
-  ; Kernel cleared the owner's TID and set FUTEX_OWNER_DIED.
+  // Kernel cleared the owner's TID and set FUTEX_OWNER_DIED.
   (#assert (#u32::eq (#unsafe (#asm #u32 ((rdi memory))
     "mov eax, DWORD PTR [rdi+72]")) 1073741824u32))
   (#unsafe (#unsafe-call check-waiter (: memory memory : requeue false)))

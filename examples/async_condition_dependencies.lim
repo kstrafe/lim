@@ -1,5 +1,5 @@
-; Each condition awaits a factory, then awaits the task returned by it.
-; Task construction increments total once, never again on a Work::Poll.Pending retry.
+// Each condition awaits a factory, then awaits the task returned by it.
+// Task construction increments total once, never again on a Work::Poll.Pending retry.
 (#enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64)))
 
 (#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))

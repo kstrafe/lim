@@ -10,7 +10,10 @@ fn top_level_comments_stay_with_their_expression_boundary() {
         "alpha ; same line\n; between\nbeta\n; after",
         "alpha ; same line\n; between\nbeta\n; after\n",
     );
-    assert_formatted("; before\nalpha\n; after\n", "; before\nalpha\n; after\n");
+    assert_formatted(
+        "// before\nalpha\n// after\n",
+        "// before\nalpha\n// after\n",
+    );
 }
 
 #[test]
@@ -36,7 +39,7 @@ fn quoted_and_reader_forms_are_preserved_across_top_level_boundaries() {
 #[test]
 fn empty_and_comment_only_sources_have_a_final_newline() {
     assert_formatted("", "\n");
-    assert_formatted(" ; only comment\n", "; only comment\n");
+    assert_formatted(" // only comment\n", "// only comment\n");
 }
 
 #[test]

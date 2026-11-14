@@ -1,4 +1,4 @@
-; Outcome.Pending retains the reference; Outcome.Ready clears it before returning.
+// Outcome.Pending retains the reference; Outcome.Ready clears it before returning.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 

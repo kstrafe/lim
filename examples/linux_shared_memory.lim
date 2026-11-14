@@ -4,7 +4,7 @@
 (#alias linux-shmget = ../library/linux_x86_64.lim::linux-shmget)
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
-; Raw pointer-returning syscalls retain negative errno bit patterns.
+// Raw pointer-returning syscalls retain negative errno bit patterns.
 (#fn valid-mapping ((address (#ptr-mut #u8))) #bool
   (#return (#unsafe (#asm #bool ((rdi address))
     "xor eax, eax\ncmp rdi, -4095\nsetb al"))))
@@ -12,12 +12,12 @@
 (#fn main () #u64
   (#let null (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
   (#assert (#i64::eq (#call linux-shmget (: key 0i32 : size 0usize : flags 384i32)) -22i64))
-  ; IPC_PRIVATE with mode 0600 creates a fresh segment for this test.
+  // IPC_PRIVATE with mode 0600 creates a fresh segment for this test.
   (#let segment #i64 (#call linux-shmget (: key 0i32 : size 4096usize : flags 384i32)))
   (#assert (#i64::ge segment 0i64))
   (#let first (#ptr-mut #u8) (#unsafe (#unsafe-call linux-shmat (: segment (#as segment #i32) : address null : flags 0i32))))
-  ; Mark for deletion immediately. Linux keeps an attached segment alive
-  ; and permits further attachments until the last mapping is detached.
+  // Mark for deletion immediately. Linux keeps an attached segment alive
+  // and permits further attachments until the last mapping is detached.
   (#let marked #i64 (#unsafe (#unsafe-call linux-shmctl (: segment (#as segment #i32) : command 0i32 : buffer null))))
   (#assert (#i64::eq marked 0i64))
   (#assert (#call valid-mapping (: address first)))
@@ -30,7 +30,7 @@
     ()))
   (#assert (#u8::eq (#unsafe (#ptr-read second)) 72u8))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-shmdt (: address first))) 0i64))
-  ; The read-only second attachment still retains the segment and its data.
+  // The read-only second attachment still retains the segment and its data.
   (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset second 1usize))) 10u8))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-write (: fd 1i64 : source second : count 2usize))) 2i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-shmdt (: address second))) 0i64))

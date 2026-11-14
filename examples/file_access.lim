@@ -1,4 +1,4 @@
-; Aliases name exact files; both versions keep their original declaration names.
+// Aliases name exact files; both versions keep their original declaration names.
 (#alias first = ./file_access/v1.lim::read)
 (#alias second = ./file_access/v2.lim::read)
 

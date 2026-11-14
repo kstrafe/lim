@@ -1,7 +1,7 @@
 (#alias Counter = ./storage.lim::Counter)
 (#alias counter-destroy = ./storage.lim::counter-destroy)
 
-; A separately compiled white-box test belongs to the same library.
+// A separately compiled white-box test belongs to the same library.
 
 
 (#fn main () #u64

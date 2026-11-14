@@ -29,7 +29,7 @@ fn seeded_reader_corpus_never_panics_and_formatting_preserves_syntax() {
         "\"",
         "\\",
         "λ",
-        ";comment\n",
+        "//comment\n",
         "#\\newline",
         "$",
         "-",

@@ -1,6 +1,6 @@
 (#alias lim-gen-enum-project = ../library/enum_project.lim::#enum-project)
 
-; Registration consumes only literal names. It never inspects unfinished enums.
+// Registration consumes only literal names. It never inspects unfinished enums.
 
 (#distributed-enum ExecutorTask ())
 
@@ -16,7 +16,7 @@
       (,(#gn-variant executor variant)
        ,(#gn-symbol-append future "Frame")))))
 
-; Forward references are checked after expansion; they do not schedule it.
+// Forward references are checked after expansion; they do not schedule it.
 (#generate register-future @ExecutorTask @Work Work)
 (#generate lim-gen-enum-project
   (: enum ExecutorTask : variant ExecutorTask.Work : payload Work::Frame

@@ -1,4 +1,4 @@
-; The first iteration continues before reaching the body await.
+// The first iteration continues before reaching the body await.
 (#enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64)))
 
 (#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))

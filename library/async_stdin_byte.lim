@@ -16,10 +16,10 @@
 (#alias wake-ready4-retire = ./wake_ready4.lim::wake-ready4-retire)
 (#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
 
-;; One::shot, poll-based asynchronous read of one byte from a Linux descriptor.
-;; Polling only observes readiness; the destination reference is used only by
-;; the synchronous one-byte read after a registered wake. The kernel never
-;; retains the destination across Pending or cancellation.
+//; One::shot, poll-based asynchronous read of one byte from a Linux descriptor.
+//; Polling only observes readiness; the destination reference is used only by
+//; the synchronous one-byte read after a registered wake. The kernel never
+//; retains the destination across Pending or cancellation.
 
 
 
@@ -48,8 +48,8 @@
      : queue (#borrow (#get task queue))
      : token (#get task token)))))
 
-;; Explicitly changes the shared open-file-description status flags. Keeping
-;; this enabled makes a readiness race return EAGAIN instead of blocking.
+//; Explicitly changes the shared open-file-description status flags. Keeping
+//; this enabled makes a readiness race return EAGAIN instead of blocking.
 (#fn async-byte-read1-enable-nonblocking ((fd #i64)) #i64
   (#let flags #i64 (#unsafe (#unsafe-call linux-fcntl
     (: fd fd : command lINUX-FCNTL-F_GETFL : argument 0usize))))
@@ -84,7 +84,7 @@
                 (AsyncByteReadCreate1.AsyncByteReadCreateFailed1
                   (#if (#i64::lt closed 0i64) closed address)))
               (#block
-                ;; pollfd { fd: #i32, events: #i16, revents: #i16 }, requesting POLLIN.
+                //; pollfd { fd: #i32, events: #i16, revents: #i16 }, requesting POLLIN.
                 (#for-range (byte #usize) 0usize 8usize
                   (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
                 (#let fd-bits #u64 (#as owned-fd #u64))
@@ -105,8 +105,8 @@
                     ((fd owned-fd) (destination destination) (memory memory)
                      (queue queue) (token token)))))))))))))
 
-;; Blocks in the kernel without borrowing or exposing the destination buffer.
-;; A failed wait preserves the operation owner for retry or explicit cancel.
+//; Blocks in the kernel without borrowing or exposing the destination buffer.
+//; A failed wait preserves the operation owner for retry or explicit cancel.
 (#fn async-byte-read1-wait
   ((task (#ref AsyncByteRead1))) AsyncByteReadWait1
   (#let source AsyncPollSource4
@@ -139,8 +139,8 @@
             (AsyncByteReadPoll1.AsyncByteReadFailed1 count)))))
     AsyncByteReadPoll1.AsyncByteReadPending1)))
 
-;; This also cancels a pending read: poll() never leaves a buffer referenced by
-;; the kernel. The caller must stop using the consumed task handle afterward.
+//; This also cancels a pending read: poll() never leaves a buffer referenced by
+//; the kernel. The caller must stop using the consumed task handle afterward.
 (#fn async-byte-read1-destroy ((task AsyncByteRead1)) #i64
   (#let (AsyncByteRead1 fd destination memory queue token) AsyncByteRead1 task)
   (#let-mut queue-mut WakeReady4 queue)

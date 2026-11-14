@@ -37,7 +37,7 @@ fn assert_origins(source: &str, expected: &[String]) {
     let actual = header
         .lines()
         .skip(1)
-        .map(|line| line.strip_prefix("; ").unwrap().to_owned())
+        .map(|line| line.strip_prefix("// ").unwrap().to_owned())
         .collect::<Vec<_>>();
     let mut expected = expected.to_vec();
     expected.sort();
@@ -55,7 +55,7 @@ fn assert_origin_groups(sources: &[&str], expected: &[Vec<String>]) {
                 .0
                 .lines()
                 .skip(1)
-                .map(|line| line.strip_prefix("; ").unwrap().to_owned())
+                .map(|line| line.strip_prefix("// ").unwrap().to_owned())
                 .collect::<Vec<_>>();
             assert_origins(source, &origins);
             origins
@@ -476,7 +476,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         .find(|source| has_work_protocol(source))
         .expect("async protocol source was materialized");
     lim::parse(&generated).expect("async generated source parses");
-    assert!(generated.starts_with("; Generated from:\n; "));
+    assert!(generated.starts_with("// Generated from:\n// "));
     assert!(!generated.contains("#await"), "{generated}");
     assert!(has_work_protocol(&generated), "{generated}");
     assert!(generated.contains("Work::poll"), "{generated}");

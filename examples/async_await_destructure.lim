@@ -1,4 +1,4 @@
-; Await an aggregate, destructure it, then keep its leaves through another await.
+// Await an aggregate, destructure it, then keep its leaves through another await.
 (#struct Values () ((z (#tuple #u16 #u16)) (a #u64)))
 (#enum InputTask () ((InputTask.InputStart Values) (InputTask.InputResume Values)))
 (#enum InputPoll () ((InputPoll.InputPending InputTask) (InputPoll.InputReady Values)))

@@ -13,7 +13,7 @@
       (#case api@Status.Closed 0u64)))
   (#call api@handle-close (: handle handle))
 
-  ; Both cases are publicly constructible without separate variant exports.
+  // Both cases are publicly constructible without separate variant exports.
   (#let made api@Status (#enum-literal api@Status.Open 7u64))
   (#match made
     (#case (api@Status.Open value) (#assert (#u64::eq value 7u64)))

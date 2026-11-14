@@ -1,4 +1,4 @@
-; A whole borrowed load retains the fields' pointees, not the holder address.
+// A whole borrowed load retains the fields' pointees, not the holder address.
 (#struct Views () (: left (#ref #u64) : right (#ref #u64)))
 
 (#fn load (: source (#ref Views)) Views

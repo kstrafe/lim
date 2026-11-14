@@ -1,6 +1,6 @@
 (#alias lim-gen-cell = ../library/cell.lim::#cell)
 
-; The generated type and its operations are concrete, named Lim declarations.
+// The generated type and its operations are concrete, named Lim declarations.
 (#generate lim-gen-cell #u32 CellU32 CellU32::create CellU32::get CellU32::set)
 
 (#fn advance ((counter (#ref CellU32))) ()

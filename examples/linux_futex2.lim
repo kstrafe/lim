@@ -11,9 +11,9 @@
 (#alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-; SAFETY: memory is a live shared 4096-byte mapping, initialized as below.
-; This single-threaded process owns its records and forks one child at a time.
-; Keep both futex words and the vector alive until the child has been reaped.
+// SAFETY: memory is a live shared 4096-byte mapping, initialized as below.
+// This single-threaded process owns its records and forks one child at a time.
+// Keep both futex words and the vector alive until the child has been reaped.
 (#unsafe-fn wake-child ((memory (#ptr-mut #u8)) (round #u32)) ()
   (#let first (#ptr-mut #u32) (#unsafe (#asm (#ptr-mut #u32)
     ((rdi memory)) "lea rax, [rdi+64]")))
@@ -24,7 +24,7 @@
   (#assert (#i64::ge child 0i64))
   (#if (#i64::eq child 0i64)
     (#block
-      ; All futex2 deadlines are absolute. Bound a missing wake to two seconds.
+      // All futex2 deadlines are absolute. Bound a missing wake to two seconds.
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-CLOCK-GETTIME
         (1i32 deadline))) 0i64))
       (#unsafe (#asm () ((rdi deadline)) "add QWORD PTR [rdi], 2"))
@@ -32,8 +32,8 @@
         (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 0u32 : timeout deadline : clock-id 1i32)))
         (#unsafe (#unsafe-call linux-futex-wait (: address first : expected 0usize : mask 4usize : flags 2u32 : timeout deadline : clock-id 1i32)))))
       (#assert (#i64::eq result (#if (#u32::lt round 2u32) (#as round #i64) 0i64)))
-      ; A/B are derived from the actual vector index. C/D prove single-word
-      ; waits returned successfully, directly and after moving to another word.
+      // A/B are derived from the actual vector index. C/D prove single-word
+      // waits returned successfully, directly and after moving to another word.
       (#let letter #u8 (#as (#i64::add-wrap result
         (#if (#u32::lt round 2u32) 65i64 (#i64::add-wrap 65i64 (#as round #i64)))) #u8))
       (#let newline #u8 10u8)
@@ -44,9 +44,9 @@
   (#let wake-mask #usize (#if (#u32::lt round 2u32) 1usize 4usize))
   (#let-mut woken #i64 0i64)
   (#let-mut attempts #u32 0u32)
-  ; Early wake/requeue returns zero and changes no futex value. Retry until
-  ; the kernel confirms one waiter was dequeued/moved; no timed sleep assumes
-  ; readiness. The fourth child must stay asleep until the destination wake.
+  // Early wake/requeue returns zero and changes no futex value. Retry until
+  // the kernel confirms one waiter was dequeued/moved; no timed sleep assumes
+  // readiness. The fourth child must stay asleep until the destination wake.
   (#while (#bool::and (#i64::eq woken 0i64) (#u32::lt attempts 100000u32))
     (#set woken (#if (#u32::eq round 3u32)
       (#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 0i32 : requeue-count 1i32)))
@@ -57,18 +57,18 @@
   (#assert (#i64::eq woken 1i64))
   (#if (#u32::eq round 3u32)
     (#block
-      ; A waiter is now known to be queued on second. Reverse the vector and
-      ; deliberately mismatch its value: a failed comparison must not move
-      ; that live waiter back to first or wake it.
+      // A waiter is now known to be queued on second. Reverse the vector and
+      // deliberately mismatch its value: a failed comparison must not move
+      // that live waiter back to first or wake it.
       (#unsafe (#asm () ((rdi memory) (rsi first) (rdx second))
         "mov QWORD PTR [rdi+8], rdx\nmov QWORD PTR [rdi+32], rsi\nmov QWORD PTR [rdi], 1"))
       (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 0i32 : requeue-count 1i32))) -11i64))
       (#unsafe (#asm () ((rdi memory) (rsi first) (rdx second))
         "mov QWORD PTR [rdi+8], rsi\nmov QWORD PTR [rdi+32], rdx\nmov QWORD PTR [rdi], 0"))
-      ; A spurious kernel wake can restart the wait on its original address
-      ; after requeue. Do not wake that source just to probe whether it is
-      ; empty: doing so could complete the child through the wrong queue.
-      ; Retry moves as needed, and require an actual masked DESTINATION wake.
+      // A spurious kernel wake can restart the wait on its original address
+      // after requeue. Do not wake that source just to probe whether it is
+      // empty: doing so could complete the child through the wrong queue.
+      // Retry moves as needed, and require an actual masked DESTINATION wake.
       (#set woken 0i64)
       (#set attempts 0u32)
       (#while (#bool::and (#i64::eq woken 0i64) (#u32::lt attempts 100000u32))
@@ -85,7 +85,7 @@
   (#let-mut status #i32 0i32)
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-wait4 (: pid child : status (#addr-of-mut status) : options 0usize : usage (#ptr-null (#ptr-mut #i64))))) child))
   (#assert (#i32::eq status 9472i32))
-  ; Neither vector entry may remain queued after a successful return.
+  // Neither vector entry may remain queued after a successful return.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address first : mask 4294967295usize : count 1i32 : flags 2u32))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address second : mask 4294967295usize : count 1i32 : flags 2u32))) 0i64))
   (#return ()))
@@ -99,12 +99,12 @@
   (#let timeout (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64)
     ((rdi memory)) "lea rax, [rdi+128]")))
   (#let no-timeout (#ptr-mut #i64) (#ptr-null (#ptr-mut #i64)))
-  ; Two 24-byte waitv records: val:#u64, uaddr:#u64, flags:#u32, reserved:u32.
-  ; FUTEX2_SIZE_U32=2; omit PRIVATE because the words are shared across fork.
+  // Two 24-byte waitv records: val:#u64, uaddr:#u64, flags:#u32, reserved:u32.
+  // FUTEX2_SIZE_U32=2; omit PRIVATE because the words are shared across fork.
   (#unsafe (#asm () ((rdi memory) (rsi word))
     "mov QWORD PTR [rdi+8], rsi\nmov DWORD PTR [rdi+16], 2\nadd rsi, 4\nmov QWORD PTR [rdi+32], rsi\nmov DWORD PTR [rdi+40], 2"))
-  ; Invalid syscall flags/counts, nested record flags/reserved/address, and
-  ; invalid clock/timespec must fail without waiting.
+  // Invalid syscall flags/counts, nested record flags/reserved/address, and
+  // invalid clock/timespec must fail without waiting.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 0u32 : flags 0u32 : timeout no-timeout : clock-id 1i32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 129u32 : flags 0u32 : timeout no-timeout : clock-id 1i32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 1u32 : timeout no-timeout : clock-id 1i32))) -22i64))
@@ -120,7 +120,7 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 0u32 : timeout no-timeout : clock-id 1i32))) -22i64))
   (#unsafe (#asm () ((rdi memory) (rsi word))
     "mov QWORD PTR [rdi+8], rsi\nmov QWORD PTR [rdi+24], 1"))
-  ; A mismatch in the SECOND entry must also undo the first entry's queueing.
+  // A mismatch in the SECOND entry must also undo the first entry's queueing.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 0u32 : timeout no-timeout : clock-id 1i32))) -11i64))
   (#unsafe (#asm () ((rdi memory)) "mov QWORD PTR [rdi+24], 0"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address word : mask 1usize : count 1i32 : flags 2u32))) 0i64))
@@ -128,7 +128,7 @@
   (#unsafe (#ptr-write (#ptr-offset timeout 1usize) 1000000000i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 0u32 : timeout timeout : clock-id 1i32))) -22i64))
   (#unsafe (#ptr-write (#ptr-offset timeout 1usize) 0i64))
-  ; Zero is an already-expired ABSOLUTE deadline for both supported clocks.
+  // Zero is an already-expired ABSOLUTE deadline for both supported clocks.
   (#for-range (clock-id #i32) 0i32 2i32
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-waitv (: waiters memory : count 2u32 : flags 0u32 : timeout timeout : clock-id clock-id))) -110i64)))
 
@@ -140,7 +140,7 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address word : mask 0usize : count 1i32 : flags 2u32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address word : mask 1usize : count 1i32 : flags 2147483650u32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-wake (: address word : mask 4294967296usize : count 1i32 : flags 2u32))) -22i64))
-  ; Requeue compares the source value even for an otherwise empty queue.
+  // Requeue compares the source value even for an otherwise empty queue.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 0u32 : wake-count 0i32 : requeue-count 1i32))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-requeue (: waiters memory : flags 1u32 : wake-count 0i32 : requeue-count 1i32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-futex-requeue (: waiters (#ptr-null (#ptr-mut #u8)) : flags 0u32 : wake-count 0i32 : requeue-count 1i32))) -22i64))

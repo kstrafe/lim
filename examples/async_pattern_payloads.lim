@@ -1,4 +1,4 @@
-; Destructured tuple fields are typed from Choice, then retained as needed.
+// Destructured tuple fields are typed from Choice, then retained as needed.
 (#struct ChosenValues () (: first #u64 : second #u64))
 (#enum Choice () ((Choice.Chosen ChosenValues) Choice.Empty))
 (#enum Step () ((Step.Start #u64) (Step.Resume #u64)))

@@ -6,7 +6,7 @@
 (#alias linux-read = ../library/linux_x86_64.lim::linux-read)
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
-; FIONREAD writes an int; FIONBIO reads an int on Linux x86-64.
+// FIONREAD writes an int; FIONBIO reads an int on Linux x86-64.
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let descriptors (#ptr-mut #i32)
@@ -28,7 +28,7 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-read (: fd reader : destination (#unsafe (#ptr-offset received 1usize)) : count 3usize))) 3i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-ioctl (: fd reader : request 0x541bu32 : argument argument))) 0i64))
   (#assert (#i32::eq (#unsafe (#ptr-read count)) 0i32))
-  ; Set nonblocking through ioctl and verify an empty pipe returns EAGAIN.
+  // Set nonblocking through ioctl and verify an empty pipe returns EAGAIN.
   (#unsafe (#ptr-write count 1i32))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-ioctl (: fd reader : request 0x5421u32 : argument argument))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-read (: fd reader : destination payload : count 1usize))) -11i64))

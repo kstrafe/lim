@@ -1,5 +1,5 @@
-; Move and restore one part while a sibling is borrowed, then clone the whole.
-; Cloning snapshots values without relocating the original borrowed part.
+// Move and restore one part while a sibling is borrowed, then clone the whole.
+// Cloning snapshots values without relocating the original borrowed part.
 (#struct Part (#linear) (: value #u64))
 
 (#struct Parts (#linear) (: first Part : second Part))

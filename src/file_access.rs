@@ -33,7 +33,10 @@ pub(crate) fn project_root(entry: &Path) -> PathBuf {
 }
 
 pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
-    if let Some(relative) = name.strip_prefix("//") {
+    if let Some(relative) = name
+        .strip_prefix("project::")
+        .or_else(|| name.strip_prefix("//"))
+    {
         root.join(relative)
     } else {
         base.join(name)
@@ -41,7 +44,10 @@ pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
 }
 
 pub(crate) fn validate_path(name: &str) -> Result<(), String> {
-    if let Some(relative) = name.strip_prefix("//") {
+    if let Some(relative) = name
+        .strip_prefix("project::")
+        .or_else(|| name.strip_prefix("//"))
+    {
         if Path::new(relative).components().any(|part| {
             matches!(
                 part,

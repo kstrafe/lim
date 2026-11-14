@@ -15,7 +15,7 @@
   (#let pidfd #i64
     (#call linux-pidfd-open (: pid pid : flags 0u32)))
   (#let no-info (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
-  ; Signal zero checks the target without delivering a signal.
+  // Signal zero checks the target without delivering a signal.
   (#let self-alive #i64
     (#unsafe (#unsafe-call linux-pidfd-send-signal (: pidfd pidfd : signal 0i32 : info no-info : flags 0u32))))
   (#let invalid-signal #i64

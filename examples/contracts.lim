@@ -1,4 +1,4 @@
-; Explicit validation, a constrained field, and an API requirement.
+// Explicit validation, a constrained field, and an API requirement.
 (#fn below-100 ((value #u64)) #bool
   (#return (#u64::lt value 100u64)))
 

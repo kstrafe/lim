@@ -1,5 +1,5 @@
-; Linux AArch64 getpid=172/write=64; x86-64 getpid=39/write=1.
-; Writes '*' and exits with status 42; no runtime library or dynamic loader.
+// Linux AArch64 getpid=172/write=64; x86-64 getpid=39/write=1.
+// Writes '*' and exits with status 42; no runtime library or dynamic loader.
 (#cfg-if (#cfg-is #arch aarch64)
   (#fn main () #u64
   (#let process #i64 (#unsafe (#linux-syscall #i64 172usize ())))

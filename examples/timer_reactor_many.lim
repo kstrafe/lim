@@ -7,7 +7,7 @@
 (#alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create)
 (#alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll)
 
-; A bounded slice of borrowed timer owners can share one blocking poll call.
+// A bounded slice of borrowed timer owners can share one blocking poll call.
 
 (
   #fn

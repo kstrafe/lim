@@ -1,10 +1,10 @@
-; This source-slot cleanup example uses --cfg async-lowering=graph.
-; #generate #async-fn-pinned returns a movable frame value that must be pinned before
-; polling. While a Work::poll is Work::Poll.Pending, the returned PinRefMut keeps the frame at
-; its storage location and is passed into the next Work::poll. Choice.One generated Work::poll
-; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
-; with privately owned stationary storage and async_fn_self_reference.lim for the
-; supported internal-reference form.
+// This source-slot cleanup example uses --cfg async-lowering=graph.
+// #generate #async-fn-pinned returns a movable frame value that must be pinned before
+// polling. While a Work::poll is Work::Poll.Pending, the returned PinRefMut keeps the frame at
+// its storage location and is passed into the next Work::poll. Choice.One generated Work::poll
+// loop dispatches on the state tag. See async_single_poll.lim for opaque pins
+// with privately owned stationary storage and async_fn_self_reference.lim for the
+// supported internal-reference form.
 (#enum Child (#linear) ((Child.Waiting #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))

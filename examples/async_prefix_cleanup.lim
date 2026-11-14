@@ -1,4 +1,4 @@
-; Consume a linear field before suspension, retaining only its plain result.
+// Consume a linear field before suspension, retaining only its plain result.
 (#struct Token (#linear) ((value #u64)))
 
 (#struct Values () ((z (#tuple #u16 #u16)) (a Token)))

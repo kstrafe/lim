@@ -1,4 +1,4 @@
-; A fixed table is ordinary data, not a distributed syntax registry.
+// A fixed table is ordinary data, not a distributed syntax registry.
 (#static table (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
 
 (#fn main () #u64

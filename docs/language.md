@@ -1080,7 +1080,7 @@ explicit protocol name instead of listing all five generated names:
 (#generate #async-fn (: protocol WorkAwait : waker LocalWaker
   : function (#fn work (: offset #u64) #u64
     (#return (#await StepAwait (Waiting offset))))))
-; In another async function:
+// In another async function:
 (#await WorkAwait (#call work (($ offset))))
 ```
 
@@ -1326,10 +1326,10 @@ prepending prefixes. Aliases give those declarations explicit local spellings:
 
 ```lisp syntax
 (#alias read = ./shared.lim::read)
-(#alias Widget = //compat/lib.lim::Widget)
+(#alias Widget = project::compat/lib.lim::Widget)
 ```
 
-`./` paths resolve relative to the source containing the reference. `//` paths
+`./` paths resolve relative to the source containing the reference. `project::` paths
 resolve from the nearest `lim.project` ancestor of the principal source; when
 there is no manifest, its directory is the project root. All dependencies use
 that same root. `/` retains filesystem-absolute meaning. Rooted paths cannot
@@ -1443,7 +1443,7 @@ that crosses the limit; an oversized root file is rejected before import
 traversal.
 
 The compiler resolves each file reference exactly: `./` is relative to its
-source file, `//` is relative to the compilation's project root, and `/` is an
+source file, `project::` is relative to the compilation's project root, and `/` is an
 absolute filesystem path. There is no fallback search through module directories.
 
 Projects may add a `lim.project` manifest beside the root source:
@@ -1460,7 +1460,7 @@ link-object = "native/support.o"
 ```
 
 Manifest paths are relative to the manifest. The nearest manifest above the
-principal source defines the `//` root, including for dependencies outside that
+principal source defines the `project::` root, including for dependencies outside that
 directory. Without a manifest, the principal source's directory defines it.
 The CLI defaults binary output into the output directory and applies the
 manifest target unless `--target` overrides it.
@@ -1471,7 +1471,7 @@ keys are errors.
 
 ## Lexical syntax
 
-Whitespace separates tokens.  `;` starts a line comment.  A line beginning
+Whitespace separates tokens. `//` starts a line comment. A line beginning
 with bare `#` is also a comment unless the `#` begins a keyword, operator, or
 character literal.
 
@@ -3547,7 +3547,7 @@ symbol        = identifier ;
 identifier    = { letter | digit | "_" | "-" | "." | ":" | "@" | "?" | "!" | "+" | "*" | "/" | "<" | ">" | "=" | "&" | "|" | "^" } ;
 ```
 
-Whitespace and semicolon-to-end-of-line comments may occur between tokens.
+Whitespace and slash-to-end-of-line comments may occur between tokens.
 Builtin declaration and statement forms are the `#`-prefixed forms described
 in the tables and sections above; arithmetic and comparison forms include
 their type and overflow mode in the identifier. `#let`, `#let-mut`, `#borrow`,

@@ -526,7 +526,7 @@ mod tests {
             "(#fn value () #u64 (#return 42u64))".into(),
         )]);
         let result = check_source_for_editor(
-            "(#alias value = //modules/value.lim::value) (#fn main () #u64 (#return (#call value ())))",
+            "(#alias value = project::modules/value.lim::value) (#fn main () #u64 (#return (#call value ())))",
             &root,
             &crate::CompileConfig::default(),
             &overlays,

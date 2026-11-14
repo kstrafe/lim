@@ -1,6 +1,6 @@
 (#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)
 
-; A pinned async frame may retain a reference into an active enum payload.
+// A pinned async frame may retain a reference into an active enum payload.
 
 (#enum Child (#linear) ((Child.Waiting #u64)))
 

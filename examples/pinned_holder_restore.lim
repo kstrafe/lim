@@ -1,5 +1,5 @@
-; Moving and restoring a holder transfers its retained exclusive field loan.
-; The parent reference remains suspended until the restored holder is consumed.
+// Moving and restoring a holder transfers its retained exclusive field loan.
+// The parent reference remains suspended until the restored holder is consumed.
 (#struct Owner (#linear) (: number #u64))
 
 (#struct View (#linear) (: item (#ref-mut #u64)))

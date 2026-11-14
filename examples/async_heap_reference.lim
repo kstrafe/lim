@@ -1,6 +1,6 @@
-;; An owner initialized after an await can retain an external source's borrow
-;; through another suspension. Storage is stationary; the owner handle moves.
-;; This does not demonstrate a self-reference into the async frame itself.
+//; An owner initialized after an await can retain an external source's borrow
+//; through another suspension. Storage is stationary; the owner handle moves.
+//; This does not demonstrate a self-reference into the async frame itself.
 (#struct Holder () (: link (#ref #u64)))
 
 (#fn make-holder (: pointer (#ptr-mut Holder) : source (#ref #u64)) (#pin-own Holder)

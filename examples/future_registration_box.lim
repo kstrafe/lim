@@ -6,7 +6,7 @@
 (#std)
 
 
-; Registration consumes only literal names. It never inspects unfinished enums.
+// Registration consumes only literal names. It never inspects unfinished enums.
 (#distributed-enum ExecutorTask ())
 
 (#gn register-future (executor future variant)
@@ -59,7 +59,7 @@
 
 (#fn main () #u64
   (#let arena SystemAllocator (#struct-literal SystemAllocator ()))
-  ; Build the registered task and move its enum owner into stable heap storage.
+  // Build the registered task and move its enum owner into stable heap storage.
   (#let task ExecutorTask (ExecutorTask.Work (#call work ())))
   (#let created PinnedExecutorTaskBox::CreateResult
     (#call PinnedExecutorTaskBox::create (: allocator (#borrow arena) : value task)))
@@ -72,7 +72,7 @@
         (#call dispose-executor-task (: allocator (#borrow arena) : task failed-task))
         (#return 0u64))))
   (#let waker #u64 0u64)
-  ; Borrow the boxed enum mutably; the polling helper projects its frame in place.
+  // Borrow the boxed enum mutably; the polling helper projects its frame in place.
   (#let pin (#pin-ref-mut ExecutorTask)
     (#call PinnedExecutorTaskBox::borrow-mut (: owner (#borrow-mut owner))))
   (#let result Work::Poll (#call poll-executor-task (($ pin) ($ (#borrow waker)))))
@@ -82,7 +82,7 @@
       (#case (Work::Poll.Pending pending)
         (#forget pending)
         0u64)))
-  ; Release the projected borrow before cleanup and allocator-backed destruction.
+  // Release the projected borrow before cleanup and allocator-backed destruction.
   (#forget pin)
   (#call PinnedExecutorTaskBox::destroy (($ owner)))
   (#forget arena)

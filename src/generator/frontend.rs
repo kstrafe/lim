@@ -413,7 +413,7 @@ fn graph_generated_owned_program(
             // Match the shared cache's inspectable provenance annotation before
             // checking, so the checked program and published text are identical.
             output.source = format!(
-                "; Generated from:\n; {}\n\n{}",
+                "// Generated from:\n// {}\n\n{}",
                 origins[0].replace(['\r', '\n'], " "),
                 output.source
             );
@@ -1780,7 +1780,7 @@ mod async_migration_tests {
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(sources.len(), 1);
-        assert!(sources[0].starts_with("; Generated from:\n"));
+        assert!(sources[0].starts_with("// Generated from:\n"));
         assert!(sources[0].ends_with(&graph_file.source));
         assert!(parse_program(&sources[0])
             .unwrap_err()

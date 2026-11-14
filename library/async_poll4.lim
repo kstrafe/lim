@@ -6,8 +6,8 @@
 (#alias wake-ready4-notify = ./wake_ready4.lim::wake-ready4-notify)
 (#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
 
-;; Choice.One blocking Linux poll over at most four borrowed readiness sources.
-;; The source references keep each wake queue alive until the wait returns.
+//; Choice.One blocking Linux poll over at most four borrowed readiness sources.
+//; The source references keep each wake queue alive until the wait returns.
 
 
 
@@ -58,9 +58,9 @@
               (#unsafe (#ptr-write
                 (#ptr-offset (#clone memory)
                   (#usize::add-wrap (#usize::mul-wrap slot 8usize) 4usize)) 1u8)))))
-          ;; A task may wake its local executor before the executor enters the
-          ;; kernel wait. Consume those already-published wake bits first so a
-          ;; pre-wait wake cannot be lost behind an indefinite poll().
+          //; A task may wake its local executor before the executor enters the
+          //; kernel wait. Consume those already-published wake bits first so a
+          //; pre-wait wake cannot be lost behind an indefinite poll().
           (#let-mut ready-mask #u32 0u32)
           (#for-range (slot #usize) 0usize count
             (#block

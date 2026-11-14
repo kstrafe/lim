@@ -387,10 +387,10 @@ fn project_root_paths_are_shared_across_nested_sources() {
     write(
         scratch.path(),
         "src/helper.lim",
-        "(#alias read = //shared/value.lim::read) (#fn run () #u64 (#return (#call read ())))",
+        "(#alias read = project::shared/value.lim::read) (#fn run () #u64 (#return (#call read ())))",
     );
     let program = lim::parse_program_from_path(
-        "(#alias run = //src/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
+        "(#alias run = project::src/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
         &scratch.path().join("src/bin/main.lim"),
     )
     .unwrap();
@@ -408,11 +408,11 @@ fn standalone_root_paths_use_the_principal_sources_directory() {
     write(
         scratch.path(),
         "nested/helper.lim",
-        "(#alias read = //value.lim::read) (#fn run () #u64 (#return (#call read ())))",
+        "(#alias read = project::value.lim::read) (#fn run () #u64 (#return (#call read ())))",
     );
     check(
         scratch.path(),
-        "(#alias run = //nested/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
+        "(#alias run = project::nested/helper.lim::run) (#fn main () #u64 (#return (#call run ())))",
     )
     .unwrap();
 }
@@ -420,7 +420,11 @@ fn standalone_root_paths_use_the_principal_sources_directory() {
 #[test]
 fn project_root_references_reject_parent_escape() {
     let scratch = support::Scratch::new("project-root-parent-escape");
-    let error = check(scratch.path(), "(#alias read = //../value.lim::read)").unwrap_err();
+    let error = check(
+        scratch.path(),
+        "(#alias read = project::../value.lim::read)",
+    )
+    .unwrap_err();
     assert!(error.contains("cannot contain"), "{error}");
 }
 

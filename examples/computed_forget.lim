@@ -1,4 +1,4 @@
-; Explicitly consuming a computed holder releases its reference, not its owner.
+// Explicitly consuming a computed holder releases its reference, not its owner.
 (#struct Resource (#linear) (: value #u64))
 
 (#struct Holder (#linear) (: view (#ref-mut Resource)))

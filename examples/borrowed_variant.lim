@@ -1,4 +1,4 @@
-; An exact local write establishes the variant and its retained reference.
+// An exact local write establishes the variant and its retained reference.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 
 (#fn read (: source (#ref Choice)) #u64

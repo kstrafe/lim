@@ -11,9 +11,9 @@
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 (#alias linux-writev = ../library/linux_x86_64.lim::linux-writev)
 
-; The Linux x86-64 iovec ABI is a pointer followed by an 8-byte length.
-; SAFETY: slot supplies 16 exclusively writable bytes. The eventual syscall
-; caller must separately prove validity of the stored base/length region.
+// The Linux x86-64 iovec ABI is a pointer followed by an 8-byte length.
+// SAFETY: slot supplies 16 exclusively writable bytes. The eventual syscall
+// caller must separately prove validity of the stored base/length region.
 (#unsafe-fn set-iovec ((slot (#ptr-mut #u8)) (base (#ptr-mut #u8)) (length #usize)) ()
   (#unsafe (#asm () ((rdi slot) (rsi base) (rdx length))
     "mov QWORD PTR [rdi], rsi\nmov QWORD PTR [rdi+8], rdx"))

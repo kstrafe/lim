@@ -1,4 +1,4 @@
-; A child can lend its own reference. Release it before lending the parent.
+// A child can lend its own reference. Release it before lending the parent.
 (#struct Owner () (: value #u64))
 (#struct View () (: child (#ref-mut #u64)))
 

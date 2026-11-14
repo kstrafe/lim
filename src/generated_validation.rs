@@ -235,7 +235,7 @@ mod tests {
         runtime.source_files.push(crate::SourceFile {
             file_scope: None,
             path: "later-runtime.lim".into(),
-            source: "; not the witness source\n".into(),
+            source: "// not the witness source\n".into(),
         });
         let error = resolve(&runtime)
             .err()

@@ -1,5 +1,5 @@
-;; Contiguous explicit tags use a bounds-checked native jump table. Source
-;; declaration and case order need not match the discriminant order.
+//; Contiguous explicit tags use a bounds-checked native jump table. Source
+//; declaration and case order need not match the discriminant order.
 (#enum Work ()
   ((Work.Read 11 #u64)
    (Work.Idle 10)

@@ -1,4 +1,4 @@
-; A returning branch and the common tail each have their own suspension.
+// A returning branch and the common tail each have their own suspension.
 (#enum Child (#linear) ((Child.Waiting #u64) (Child.Resume #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))

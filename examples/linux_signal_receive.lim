@@ -20,8 +20,8 @@
   (#let-mut mask #i64 512i64)
   (#let-mut original #i64 0i64)
   (#let mask-pointer (#ptr-mut #i64) (#unsafe (#addr-of-mut mask)))
-  ; Block SIGUSR1 before sending it to this process. Every sent signal is
-  ; consumed before restoring the original mask.
+  // Block SIGUSR1 before sending it to this process. Every sent signal is
+  // consumed before restoring the original mask.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigprocmask (: how 0usize : signal-set mask-pointer : old-set (#addr-of-mut original) : sigset-size 8usize))) 0i64))
   (#let memory (#ptr-mut #u8)
     (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
@@ -56,8 +56,8 @@
     (#unsafe (#asm #u32 ((rdi memory)) "mov eax, DWORD PTR [rdi]")))
   (#assert (#u32::eq signal 10u32))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigtimedwait (: signal-set mask-pointer : info memory : timeout timeout : sigset-size 8usize))) -11i64))
-  ; Send native siginfo records with SI_QUEUE and explicit sender credentials.
-  ; x86-64 layout: signo@0, errno@4, code@8, pid@16, uid@20, value@24.
+  // Send native siginfo records with SI_QUEUE and explicit sender credentials.
+  // x86-64 layout: signo@0, errno@4, code@8, pid@16, uid@20, value@24.
   (#let queued-info (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
   (#let group #i32 (#as pid #i32))
   (#let thread #i32 (#as (#call linux-gettid (:)) #i32))

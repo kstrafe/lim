@@ -1,4 +1,4 @@
-; The labeled loop owns block-local state across suspension.
+// The labeled loop owns block-local state across suspension.
 (#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
 (#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
@@ -19,7 +19,7 @@
             (#set index (#u64::add-wrap index 1u64))
             (#continue-to outer)))
         total))
-    ; The inner scope has ended; this is an independent declaration.
+    // The inner scope has ended; this is an independent declaration.
     (#let index #u64 0u64)
     (#return (#u64::add-wrap result index)))))
 

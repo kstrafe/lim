@@ -1,4 +1,4 @@
-;; Source::slot cancellation; compile with --cfg async-lowering=graph.
+//; Source::slot cancellation; compile with --cfg async-lowering=graph.
 (#enum Child (#linear) ((Child.Waiting #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
@@ -25,10 +25,10 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  ; Cancel a task before its first poll.
+  // Cancel a task before its first poll.
   (#call cancel-work (: task (#call Work::Poll::cleanup
     (: task (#call work (: token (Token.TokenValue 1u64)))))))
-  ; Cancel another task after its child has returned Pending.
+  // Cancel another task after its child has returned Pending.
   (#let task Work::Task (#call work (: token (Token.TokenValue 2u64))))
   (#let outcome Work::Poll
     (#call Work::poll (: task task : waker (#borrow waker))))

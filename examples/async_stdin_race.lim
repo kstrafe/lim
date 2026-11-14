@@ -9,8 +9,8 @@
 (#alias async-byte-read1-wait = ../library/async_stdin_byte.lim::async-byte-read1-wait)
 (#alias linux-read-byte-from = ../library/linux_x86_64.lim::linux-read-byte-from)
 
-; A competing read consumes the byte that made poll report readiness. The
-; asynchronous read must see EAGAIN/Pending rather than block inside poll.
+// A competing read consumes the byte that made poll report readiness. The
+// asynchronous read must see EAGAIN/Pending rather than block inside poll.
 
 
 (#fn main () #i32

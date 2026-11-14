@@ -1,6 +1,6 @@
 (#alias lim-gen-ready-queue = ../library/ready_queue.lim::#ready-queue)
 
-; Queue operations update Copy fields in place; main consumes the linear owner.
+// Queue operations update Copy fields in place; main consumes the linear owner.
 
 (#generate lim-gen-ready-queue ReadyQueue ReadyQueueEnqueueResult ReadyQueueDequeueResult
   ready-queue-create ready-queue-enqueue ready-queue-dequeue

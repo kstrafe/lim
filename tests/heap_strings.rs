@@ -45,7 +45,7 @@ fn execute(source: &str, label: &str, expected: u8) {
 
 fn rejected(body: &str, label: &str, code: &str, message: &str, fragment: &str) {
     let scratch = support::Scratch::new(label);
-    let source = format!("; String fixture: {:?}\n(#std)\n{body}", string_import());
+    let source = format!("// String fixture: {:?}\n(#std)\n{body}", string_import());
     let diagnostic = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -76,7 +76,7 @@ fn rejected(body: &str, label: &str, code: &str, message: &str, fragment: &str) 
 fn string_utf8_capacity_mutation_and_clone_contract() {
     let source = format!(
         r#"
-      ; String fixture: {import:?}
+      // String fixture: {import:?}
       (#std)
       (#fn main () #u64
         (#let chars (#array #char 3) "Aé🙂")
@@ -129,7 +129,7 @@ fn string_utf8_capacity_mutation_and_clone_contract() {
 fn string_utf8_validation_matrix_and_embedded_nul() {
     let source = format!(
         r#"
-      ; String fixture: {import:?}
+      // String fixture: {import:?}
       (#std)
       (#fn valid ((bytes (#slice #u8))) #bool
         (#return (#match (#call String::from-utf8 (: bytes bytes))
@@ -188,7 +188,7 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
         (&[0xff], false),
         (&[b'a', 0xc2], false),
     ];
-    let mut source = format!("; String fixture: {:?}\n(#std)\n", string_import());
+    let mut source = format!("// String fixture: {:?}\n(#std)\n", string_import());
     source.push_str(r#"
       (#fn check-valid (: input (#slice #u8)) #bool
         (#return (#match (#call String::from-utf8 (: bytes input))
@@ -249,7 +249,7 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
 fn character_encoding_and_popping_cover_every_utf8_width_and_invalid_scalars() {
     let source = format!(
         r#"
-      ; String fixture: {import:?}
+      // String fixture: {import:?}
       (#std)
       (#fn main () #u64
         (#let values (#array #u32 10) (#array-of (#array #u32 10)
@@ -295,7 +295,7 @@ fn character_encoding_and_popping_cover_every_utf8_width_and_invalid_scalars() {
 fn returned_and_copied_byte_views_retain_the_owner_borrow() {
     let source = format!(
         r#"
-      ; String fixture: {import:?}
+      // String fixture: {import:?}
       (#std)
       (#fn view-of (: string (#ref String)) StringBytes
         (#return (#call String::bytes (: string string))))

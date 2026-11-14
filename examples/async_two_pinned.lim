@@ -1,4 +1,4 @@
-; Both futures have stationary storage. A branch chooses which one to poll.
+// Both futures have stationary storage. A branch chooses which one to poll.
 (#generate #async-fn-pinned
   (: protocol ReadAwait : waker #u64
    : function (#fn read-value () #u64 (#return 42u64))))
@@ -26,7 +26,7 @@
           (#case (Write-value::Poll.Ready write-result) write-result)
           (#case (Write-value::Poll.Pending write-pending)
             (#block (#forget write-pending) (#unreachable)))))))
-  ; Cancellation consumes each remaining state, including the unpolled future.
+  // Cancellation consumes each remaining state, including the unpolled future.
   (#let reader-cleanup Read-value::Frame::Cleanup
     (#call Read-value::Poll::cleanup (: task (#pin reader))))
   (#let writer-cleanup Write-value::Frame::Cleanup

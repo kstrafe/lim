@@ -1,5 +1,5 @@
-; Clone a runtime-selected element of a computed reference-bearing array.
-; The selected Holder keeps the caller's loan through suspension.
+// Clone a runtime-selected element of a computed reference-bearing array.
+// The selected Holder keeps the caller's loan through suspension.
 (#struct Holder (#linear) (: reference (#ref #u64) : offset #u64))
 
 (#fn make-array (: owner (#ref #u64)) (#array Holder 2)

@@ -71,7 +71,7 @@
     (#unsafe (#ptr-read (#ptr-offset time-memory 6usize))))
   (#let initial-nanoseconds #i64
     (#unsafe (#ptr-read (#ptr-offset time-memory 7usize))))
-  ; Linux itimerspec is interval {sec,nsec}, then initial value {sec,nsec}.
+  // Linux itimerspec is interval {sec,nsec}, then initial value {sec,nsec}.
   (#unsafe
     (#block
       (#ptr-write time-memory 0i64)

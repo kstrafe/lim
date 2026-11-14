@@ -431,13 +431,13 @@ fn project_root_file_aliases_navigate_from_the_nearest_project_root() {
     let target_text = "(#fn read () #u64 (#return 42u64))\n";
     let target = fixture.write("modules/value.lim", target_text);
     let source =
-        "(#alias read = //modules/value.lim::read)\n(#fn main () #u64 (#return (#call read ())))\n";
+        "(#alias read = project::modules/value.lim::read)\n(#fn main () #u64 (#return (#call read ())))\n";
     let root = fixture.write("src/main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&root, source);
     assert_location(
-        &client.definition(&root, source, "//modules/value.lim::read"),
+        &client.definition(&root, source, "project::modules/value.lim::read"),
         &target,
         target_text,
         "#fn read",
@@ -527,7 +527,7 @@ fn repeated_direct_aliases_resolve_to_one_file_declaration_identity() {
     assert!(path.starts_with(fixture.0.join(".lim/generated")));
     let generated = fs::read_to_string(&path).unwrap();
     assert!(generated.starts_with(&format!(
-        "; Generated definition invoked at {}:2\n",
+        "// Generated definition invoked at {}:2\n",
         implementation.canonicalize().unwrap().display()
     )));
     assert_location(&target, &path, &generated, "#type Number", "Number");
@@ -712,7 +712,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
             name,
         );
     }
-    let updated = format!("; unsaved declaration shift\n; second line\n{definitions}");
+    let updated = format!("// unsaved declaration shift\n// second line\n{definitions}");
     client.change(&module, 2, &updated);
     assert_location(
         &client.definition(&root, source, "value 2u64"),
@@ -805,7 +805,7 @@ fn bundled_standard_library_types_and_view_locals_have_real_targets() {
         "#const sYSTEM-ALLOCATION-ALIGNMENT",
         "sYSTEM-ALLOCATION-ALIGNMENT",
     );
-    assert!(bundled.starts_with("; Bundled source:"));
+    assert!(bundled.starts_with("// Bundled source:"));
     client.open(&path, &bundled);
     assert_location(
         &client.definition(&path, &bundled, "address #usize"),
@@ -958,7 +958,7 @@ fn unsaved_import_updates_errors_stale_versions_and_close_restore_disk_definitio
         "#fn target",
         "target",
     );
-    let broken = "; unsaved 😀\n\n(#fn target () #u64 (#return false))\n";
+    let broken = "// unsaved 😀\n\n(#fn target () #u64 (#return false))\n";
     client.open(&child, broken);
     assert_location(
         &client.definition(&root, root_text, "target"),
@@ -1133,7 +1133,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
         assert!(path.starts_with(fixture.0.join(".lim/generated")));
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.starts_with(&format!(
-            "; Generated definition invoked at {}:{invocation_line}\n",
+            "// Generated definition invoked at {}:{invocation_line}\n",
             root.canonicalize().unwrap().display()
         )));
         let (declaration, target_name) = if name == "Number" {
@@ -1182,14 +1182,14 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     client.clear(&root);
     client.clear(&types);
     let path = lsp::uri_to_path(new_alias.get("uri").unwrap().string().unwrap()).unwrap();
-    fs::write(&path, "; deliberate user edit\n").unwrap();
+    fs::write(&path, "// deliberate user edit\n").unwrap();
     assert_eq!(
         client.definition(&root, &repaired, "Number (#return"),
         Json::Null
     );
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "; deliberate user edit\n"
+        "// deliberate user edit\n"
     );
     assert_eq!(fs::read_to_string(&types).unwrap(), imported);
     assert_eq!(fs::read_to_string(&root).unwrap(), root_text);
@@ -1351,7 +1351,7 @@ fn fragmented_frames_malformed_json_and_string_request_ids_recover_over_stdio() 
         object([
             (
                 "textDocument",
-                object([("uri", string("https://example.invalid/main.lim"))]),
+                object([("uri", string("https:project::example.invalid/main.lim"))]),
             ),
             ("position", position(text, 0)),
         ]),

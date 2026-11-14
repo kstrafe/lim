@@ -16,7 +16,7 @@
 (#alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll)
 (#alias timer-reactor1-source = ../library/timer_reactor1.lim::timer-reactor1-source)
 
-; A timer and a borrowed stdin read share one bounded blocking poll set.
+// A timer and a borrowed stdin read share one bounded blocking poll set.
 
 
 

@@ -1,5 +1,5 @@
-; Move a nested field out, suspend, then rebuild its parent from owned parts.
-; Cancellation retains the remaining leaves as separate cleanup obligations.
+// Move a nested field out, suspend, then rebuild its parent from owned parts.
+// Cancellation retains the remaining leaves as separate cleanup obligations.
 (#struct Resource (#linear) (: value #u64))
 
 (#struct Pair () (: left Resource : right Resource))

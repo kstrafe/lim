@@ -1,4 +1,4 @@
-; Typed literals and casts must select floating-point comparisons.
+// Typed literals and casts must select floating-point comparisons.
 (#fn main () #u64
   (#let nan32 #f32 (#f32::div 0.0f32 0.0f32))
   (#let nan64 #f64 (#f64::div 0.0f64 0.0f64))

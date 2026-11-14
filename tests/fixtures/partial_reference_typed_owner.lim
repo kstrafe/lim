@@ -1,4 +1,4 @@
-; Fully typed, contiguous backing: no Empty/Full wrapper or field flags.
+// Fully typed, contiguous backing: no Empty/Full wrapper or field flags.
 (#struct Token (#linear) (: value #u64))
 
 (#struct Owner () (: kept (#ref #u64) : item Token))

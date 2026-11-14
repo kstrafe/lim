@@ -97,7 +97,7 @@ fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
           (#let invalid LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 1000000000i64) (seconds 0i64))))
           (#assert (#i64::eq (#call linux-nanosleep (: request (#borrow invalid) : remaining (#borrow-mut stack-rem))) -22i64))
           (#let raw (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-          ; Lim's ascending raw words hold ns then seconds, unlike Linux's C ABI.
+          // Lim's ascending raw words hold ns then seconds, unlike Linux's C ABI.
           (#let raw-words (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi raw)) "mov rax, rdi")))
           (#unsafe (#ptr-write raw-words 0i64))
           (#unsafe (#ptr-write (#ptr-offset raw-words 1usize) 0i64))

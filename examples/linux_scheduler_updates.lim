@@ -28,16 +28,16 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sched-setscheduler (: pid 0i32 : policy 99i32 : scheduler-parameters parameters))) -22i64))
   (#assert (#i64::eq (#call linux-sched-getscheduler (: pid 0i64)) policy))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes memory : size 56u32 : flags 0u32))) 0i64))
-  ; Replay the current sched_attr instead of choosing a different policy.
+  // Replay the current sched_attr instead of choosing a different policy.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sched-setattr (: pid 0i32 : attributes memory : flags 0u32))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sched-setattr (: pid 0i32 : attributes memory : flags 1u32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes after : size 56u32 : flags 0u32))) 0i64))
-  ; Compare size/policy, flags, and nice/static-priority words.
+  // Compare size/policy, flags, and nice/static-priority words.
   (#for-range (word #usize) 0usize 3usize
     (#assert (#u64::eq
       (#unsafe (#ptr-read (#ptr-offset memory word)))
       (#unsafe (#ptr-read (#ptr-offset after word))))))
-  ; The raw getpriority return is 20 - nice, unlike libc's return value.
+  // The raw getpriority return is 20 - nice, unlike libc's return value.
   (#let raw-nice #i64 (#call linux-getpriority (: which 0i64 : who 0i64)))
   (#assert (#bool::and (#i64::gt raw-nice 0i64) (#i64::le raw-nice 40i64)))
   (#let nice #i32 (#as (#i64::sub-wrap 20i64 raw-nice) #i32))

@@ -3,6 +3,6 @@
 
 (#fn main () #u64
   (#let value #u64 42u64)
-  ; The #-prefixed builtin is distinct from the user function above.
+  // The #-prefixed builtin is distinct from the user function above.
   (#if false (#panic) ())
   (#return (#call panic (: value (#borrow value)))))

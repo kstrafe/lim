@@ -1,6 +1,6 @@
-; The pinned frame owns `owner`; its immutable self-reference is formed only
-; after the caller pins the Frame and is retained safely across Pending.
-; Compile with --cfg async-lowering=graph during the remaining migration.
+// The pinned frame owns `owner`; its immutable self-reference is formed only
+// after the caller pins the Frame and is retained safely across Pending.
+// Compile with --cfg async-lowering=graph during the remaining migration.
 (#enum Child (#linear) ((Child.Waiting #u64)))
 
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))

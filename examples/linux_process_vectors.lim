@@ -17,7 +17,7 @@
   (#let remote (#ptr-mut #u8) (#unsafe (#ptr-offset memory 48usize)))
   (#let source (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
   (#let destination (#ptr-mut #u8) (#unsafe (#ptr-offset memory 144usize)))
-  ; Native iovec records: base pointer followed by #usize length.
+  // Native iovec records: base pointer followed by #usize length.
   (#unsafe (#asm () ((rdi memory))
     "lea rax, [rdi+144]\nmov QWORD PTR [rdi+32], rax\nmov QWORD PTR [rdi+40], 4\nlea rax, [rdi+128]\nmov QWORD PTR [rdi+48], rax\nmov QWORD PTR [rdi+56], 4\nmov bYTE PTR [rdi+128], 65\nmov bYTE PTR [rdi+129], 66\nmov bYTE PTR [rdi+130], 67\nmov bYTE PTR [rdi+131], 10"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-process-vm-readv (: pid pid : local-vectors local : local-count 1usize : remote-vectors remote : remote-count 1usize : flags 1usize))) -22i64))
@@ -38,7 +38,7 @@
   (#let writer #i64 (#as (#unsafe (#ptr-read (#ptr-offset descriptors 1usize))) #i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-vmsplice (: fd -1i64 : iovecs remote : count 1usize : flags 2u32))) -9i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-vmsplice (: fd writer : iovecs remote : count 1usize : flags 2u32))) 4i64))
-  ; Keep the source unchanged and mapped until the pipe has consumed it.
+  // Keep the source unchanged and mapped until the pipe has consumed it.
   (#unsafe (#asm () ((rdi destination)) "mov DWORD PTR [rdi], 0"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-read (: fd reader : destination destination : count 4usize))) 4i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-write (: fd 1i64 : source destination : count 4usize))) 4i64))

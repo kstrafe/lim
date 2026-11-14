@@ -1,5 +1,5 @@
-; Clone a reference-bearing field of a computed owning temporary, then suspend.
-; The cloned Holder retains the caller's loan after its Envelope is consumed.
+// Clone a reference-bearing field of a computed owning temporary, then suspend.
+// The cloned Holder retains the caller's loan after its Envelope is consumed.
 (#struct Holder (#linear) (: reference (#ref #u64)))
 
 (#struct Envelope () (: item Holder))

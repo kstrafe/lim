@@ -45,7 +45,7 @@
   (#let returned-mask #u64 (#unsafe (#ptr-read metadata)))
   (#let returned-size #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 5usize))))
-  ; Keep an empty string at offset 4 for AT_EMPTY_PATH; use "." at offset 0.
+  // Keep an empty string at offset 4 for AT_EMPTY_PATH; use "." at offset 0.
   (#let path-set ()
     (#unsafe (#block
       (#ptr-write memory 46u8)

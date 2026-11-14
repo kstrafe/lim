@@ -12,8 +12,8 @@
 (#alias linux-setuid = ../library/linux_x86_64.lim::linux-setuid)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-; This executable only reapplies its current identity. Never use it as setuid.
-; SAFETY: memory supplies six exclusively writable #u32 slots.
+// This executable only reapplies its current identity. Never use it as setuid.
+// SAFETY: memory supplies six exclusively writable #u32 slots.
 (#unsafe-fn identity-snapshot ((memory (#ptr-mut #u32))) ()
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-getresuid (: real memory : effective (#unsafe (#ptr-offset memory 1usize)) : saved (#unsafe (#ptr-offset memory 2usize))))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-getresgid (: real (#unsafe (#ptr-offset memory 3usize)) : effective (#unsafe (#ptr-offset memory 4usize)) : saved (#unsafe (#ptr-offset memory 5usize))))) 0i64))
@@ -26,12 +26,12 @@
   (#unsafe (#unsafe-call identity-snapshot (: memory memory)))
   (#let uid #u32 (#unsafe (#ptr-read memory)))
   (#let gid #u32 (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
-  ; ConditionTask.Check preconditions before calling setters: no differing saved/effective IDs.
+  // ConditionTask.Check preconditions before calling setters: no differing saved/effective IDs.
   (#for-range (word #usize) 1usize 3usize
     (#assert (#u32::eq uid (#unsafe (#ptr-read (#ptr-offset memory word))))))
   (#for-range (word #usize) 4usize 6usize
     (#assert (#u32::eq gid (#unsafe (#ptr-read (#ptr-offset memory word))))))
-  ; Invalid all-ones filesystem IDs query the old ID without changing it.
+  // Invalid all-ones filesystem IDs query the old ID without changing it.
   (#let fsuid #i64 (#call linux-setfsuid (: uid 4294967295u32)))
   (#let fsgid #i64 (#call linux-setfsgid (: gid 4294967295u32)))
   (#assert (#i64::eq fsuid (#as uid #i64)))
@@ -42,7 +42,7 @@
   (#assert (#i64::eq (#call linux-setregid (: real 4294967295u32 : effective 4294967295u32)) 0i64))
   (#assert (#i64::eq (#call linux-setresuid (: real 4294967295u32 : effective 4294967295u32 : saved 4294967295u32)) 0i64))
   (#assert (#i64::eq (#call linux-setresgid (: real 4294967295u32 : effective 4294967295u32 : saved 4294967295u32)) 0i64))
-  ; setuid/setgid reject all-ones rather than treating it as "unchanged".
+  // setuid/setgid reject all-ones rather than treating it as "unchanged".
   (#assert (#i64::eq (#call linux-setuid (: uid 4294967295u32)) -22i64))
   (#assert (#i64::eq (#call linux-setgid (: gid 4294967295u32)) -22i64))
   (#assert (#i64::eq (#call linux-setfsuid (: uid uid)) fsuid))

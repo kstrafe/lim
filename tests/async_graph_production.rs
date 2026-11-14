@@ -43,7 +43,7 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
         .find(|text| text.contains("(#fn Work::poll "))
         .unwrap();
-    assert!(artifact.starts_with("; Generated from:"));
+    assert!(artifact.starts_with("// Generated from:"));
     assert!(artifact.contains("(#syntax WorkAwait"));
     assert!(!artifact.contains("#await") && !artifact.contains("#generate #async-fn"));
     let invocation = lim::parse(source)

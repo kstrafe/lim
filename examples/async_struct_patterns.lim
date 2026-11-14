@@ -1,4 +1,4 @@
-; Struct pattern positions follow declaration order, not alphabetical order.
+// Struct pattern positions follow declaration order, not alphabetical order.
 (#struct Values () ((z #u16) (a #u64)))
 (#enum Choice () ((Choice.Chosen Values) Choice.Empty))
 (#enum Step () ((Step.Start #u64) (Step.Resume #u64)))

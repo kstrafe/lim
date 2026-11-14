@@ -1,4 +1,4 @@
-; Releasing the only mutable-reference element ends its loan.
+// Releasing the only mutable-reference element ends its loan.
 (#fn main () #u64
   (#let-mut owner #u64 7u64)
   (#let aggregate (#array (#ref-mut #u64) 1)

@@ -277,25 +277,25 @@
 (#alias lINUX-SYS-WRITE = ./linux_x86_64_syscall_numbers.lim::lINUX-SYS-WRITE)
 (#alias lINUX-SYS-WRITEV = ./linux_x86_64_syscall_numbers.lim::lINUX-SYS-WRITEV)
 
-; Linux x86-64 syscall-backed byte IO and process query primitives.
-; Import only for cfg(os=linux, arch=x86_64). Raw syscall errors are returned
-; as negative errno values in #i64; no libc or FFI calls are made here.
-;
-; Caller safety: every raw-pointer API is #unsafe-fn, including path strings
-; and nullable output buffers. The caller supplies the kernel ABI layout,
-; bounds, initialization, alignment, access rights, and exclusive/shared access
-; appropriate to the operation. An errno result is not a memory-safety proof.
-; Pointer::bearing records (iovec, msghdr, signal actions, etc.) include their
-; nested pointers. Retained buffers/registrations must remain live until the
-; kernel has finished using them, not merely until this function returns.
-; Mapping/protection operations must preserve all outstanding Lim references.
-; Integer::only control operations with hidden addresses or process execution
-; effects also require #unsafe. See docs/syscall-coverage.md, Caller safety
-; contracts, for the operation-specific obligations and safe helper boundary.
-; Unsupported::target declarations preserve the same caller contract.
+// Linux x86-64 syscall-backed byte IO and process query primitives.
+// Import only for cfg(os=linux, arch=x86_64). Raw syscall errors are returned
+// as negative errno values in #i64; no libc or FFI calls are made here.
+//
+// Caller safety: every raw-pointer API is #unsafe-fn, including path strings
+// and nullable output buffers. The caller supplies the kernel ABI layout,
+// bounds, initialization, alignment, access rights, and exclusive/shared access
+// appropriate to the operation. An errno result is not a memory-safety proof.
+// Pointer::bearing records (iovec, msghdr, signal actions, etc.) include their
+// nested pointers. Retained buffers/registrations must remain live until the
+// kernel has finished using them, not merely until this function returns.
+// Mapping/protection operations must preserve all outstanding Lim references.
+// Integer::only control operations with hidden addresses or process execution
+// effects also require #unsafe. See docs/syscall-coverage.md, Caller safety
+// contracts, for the operation-specific obligations and safe helper boundary.
+// Unsupported::target declarations preserve the same caller contract.
 
-; Lim stack aggregates are laid out toward lower addresses. Keep nanoseconds
-; first so a pointer adjusted to the low end has the Linux C timespec order.
+// Lim stack aggregates are laid out toward lower addresses. Keep nanoseconds
+// first so a pointer adjusted to the low end has the Linux C timespec order.
 (#struct LinuxTimespec () ((nanoseconds #i64) (seconds #i64)))
 (#cfg-if
   (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
@@ -380,8 +380,8 @@
     (#return
       (#unsafe
         (#asm #i64 ((rax lINUX-SYS-GETTID)) "syscall"))))
-  ; SAFETY: control arguments can encode addresses; preserve the runtime's
-  ; memory, TLS, and process invariants for the selected prctl operation.
+  // SAFETY: control arguments can encode addresses; preserve the runtime's
+  // memory, TLS, and process invariants for the selected prctl operation.
   (#unsafe-fn linux-prctl ((option #i32) (arg2 #usize) (arg3 #usize) (arg4 #usize) (arg5 #usize)) #i64
     (#return
       (#unsafe
@@ -426,7 +426,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-KILL (pid signal)))))
-  ; info points to native 128-byte siginfo_t; users supply code, sender and value.
+  // info points to native 128-byte siginfo_t; users supply code, sender and value.
   (#unsafe-fn linux-rt-sigqueueinfo ((group #i32) (signal #i32) (info (#ptr-mut #u8))) #i64
     (#return
       (#unsafe
@@ -451,7 +451,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-PIDFD-GETFD (pidfd target-fd flags)))))
-  ; Raw getcpu has an obsolete third cache pointer; Linux ignores it.
+  // Raw getcpu has an obsolete third cache pointer; Linux ignores it.
   (#unsafe-fn linux-getcpu ((cpu (#ptr-mut #u32)) (node (#ptr-mut #u32))) #i64
     (#return
       (#unsafe
@@ -464,8 +464,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-GETRESGID (real effective saved)))))
-  ; Credential setters act on the calling kernel thread, not all process threads.
-  ; setfsuid/setfsgid return the previous ID even on failure; query again to verify.
+  // Credential setters act on the calling kernel thread, not all process threads.
+  // setfsuid/setfsgid return the previous ID even on failure; query again to verify.
   (#fn linux-setuid ((uid #u32)) #i64
     (#return
       (#unsafe
@@ -510,8 +510,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SYSINFO (buffer)))))
-  ; argv/envp are null-terminated arrays of pointers to NUL::terminated strings.
-  ; Outcome.Success replaces the process image and never returns; failure is raw -errno.
+  // argv/envp are null-terminated arrays of pointers to NUL::terminated strings.
+  // Outcome.Success replaces the process image and never returns; failure is raw -errno.
   (#unsafe-fn linux-execve ((path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))) #i64
     (#return
       (#unsafe
@@ -520,16 +520,16 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-EXECVEAT (directory path arguments environment flags)))))
-  ; SAFETY: the child must not use inconsistent state inherited from other
-  ; threads. In a multithreaded process, restrict it to async-signal-safe work
-  ; until exec; this raw syscall does not run libc atfork handlers.
+  // SAFETY: the child must not use inconsistent state inherited from other
+  // threads. In a multithreaded process, restrict it to async-signal-safe work
+  // until exec; this raw syscall does not run libc atfork handlers.
   (#unsafe-fn linux-fork () #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FORK ()))))
-  ; SAFETY: ends only this thread. No live borrower or runtime invariant may
-  ; depend on its stack/state or on normal thread completion. For process
-  ; termination use linux-exit-group, which remains safe.
+  // SAFETY: ends only this thread. No live borrower or runtime invariant may
+  // depend on its stack/state or on normal thread completion. For process
+  // termination use linux-exit-group, which remains safe.
   (#unsafe-fn linux-exit ((status #i32)) ()
     (#unsafe
       (#linux-syscall #i64 lINUX-SYS-EXIT (status)))
@@ -546,7 +546,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SETSID ()))))
-  ; Raw waitid has a fifth, optional rusage output pointer.
+  // Raw waitid has a fifth, optional rusage output pointer.
   (#unsafe-fn linux-waitid ((id-type #i32) (id #u32) (info (#ptr-mut #u8)) (options #i32) (usage (#ptr-mut #i64))) #i64
     (#return
       (#unsafe
@@ -571,7 +571,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SCHED-RR-GET-INTERVAL (pid interval)))))
-  ; The caller supplies a C::layout sched_attr buffer of at least 48 bytes.
+  // The caller supplies a C::layout sched_attr buffer of at least 48 bytes.
   (#unsafe-fn linux-sched-getattr ((pid #i64) (attributes (#ptr-mut #u64)) (size #u32) (flags #u32)) #i64
     (#return
       (#unsafe
@@ -592,10 +592,10 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SCHED-GETAFFINITY (pid size mask)))))
-  ; Request is the kernel's unsigned 32-bit command; argument is a scalar or
-  ; pointer encoded as a machine word. Its layout/validity is request-specific.
-  ; SAFETY: argument and any nested pointers must satisfy the selected
-  ; device/request ABI, including asynchronous ownership where applicable.
+  // Request is the kernel's unsigned 32-bit command; argument is a scalar or
+  // pointer encoded as a machine word. Its layout/validity is request-specific.
+  // SAFETY: argument and any nested pointers must satisfy the selected
+  // device/request ABI, including asynchronous ownership where applicable.
   (#unsafe-fn linux-ioctl ((fd #i64) (request #u32) (argument #usize)) #i64
     (#return
       (#unsafe
@@ -636,7 +636,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SENDTO (fd source size flags destination address-length)))))
-  ; message/messages point to native x86-64 msghdr/mmsghdr records.
+  // message/messages point to native x86-64 msghdr/mmsghdr records.
   (#unsafe-fn linux-sendmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64
     (#return
       (#unsafe
@@ -696,8 +696,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-EVENTFD2 (initial-value flags)))))
-  ; The event buffer contains packed Linux epoll_event records (12 bytes on
-  ; x86-64); a raw byte pointer avoids claiming Lim struct layout is C ABI.
+  // The event buffer contains packed Linux epoll_event records (12 bytes on
+  // x86-64); a raw byte pointer avoids claiming Lim struct layout is C ABI.
   (#unsafe-fn linux-epoll-ctl ((epoll-fd #i64) (operation #i32) (fd #i64) (event (#ptr-mut #u8))) #i64
     (#return
       (#unsafe
@@ -720,8 +720,8 @@
           #i64
           lINUX-SYS-EPOLL-PWAIT2
           (epoll-fd events max-events timeout signal-mask signal-set-size)))))
-  ; pollfd is 8 bytes (#i32 fd, #i16 events, #i16 revents); timespec is two
-  ; #i64 words. Callers supply ABI-formatted buffers, not Lim aggregate values.
+  // pollfd is 8 bytes (#i32 fd, #i16 events, #i16 revents); timespec is two
+  // #i64 words. Callers supply ABI-formatted buffers, not Lim aggregate values.
   (#unsafe-fn linux-poll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout-ms #i32)) #i64
     (#return
       (#unsafe
@@ -730,8 +730,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SELECT (count read-set write-set except-set timeout)))))
-  ; The sixth argument points to { kernel_sigset_t *mask; #usize size; }.
-  ; Raw pselect6 may modify its timespec timeout, unlike libc's pselect.
+  // The sixth argument points to { kernel_sigset_t *mask; #usize size; }.
+  // Raw pselect6 may modify its timespec timeout, unlike libc's pselect.
   (#unsafe-fn linux-pselect6 ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
     (#return
       (#unsafe
@@ -743,16 +743,16 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-PPOLL (pollfds count timeout signal-mask signal-set-size)))))
-  ; Raw brk returns the resulting/current break, not libc's 0/-1 convention.
-  ; Compare it with the requested address. Address zero queries without change.
-  ; SAFETY: coordinate with the process allocator; never invalidate live heap
-  ; storage, and check the returned break before accessing newly added memory.
+  // Raw brk returns the resulting/current break, not libc's 0/-1 convention.
+  // Compare it with the requested address. Address zero queries without change.
+  // SAFETY: coordinate with the process allocator; never invalidate live heap
+  // storage, and check the returned break before accessing newly added memory.
   (#unsafe-fn linux-brk ((address #usize)) #usize
     (#return
       (#unsafe
         (#linux-syscall #usize lINUX-SYS-BRK (address)))))
-  ; SAFETY: execution-domain/address-layout flags must preserve assumptions
-  ; made by the runtime and any existing executable mappings.
+  // SAFETY: execution-domain/address-layout flags must preserve assumptions
+  // made by the runtime and any existing executable mappings.
   (#unsafe-fn linux-personality ((persona #u32)) #i64
     (#return
       (#unsafe
@@ -761,14 +761,14 @@
     (#return
       (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP (address length protection flags fd offset)))))
-  ; Protection keys are optional hardware/OS support. Allocation may return
-  ; -ENOSPC when unavailable. Remove a key from all mappings before freeing it.
+  // Protection keys are optional hardware/OS support. Allocation may return
+  // -ENOSPC when unavailable. Remove a key from all mappings before freeing it.
   (#fn linux-pkey-alloc ((flags #u32) (access-rights #u32)) #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-PKEY-ALLOC (flags access-rights)))))
-  ; SAFETY: remove this key from every still-live protected mapping before
-  ; freeing it; freeing the key does not reset those mappings' permissions.
+  // SAFETY: remove this key from every still-live protected mapping before
+  // freeing it; freeing the key does not reset those mappings' permissions.
   (#unsafe-fn linux-pkey-free ((key #i32)) #i64
     (#return
       (#unsafe
@@ -781,13 +781,13 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-MPROTECT (address length protection)))))
-  ; Sealing is irreversible until process exit/exec; flags is unsigned long.
+  // Sealing is irreversible until process exit/exec; flags is unsigned long.
   (#unsafe-fn linux-mseal ((address (#ptr-mut #u8)) (length #usize) (flags #usize)) #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-MSEAL (address length flags)))))
-  ; Secret memory must be sized with ftruncate and mapped MAP_SHARED.
-  ; The accepted close-on-exec flag is O_CLOEXEC, not memfd_create's MFD_CLOEXEC.
+  // Secret memory must be sized with ftruncate and mapped MAP_SHARED.
+  // The accepted close-on-exec flag is O_CLOEXEC, not memfd_create's MFD_CLOEXEC.
   (#fn linux-memfd-secret ((flags #u32)) #i64
     (#return
       (#unsafe
@@ -855,8 +855,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SHMCTL (segment command buffer)))))
-  ; Raw POSIX MQ names omit libc's leading slash. Close descriptors with
-  ; linux-close. Timed calls use absolute CLOCK_REALTIME deadlines.
+  // Raw POSIX MQ names omit libc's leading slash. Close descriptors with
+  // linux-close. Timed calls use absolute CLOCK_REALTIME deadlines.
   (#unsafe-fn linux-mq-open ((name (#ptr-mut #u8)) (flags #i32) (mode #u32) (attributes (#ptr-mut #i64))) #i64
     (#return
       (#unsafe
@@ -885,7 +885,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-MSGGET (key flags)))))
-  ; Message buffers start with an #i64 type; size counts only payload bytes.
+  // Message buffers start with an #i64 type; size counts only payload bytes.
   (#unsafe-fn linux-msgsnd ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
     (#return
       (#unsafe
@@ -902,9 +902,9 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SEMGET (key count flags)))))
-  ; argument is the raw union word: an integer or an ABI buffer address.
-  ; SAFETY: argument may be a semid_ds, array, or seminfo address depending on
-  ; command; supply valid appropriately sized memory with compatible access.
+  // argument is the raw union word: an integer or an ABI buffer address.
+  // SAFETY: argument may be a semid_ds, array, or seminfo address depending on
+  // command; supply valid appropriately sized memory with compatible access.
   (#unsafe-fn linux-semctl ((set-id #i32) (number #i32) (command #i32) (argument #usize)) #i64
     (#return
       (#unsafe
@@ -981,7 +981,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-LCHOWN (path owner group)))))
-  ; NULL times select the current time for both access and modification.
+  // NULL times select the current time for both access and modification.
   (#unsafe-fn linux-utime ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
     (#return
       (#unsafe
@@ -1013,7 +1013,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-SYMLINKAT (target directory link-path)))))
-  ; Raw fchmodat has three arguments; libc's flags-bearing interface differs.
+  // Raw fchmodat has three arguments; libc's flags-bearing interface differs.
   (#unsafe-fn linux-fchmodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64
     (#return
       (#unsafe
@@ -1070,7 +1070,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-READLINK (path destination size)))))
-  ; Native legacy dirent: name at byte 18; type at record_length - 1.
+  // Native legacy dirent: name at byte 18; type at record_length - 1.
   (#unsafe-fn linux-getdents ((fd #i64) (buffer (#ptr-mut #u8)) (size #u32)) #i64
     (#return
       (#unsafe
@@ -1127,9 +1127,9 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-RT-SIGPENDING (signal-set sigset-size)))))
-  ; SAFETY: signal-set is readable for the kernel sigset size (8 on x86-64).
-  ; Temporarily unblocked handlers must be valid for asynchronous execution.
-  ; A caught signal restores the prior mask and returns raw -EINTR.
+  // SAFETY: signal-set is readable for the kernel sigset size (8 on x86-64).
+  // Temporarily unblocked handlers must be valid for asynchronous execution.
+  // A caught signal restores the prior mask and returns raw -EINTR.
   (#unsafe-fn linux-rt-sigsuspend ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
     (#return
       (#unsafe
@@ -1162,7 +1162,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-PWRITE64 (fd source count offset)))))
-  ; iovecs is C::layout storage: each entry is {base pointer, byte length}.
+  // iovecs is C::layout storage: each entry is {base pointer, byte length}.
   (#unsafe-fn linux-readv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64
     (#return
       (#unsafe
@@ -1171,7 +1171,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-WRITEV (fd iovecs count)))))
-  ; Raw vectored positioned IO splits the 64-bit offset into two words.
+  // Raw vectored positioned IO splits the 64-bit offset into two words.
   (#unsafe-fn linux-preadv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64
     (#return
       (#unsafe
@@ -1222,7 +1222,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FSTAT (fd metadata)))))
-  ; Kernel x86-64 struct stat/statfs buffers are supplied as raw word storage.
+  // Kernel x86-64 struct stat/statfs buffers are supplied as raw word storage.
   (#unsafe-fn linux-stat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64
     (#return
       (#unsafe
@@ -1243,7 +1243,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FSTATFS (fd statistics)))))
-  ; Raw faccessat has no flags argument; faccessat2 does.
+  // Raw faccessat has no flags argument; faccessat2 does.
   (#unsafe-fn linux-faccessat ((directory #i64) (path (#ptr-mut #u8)) (mode #i32)) #i64
     (#return
       (#unsafe
@@ -1304,8 +1304,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FREMOVEXATTR (fd name)))))
-  ; SAFETY: command selects a scalar or pointer ABI (for example, flock).
-  ; Address::bearing commands require valid memory and compatible access.
+  // SAFETY: command selects a scalar or pointer ABI (for example, flock).
+  // Address::bearing commands require valid memory and compatible access.
   (#unsafe-fn linux-fcntl ((fd #i64) (command #i32) (argument #usize)) #i64
     (#return
       (#unsafe
@@ -1314,9 +1314,9 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FDATASYNC (fd)))))
-  ; Native AIO ABI, not libaio. Keep request/data buffers live until completion.
-  ; io_uring uses caller-managed kernel-layout rings and persistent buffers.
-  ; enter's argument is either a signal mask or a flags-selected extended arg.
+  // Native AIO ABI, not libaio. Keep request/data buffers live until completion.
+  // io_uring uses caller-managed kernel-layout rings and persistent buffers.
+  // enter's argument is either a signal mask or a flags-selected extended arg.
   (#unsafe-fn linux-io-uring-setup ((entries #u32) (parameters (#ptr-mut #u8))) #i64
     (#return
       (#unsafe
@@ -1332,14 +1332,14 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-IO-URING-REGISTER (ring operation argument count)))))
-  ; io_setup requires a zero-initialized context output word.
-  ; io_pgetevents takes a pointer to {sigset pointer, size_t byte size}, or null.
+  // io_setup requires a zero-initialized context output word.
+  // io_pgetevents takes a pointer to {sigset pointer, size_t byte size}, or null.
   (#unsafe-fn linux-io-setup ((capacity #u32) (context (#ptr-mut #usize))) #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-IO-SETUP (capacity context)))))
-  ; SAFETY: own this AIO context; coordinate outstanding users and keep their
-  ; submitted buffers live until cancellation/completion is established.
+  // SAFETY: own this AIO context; coordinate outstanding users and keep their
+  // submitted buffers live until cancellation/completion is established.
   (#unsafe-fn linux-io-destroy ((context #usize)) #i64
     (#return
       (#unsafe
@@ -1348,9 +1348,9 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-IO-SUBMIT (context count requests)))))
-  ; Current Linux returns -EINPROGRESS for accepted cancellation and queues the
-  ; completion; the legacy event output pointer is unused. Drain completion
-  ; before releasing the request or its buffers.
+  // Current Linux returns -EINPROGRESS for accepted cancellation and queues the
+  // completion; the legacy event output pointer is unused. Drain completion
+  // before releasing the request or its buffers.
   (#unsafe-fn linux-io-cancel ((context #usize) (request (#ptr-mut #u8)) (event (#ptr-mut #u8))) #i64
     (#return
       (#unsafe
@@ -1476,8 +1476,8 @@
       (#unsafe
         (#asm #i64 ((rax lINUX-SYS-FTRUNCATE) (rdi fd) (rsi length)) "syscall"))))
   (#fn linux-clock-gettime ((clock-id #i64) (time (#ref-mut LinuxTimespec))) #i64
-    ; Marshal through explicit native ABI storage, not reference tag bits.
-    ; Stack arrays descend: index 1 holds seconds, followed by index 0's ns.
+    // Marshal through explicit native ABI storage, not reference tag bits.
+    // Stack arrays descend: index 1 holds seconds, followed by index 0's ns.
     (#let-mut native (#array #i64 2) (#array-of (#array #i64 2) 0i64 0i64))
     (#let
       pointer
@@ -1536,7 +1536,7 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-TIMERFD-CREATE (clock-id flags)))))
-  ; new-time and old-time point to C::layout itimerspec values (four i64s).
+  // new-time and old-time point to C::layout itimerspec values (four i64s).
   (#unsafe-fn linux-timerfd-settime ((fd #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
     (#return
       (#unsafe
@@ -1545,8 +1545,8 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-TIMERFD-GETTIME (fd current-time)))))
-  ; Choice.One registration per kernel thread. Head storage must remain valid until
-  ; it is replaced or the thread exits; Linux walks the list during exit/exec.
+  // Choice.One registration per kernel thread. Head storage must remain valid until
+  // it is replaced or the thread exits; Linux walks the list during exit/exec.
   (#unsafe-fn linux-set-robust-list ((head (#ptr-mut #u8)) (length #usize)) #i64
     (#return
       (#unsafe
@@ -1562,17 +1562,17 @@
           #i64
           lINUX-SYS-FUTEX
           (address operation value timeout second-address value3)))))
-  ; futex2 wait vectors contain val:#u64, address:#u64, flags:#u32, reserved:u32.
-  ; SAFETY: all vector entries, addressed words, and timeout storage must stay
-  ; valid for the wait. Coordinate concurrent word accesses atomically. Timeout
-  ; is absolute; per-entry flags select size/sharing, syscall flags are zero.
+  // futex2 wait vectors contain val:#u64, address:#u64, flags:#u32, reserved:u32.
+  // SAFETY: all vector entries, addressed words, and timeout storage must stay
+  // valid for the wait. Coordinate concurrent word accesses atomically. Timeout
+  // is absolute; per-entry flags select size/sharing, syscall flags are zero.
   (#unsafe-fn linux-futex-waitv ((waiters (#ptr-mut #u8)) (count #u32) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FUTEX-WAITV (waiters count flags timeout clock-id)))))
-  ; These masks/values are unsigned long in the native ABI, not #u32 flags.
-  ; SAFETY: address and timeout must be valid; word accesses require atomic
-  ; coordination. Futex2 currently supports the 32-bit size selector (2).
+  // These masks/values are unsigned long in the native ABI, not #u32 flags.
+  // SAFETY: address and timeout must be valid; word accesses require atomic
+  // coordination. Futex2 currently supports the 32-bit size selector (2).
   (#unsafe-fn linux-futex-wait ((address (#ptr-mut #u32)) (expected #usize) (mask #usize) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
     (#return
       (#unsafe
@@ -1581,14 +1581,14 @@
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FUTEX-WAKE (address mask count flags)))))
-  ; SAFETY: waiters points to two valid futex_waitv records, source then
-  ; destination. Keep both addressed words live through queued waits; the
-  ; source value is compared before any wake/move. Syscall flags must be zero.
+  // SAFETY: waiters points to two valid futex_waitv records, source then
+  // destination. Keep both addressed words live through queued waits; the
+  // source value is compared before any wake/move. Syscall flags must be zero.
   (#unsafe-fn linux-futex-requeue ((waiters (#ptr-mut #u8)) (flags #u32) (wake-count #i32) (requeue-count #i32)) #i64
     (#return
       (#unsafe
         (#linux-syscall #i64 lINUX-SYS-FUTEX-REQUEUE (waiters flags wake-count requeue-count)))))
-  ; Unlike FUTEX_WAIT, CMP_REQUEUE takes a count in the fourth ABI slot.
+  // Unlike FUTEX_WAIT, CMP_REQUEUE takes a count in the fourth ABI slot.
   (#unsafe-fn linux-futex-cmp-requeue ((address (#ptr-mut #u32)) (wake-count #u32) (requeue-count #u32) (second-address (#ptr-mut #u32)) (expected #u32)) #i64
     (#return
       (#unsafe

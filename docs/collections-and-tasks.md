@@ -357,7 +357,7 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 (#generate #async-fn (: protocol WorkAwait : waker LocalWaker
   : function (#fn work (: offset #u64) #u64
     (#return (#await StepAwait (Waiting offset))))))
-; Inside another generated async function:
+// Inside another generated async function:
 (#let value #u64 (#await WorkAwait (#call work (($ offset)))))
 ```
 

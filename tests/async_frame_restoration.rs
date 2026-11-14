@@ -430,7 +430,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
 
 #[test]
 fn access_handles_unit_aliases_multiple_parameters_and_imports() {
-    for path in ["./library.lim", "//library.lim"] {
+    for path in ["./library.lim", "project::library.lim"] {
         let prefix = "";
         let frame = "Work::Frame";
         let scratch = support::Scratch::new("async-access-import");

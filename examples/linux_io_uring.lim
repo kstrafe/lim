@@ -7,9 +7,9 @@
 (#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
-; This example is the native x86-64 ABI, not Lim's aggregate representation.
-; Loads/stores use assembly so the shared ring accesses and barriers remain
-; explicit. Choice.One issuer, no SQPOLL, standard 64-byte SQEs and 16-byte CQEs.
+// This example is the native x86-64 ABI, not Lim's aggregate representation.
+// Loads/stores use assembly so the shared ring accesses and barriers remain
+// explicit. Choice.One issuer, no SQPOLL, standard 64-byte SQEs and 16-byte CQEs.
 (#unsafe-fn ring-load ((base (#ptr-mut #u8)) (offset #usize)) #u32
   (#return (#unsafe (#asm #u32 ((rdi base) (rsi offset))
     "mov eax, DWORD PTR [rdi+rsi]\nlfence"))))
@@ -26,10 +26,10 @@
   (#return memory))
 
 (#fn run-ring ((allow-shared #bool)) #u64
-  ; This region owns every buffer and ring until all requests complete.
+  // This region owns every buffer and ring until all requests complete.
   (#return (#unsafe (#block
   (#let memory (#ptr-mut #u8) (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64)))
-  ; Zero::initialized io_uring_params occupies 120 bytes at the beginning.
+  // Zero::initialized io_uring_params occupies 120 bytes at the beginning.
   (#assert (#i64::eq (#unsafe-call linux-io-uring-setup (: entries 0u32 : parameters memory)) -22i64))
   (#unsafe-call ring-store (: base memory : offset 8usize : value 2147483648u32))
   (#assert (#i64::eq (#unsafe-call linux-io-uring-setup (: entries 2u32 : parameters memory)) -22i64))
@@ -70,7 +70,7 @@
   (#unsafe (#asm () ((rdi files) (rsi file)) "mov DWORD PTR [rdi], esi"))
   (#assert (#i64::eq (#unsafe-call linux-io-uring-register (: ring ring : operation 4294967295u32 : argument files : count 1u32)) -22i64))
   (#assert (#i64::eq (#unsafe-call linux-io-uring-register (: ring ring : operation 2u32 : argument files : count 1u32)) 0i64))
-  ; Registered files retain their own reference, even after ordinary close.
+  // Registered files retain their own reference, even after ordinary close.
   (#assert (#i64::eq (#call linux-close (: fd file)) 0i64))
   (#assert (#i64::eq (#unsafe-call linux-io-uring-enter (: ring ring : submit 0u32 : minimum 0u32 : flags 2147483648u32 : argument (#ptr-null (#ptr-mut #u8)) : argument-size 0usize)) -22i64))
   (#for-range (iteration #u32) 0u32 14u32
@@ -81,7 +81,7 @@
     (#let cookie #u64 (#u64::add-wrap 100u64 (#as iteration #u64)))
     (#let expected #i32 (#if (#u32::lt iteration 12u32) 4i32
       (#if (#u32::eq iteration 12u32) -22i32 -9i32)))
-    ; Change each write's first byte to detect stale completions/data.
+    // Change each write's first byte to detect stale completions/data.
     (#unsafe (#asm () ((rdi payload) (rsi iteration) (rdx received))
       "mov DWORD PTR [rdi], 0x0a524955\nmov eax, esi\nand eax, -2\nadd eax, 65\nmov bYTE PTR [rdi], al\nmov DWORD PTR [rdx], 0"))
     (#let tail #u32 (#unsafe-call ring-load (: base sq : offset sq-tail)))
@@ -89,8 +89,8 @@
     (#let slot #u32 (#u32::bit-and tail sq-mask))
     (#let sqe (#ptr-mut #u8) (#unsafe (#ptr-offset sqes
       (#usize::mul-wrap (#as slot #usize) 64usize))))
-    ; Clear the entire reused SQE, then set opcode, FIXED_FILE, fd index,
-    ; buffer, byte count and completion cookie. File offset is explicitly 0.
+    // Clear the entire reused SQE, then set opcode, FIXED_FILE, fd index,
+    // buffer, byte count and completion cookie. File offset is explicitly 0.
     (#unsafe (#asm () ((rdi sqe) (rsi buffer) (rdx opcode) (rcx file-slot) (r8 cookie))
       "mov QWORD PTR [rdi], 0\nmov QWORD PTR [rdi+8], 0\nmov QWORD PTR [rdi+16], rsi\nmov QWORD PTR [rdi+24], 4\nmov QWORD PTR [rdi+32], r8\nmov QWORD PTR [rdi+40], 0\nmov QWORD PTR [rdi+48], 0\nmov QWORD PTR [rdi+56], 0\nmov bYTE PTR [rdi], dl\nmov bYTE PTR [rdi+1], 1\nmov DWORD PTR [rdi+4], ecx"))
     (#unsafe-call ring-store (: base sq : offset (#usize::add-wrap sq-array (#usize::mul-wrap (#as slot #usize) 4usize)) : value slot))
@@ -125,7 +125,7 @@
   42u64))))
 
 (#fn main () #u64
-  ; Cover both the advertised SINGLE_MMAP optimization and separate mappings.
+  // Cover both the advertised SINGLE_MMAP optimization and separate mappings.
   (#assert (#u64::eq (#call run-ring (: allow-shared true)) 42u64))
   (#assert (#u64::eq (#call run-ring (: allow-shared false)) 42u64))
   (#return 42u64))

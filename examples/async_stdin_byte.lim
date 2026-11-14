@@ -10,8 +10,8 @@
 (#alias linux-close = ../library/linux_x86_64.lim::linux-close)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-; Work.Read and echo one stdin byte using readiness polling. The task borrows the
-; destination only while it is pending; poll never leaves the buffer in flight.
+// Work.Read and echo one stdin byte using readiness polling. The task borrows the
+// destination only while it is pending; poll never leaves the buffer in flight.
 
 
 (#fn main () #i32

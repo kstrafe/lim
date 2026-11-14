@@ -1,5 +1,5 @@
-; Await a boolean condition. Work::Poll.Pending resumes before the loop decides whether
-; the body runs; Work::Poll.Ready(false) skips it and Work::Poll.Ready(true) advances the capture.
+// Await a boolean condition. Work::Poll.Pending resumes before the loop decides whether
+// the body runs; Work::Poll.Ready(false) skips it and Work::Poll.Ready(true) advances the capture.
 (#enum ConditionTask () ((ConditionTask.Waiting #u64)))
 (#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll

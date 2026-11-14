@@ -1,4 +1,4 @@
-; A local owner is moved into the pinned frame before its reference is formed.
+// A local owner is moved into the pinned frame before its reference is formed.
 (#enum LocalChild (#linear) ((LocalChild.Waiting #u64)))
 
 (#enum LocalChildPoll () ((LocalChildPoll.LocalChildPending LocalChild) (LocalChildPoll.LocalChildReady #u64)))

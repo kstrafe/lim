@@ -2677,7 +2677,7 @@ impl<'a> Emitter<'a> {
                 // at the safe public poll boundary. Pinning alone does not.
                 let read = format!("(#deref (#pin-get-payload-unchecked slot {}))", slot.full);
                 let read = if slot.raw { format!("(#clone {read})") } else { read };
-                format!("; Caller proves this cell Full through checked async flow.\n(#unsafe-fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#unsafe {read})))", slot.peek, slot.name)
+                format!("// Caller proves this cell Full through checked async flow.\n(#unsafe-fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#unsafe {read})))", slot.peek, slot.name)
             } else { String::new() };
             let take = if slot.copy && !self.types.contains_reference(&slot.storage) {
                 // Like peek, the caller must prove Full. Copy payloads carry
@@ -2685,7 +2685,7 @@ impl<'a> Emitter<'a> {
                 // read the payload directly and publish Empty without a tag
                 // branch. Use a typed pinned projection, not an untagged raw
                 // address: native stack and heap layouts differ.
-                format!("; Caller proves this cell Full through checked async flow.\n\
+                format!("// Caller proves this cell Full through checked async flow.\n\
                   (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
                     (#let value {ty} (#unsafe (#deref (#pin-get-payload-unchecked slot {full}))))\n\
                     (#unsafe (#forget (#pin-read slot)))\n\
@@ -7212,7 +7212,7 @@ impl<'a> Emitter<'a> {
         }
         cases.push(format!("(#case {}u32 ())", u32::MAX));
         cases.push("(#case _ (#unreachable))".into());
-        Ok(format!("; Caller proves exact stationary layout and initialized dispatcher state.\n; Only occupied handler payloads are read; discarded captures are retired.\n(#unsafe-fn {}::destroy-words (: task (#slice-mut #u64)) ()\n(#assert (#usize::eq (#slice-mut-len task) {}usize))\n(#match (#unsafe (#word-read #u32 {})) {})\n(#unsafe (#word-forget (#array #u64 {}) {}))\n(#unsafe (#word-write #u32 {} {}u32))\n(#forget task) (#return ()))",
+        Ok(format!("// Caller proves exact stationary layout and initialized dispatcher state.\n// Only occupied handler payloads are read; discarded captures are retired.\n(#unsafe-fn {}::destroy-words (: task (#slice-mut #u64)) ()\n(#assert (#usize::eq (#slice-mut-len task) {}usize))\n(#match (#unsafe (#word-read #u32 {})) {})\n(#unsafe (#word-forget (#array #u64 {}) {}))\n(#unsafe (#word-write #u32 {} {}u32))\n(#forget task) (#return ()))",
             self.poll_type, layout.words, Layout::slice(0, 1), cases.join("\n"), layout.words, Layout::slice(0, layout.words), Layout::slice(0, 1), u32::MAX))
     }
 

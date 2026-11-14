@@ -48,7 +48,7 @@ for [s:token, s:group] in [
       \ ['#enum-literal', 'limKeyword'], ['#struct-literal', 'limKeyword'],
       \ ['#return-value', 'limKeyword'], ['42u64', 'limNumber'],
       \ ['u64-value', ''], ['"#u64 #return"', 'limString'],
-      \ ['; #u64 #return', 'limComment'], ['#\newline', 'limCharacter']]
+      \ ['// #u64 #return', 'limComment'], ['#\newline', 'limCharacter']]
   " Comments must not swallow the closing delimiters in the nesting fixture.
   if s:group ==# 'limComment'
     call setline(1, s:token)

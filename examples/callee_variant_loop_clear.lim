@@ -1,4 +1,4 @@
-; Continue once, then move a clearing call result through the loop's break.
+// Continue once, then move a clearing call result through the loop's break.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 

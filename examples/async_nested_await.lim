@@ -1,5 +1,5 @@
-; An await can produce the task consumed by another await, even inside an
-; arithmetic operand. Both tasks suspend once before returning their value.
+// An await can produce the task consumed by another await, even inside an
+// arithmetic operand. Both tasks suspend once before returning their value.
 (#enum OuterTask (#linear) ((OuterTask.Waiting #u64) (OuterTask.Resuming #u64)))
 
 (#enum OuterPoll () ((OuterPoll.OuterPending OuterTask) (OuterPoll.OuterReady #u64)))

@@ -10,7 +10,7 @@
 (#alias linux-unlink = ../library/linux_x86_64.lim::linux-unlink)
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 
-; Run in a private scratch directory: creates and removes FIFOs a and b.
+// Run in a private scratch directory: creates and removes FIFOs a and b.
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
     (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
@@ -40,7 +40,7 @@
     (#unsafe (#ptr-read (#ptr-offset metadata 3usize))) 65535u64) 4352u64))
   (#let path-fd #i64 (#unsafe (#unsafe-call linux-openat (: directory directory : path second : flags 2097152i32 : mode 0u32))))
   (#assert (#i64::ge path-fd 0i64))
-  ; AT_EMPTY_PATH operates on the O_PATH descriptor without opening the FIFO.
+  // AT_EMPTY_PATH operates on the O_PATH descriptor without opening the FIFO.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-fchmodat2 (: directory path-fd : path empty : mode 384u32 : flags 4096u32))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-fchmodat2 (: directory directory : path second : mode 384u32 : flags 1u32))) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-stat (: path second : metadata metadata))) 0i64))

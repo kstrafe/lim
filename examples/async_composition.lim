@@ -1,5 +1,5 @@
-; Async functions export one protocol each. The parent can await a function
-; declared later without listing its task type, variants, or poll function.
+// Async functions export one protocol each. The parent can await a function
+// declared later without listing its task type, variants, or poll function.
 (#enum Tick () ((Tick.TickStart #u64) (Tick.TickResume #u64)))
 (#enum TickPoll () ((TickPoll.TickPending Tick) (TickPoll.TickReady #u64)))
 (#syntax TickAwait (#u64 Tick TickPoll.TickPending TickPoll.TickReady tick-poll))

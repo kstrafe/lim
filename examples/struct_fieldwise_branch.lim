@@ -1,4 +1,4 @@
-; Both paths consume the same structural owner obligation.
+// Both paths consume the same structural owner obligation.
 (#struct Resource (#linear) ((value #u64)))
 
 (#struct Wrapper () ((item Resource) (copy #u64)))

@@ -1,4 +1,4 @@
-; A returned child retains the owner's loan, not the temporary handle's life.
+// A returned child retains the owner's loan, not the temporary handle's life.
 (#struct Owner (#linear) (: value #u64))
 
 
@@ -15,7 +15,7 @@
 (#fn main () #u64
   (#let-mut owner Owner (#struct-literal Owner (: value 41u64)))
   (#let parent (#ref-mut Owner) (#borrow-mut owner))
-  ; Transparent argument expressions retain the same parent permissions.
+  // Transparent argument expressions retain the same parent permissions.
   (#let shared (#ref #u64) (#call view-of (: owner (#block parent))))
   (#assert (#u64::eq (#deref shared) 41u64))
   (#drop shared)

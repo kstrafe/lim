@@ -19,8 +19,8 @@
 (#alias linux-write = ../library/linux_x86_64.lim::linux-write)
 (#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
 
-; SAFETY: buffer is an exclusively writable 4096-byte region, readable after
-; the syscall fills it; directory refers to this example's scratch directory.
+// SAFETY: buffer is an exclusively writable 4096-byte region, readable after
+// the syscall fills it; directory refers to this example's scratch directory.
 (#unsafe-fn check-legacy-entries ((directory #i64) (buffer (#ptr-mut #u8))) ()
   (#assert (#i64::eq (#call linux-lseek (: fd directory : offset 0i64 : whence 0i64)) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-getdents (: fd -1i64 : buffer buffer : size 4096u32))) -9i64))
@@ -40,7 +40,7 @@
       (#assert (#bool::and (#usize::ge length 24usize)
         (#usize::le length (#usize::sub-wrap size offset))))
       (#assert (#usize::eq (#usize::rem-wrap length 8usize) 0usize))
-      ; Locate the NUL within the name region, excluding the final type byte.
+      // Locate the NUL within the name region, excluding the final type byte.
       (#let-mut character #usize 18usize)
       (#let end #usize (#usize::sub-wrap length 1usize))
       (#while (#bool::and (#usize::lt character end)

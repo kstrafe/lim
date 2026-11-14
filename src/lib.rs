@@ -680,6 +680,9 @@ impl<'a> Lexer<'a> {
                 b';' => {
                     self.skip_comment();
                 }
+                b'/' if self.source.get(self.offset + 1) == Some(&b'/') => {
+                    self.skip_comment();
+                }
                 b'#' if self.source.get(self.offset + 1) == Some(&b'\\') => {
                     return self.char_token().map(Some)
                 }
@@ -755,6 +758,7 @@ impl<'a> Lexer<'a> {
         while let Some(byte) = self.peek() {
             if byte.is_ascii_whitespace()
                 || matches!(byte, b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b';')
+                || (byte == b'/' && self.source.get(self.offset + 1) == Some(&b'/'))
             {
                 break;
             }
@@ -1278,7 +1282,10 @@ fn source_comments(source: &str) -> Vec<SourceComment> {
             continue;
         } else if character == '"' {
             in_string = true;
-        } else if character == ';' || (character == '#' && !is_hash_atom_start(source, offset)) {
+        } else if character == ';'
+            || (character == '/' && source.as_bytes().get(offset + 1) == Some(&b'/'))
+            || (character == '#' && !is_hash_atom_start(source, offset))
+        {
             let start = offset;
             let start_line = line;
             let start_column = column;
@@ -9760,10 +9767,10 @@ mod tests {
 
     #[test]
     fn formatter_preserves_comments_inside_headers() {
-        let source = "(#fn run ((value ; parameter note\n #u64)) () ; body note\n (#return ()))";
+        let source = "(#fn run ((value // parameter note\n #u64)) () // body note\n (#return ()))";
         let formatted = format_source(source).unwrap();
-        assert!(formatted.contains("; parameter note\n"), "{formatted}");
-        assert!(formatted.contains("; body note\n"), "{formatted}");
+        assert!(formatted.contains("// parameter note\n"), "{formatted}");
+        assert!(formatted.contains("// body note\n"), "{formatted}");
         assert_eq!(format_source(&formatted).unwrap(), formatted);
         assert_eq!(
             parse(source).unwrap()[0].expr,
@@ -9817,12 +9824,12 @@ mod tests {
 
     #[test]
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
-        let commented = "; module note\n(#fn main () #u64\n  (#let value #u64 0u64)\n  ; return the named value\n  (#return value)) ; trailing note\n";
+        let commented = "// module note\n(#fn main () #u64\n  (#let value #u64 0u64)\n  // return the named value\n  (#return value)) // trailing note\n";
         let formatted = format_source(commented).unwrap();
         assert_eq!(formatted, commented);
-        assert!(formatted.contains("; module note\n"));
-        assert!(formatted.contains("; return the named value\n"));
-        assert!(formatted.contains("; trailing note\n"), "{formatted}");
+        assert!(formatted.contains("// module note\n"));
+        assert!(formatted.contains("// return the named value\n"));
+        assert!(formatted.contains("// trailing note\n"), "{formatted}");
         let original_program = parse_program(commented).unwrap();
         let formatted_program = parse_program(&formatted).unwrap();
         assert!(check_types(&original_program).is_ok());
@@ -9833,9 +9840,9 @@ mod tests {
         );
         assert_eq!(format_source(&formatted).unwrap(), formatted);
 
-        let template = "(#generate generator make ((name syntax))\n  ; keep generated type readable\n  (gn-emit `(#type ,name #u64)))\n(#fn empty () () (#return ()))";
+        let template = "(#generate generator make ((name syntax))\n  // keep generated type readable\n  (gn-emit `(#type ,name #u64)))\n(#fn empty () () (#return ()))";
         let formatted = format_source(template).unwrap();
-        assert!(formatted.contains("; keep generated type readable"));
+        assert!(formatted.contains("// keep generated type readable"));
         assert!(formatted.contains("`(#type ,name #u64)"));
         assert!(formatted.contains("()"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
@@ -12187,7 +12194,7 @@ mod tests {
         // A use, comment or string before the second must not steal its span.
         let text = "(#fn work () #u64 (#return (#block
           (#let value #u64 1u64)
-          ; value appears here, but this is not its declaration.
+          // value appears here, but this is not its declaration.
           (#call print (: text \"value\"))
           (#let value #u64 2u64) value)))";
         let node = parse(text).unwrap().remove(0);
@@ -13036,7 +13043,7 @@ mod tests {
             .find(|path| fs::read_to_string(path).unwrap().contains("Work::poll"))
             .unwrap();
         let original = fs::read(&artifact).unwrap();
-        fs::write(&artifact, b"; damaged graph cache\n").unwrap();
+        fs::write(&artifact, b"// damaged graph cache\n").unwrap();
         let error = compile_source_with_generated_sources(
             &source,
             &path,
@@ -13048,7 +13055,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.message.contains("cache"), "{}", error.message);
-        assert_eq!(fs::read(&artifact).unwrap(), b"; damaged graph cache\n");
+        assert_eq!(fs::read(&artifact).unwrap(), b"// damaged graph cache\n");
         fs::write(&artifact, original).unwrap();
         let changed_config = {
             let mut config = config.clone();

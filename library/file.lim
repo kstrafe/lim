@@ -14,7 +14,7 @@
 (#alias system-allocate = ./system_allocator.lim::system-allocate)
 (#alias system-deallocate = ./system_allocator.lim::system-deallocate)
 
-; Safe descriptor ownership and explicitly allocated buffered byte input.
+// Safe descriptor ownership and explicitly allocated buffered byte input.
 
 (#struct File (#linear) (: descriptor #i64))
 (#opaque File)
@@ -72,13 +72,13 @@
 
 (#fn File::open-read (: path (#ref String)) FileOpenResult
   (#return (#call File::open-with-flags (: path path : flags 524288u32 : permissions 0u32))))
-; O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC. The name explicitly signals creation.
+// O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC. The name explicitly signals creation.
 (#fn File::create (: path (#ref String) : permissions #u32) FileOpenResult
   (#return (#call File::open-with-flags (: path path : flags 524865u32 : permissions permissions))))
 (#fn File::close (: file File) FileStatus
   (#let result #i64 (#call file-close-descriptor (: descriptor (#get file descriptor))))
   (#forget file)
-  ; Linux releases the descriptor even on EINTR; never retry a possibly reused FD.
+  // Linux releases the descriptor even on EINTR; never retry a possibly reused FD.
   (#return (#if (#i64::lt result 0i64) (FileStatus.FileFailed (FileError.FileIoError result)) FileStatus.FileOk)))
 
 (#fn File::write-string (: file (#ref-mut File) : text (#ref String)) FileWriteResult

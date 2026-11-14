@@ -6,8 +6,8 @@
 (#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking)
 (#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll)
 
-; Destroying a pending operation releases its exclusive buffer borrow without
-; leaving any kernel operation that could still access the destination.
+// Destroying a pending operation releases its exclusive buffer borrow without
+// leaving any kernel operation that could still access the destination.
 
 
 (#fn main () #i32

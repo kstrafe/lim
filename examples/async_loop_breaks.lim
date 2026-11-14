@@ -1,5 +1,5 @@
-; Both conditional exits of this value-producing loop survive suspension. The inner
-; synchronous loop's break belongs to that loop, not the enclosing async loop.
+// Both conditional exits of this value-producing loop survive suspension. The inner
+// synchronous loop's break belongs to that loop, not the enclosing async loop.
 (#enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64)))
 
 (#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))

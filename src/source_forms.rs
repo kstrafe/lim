@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn streams_the_same_spanned_trees_as_parse() {
         let source =
-            "; λ comment\n(foo :bar '(:x \"a\\\"(b)\" #\\u{28} #\\u{1f642})) `,(,@items)\n'hello";
+            "// λ comment\n(foo :bar '(:x \"a\\\"(b)\" #\\u{28} #\\u{1f642})) `,(,@items)\n'hello";
         let expected = crate::parse(source).unwrap();
         let mut forms = SourceForms::new(source);
         let actual: Vec<_> = std::iter::from_fn(|| forms.next().transpose())

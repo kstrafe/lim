@@ -11,7 +11,7 @@
       (#call linux-write-byte (: source (#borrow byte))) 1i64)))
   (#return ()))
 
-; A small wake context: the child records each time it asks to be polled again.
+// A small wake context: the child records each time it asks to be polled again.
 (#struct Wake () ((notifications CellU64)))
 
 (#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64)))
@@ -27,8 +27,8 @@
               1u64)))
           (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))))))))
 
-; #generate #async-fn generates Two-steps::Task, Two-steps::Poll, and the start/poll functions.
-; #async-fn infers which locals must live across each suspension point.
+// #generate #async-fn generates Two-steps::Task, Two-steps::Poll, and the start/poll functions.
+// #async-fn infers which locals must live across each suspension point.
 (#generate #async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
     (#let first Step (Step.Waiting 1u64))
     (#let left #u64

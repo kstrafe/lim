@@ -1,4 +1,4 @@
-; Explicitly consume reference-bearing parameter storage, then restore it.
+// Explicitly consume reference-bearing parameter storage, then restore it.
 (#struct Holder (#linear) (: view (#ref #u64)))
 
 

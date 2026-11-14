@@ -1,5 +1,5 @@
-;; The stored shared view aliases the owner's value field. Reads through
-;; either path are valid; an exclusive reborrow through the owner is not.
+//; The stored shared view aliases the owner's value field. Reads through
+//; either path are valid; an exclusive reborrow through the owner is not.
 (#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
 
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
@@ -21,7 +21,7 @@
     (#call install (: target (#pin-borrow-mut link))))
   (#let inspected (#pin-ref-mut Link) (#call inspect (: target initialized)))
   (#let answer #u64 (#deref (#get inspected view)))
-  ;; Retire the internal loan before consuming its stationary owner.
+  //; Retire the internal loan before consuming its stationary owner.
   (#pin-set-field inspected view outside)
   (#drop inspected)
   (#forget link)

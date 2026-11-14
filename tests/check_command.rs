@@ -49,7 +49,7 @@ fn checks_project_imports_and_cfg_without_creating_native_output() {
     let app = src.join("app");
     fs::create_dir_all(&app).unwrap();
     let input = app.join("main.lim");
-    let source = "(#alias RootType = //src/root-type.lim::RootType)\n(#alias Selected = //modules/selected.lim::Selected)\n(#fn main () Selected (#return 0u64))\n";
+    let source = "(#alias RootType = project::src/root-type.lim::RootType)\n(#alias Selected = project::modules/selected.lim::Selected)\n(#fn main () Selected (#return 0u64))\n";
     fs::write(&input, source).unwrap();
 
     let (status, stdout, stderr) = run_lim(

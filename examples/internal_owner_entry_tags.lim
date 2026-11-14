@@ -8,7 +8,7 @@
   (#return target))
 
 (#fn initialize-or-touch (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-  ;; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
+  //; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
   (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
     (#block
       (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))

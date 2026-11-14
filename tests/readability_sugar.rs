@@ -90,11 +90,11 @@ fn formatting_preserves_comments_sugar_and_semantics() {
     let source = "(#fn take (: value (#ref #u64)) #u64 (#return (#deref value)))
       (#fn main () #u64 (#let value #u64 42u64)
         (#return (#match true
-          (#case true ; keep this arm comment
+          (#case true // keep this arm comment
             (#let answer #u64 (#call take (($ (#borrow value))))) answer)
           (#case false 0u64))))";
     let formatted = lim::format_source(source).unwrap();
-    assert!(formatted.contains("; keep this arm comment\n"));
+    assert!(formatted.contains("// keep this arm comment\n"));
     assert!(formatted.contains("($ (#borrow value))"));
     assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
     assert_eq!(compile(source).unwrap(), compile(&formatted).unwrap());

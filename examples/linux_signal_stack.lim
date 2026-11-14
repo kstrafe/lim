@@ -8,7 +8,7 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 69632usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  ; Native stack_t: pointer at 0, int flags at 8, size_t size at 16.
+  // Native stack_t: pointer at 0, int flags at 8, size_t size at 16.
   (#let original (#ptr-mut #u8) memory)
   (#let requested (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))
   (#let observed (#ptr-mut #u8) (#unsafe (#ptr-offset memory 64usize)))
@@ -19,7 +19,7 @@
     "lea rax, [rdi+4096]\nmov QWORD PTR [rsi], rax\nmov DWORD PTR [rsi+8], 0\nmov QWORD PTR [rsi+16], 65536"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) 0i64))
   (#let queried #i64 (#unsafe (#unsafe-call linux-sigaltstack (: new-stack null : old-stack observed))))
-  ; Restore the old stack before assertions and before freeing its replacement.
+  // Restore the old stack before assertions and before freeing its replacement.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sigaltstack (: new-stack original : old-stack null))) 0i64))
   (#assert (#i64::eq queried 0i64))
   (#assert (#unsafe (#asm #bool ((rdi requested) (rsi observed))
@@ -30,7 +30,7 @@
     "mov eax, DWORD PTR [rdi+8]")) 0u32))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sigaltstack (: new-stack null : old-stack restored))) 0i64))
   (#for-range (word #usize) 0usize 24usize
-    ; Bytes 12..16 are ABI padding, not part of the stack state.
+    // Bytes 12..16 are ABI padding, not part of the stack state.
     (#if (#bool::or (#usize::lt word 12usize) (#usize::ge word 16usize))
       (#assert (#u8::eq
         (#unsafe (#ptr-read (#ptr-offset original word)))
@@ -39,14 +39,14 @@
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) -12i64))
   (#unsafe (#asm () ((rdi requested)) "mov DWORD PTR [rdi+8], 4"))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-sigaltstack (: new-stack requested : old-stack null))) -22i64))
-  ; A long alarm cannot expire during the bounded test; cancel immediately.
+  // A long alarm cannot expire during the bounded test; cancel immediately.
   (#let previous #i64 (#call linux-alarm (: seconds 3600u32)))
   (#let remaining #i64 (#call linux-alarm (: seconds 0u32)))
   (#if (#i64::gt previous 0i64)
     (#drop (#call linux-alarm (: seconds (#as previous #u32)))) ())
   (#assert (#bool::and (#i64::gt remaining 0i64) (#i64::le remaining 3600i64)))
   (#let thread #i32 (#as (#call linux-gettid (:)) #i32))
-  ; Signal zero only performs existence and permission checks.
+  // Signal zero only performs existence and permission checks.
   (#assert (#i64::eq (#call linux-tkill (: thread thread : signal 0i32)) 0i64))
   (#assert (#i64::eq (#call linux-tkill (: thread thread : signal 65i32)) -22i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap (: address memory : length 69632usize))) 0i64))

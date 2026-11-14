@@ -36,7 +36,7 @@ remain data. New syntax must preserve compiler visibility checks in diagnostics
 and cover these roles in navigation tests, including unsaved library roots.
 Canonical paths identify one source file. Alias chains and symlinks resolve to
 the same declaration; different dependency files can carry identical spellings.
-Project-root `//` paths use the selected principal entry context, including
+Project-root `project::` paths use the selected principal entry context, including
 multi-entry `lim.lsp` configurations.
 Generated-file access is distinct from declaration ownership. Validated
 `#generated-context` headers describe definition and invocation module instances;

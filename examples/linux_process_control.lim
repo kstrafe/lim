@@ -10,8 +10,8 @@
 (#fn pointer-word ((pointer (#ptr-mut #u32))) #usize
   (#return (#unsafe (#asm #usize ((rdi pointer)) "mov rax, rdi"))))
 
-; SAFETY: operation must be PR_GET_NAME/PR_SET_NAME and buffer must supply
-; 16 writable/readable bytes respectively, without conflicting accesses.
+// SAFETY: operation must be PR_GET_NAME/PR_SET_NAME and buffer must supply
+// 16 writable/readable bytes respectively, without conflicting accesses.
 (#unsafe-fn name-operation ((operation #i32) (buffer (#ptr-mut #u32))) #i64
   (#return (#unsafe (#unsafe-call linux-prctl (: option operation : arg2 (#call pointer-word (: pointer buffer)) : arg3 0usize : arg4 0usize : arg5 0usize)))))
 
@@ -21,11 +21,11 @@
       (0usize 4096usize 3u32 34u32 -1i64 0i64))))
   (#let capabilities (#ptr-mut #u32) (#unsafe (#ptr-offset memory 2usize)))
   (#let after (#ptr-mut #u32) (#unsafe (#ptr-offset memory 8usize)))
-  ; Version zero asks the kernel to report its preferred capability ABI.
+  // Version zero asks the kernel to report its preferred capability ABI.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-capget (: header memory : data capabilities))) -22i64))
   (#assert (#u32::eq (#unsafe (#ptr-read memory)) 537396514u32))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-capget (: header memory : data capabilities))) 0i64))
-  ; Reapply exactly the existing effective/permitted/inheritable sets.
+  // Reapply exactly the existing effective/permitted/inheritable sets.
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-capset (: header memory : data capabilities))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-capget (: header memory : data after))) 0i64))
   (#for-range (word #usize) 0usize 6usize

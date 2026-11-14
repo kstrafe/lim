@@ -1,4 +1,4 @@
-; Explicit compiler-bundled standard-library prelude.
+// Explicit compiler-bundled standard-library prelude.
 (#alias File = ./file.lim::File)
 (#alias File::close = ./file.lim::File::close)
 (#alias File::create = ./file.lim::File::create)
