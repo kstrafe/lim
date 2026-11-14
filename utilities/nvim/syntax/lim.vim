@@ -6,8 +6,6 @@ endif
 syn case match
 
 " Comments: slash comments and legacy bare hash comment lines.
-syn match limComment "//.*$" contains=@Spell
-syn match limComment "^\s*#\s.*$" contains=@Spell
 
 " Strings and character literals. Hash-prefixed character names and Unicode
 " escapes are kept together as one token.
@@ -16,48 +14,69 @@ syn match limEscape "\\\\[nrt\\\\\"]\|\\\\u{[[:xdigit:]]\+}" contained
 syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 
 " Lim forms, operators, and generator operations use a leading #.
-syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
-syn match limGenerated +#generate\ze\%($\|[[:space:]();"'`,#]\)+
-syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:]();"'`,#]\++
+syn match limKeyword +#[[:alpha:]_][^[:space:](){}=;\[\]"'`,@#]*+
+syn match limGenerated +#generate\ze\%($\|[[:space:](){}=;\[\]"'`,#]\)+
+syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:](){}=;\[\]"'`,#]\++
 " A leading @ resolves a source name; embedded @ is ordinary identifier text.
-syn match limQualified +\%(^\|[[:space:]('`]\)\@<=@[^[:space:]();"'`,#]\++
-syn match limGenerated +#generated-context\ze\%($\|[[:space:]();"'`,#]\)+
+syn match limQualified +\%(^\|[[:space:]('`]\)\@<=@[^[:space:](){}=;\[\]"'`,#]\++
+syn match limGenerated +#generated-context\ze\%($\|[[:space:](){}=;\[\]"'`,#]\)+
 " Type properties are declaration annotations, not callable forms.
-syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
 
 " Match complete tokens, including the sigil. In particular, #u64 is a type
 " but #u64::add-wrap is an operator and an unprefixed u64 is a user identifier.
-syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:]();"'`,@#]\++
-syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limContract +#\%(requires\|ensures\|preserves\|assume\|if-valid\|where\|old\|result\|index-proven\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limUnsafe +#\%(unsafe\|unsafe-call\|unsafe-fn\|unsafe-impl\|unstable\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limPin +#\%(pin\|pin-shared\|pin-share\|pin-share-clone\|pin-shared-borrow\|pin-shared-borrow-mut\|pin-shared-release\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limGeneratorKeyword +#gn\%(-[^[:space:]();"'`,@#]\+\)\?\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limCfg +#cfg-[^[:space:]();"'`,@#]\++
+syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:](){}=;\[\]"'`,@#]\++
+syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limContract +#\%(requires\|ensures\|preserves\|assume\|if-valid\|where\|old\|result\|index-proven\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limUnsafe +#\%(unsafe\|unsafe-call\|unsafe-fn\|unsafe-impl\|unstable\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limPin +#\%(pin\|pin-shared\|pin-share\|pin-share-clone\|pin-shared-borrow\|pin-shared-borrow-mut\|pin-shared-release\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limGeneratorKeyword +#gn\%(-[^[:space:](){}=;\[\]"'`,@#]\+\)\?\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\)+
+syn match limCfg +#cfg-[^[:space:](){}=;\[\]"'`,@#]\++
 syn match limNumber "\<\d[[:alnum:]_]*\>"
 syn match limNumber "\<\d[[:digit:]_]*\.\d[[:digit:]_]*\([eE][+-]\?[[:digit:]_]*\)\?[fF]\?\(32\|64\)\?\>"
 
+
+" Structured declaration fields and arithmetic mode headers.
+syn match limSection +#\%(params\|returns\|body\|value\)\ze\%($\|[[:space:](){}=;\[\]"\'`,@#]\)+
+syn match limOperator +#\%(wrap\|saturate\)\ze\%($\|[[:space:](){}=;\[\]"\'`,@#]\)+
+syn match limSeparator "[;=]"
+syn match limOperator "\%(^\|\s\)\zs\%(==\|!=\|<=\|>=\|<<\|>>\|&&\|[|][|]\|[-+*/%&|^<>!]\)\ze\%(\s\|$\)"
+
 " Cycle delimiter groups by nesting depth. The six groups intentionally
 " link to common rainbow colors where available; the plugin can override them.
-syn match limParen1 "[()]" contained
-syn match limParen2 "[()]" contained
-syn match limParen3 "[()]" contained
-syn match limParen4 "[()]" contained
-syn match limParen5 "[()]" contained
-syn match limParen6 "[()]" contained
-syn cluster limForms contains=limContract,limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn match limParen1 "[(){}\[\]]" contained
+syn match limParen2 "[(){}\[\]]" contained
+syn match limParen3 "[(){}\[\]]" contained
+syn match limParen4 "[(){}\[\]]" contained
+syn match limParen5 "[(){}\[\]]" contained
+syn match limParen6 "[(){}\[\]]" contained
+syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
+syn region limNest1 transparent start="{" end="}" contains=@limForms,limNest2,limParen1
+syn region limNest1 transparent start="\[" end="\]" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
+syn region limNest2 transparent start="{" end="}" contained contains=@limForms,limNest3,limParen2
+syn region limNest2 transparent start="\[" end="\]" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
+syn region limNest3 transparent start="{" end="}" contained contains=@limForms,limNest4,limParen3
+syn region limNest3 transparent start="\[" end="\]" contained contains=@limForms,limNest4,limParen3
 syn region limNest4 transparent start="(" end=")" contained contains=@limForms,limNest5,limParen4
+syn region limNest4 transparent start="{" end="}" contained contains=@limForms,limNest5,limParen4
+syn region limNest4 transparent start="\[" end="\]" contained contains=@limForms,limNest5,limParen4
 syn region limNest5 transparent start="(" end=")" contained contains=@limForms,limNest6,limParen5
+syn region limNest5 transparent start="{" end="}" contained contains=@limForms,limNest6,limParen5
+syn region limNest5 transparent start="\[" end="\]" contained contains=@limForms,limNest6,limParen5
 syn region limNest6 transparent start="(" end=")" contained contains=@limForms,limNest1,limParen1
+syn region limNest6 transparent start="{" end="}" contained contains=@limForms,limNest1,limParen1
+syn region limNest6 transparent start="\[" end="\]" contained contains=@limForms,limNest1,limParen1
 
+hi def link limSection Keyword
+hi def link limSeparator Delimiter
 hi def link limComment Comment
 hi def link limString String
 hi def link limEscape SpecialChar
@@ -86,5 +105,8 @@ hi def link limParen3 Special
 hi def link limParen4 Statement
 hi def link limParen5 Type
 hi def link limParen6 Constant
+
+syn match limComment "//.*$" contains=@Spell
+syn match limComment "^\s*#\s.*$" contains=@Spell
 
 let b:current_syntax = 'lim'

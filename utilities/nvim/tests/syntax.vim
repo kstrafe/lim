@@ -87,6 +87,24 @@ endfor
 call assert_equal(synIDattr(synIDtrans(hlID('Keyword')), 'name'),
       \ synIDattr(synIDtrans(hlID('limPin')), 'name'))
 
+for s:section in ['params', 'returns', 'body', 'value']
+  call s:check('#' . s:section, 'limSection')
+  call s:check('#' . s:section . '-custom', 'limKeyword')
+endfor
+for s:mode in ['wrap', 'saturate']
+  call s:check('#' . s:mode, 'limOperator')
+endfor
+call setline(1, '#fn read { #params={index=#usize;}; #returns=#bool; #body=([#usize; index < 4];); } // comment')
+for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#params', 'limSection'],
+      \ ['#usize', 'limType'], ['#returns', 'limSection'], ['#bool', 'limType'],
+      \ ['#body', 'limSection'], ['<', 'limOperator'], ['=', 'limSeparator'],
+      \ [';', 'limSeparator'], ['// comment', 'limComment']]
+  let s:column = stridx(getline(1), s:token) + 1
+  for s:offset in range(0, strlen(s:token) - 1)
+    call assert_equal(s:group, synIDattr(synID(1, s:column + s:offset, 1), 'name'), s:token)
+  endfor
+endfor
+
 if !empty(v:errors)
   for s:error in v:errors
     echomsg s:error

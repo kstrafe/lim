@@ -35,6 +35,11 @@ Scalar intrinsics accept ordinary named calls such as
 `(#call #usize::lt (: left index : right bound))`. Generated fixed-array APIs
 expose explicit bounds contracts; see [generated_array.lim](examples/generated_array.lim)
 and the [array API reference](docs/language.md#fixed-array-apis).
+The [surface notation](docs/language.md#surface-notation) adds named records,
+calls without `#call`, typed infix brackets, semicolon groups and opt-in
+indentation. See [surface_syntax.lim](examples/surface_syntax.lim) and
+[surface_statics.lim](examples/surface_statics.lim). These forms lower to the
+same canonical trees used by generators and contract checking.
 See [compiler limits and bounded benchmarks](docs/compiler-limits.md) for
 analysis budgets, fail-closed behavior, and resource-limited development commands.
 
