@@ -3,19 +3,10 @@ use std::{fs, process::Command, time::Duration};
 mod support;
 
 fn example_source() -> String {
-    include_str!("../examples/pinned_box_async.lim")
-        .replace(
-            "../library/linux_x86_64.lim",
-            &format!("{}/library/linux_x86_64.lim", env!("CARGO_MANIFEST_DIR")),
-        )
-        .replace(
-            "../library/pin_box.lim",
-            &format!("{}/library/pin_box.lim", env!("CARGO_MANIFEST_DIR")),
-        )
-        .replace(
-            "../library/pin.lim",
-            &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
-        )
+    include_str!("../examples/pinned_box_async.lim").replace(
+        "../library/",
+        &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
+    )
 }
 
 fn compile_error(source: &str, label: &str) -> String {
@@ -69,7 +60,8 @@ fn mutable_box_borrow_cannot_be_extracted_as_an_ordinary_reference() {
     );
     let diagnostic = compile_error(&source, "pinned-box-async-extract");
     assert!(
-        diagnostic.contains("has type Named(\"Work::Frame\")")
+        diagnostic.contains("has type Named(")
+            && diagnostic.contains("::Work::Frame")
             && diagnostic.contains("expected Reference { mutable: true"),
         "{diagnostic}"
     );

@@ -41,10 +41,14 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
     let artifact = fs::read_dir(&output)
         .unwrap()
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .find(|text| text.contains("(#fn Work::poll "))
+        .find(|text| generated_source::contains_function(text, "Work::poll"))
         .unwrap();
     assert!(artifact.starts_with("// Generated from:"));
-    assert!(artifact.contains("(#syntax WorkAwait"));
+    assert!(generated_source::contains_declaration(
+        &artifact,
+        "#syntax",
+        "WorkAwait"
+    ));
     assert!(!artifact.contains("#await") && !artifact.contains("#generate #async-fn"));
     let invocation = lim::parse(source)
         .unwrap()
@@ -55,14 +59,14 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
                 .is_some_and(|rest| rest.trim_start().starts_with("#async-fn"))
         })
         .unwrap();
-    let ordinary_artifact = generated_source::ordinary_source(&artifact);
+    let ordinary_artifact = generated_source::ordinary_source_in_file(&artifact, &path);
     let standalone = format!(
         "{}\n{ordinary_artifact}\n{}",
         &source[..invocation.span.start],
         &source[invocation.span.end..]
     );
-    let ordinary =
-        lim::parse_program(&standalone).unwrap_or_else(|error| panic!("{error}\n{standalone}"));
+    let ordinary = lim::parse_program_from_path(&standalone, &path)
+        .unwrap_or_else(|error| panic!("{error}\n{standalone}"));
     lim::check_types(&ordinary).unwrap_or_else(|error| panic!("{error}\n{standalone}"));
     (scratch, artifact, standalone)
 }
@@ -77,7 +81,8 @@ fn run_expected(source: &str, label: &str, expected: i32) -> String {
 
 fn run_expected_output(source: &str, label: &str, expected: i32, expected_stdout: &[u8]) -> String {
     let (scratch, artifact, standalone) = checked_artifact(source, label);
-    let ordinary = lim::parse_program(&standalone).unwrap();
+    let ordinary =
+        lim::parse_program_from_path(&standalone, &scratch.path().join("input.lim")).unwrap();
     let assembly = lim::generate_assembly(&ordinary).unwrap_or_else(|error| {
         let line = error
             .split(':')
@@ -274,8 +279,8 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
             "(#enum Child (#linear) ((Child.Waiting (#tuple (#ref Counter) #u64))))",
         )
         .replace("(Child.Waiting count)", "(Child.Waiting (#tuple counter count))")
-        .replace("(Child.Waiting 1u64)", "(Child.Waiting (#tuple counter 1u64))")
-        .replace("(Child.Waiting 0u64)", "(Child.Waiting (#tuple counter 0u64))")
+        .replace("Child.Waiting 1u64", "Child.Waiting (#tuple counter 1u64)")
+        .replace("Child.Waiting 0u64", "Child.Waiting (#tuple counter 0u64)")
         .replace("(#fn work ((owner Owner))", "(#fn work ((owner Owner) (counter (#ref Counter)))")
         .replace("(#forget task) (#return ()))", "(#match task (#case (Child.Waiting (#tuple counter count)) (#block (#call bump-counter ((count counter))) (#drop counter) ()))) (#return ()))");
     let first = "(#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -295,7 +300,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let count Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
             (#let-mut task Work::Frame (#call work ((owner (#struct-literal Owner
-              ((choice (Number (#struct-literal NumberPayload ((value 40u64)))))))) (counter (#borrow count)))))
+              ((choice (Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))) (counter (#borrow count)))))
             {polls}
             (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
             (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))

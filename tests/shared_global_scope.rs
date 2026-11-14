@@ -37,10 +37,11 @@ fn sharing_globals_does_not_allow_shadowing() {
 fn local_reference_escapes_still_fail_with_many_globals() {
     let mut source = String::new();
     for i in 0..512 {
-        source.push_str(&format!("(#let GLOBAL{i} #u64 {i}u64)\n"));
+        source.push_str(&format!("(#let global{i} #u64 {i}u64)\n"));
     }
     source.push_str("(#fn bad () (#ref #u64) (#let value #u64 42u64) (#return (#borrow value)))");
-    assert!(assembly(&source).unwrap_err().contains("local"));
+    let error = assembly(&source).unwrap_err();
+    assert!(error.contains("local"), "{error}");
 }
 
 #[test]

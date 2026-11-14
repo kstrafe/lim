@@ -58,11 +58,11 @@ fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
             "static",
             String::new(),
             "#ref",
-            "(#unsafe (#borrow values))",
+            "(#unsafe (#borrow global-values))",
         ),
     ] {
         let source = format!(
-            "(#static values {array} {values})
+            "(#static global-values {array} {values})
           (#fn snapshot ((values ({reference} {array}))) {array}
             (#return (#deref values)))
           (#fn main () #u64 {declarations}
@@ -113,7 +113,7 @@ fn local_array_borrow_to_slice_in_helper() {
 fn static_array_borrow_to_slice_in_helper() {
     native_exit(
         r#"
-(#static values (#array #u64 3)
+(#static global-values (#array #u64 3)
   (#array-of (#array #u64 3) 10u64 20u64 42u64))
 
 (#fn read-third ((values (#ref (#array #u64 3)))) #u64
@@ -122,7 +122,7 @@ fn static_array_borrow_to_slice_in_helper() {
 
 (#fn main () #u64
   (#return (#unsafe
-    (#call read-third ((values (#borrow values))))))
+    (#call read-third ((values (#borrow global-values))))))
 )
 "#,
         42,

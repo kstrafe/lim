@@ -70,8 +70,8 @@ fn shared_and_exclusive_payload_projection_runs_on_stack_and_heap() {
 
     let heap = source
         .replace(
-            "(#let-mut choice Choice (Full (#struct-literal Payload ((value 41u64)))))",
-            "(#let allocation (#ptr-mut Choice) (#unsafe (#linux-syscall (#ptr-mut Choice) 9usize\n            (0usize (#size-of Choice) 3usize 34usize -1i64 0usize))))\n  (#let-mut choice (#pin-own Choice) (#unsafe (#pin-own-of allocation\n    (Full (#struct-literal Payload ((value 41u64)))))))",
+            "(#let-mut choice Choice (Choice.Full (#struct-literal Payload ((value 41u64)))))",
+            "(#let allocation (#ptr-mut Choice) (#unsafe (#linux-syscall (#ptr-mut Choice) 9usize\n            (0usize (#size-of Choice) 3usize 34usize -1i64 0usize))))\n  (#let-mut choice (#pin-own Choice) (#unsafe (#pin-own-of allocation\n    (Choice.Full (#struct-literal Payload ((value 41u64)))))))",
         )
         .replace("(#pin choice)", "(#pin-own-borrow-mut choice)")
         .replace(

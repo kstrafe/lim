@@ -633,7 +633,7 @@ fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     let config = CompileConfig::default();
     compile(dir, MAIN, &config).0.unwrap();
     assert!(semantic_decisions(&compile(dir, MAIN, &config).1, "hit") > 0);
-    fs::write(dir.join("dep.lim"), format!("{LIB}\n; dependency changed")).unwrap();
+    fs::write(dir.join("dep.lim"), format!("{LIB}\n// dependency changed")).unwrap();
     let (result, report) = compile(dir, MAIN, &config);
     result.unwrap();
     assert_eq!(semantic_decisions(&report, "hit"), 0);

@@ -3144,7 +3144,10 @@ impl<'a> Emitter<'a> {
                 return Ok(String::new());
             }
             let value = self.borrowed_pattern_value(pattern)?;
-            if !mode.pinned {
+            // Project through a call before writing the destination slot. An
+            // inline pinned match keeps its scrutinee's exclusive frame loan
+            // alive throughout the arm, including that disjoint slot write.
+            if !mode.pinned || pattern.bindings.len() == 1 {
                 if pattern.bindings.len() != 1 {
                     return Err(fail(
                         self.function,

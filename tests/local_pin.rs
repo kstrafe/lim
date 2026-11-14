@@ -115,13 +115,16 @@ fn invalid_pin_argument_preserves_structured_diagnostic_span_and_cache() {
 #[test]
 fn documented_local_pin_cleanup_runs_natively() {
     let source = include_str!("../docs/language.md")
-        .split_once("(#struct LocalJob () ((state #u64)))")
+        .split_once("(#struct LocalJob (#linear) ((state #u64)))")
         .unwrap()
         .1
         .split_once("```")
         .unwrap()
         .0;
-    run(&format!("(#struct LocalJob () ((state #u64))){source}"), 42);
+    run(
+        &format!("(#struct LocalJob (#linear) ((state #u64))){source}"),
+        42,
+    );
 }
 
 #[test]
@@ -309,9 +312,9 @@ fn local_pin_operations_reject_globals_and_statics() {
         for (operator, ty) in [("#pin", "#pin-ref-mut"), ("#pin-shared", "#pin-ref")] {
             reject(
                 &format!(
-                    "({declaration} GLOBAL #u64 42u64)
+                    "({declaration} global #u64 42u64)
                     (#fn main () #u64
-                      (#let view ({ty} #u64) ({operator} GLOBAL))
+                      (#let view ({ty} #u64) ({operator} global))
                       (#forget view) (#return 0u64))"
                 ),
                 "requires an initialized local variable",

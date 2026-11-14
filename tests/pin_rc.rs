@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -133,8 +135,12 @@ fn pinned_rc_async_resumes_after_moving_the_unique_owner() {
     );
     let generated = run(&source, "pin-rc-async");
     assert!(generated.contains("(#pin-ref-mut Work::Frame)"));
-    assert!(generated.contains("(#fn Work::poll "));
-    assert!(generated.contains("(#fn PinnedFrameRc::borrow-mut "));
+    for expected in ["Work::poll", "PinnedFrameRc::borrow-mut"] {
+        assert!(
+            generated_source::contains_function(&generated, expected),
+            "missing generated function {expected}"
+        );
+    }
 }
 
 #[test]

@@ -27,9 +27,35 @@ pub fn ordinary_source(artifact: &str) -> String {
     source
 }
 
+/// Restore local spellings when moving an inspected file's declarations back
+/// into that same authored file. Foreign references and string data stay exact.
+#[allow(dead_code)]
+pub fn ordinary_source_in_file(artifact: &str, path: &std::path::Path) -> String {
+    let mut source = ordinary_source(artifact);
+    let prefix = format!("{}::", path.display());
+    for token in lim::lex(&source).unwrap().into_iter().rev() {
+        if let lim::TokenKind::Symbol(name) = token.kind {
+            if let Some(local) = name.strip_prefix(&prefix) {
+                source.replace_range(token.span.start..token.span.end, local);
+            }
+        }
+    }
+    source
+}
+
 #[cfg(test)]
 mod tests {
     use super::ordinary_source;
+
+    #[test]
+    fn restoring_local_names_preserves_foreign_references_and_string_data() {
+        let source =
+            "(#fn /entry.lim::work () #u64 (#return /other.lim::value)) \"/entry.lim::data\"";
+        assert_eq!(
+            super::ordinary_source_in_file(source, std::path::Path::new("/entry.lim")),
+            "(#fn work () #u64 (#return /other.lim::value)) \"/entry.lim::data\""
+        );
+    }
 
     #[test]
     fn removes_multiline_header_and_preserves_comments_and_body_exactly() {
@@ -51,4 +77,17 @@ mod tests {
         let nested = "(#fn text () (#slice #u8) (#return \"#generated-context\"))";
         assert_eq!(ordinary_source(nested), nested);
     }
+}
+
+/// Inspect declarations rather than relying on formatter whitespace or file prefixes.
+#[allow(dead_code)]
+pub fn contains_function(source: &str, expected: &str) -> bool {
+    contains_declaration(source, "#fn", expected)
+}
+
+pub fn contains_declaration(source: &str, keyword: &str, expected: &str) -> bool {
+    lim::parse(source).unwrap().iter().any(|form| {
+        matches!(form.children.first().map(|node| &node.expr), Some(lim::Expr::Symbol(head)) if head == keyword)
+            && matches!(form.children.get(1).map(|node| &node.expr), Some(lim::Expr::Symbol(name)) if name == expected || name.ends_with(&format!("::{expected}")))
+    })
 }

@@ -1,3 +1,5 @@
+#[path = "support/generated_source.rs"]
+mod generated_source;
 mod support;
 
 use std::{process::Command, time::Duration};
@@ -51,8 +53,8 @@ fn run(source: &str, expected: i32) {
 const RESULTS: &str = "(#generate #result ((ok #u64) (error #u32) (name Input)))
     (#generate #result ((ok #bool) (error #u32) (name Output)))
     (#fn convert ((value Input)) Output
-      (#let-else (Input.Input-ok-value number) Input value
-        (#else (Input.Input-err-value error)
+      (#let-else (Input.Ok number) Input value
+        (#else (Input.Err error)
           (#return (#call Output::err ((error error))))))
       (#return (#call Output::ok ((value (#u64::eq number 42u64))))))";
 
@@ -71,8 +73,8 @@ fn propagates_across_concrete_success_types_native_and_cached() {
             "{RESULTS}
           (#fn main () #u64
             (#return (#match (#call convert ((value {constructor})))
-              (#case (Output.Output-ok-value yes) (#if yes 42u64 0u64))
-              (#case (Output.Output-err-value error) (#as error #u64)))))"
+              (#case (Output.Ok yes) (#if yes 42u64 0u64))
+              (#case (Output.Err error) (#as error #u64)))))"
         );
         run(&source, expected);
     }
@@ -220,16 +222,16 @@ fn linear_error_is_consumed_once() {
       (#generate #result ((ok #u64) (error Token) (name Input)))
       (#generate #result ((ok #bool) (error Token) (name Output)))
       (#fn convert ((value Input)) Output
-        (#let-else (Input.Input-ok-value number) Input value
-          (#else (Input.Input-err-value error)
+        (#let-else (Input.Ok number) Input value
+          (#else (Input.Err error)
             (#return (#call Output::err ((error error))))))
         (#forget number) (#return (#call Output::ok ((value true)))))
       (#fn main () #u64
         (#let value Output (#call convert ((value
           (#call Input::err ((error (#struct-literal Token ((value 42u64))))))))))
         (#return (#match value
-          (#case (Output.Output-ok-value _) 0u64)
-          (#case (Output.Output-err-value token) (#block
+          (#case (Output.Ok _) 0u64)
+          (#case (Output.Err token) (#block
             (#let answer #u64 (#get token value)) (#forget token) answer)))))";
     run(source, 42);
     rejected(
@@ -247,15 +249,12 @@ fn linear_error_is_consumed_once() {
         "linear",
     );
     rejected(
-        &source.replace(
-            "(#else (Input.Input-err-value error)",
-            "(#else (Input.Input-err-value _)",
-        ),
+        &source.replace("(#else (Input.Err error)", "(#else (Input.Err _)"),
         "unknown variable or enum variant 'error'",
     );
     rejected(
         &source
-            .replace("(#else (Input.Input-err-value error)", "(#else _")
+            .replace("(#else (Input.Err error)", "(#else _")
             .replace(
                 "(#return (#call Output::err ((error error))))",
                 "(#return (#call Output::ok ((value false))))",
@@ -270,8 +269,8 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
       (#generate #result ((ok #u64) (error Error) (name Input)))
       (#generate #result ((ok #bool) (error Error) (name Output)))
       (#fn convert ((value Input)) Output
-        (#let-else (Input.Input-ok-value number) Input value
-          (#else (Input.Input-err-value error)
+        (#let-else (Input.Ok number) Input value
+          (#else (Input.Err error)
             (#return (#call Output::err ((error error))))))
         (#return (#call Output::ok ((value (#u64::eq number 42u64))))))";
     for constructor in [
@@ -283,8 +282,8 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
                 "{declarations}
           (#fn main () #u64
             (#return (#match (#call convert ((value {constructor})))
-              (#case (Output.Output-ok-value yes) (#if yes 42u64 0u64))
-              (#case (Output.Output-err-value error) (#block (#forget error) 42u64)))))"
+              (#case (Output.Ok yes) (#if yes 42u64 0u64))
+              (#case (Output.Err error) (#block (#forget error) 42u64)))))"
             ),
             42,
         );
@@ -356,14 +355,19 @@ fn builtin_helper_policy_matches_materialization_and_cache_context() {
                 .iter()
                 .filter_map(|item| match item {
                     lim::Item::Function(function)
-                        if function.name.starts_with(&format!("{name}-")) =>
+                        if function.name.starts_with(&format!("{name}::")) =>
                     {
                         Some(function.name.clone())
                     }
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            let materialized_program = lim::parse_program(materialized).unwrap();
+            let materialized_program = lim::parse_program(&format!(
+                "{}\n{}",
+                source.split("(#generate").next().unwrap(),
+                generated_source::ordinary_source(materialized)
+            ))
+            .unwrap();
             let materialized_names = materialized_program
                 .items
                 .iter()
@@ -373,8 +377,8 @@ fn builtin_helper_policy_matches_materialization_and_cache_context() {
                 })
                 .collect::<Vec<_>>();
             assert_eq!(ast_names, materialized_names);
-            assert!(ast_names.contains(&format!("{name}-{constructor}")));
-            assert_eq!(ast_names.contains(&format!("{name}-{helper}")), !linear);
+            assert!(ast_names.contains(&format!("{name}::{constructor}")));
+            assert_eq!(ast_names.contains(&format!("{name}::{helper}")), !linear);
             assert_eq!(materialized.contains("unwrap-or"), !linear);
             assert!(!materialized.contains("#forget"));
         }
@@ -433,14 +437,18 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
                 .iter()
                 .filter_map(|item| match item {
                     lim::Item::Function(function)
-                        if function.name.starts_with(&format!("{name}-")) =>
+                        if function.name.starts_with(&format!("{name}::")) =>
                     {
                         Some(function.name.clone())
                     }
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            let materialized = lim::parse_program(&generated).unwrap();
+            let materialized = lim::parse_program(&format!(
+                "{declarations}\n{}",
+                generated_source::ordinary_source(&generated)
+            ))
+            .unwrap();
             let generated_names = materialized
                 .items
                 .iter()
@@ -592,7 +600,7 @@ fn failure_diagnostics_point_inside_else() {
     .unwrap_err();
     assert_eq!(
         diagnostic.span.unwrap().start,
-        source.find("Choice.Error value").unwrap() + 6,
+        source.find("Choice.Error value").unwrap() + "Choice.Error ".len(),
         "{diagnostic:?}"
     );
 }
@@ -603,15 +611,15 @@ fn reference_error_retains_provenance() {
       (#generate #result ((ok #u64) (error Error) (name Input)))
       (#generate #result ((ok #bool) (error Error) (name Output)))
       (#fn convert ((value Input)) Output
-        (#let-else (Input.Input-ok-value number) Input value
-          (#else (Input.Input-err-value error)
+        (#let-else (Input.Ok number) Input value
+          (#else (Input.Err error)
             (#return (#call Output::err ((error error))))))
         (#forget number) (#return (#call Output::ok ((value true)))))
       (#fn main () #u64 (#let-mut owner #u64 42u64)
         (#let result Output (#call convert ((value (#call Input::err
           ((error (#struct-literal Error ((view (#borrow owner)))))))))))
-        (#return (#match result (#case (Output.Output-ok-value _) 0u64)
-          (#case (Output.Output-err-value error) (#deref (#get error view))))))";
+        (#return (#match result (#case (Output.Ok _) 0u64)
+          (#case (Output.Err error) (#deref (#get error view))))))";
     run(source, 42);
     rejected(
         &source.replace(
@@ -641,12 +649,12 @@ fn preserves_failure_pattern_after_async_suspension() {
     ] {
         run(
             &format!(
-                "(#enum Input () ((Input.Input-ok-value #u64) (Input.Input-err-value #u32)))
-          (#enum Output () ((Output.Output-ok-value #bool) (Output.Output-err-value #u32)))
-          (#fn Input::ok ((value #u64)) Input (#return (Input.Input-ok-value value)))
-          (#fn Input::err ((error #u32)) Input (#return (Input.Input-err-value error)))
-          (#fn Output::ok ((value #bool)) Output (#return (Output.Output-ok-value value)))
-          (#fn Output::err ((error #u32)) Output (#return (Output.Output-err-value error)))
+                "(#enum Input () ((Input.Ok #u64) (Input.Err #u32)))
+          (#enum Output () ((Output.Ok #bool) (Output.Err #u32)))
+          (#fn Input::ok ((value #u64)) Input (#return (Input.Ok value)))
+          (#fn Input::err ((error #u32)) Input (#return (Input.Err error)))
+          (#fn Output::ok ((value #bool)) Output (#return (Output.Ok value)))
+          (#fn Output::err ((error #u32)) Output (#return (Output.Err error)))
           (#enum Step (#linear) ((Step.Waiting #u64)))
           (#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
           (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
@@ -656,8 +664,8 @@ fn preserves_failure_pattern_after_async_suspension() {
             (#fn convert ((value Input)) Output
               (#let waited #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
               (#forget waited)
-              (#let-else (Input.Input-ok-value number) Input value
-                (#else (Input.Input-err-value error)
+              (#let-else (Input.Ok number) Input value
+                (#else (Input.Err error)
                   (#return (#call Output::err ((error error))))))
               (#return (#call Output::ok ((value (#u64::eq number 42u64)))))))))
           (#fn main () #u64 (#let waker #u64 0u64)
@@ -668,8 +676,8 @@ fn preserves_failure_pattern_after_async_suspension() {
             (#return (#match second
               (#case (Convert::Poll.Pending task) (#block (#forget task) 0u64))
               (#case (Convert::Poll.Ready result) (#match result
-                (#case (Output.Output-ok-value yes) (#if yes 42u64 0u64))
-                (#case (Output.Output-err-value error) (#as error #u64)))))))"
+                (#case (Output.Ok yes) (#if yes 42u64 0u64))
+                (#case (Output.Err error) (#as error #u64)))))))"
             ),
             42,
         );

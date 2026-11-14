@@ -1250,11 +1250,11 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
     let wrong_type = OPTIONAL_WORD_READER
         .replace(
             "(#fn main",
-            "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+            "(#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64)))) (#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
-            "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
+            "#word-write Other (#borrow-slice-mut words) (Other.Vacant)",
         );
     assert!(compile(&wrong_type).is_err());
 }
@@ -1395,11 +1395,11 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
     let wrong_type = EMPTY_REFERENCE_CELL
         .replace(
             "(#fn main",
-            "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+            "(#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64)))) (#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
-            "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
+            "#word-write Other (#borrow-slice-mut words) (Other.Vacant)",
         );
     assert!(compile(&wrong_type)
         .unwrap_err()

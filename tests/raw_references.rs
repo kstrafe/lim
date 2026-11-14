@@ -86,10 +86,10 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
             (#let-mut anchor #u64 0u64)
             (#let view (#ref-mut {ty}) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) last)))
             (#call write ((view view) (value {new})))
-            (#assert ({ty}.== (#unsafe (#ptr-read last)) {expected}))
+            (#assert ({ty}::eq (#unsafe (#ptr-read last)) {expected}))
             (#drop view)
             (#let shared (#ref {ty}) (#unsafe (#ptr-borrow (#borrow anchor) last)))
-            (#assert ({ty}.== (#call read ((view shared))) {expected}))
+            (#assert ({ty}::eq (#call read ((view shared))) {expected}))
             (#drop shared)
             (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (base 8192usize))) 0i64))
             (#return 42u64))"#,
